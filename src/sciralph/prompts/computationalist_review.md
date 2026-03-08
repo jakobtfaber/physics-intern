@@ -4,32 +4,53 @@ and the actual EXECUTION OUTPUT (in the RESULT section).
 
 Your job is to write the final VERDICT and NOTES based on what actually happened.
 
-RULES:
-- If execution FAILED (you see **EXECUTION FAILED**, tracebacks, or errors),
-  the VERDICT must be FAILED. Do not speculate about what the code would
-  have produced if it had worked.
-- If execution succeeded, carefully read the actual printed output.
-  Compare it against the CLAIM being verified.
-- Do NOT trust summary lines in the output that say "✓" or "pass" unless
-  you can see the actual computed values backing them up. Look for
-  contradictions like "Are they equivalent? False" alongside "✓" marks.
-- If the output contains explicit mismatches, "False" comparisons, or
-  numerical discrepancies, reflect that honestly in the VERDICT.
+VERDICT VALUES:
+- VERIFIED — numerical checks pass across test points, claim is confirmed.
+- REFUTED — numerical checks fail consistently across multiple test points,
+  claim is wrong. Requires convergent evidence (failures at 2+ test points,
+  or both numerical and symbolic methods independently disagree).
+- INCONCLUSIVE — checks disagree with each other, symbolic failed but numerical
+  was not attempted, execution errored, or insufficient evidence.
 
-ASSERTION CHECK:
-- If the code contains NO `assert` statements and no programmatic equality
-  checks (==, !=, isclose, .equals), the verification is weak. Note this
-  in your VERDICT as "WEAK VERIFICATION: no programmatic assertions" and
-  cap the verdict at PARTIALLY AGREES at best, since the claim was not
-  rigorously tested — only narrated in prose.
+DECISION TABLE:
+| Condition                                              | Verdict       |
+|--------------------------------------------------------|---------------|
+| Numerical passes at all test points                    | VERIFIED      |
+| Numerical passes, symbolic fails or not attempted      | VERIFIED      |
+| Numerical fails at multiple test points                | REFUTED       |
+| Numerical fails at 1 point only                        | INCONCLUSIVE  |
+| Only symbolic passes (no numerical checks)             | INCONCLUSIVE  |
+| Execution error / crash / timeout                      | INCONCLUSIVE  |
+| No assertions in code                                  | INCONCLUSIVE  |
 
-VERDICT values:
-- AGREES — computed results fully support the claim, with programmatic assertions
-- PARTIALLY AGREES — some aspects match, others don't, are inconclusive,
-  or lack programmatic assertions
-- DISAGREES — computed results contradict the claim
-- FAILED — code did not execute successfully
+CRITICAL RULES:
+- Execution failure (crash, SyntaxError, timeout) → INCONCLUSIVE, never REFUTED.
+  The code may be buggy; that says nothing about the mathematics.
+- A single symbolic simplification returning non-zero → INCONCLUSIVE, never
+  REFUTED. SymPy frequently cannot simplify correct expressions to zero.
+- REFUTED requires CONVERGENT EVIDENCE: numerical checks must fail consistently
+  across multiple test points.
+- Do NOT trust summary lines that say "✓" or "pass" unless you can see the
+  actual computed values backing them up.
+- If you see "SYMBOLIC CHECKS INCONCLUSIVE" alongside "ALL NUMERICAL CHECKS
+  PASSED", the verdict is VERIFIED.
+
+FAILURE DIAGNOSIS — BEFORE ISSUING REFUTED:
+When numerical checks fail at some test points but pass at others, examine
+the failing points for non-mathematical causes:
+- Floating-point overflow/underflow (very large/small parameters) → INCONCLUSIVE
+- NaN from 0/0 or inf-inf catastrophic cancellation → INCONCLUSIVE
+- Failure only at domain boundaries or extreme parameter values → INCONCLUSIVE
+- Tolerance failures where values are close but outside rtol → INCONCLUSIVE
+REFUTED requires failures in the INTERIOR of the parameter domain at
+well-conditioned test points where both sides are finite and of moderate
+magnitude. If N test points pass and M fail, and all M failures involve
+extreme parameters or numerical instability, the verdict is INCONCLUSIVE
+with a note about numerical limitations, NOT REFUTED.
+
+LEGACY NOTE: Previous computations may use AGREES/DISAGREES/FAILED verdicts.
+Those are from the old system. Apply the new verdict values going forward.
 
 OUTPUT FORMAT (exactly this, nothing else):
-**VERDICT:** [AGREES / PARTIALLY AGREES / DISAGREES / FAILED]
+**VERDICT:** [VERIFIED / REFUTED / INCONCLUSIVE]
 **NOTES:** [1-3 sentences summarizing what the execution output shows]

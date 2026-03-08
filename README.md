@@ -27,6 +27,34 @@ python -m sciralph.main <problem.yaml> [options]
   --workspace-dir DIR     Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
 ```
 
+### Verification
+
+After a run completes, you can independently verify the scientific results using a stronger model (Claude Opus by default):
+
+```bash
+# Verify a completed workspace
+uv run python -m sciralph.verify workspaces/<run_dir>/ --write-report
+
+# Also re-run computation scripts
+uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --write-report
+
+# Run + verify in one command
+./run_and_verify.sh problems/hawking_temperature.yaml --max-iterations 10
+./run_and_verify.sh problems/qho_thermodynamics.yaml -- --rerun-computations
+```
+
+```
+python -m sciralph.verify <workspace_dir> [options]
+
+  --model MODEL              LLM model (default: claude-opus-4-20250514)
+  --max-tokens N             Max output tokens (default: 16384)
+  --rerun-computations       Re-run computation scripts before verification
+  --timeout N                Computation timeout in seconds (default: 60)
+  --write-report             Write VERIFICATION.md into workspace
+```
+
+The verifier evaluates each Established Result for mathematical/physical validity, checks chain coherence between results, and outputs a verdict: VALID, PARTIALLY_VALID, INVALID, or INCONCLUSIVE.
+
 ## Architecture
 
 Five agents take turns in a main loop. Each agent gets a fresh context per call (no conversation history). All state lives in Markdown files with YAML frontmatter under `workspace/`, which is a separate git repo.
@@ -84,6 +112,7 @@ All research state is persisted under `workspaces/<run>/` (each run gets a times
 | `CRITIQUE_LOG.md` | All critiques with severity and resolution status |
 | `METRICS.md` | Token usage, file sizes, alerts |
 | `AUDIT_LOG.jsonl` | Per-LLM-call metadata (tokens, duration, char counts) |
+| `VERIFICATION.md` | Independent verification report (written by `--write-report`) |
 | `computations/` | Saved Python scripts from computationalist |
 
 ## Project Structure
@@ -92,6 +121,7 @@ All research state is persisted under `workspaces/<run>/` (each run gets a times
 src/sciralph/
   main.py              — Entry point, CLI argument parsing
   engine.py            — Main loop: orchestrate → dispatch → compress → metrics → git
+  verify.py            — Independent verification script (Claude Opus, streaming)
   config.py            — Config dataclass (model, thresholds, timeouts, audit log)
   llm.py               — Anthropic API wrapper (call_llm) with audit logging
   workspace.py         — File I/O + git operations on workspace/
@@ -105,9 +135,10 @@ src/sciralph/
     computationalist.py — Code extraction, execution, failure flagging
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
-  prompts/             — Static .md system prompt files (one per agent)
-tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator)
+  prompts/             — Static .md system prompt files (one per agent, plus verifier)
+tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, verify)
 problems/              — YAML problem definitions
+run_and_verify.sh      — Run a problem then verify results in one command
 ```
 
 ## Problem Definitions
@@ -122,7 +153,15 @@ problem: |
 
 Available problems:
 - `hawking_temperature.yaml` — Hawking temperature from Euclidean path integral
-- `qho_thermodynamics.yaml` — QHO thermodynamics
+- `qho_thermodynamics.yaml` — Quantum harmonic oscillator thermodynamics
+- `ising_1d_transfer_matrix.yaml` — 1D Ising model via transfer matrix method
+- `hydrogen_fine_structure.yaml` — Fine structure corrections to hydrogen energy levels
+- `casimir_effect.yaml` — Casimir force via zeta-function regularisation
+- `perihelion_precession.yaml` — Anomalous perihelion precession of Mercury from GR
+- `berry_phase_spin.yaml` — Berry phase for spin-1/2 in a rotating magnetic field
+- `chandrasekhar_limit.yaml` — Chandrasekhar mass limit via Lane-Emden equation
+- `path_integral_harmonic_oscillator.yaml` — Exact path integral for the harmonic oscillator
+- `renormalisation_phi4.yaml` — One-loop renormalisation of scalar φ⁴ theory
 
 ## Development
 

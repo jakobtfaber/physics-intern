@@ -96,7 +96,7 @@ class TestReviewVerdictAppended:
         # an LLMResponse directly to process_response
         # Second call result (review pass)
         review_response = LLMResponse(
-            text="**VERDICT:** AGREES\n**NOTES:** All checks passed.",
+            text="**VERDICT:** VERIFIED\n**NOTES:** All checks passed.",
             input_tokens=500, output_tokens=50, duration=1.0,
             stop_reason="end_turn",
         )
@@ -134,7 +134,7 @@ class TestReviewVerdictAppended:
 
         # Verify the appended log contains the review's VERDICT
         appended_text = agent.workspace.append_file.call_args[0][1]
-        assert "**VERDICT:** AGREES" in appended_text
+        assert "**VERDICT:** VERIFIED" in appended_text
         assert "**NOTES:** All checks passed." in appended_text
 
 
@@ -149,7 +149,7 @@ class TestReviewSeesExecutionFailure:
         agent.workspace.read_file_tail.return_value = ""
 
         review_response = LLMResponse(
-            text="**VERDICT:** FAILED\n**NOTES:** SyntaxError in code.",
+            text="**VERDICT:** INCONCLUSIVE\n**NOTES:** SyntaxError in code.",
             input_tokens=500, output_tokens=50, duration=1.0,
             stop_reason="end_turn",
         )

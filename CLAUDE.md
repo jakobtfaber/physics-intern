@@ -14,6 +14,7 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 src/sciralph/
   main.py              — Entry point (reads problem YAML, CLI flags)
   engine.py            — Main loop: orchestrate → dispatch → compress → metrics → git
+  verify.py            — Independent verification script (Claude Opus, streaming)
   config.py            — Config dataclass (model, thresholds, timeouts, audit_log)
   llm.py               — Anthropic API wrapper (call_llm) with JSONL audit logging
   workspace.py         — File I/O + git operations on workspace/
@@ -27,9 +28,10 @@ src/sciralph/
     computationalist.py — Code extraction, execution, failure flagging
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
-  prompts/             — Static .md system prompt files (one per agent)
-tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator)
+  prompts/             — Static .md system prompt files (one per agent, plus verifier)
+tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, verify)
 problems/              — YAML problem definitions
+run_and_verify.sh      — Run a problem then verify results in one command
 ```
 
 ## Tech Stack
@@ -74,6 +76,14 @@ uv run python -m pytest -v
 
 # Run (requires ANTHROPIC_API_KEY in .env or env var)
 uv run python -m sciralph.main problems/hawking_temperature.yaml --max-iterations 5
+
+# Verify a completed workspace (uses Claude Opus by default)
+uv run python -m sciralph.verify workspaces/<run_dir>/ --write-report
+uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --write-report
+
+# Run + verify in one command
+./run_and_verify.sh problems/hawking_temperature.yaml --max-iterations 10
+./run_and_verify.sh problems/qho_thermodynamics.yaml -- --rerun-computations
 ```
 
 ## Current Status

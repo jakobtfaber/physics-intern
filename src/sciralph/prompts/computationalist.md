@@ -28,31 +28,66 @@ RULES:
   Any content you put in RESULT will be replaced.
 - If you suspect a computation will DISAGREE with a claim, make sure your
   code prints both the expected result and the actual result side by side.
-- For numerical spot-checks, use at least 3 different parameter values
-  spanning different regimes (small, medium, large; or specific physically
-  meaningful values).
-- Always verify units/dimensions when applicable. Use SymPy's unit system
-  or explicit dimensional tracking.
-- CRITICAL — ASSERTION DISCIPLINE: Every verification step MUST conclude
-  with at least one `assert` statement or programmatic check that causes
-  the script to EXIT WITH A NONZERO CODE on failure. This is non-negotiable.
-  - Use `assert expr, "message"` for exact symbolic equality.
-  - Use `assert abs(computed - expected) < tolerance, f"..."` for numerical
-    checks, with an explicitly justified tolerance.
-  - Use SymPy's `.equals()` or `simplify(expr1 - expr2) == 0` for symbolic
-    comparisons, wrapped in an `assert`.
-  - NEVER write `print("Verified!")` or `print("Result matches")` as
-    standalone verification. The word "verified" must come from an assertion
-    that passed, not from a hardcoded string.
-  - After all assertions pass, a final `print("ALL ASSERTIONS PASSED")` is
-    acceptable as a human-readable summary.
-  Examples:
-    WRONG: print("✓ Result matches expected form")
-    WRONG: print("PASS" if looks_right else "FAIL")
-    WRONG: print("The regularity condition gives β = 8πGM")  # prose, not a check
-    RIGHT: assert sp.simplify(T_computed - T_expected) == 0, f"Mismatch: {T_computed} vs {T_expected}"
-    RIGHT: assert np.isclose(val, expected, rtol=1e-10), f"Numerical mismatch: {val} vs {expected}"
-    RIGHT: result = sp.simplify(expr); assert result == 0, f"Non-zero: {result}"
+- VERIFICATION STRATEGY (MANDATORY):
+  Every verification MUST include numerical spot-checks as the PRIMARY method.
+  Symbolic verification is SECONDARY and supplementary.
+
+  TIER 1 — NUMERICAL SPOT-CHECKS (always required):
+  - Evaluate BOTH sides of any identity at 5+ parameter values spanning the
+    valid domain (small, medium, large, edge cases).
+  - Use `assert np.isclose(lhs_val, rhs_val, rtol=1e-10), f"Mismatch at {params}: {lhs_val} vs {rhs_val}"`
+  - For limiting behaviors: evaluate at parameter values approaching the limit
+    (e.g., x = 0.1, 0.01, 0.001) and check convergence to expected value.
+  - For convergence claims: test partial sums at increasing truncation orders.
+  - Print a summary table of all test points and their results.
+  - REFERENCE SUM CONVERGENCE: When comparing a closed-form against a direct
+    (truncated) summation, you MUST ensure the sum has enough terms to converge.
+    For a geometric-like series with ratio r, use
+    `n_max = max(500, int(50 / max(abs(np.log10(abs(r))), 1e-15)))`.
+    Never use a fixed 100 terms — at small β·ℏω the ratio approaches 1 and
+    hundreds or thousands of terms may be needed.
+
+  TIER 2 — SYMBOLIC VERIFICATION (optional, supplementary):
+  - If you attempt symbolic verification, try MULTIPLE simplification strategies:
+    sp.simplify(), sp.expand(), sp.trigsimp(), sp.rewrite(sp.exp), sp.cancel().
+  - NEVER use `assert sp.simplify(A - B) == 0` as the sole verification.
+    SymPy's simplify() frequently fails on correct expressions involving
+    hyperbolic functions, exponentials, and special functions.
+  - If symbolic simplification returns a non-zero residual, print it but
+    DO NOT assert on it. Note "symbolic simplification inconclusive" and
+    rely on the numerical results.
+  - Wrap symbolic checks in try/except to handle SymPy errors gracefully —
+    a symbolic failure should not crash the script.
+
+  TIER 3 — SERIES EXPANSION (for identity/limit verification):
+  - Compare Taylor/Laurent series of both sides to a given order.
+  - Useful when both numerical and symbolic methods are inconclusive.
+
+  ASSERTION RULES:
+  - Every script MUST contain `assert` statements for the NUMERICAL checks.
+  - NEVER use bare `assert` that crashes the script on the first failure.
+    Wrap each assertion in try/except so ALL test points run even if one fails:
+      all_passed = True
+      for params in test_points:
+          try:
+              assert np.isclose(lhs, rhs, rtol=1e-10), f"Mismatch at {params}"
+          except AssertionError as e:
+              print(f"FAIL: {e}")
+              all_passed = False
+      assert all_passed, "Some numerical checks failed — see details above"
+  - Symbolic checks should use soft reporting: print results but do not
+    assert on sp.simplify() == 0.
+  - After all numerical assertions pass, print "ALL NUMERICAL CHECKS PASSED".
+  - If symbolic checks also pass, print "SYMBOLIC CHECKS ALSO PASSED".
+  - If symbolic checks fail or are inconclusive, print
+    "SYMBOLIC CHECKS INCONCLUSIVE — numerical verification is primary".
+
+  FRAGILE PATTERNS (DO NOT USE as sole verification):
+  - `assert sp.simplify(expr1 - expr2) == 0` — SymPy often cannot simplify
+    correct expressions to zero
+  - `assert expr1.equals(expr2)` — can hang or return False for correct equalities
+  - Any verification relying only on symbolic manipulation without numerical
+    cross-checks
 - If the task requires a tool you don't have access to (e.g., Cadabra for
   tensor algebra), say so explicitly and describe what the computation
   would be, so the system can be extended later.

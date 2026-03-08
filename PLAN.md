@@ -22,6 +22,24 @@ Based on analysis of `workspaces/20260308_070621_hawking_temperature`:
 - **Computationalist assertion discipline** — prompt requires `assert` statements with nonzero exit on failure; review prompt caps verdict at PARTIALLY AGREES for code without assertions.
 - **Critic two-phase format** — prompt enforces Phase 1 (reproduce the argument) then Phase 2 (state the objection), preventing self-contradictory critiques.
 
+### Phase 1.7 — Verification Robustness Follow-up (DONE)
+
+Based on analysis of `workspaces/20260308_083325_qho_thermodynamics`:
+
+- **Computationalist: adaptive truncation** — require `n_max` based on convergence ratio instead of fixed 100 terms; prevents false negatives when geometric series converge slowly (e.g., β·ℏω = 0.1 needs ~347 terms)
+- **Computationalist: resilient assertions** — wrap each `assert np.isclose` in `try/except` so all test points run even if one fails; prevents early crash hiding valid results
+- **Deep critic: INCONCLUSIVE severity cap** — INCONCLUSIVE verdict must not be sole basis for HIGH critique (discrepancies in INCONCLUSIVE output may reflect code bugs, not math errors); only REFUTED justifies HIGH based on computation
+
+### Phase 1.6 — Verification Robustness (DONE)
+
+Prompt-only changes to fix false negatives from SymPy simplification failures. The computationalist now uses numerical spot-checks as the primary verification method, with symbolic checks as supplementary. Verdicts use a 3-valued system (VERIFIED / REFUTED / INCONCLUSIVE) instead of the old 4-valued one (AGREES / PARTIALLY AGREES / DISAGREES / FAILED).
+
+- **computationalist.md** — numerical-first verification strategy (Tier 1 numerical, Tier 2 symbolic, Tier 3 series expansion)
+- **computationalist_review.md** — 3-valued verdict system with decision table; execution failures → INCONCLUSIVE, not REFUTED
+- **orchestrator.md** — verdict interpretation rules; INCONCLUSIVE handling (1 retry allowed, then move on); legacy verdict mapping
+- **deep_critic.md** — INCONCLUSIVE is not evidence against a claim; execution failures reflect code quality, not math validity
+- **test_computationalist.py** — updated mock verdict strings for consistency
+
 ---
 
 ## Phase 1.5 Step 3 — Tool-Use Loop
@@ -230,3 +248,36 @@ Phase 2 (deferred):
 | `src/sciralph/prompts/deep_critic.md` | | | edit |
 | `tests/test_tools.py` | **NEW** | extend | extend |
 | `tests/test_computationalist.py` | | extend | |
+
+---
+
+## Misc Ideas
+
+Observations from the QHO thermodynamics and Hawking temperature test runs (2026-03-08).
+
+### Computationalist code quality
+
+Both runs had computation failures from LLM-generated code bugs (invalid SymPy import `from sympy import rewrite`; wrong exponent c⁴ vs c² in surface gravity formula). Ideas:
+
+- **Pre-execution import check** — dry-run `import` statements before executing the full script to catch hallucinated imports early
+- **Retry-on-failure policy** — currently INCONCLUSIVE computations are not retried in the same iteration; the agentic computationalist (Step 4) should largely fix this since the agent can see errors and iterate within a single call
+
+### Critic self-retraction
+
+The critic sometimes files a critique then immediately argues against it in Phase 2 (e.g., CRIT-002 in QHO run was self-retracted as "actually not a flaw"). The two-phase format was introduced to prevent contradictory critiques, but doesn't prevent filing non-critiques.
+
+- Add a gate: if Phase 2 concludes the objection is unfounded, do not emit the critique at all
+- Alternatively, instruct the critic to draft Phase 2 mentally before committing to filing
+
+### INCONCLUSIVE computation retry
+
+The Hawking run's only computation crashed (code bug in κ formula) and was labelled INCONCLUSIVE, but never retried. The corrected derivation was accepted purely on analytical grounds. While the INCONCLUSIVE handling rules allow this, a retry with a fixed script would have strengthened confidence.
+
+- The agentic computationalist (Step 4) addresses this directly — the agent can fix and re-run within one call
+- For the current architecture: consider allowing the orchestrator to request a fresh computation pass when a prior one was INCONCLUSIVE and the derivation has since been corrected
+
+### CRITIQUE_LOG cosmetics
+
+When critiques are resolved, their CRIT-NNN headers are removed from the Active section but the Phase 1/Phase 2 body text remains as orphaned content. Not a functional bug (counters are correct), but confusing to read.
+
+- Clean up: when moving a critique to Resolved, remove the entire block (header + body) from Active
