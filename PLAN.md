@@ -16,105 +16,13 @@ Four steps, in implementation order.
 
 ### Step 1: Remove warm-ups, let the orchestrator plan sub-problems
 
-**Files:** `problems/*.yaml`, `main.py`, `engine.py`, `workspace.py`, `prompts/orchestrator.md`
-
-**Goal:** Remove the hand-crafted `warm_ups` field from problem YAMLs. The orchestrator should autonomously decide to create prerequisite sub-problems when facing a complex derivation.
-
-#### 1a. Strip `warm_ups` from problem YAMLs
-
-Remove the `warm_ups:` key from `hawking_temperature.yaml` and `qho_thermodynamics.yaml`. Problem files become a single `problem:` field (plus optional `files:` for reference data added later in Step 4c).
-
-#### 1b. Remove warm-up plumbing from scaffold code
-
-- `main.py`: stop reading `warm_ups` from YAML, stop passing to `SciRalph.__init__`
-- `engine.py` (`SciRalph.__init__`): remove `warm_ups` parameter
-- `workspace.py` (`WorkspaceManager.init`): remove `warm_ups` parameter, remove the "# Warm-Up Problems" section from the initial `RESEARCH_STATE.md` template
-
-#### 1c. Update orchestrator prompt
-
-In `prompts/orchestrator.md`:
-- Remove `warmup` from the VALID TASK TYPES list
-- Strengthen the existing sub-problem guidance: instead of "Create warm-up tasks for sub-problems that have known solutions", instruct the orchestrator to proactively identify prerequisite sub-problems and simpler analogues that build toward the main result, and to emit `derive` or `research` tasks for them
-- Add a DECOMPOSITION STRATEGY section: "For complex problems, identify simpler sub-problems or known analogues whose solutions inform the main derivation. Tackle these first as `derive` tasks before attempting the full problem."
-
-#### 1d. Remove `warmup` task type from dispatch
-
-- `engine.py` (`_dispatch`): remove `warmup` from the list that routes to researcher (it becomes just `research`, `derive`, `resolve`, `synthesize`)
-
-#### 1e. Update DESIGN.md
-
-Remove or update all warm-up references in DESIGN.md:
-- §3.1: Remove "# Warm-Up Problems" section from RESEARCH_STATE.md example
-- §3.4: Remove `warmup` from task_type comment
-- §4.1: Update orchestrator prompt excerpt (warm-up → decomposition strategy)
-- §5.1: Remove `warm_up_required` from CONFIG, `warm_ups` from `__init__`, `warmup` from dispatch
-- §5.2: Remove `warm_ups` from entry point example
-- §7.6: Remove `warm_ups: [...]` from YAML example
-- §8: Replace "warm-up calibration" with "sub-problem calibration" in limitations
-- §9 Phase 2: Remove "Warm-up problem validation framework"
-
-#### 1f. Tests
-
-- Update any tests that reference `warm_ups` or the `warmup` task type
-- Add a test verifying that `WorkspaceManager.init` no longer accepts or renders warm-ups
+DONE
 
 ---
 
 ### Step 2: Full prompt/response logging
 
-**Files:** `llm.py`, `workspace.py`
-
-**Goal:** Log the complete system prompt, user content, and LLM response for every call, enabling full inspection and replay of any run.
-
-#### 2a. Create `logs/` directory in workspace
-
-In `WorkspaceManager.init`, create a `logs/` subdirectory alongside `computations/` and `archive/`. Expose the path as `self.logs_dir`.
-
-#### 2b. Write full conversation logs per LLM call
-
-Extend `_write_audit_entry` in `llm.py` (or add a sibling function) to write a Markdown file to `logs/` for each call:
-
-Naming: `iter{NNN}_{agent}_{seq}.md` where `seq` is a per-iteration call counter (handles retries or, later, tool-loop rounds).
-
-File contents:
-
-```markdown
-# LLM Call — iter 3, researcher
-
-- **Timestamp:** 2026-03-07T14:25:30Z
-- **Model:** claude-sonnet-4-6
-- **Input tokens:** 12,340
-- **Output tokens:** 3,210
-- **Duration:** 8.42s
-- **Stop reason:** end_turn
-
-## System Prompt
-
-<content of system prompt>
-
-## User Content
-
-<content of user message>
-
-## Response
-
-<full LLM response text>
-```
-
-To pass the `logs/` path to `call_llm`, either add a `logs_dir: Path | None` parameter or pass it via `Config`.
-
-#### 2c. Extend for tool-use loop (when Step 3 lands)
-
-When `run_agent_loop` is implemented, each round within the loop gets its own log file (e.g. `iter003_computationalist_001.md`, `..._002.md`). The log file additionally includes tool calls made (name + input) and tool results returned.
-
-#### 2d. Keep AUDIT_LOG.jsonl as-is
-
-The existing JSONL audit log stays for quick metrics and aggregation. The `logs/` files are the detailed complement for debugging and inspection. No new config needed — logging is always on. The `logs/` dir lives inside the workspace, committed with git.
-
-#### 2e. Update DESIGN.md
-
-- §7.4: Add mention of per-call Markdown log files in `logs/` alongside the JSONL audit log. Note that JSONL is for metrics/aggregation, Markdown files are for full inspection.
-
+DONE
 ---
 
 ### Step 3: Tool-Use Loop

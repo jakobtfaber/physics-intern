@@ -1036,6 +1036,8 @@ A `Librarian` agent with web search access could:
 
 All system activity is logged to a structured JSONL file (`workspace/audit.jsonl`) for human review and debugging. This log is **not** consumed by any agent — it exists purely for the operator.
 
+In addition, every LLM call produces a Markdown file in `logs/` containing the full system prompt, user content, and assistant response. Files are named `iter{NNN}_{agent}_{seq}.md` where `seq` is a per-iteration sequence number (handling retries and multiple calls within one iteration). These files enable inspection and replay of any individual call.
+
 Each log entry is a JSON object with a `type` field. Entry types:
 
 ```json

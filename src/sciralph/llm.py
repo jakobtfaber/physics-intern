@@ -4,10 +4,13 @@ import json
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 import anthropic
 
 from .config import Config
+
+_call_seq: dict[int, int] = {}
 
 
 @dataclass
@@ -48,6 +51,9 @@ def call_llm(system: str, user_content: str, config: Config,
         _write_audit_entry(config, llm_response, system, user_content,
                            agent_name, iteration)
 
+    _write_conversation_log(config, llm_response, system, user_content,
+                            agent_name, iteration)
+
     return llm_response
 
 
@@ -71,5 +77,48 @@ def _write_audit_entry(config: Config, resp: LLMResponse,
     try:
         with open(config.audit_log, "a") as f:
             f.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass
+
+
+def _write_conversation_log(config: Config, resp: LLMResponse,
+                            system: str, user_content: str,
+                            agent_name: str, iteration: int):
+    """Write a per-call Markdown file with full prompts and response."""
+    if not config.logs_dir:
+        return
+
+    seq = _call_seq.get(iteration, 0) + 1
+    _call_seq[iteration] = seq
+
+    agent = agent_name or "unknown"
+    filename = f"iter{iteration:03d}_{agent}_{seq}.md"
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    content = f"""# LLM Call — iter {iteration}, {agent}, seq {seq}
+
+| Field | Value |
+|-------|-------|
+| Timestamp | {timestamp} |
+| Model | {config.model} |
+| Input tokens | {resp.input_tokens} |
+| Output tokens | {resp.output_tokens} |
+| Duration | {resp.duration:.2f}s |
+| Stop reason | {resp.stop_reason} |
+
+## System Prompt
+
+{system}
+
+## User Content
+
+{user_content}
+
+## Response
+
+{resp.text}
+"""
+    try:
+        Path(config.logs_dir, filename).write_text(content)
     except OSError:
         pass

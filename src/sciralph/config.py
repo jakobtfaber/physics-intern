@@ -20,6 +20,7 @@ class Config:
     sympy_timeout_seconds: int = 60
     workspace_dir: str = "workspaces"
     audit_log: str = ""
+    logs_dir: str = ""
     api_key: str = ""
 
     def __post_init__(self):

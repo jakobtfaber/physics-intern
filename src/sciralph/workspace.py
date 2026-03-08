@@ -16,12 +16,14 @@ class WorkspaceManager:
         self.root = Path(config.workspace_dir)
         self.computations_dir = self.root / "computations"
         self.archive_dir = self.root / "archive"
+        self.logs_dir = self.root / "logs"
 
     def init(self, problem: str):
         """Create workspace, initialize all .md files, git init."""
         self.root.mkdir(parents=True, exist_ok=True)
         self.computations_dir.mkdir(exist_ok=True)
         self.archive_dir.mkdir(exist_ok=True)
+        self.logs_dir.mkdir(exist_ok=True)
 
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
