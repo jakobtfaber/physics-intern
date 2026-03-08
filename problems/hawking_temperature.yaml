@@ -1,0 +1,7 @@
+problem: |
+  Derive the Hawking temperature T_H = hbar*c^3/(8*pi*G*M*k_B) for a Schwarzschild
+  black hole using the Euclidean path integral approach. Start from the
+  Schwarzschild metric, perform Wick rotation, identify the conical singularity
+  condition, and extract the temperature from the required periodicity of
+  Euclidean time.
+

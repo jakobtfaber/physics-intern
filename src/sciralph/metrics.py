@@ -1,0 +1,89 @@
+"""Metrics tracking for SciRalph iterations."""
+
+from dataclasses import dataclass, field
+from datetime import datetime
+
+
+@dataclass
+class CallRecord:
+    iteration: int
+    agent: str
+    input_tokens: int
+    output_tokens: int
+    duration: float
+    max_tokens_hit: bool
+
+
+class MetricsTracker:
+    """Track per-iteration metrics, alerts, and file sizes."""
+
+    def __init__(self):
+        self.calls: list[CallRecord] = []
+        self.alerts: list[dict] = []
+        self.last_critic_iteration: int = 0
+        self.total_input_tokens: int = 0
+        self.total_output_tokens: int = 0
+        self.max_tokens_reached_count: int = 0
+        self.retries: int = 0
+
+    def record_call(self, iteration: int, agent: str, input_tokens: int,
+                    output_tokens: int, duration: float, max_tokens_hit: bool):
+        self.calls.append(CallRecord(
+            iteration=iteration, agent=agent,
+            input_tokens=input_tokens, output_tokens=output_tokens,
+            duration=duration, max_tokens_hit=max_tokens_hit,
+        ))
+        self.total_input_tokens += input_tokens
+        self.total_output_tokens += output_tokens
+        if max_tokens_hit:
+            self.max_tokens_reached_count += 1
+        if agent == "deep_critic":
+            self.last_critic_iteration = iteration
+
+    def record_retry(self):
+        self.retries += 1
+
+    def alert(self, iteration: int, message: str):
+        self.alerts.append({"iteration": iteration, "message": message})
+
+    def to_markdown(self, file_sizes: dict[str, int] | None = None,
+                    thresholds: dict[str, int] | None = None) -> str:
+        """Render metrics as METRICS.md content."""
+        total_iters = max((c.iteration for c in self.calls), default=0)
+        meta = {
+            "total_iterations": total_iters,
+            "total_llm_calls": len(self.calls),
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "max_tokens_reached_count": self.max_tokens_reached_count,
+            "retries": self.retries,
+        }
+        lines = ["---"]
+        for k, v in meta.items():
+            lines.append(f"{k}: {v}")
+        lines.append("---\n")
+
+        lines.append("# Per-Iteration Metrics\n")
+        lines.append("| Iter | Agent | Input Tokens | Output Tokens | Max Tokens Hit | Duration (s) |")
+        lines.append("|------|-------|-------------|---------------|----------------|-------------|")
+        for c in reversed(self.calls[-20:]):
+            lines.append(
+                f"| {c.iteration} | {c.agent} | {c.input_tokens} | {c.output_tokens} "
+                f"| {'yes' if c.max_tokens_hit else 'no'} | {c.duration:.1f} |"
+            )
+
+        if file_sizes and thresholds:
+            lines.append("\n# File Size Tracking\n")
+            lines.append("| File | Current Size (chars) | Threshold | Compression Needed |")
+            lines.append("|------|---------------------|-----------|-------------------|")
+            for fname, size in file_sizes.items():
+                thresh = thresholds.get(fname, 0)
+                needed = "yes" if size > thresh else "no"
+                lines.append(f"| {fname} | {size} | {thresh} | {needed} |")
+
+        if self.alerts:
+            lines.append("\n# Alerts")
+            for a in self.alerts:
+                lines.append(f"- [iter {a['iteration']}] {a['message']}")
+
+        return "\n".join(lines) + "\n"
