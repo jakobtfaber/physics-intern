@@ -1,0 +1,37 @@
+problem: |
+  Compute the Berry phase acquired by a spin-1/2 particle whose
+  Hamiltonian H(t) = -gamma B(t)·sigma/2 is slowly varied around a
+  closed loop in parameter space, then connect the result to the
+  geometry of the Bloch sphere.
+
+  Part 1 — Adiabatic evolution:
+  1. Consider a magnetic field B(t) of constant magnitude B_0 whose
+     direction traces a closed cone: theta(t) = theta_0 (constant),
+     phi(t) = omega*t with period T = 2*pi/omega.
+  2. Find the instantaneous energy eigenstates |+(t)> and |-(t)> of
+     H(t) and their eigenvalues.
+  3. Compute the Berry connection A_phi = i <+(t)| d/dphi |+(t)> and
+     the Berry phase gamma_+ = integral_0^{2pi} A_phi dphi.
+  4. Show that gamma_+ = -Omega/2 where Omega = 2*pi*(1 - cos(theta_0))
+     is the solid angle subtended by the path on the unit sphere.
+
+  Part 2 — Berry curvature as a monopole:
+  1. Parametrise the Hamiltonian by B = (B_x, B_y, B_z) and compute
+     the Berry curvature F_{ij} = dA_j/dB_i - dA_i/dB_j for the
+     ground state in the full 3D parameter space.
+  2. Show that the Berry curvature corresponds to a magnetic monopole
+     of charge 1/2 at the origin in parameter space:
+     F = B_hat / (2|B|^2)
+  3. Verify Stokes' theorem: the flux of F through any surface bounded
+     by the circuit equals the Berry phase computed in Part 1.
+
+  Part 3 — Numerical simulation:
+  1. Numerically solve the time-dependent Schrodinger equation
+     i*hbar d|psi>/dt = H(t)|psi> for the conical path with
+     theta_0 = pi/3 and several values of omega*T (from non-adiabatic
+     to adiabatic regime, e.g. omega*T/T_Larmor = 0.1, 1, 10, 100).
+  2. Extract the geometric phase by removing the dynamical phase
+     and plot |gamma_geometric - gamma_Berry| vs adiabaticity parameter.
+  3. Verify convergence to the analytic Berry phase in the adiabatic limit.
+  4. Repeat for theta_0 = pi/6, pi/4, pi/3, pi/2 and verify that
+     gamma_+ = -pi*(1 - cos(theta_0)) in each case.

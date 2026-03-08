@@ -3,7 +3,12 @@
 from datetime import datetime, timezone
 
 from ..llm import LLMResponse
-from ..markdown import parse_frontmatter, count_unresolved_critiques, render_frontmatter
+from ..markdown import (
+    parse_frontmatter,
+    count_unresolved_critiques,
+    insert_into_active_critiques,
+    render_frontmatter,
+)
 from .base import BaseAgent
 
 
@@ -23,8 +28,10 @@ class CriticAgent(BaseAgent):
         return "\n".join(parts)
 
     def process_response(self, response: LLMResponse, task: dict, iteration: int):
-        """Append new critiques and update frontmatter counts."""
-        self.workspace.append_file("CRITIQUE_LOG.md", "\n" + response.text)
+        """Insert new critiques into Active section and update frontmatter counts."""
+        content = self.workspace.read_file("CRITIQUE_LOG.md")
+        content = insert_into_active_critiques(content, response.text)
+        self.workspace.write_file("CRITIQUE_LOG.md", content)
         self._update_critique_metadata()
 
     def _update_critique_metadata(self):

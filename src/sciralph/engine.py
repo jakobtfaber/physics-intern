@@ -203,7 +203,9 @@ Hypotheses and recent Established Results in RESEARCH_STATE.md.
         console.print(text)
 
     def _final_report(self):
-        """Print final summary."""
+        """Flush metrics and print final summary."""
+        self._update_metrics()
+        self.workspace.git_commit(f"Final metrics flush (iteration {self.iteration})")
         console.rule("[bold green]SESSION COMPLETE[/bold green]")
         console.print(f"Total iterations: {self.iteration}")
         console.print(f"Total LLM calls: {len(self.metrics.calls)}")

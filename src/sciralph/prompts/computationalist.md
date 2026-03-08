@@ -33,13 +33,26 @@ RULES:
   meaningful values).
 - Always verify units/dimensions when applicable. Use SymPy's unit system
   or explicit dimensional tracking.
-- CRITICAL: Your code must derive ALL conclusions from computed results.
-  Never hardcode expected outcomes in print statements. Use programmatic
-  checks:
+- CRITICAL — ASSERTION DISCIPLINE: Every verification step MUST conclude
+  with at least one `assert` statement or programmatic check that causes
+  the script to EXIT WITH A NONZERO CODE on failure. This is non-negotiable.
+  - Use `assert expr, "message"` for exact symbolic equality.
+  - Use `assert abs(computed - expected) < tolerance, f"..."` for numerical
+    checks, with an explicitly justified tolerance.
+  - Use SymPy's `.equals()` or `simplify(expr1 - expr2) == 0` for symbolic
+    comparisons, wrapped in an `assert`.
+  - NEVER write `print("Verified!")` or `print("Result matches")` as
+    standalone verification. The word "verified" must come from an assertion
+    that passed, not from a hardcoded string.
+  - After all assertions pass, a final `print("ALL ASSERTIONS PASSED")` is
+    acceptable as a human-readable summary.
+  Examples:
     WRONG: print("✓ Result matches expected form")
-    RIGHT: print("✓ Result matches" if diff == 0 else "✗ MISMATCH: diff =", diff)
-  Every "pass" or "fail" printed by your code must come from an actual
-  comparison, not a pre-written string.
+    WRONG: print("PASS" if looks_right else "FAIL")
+    WRONG: print("The regularity condition gives β = 8πGM")  # prose, not a check
+    RIGHT: assert sp.simplify(T_computed - T_expected) == 0, f"Mismatch: {T_computed} vs {T_expected}"
+    RIGHT: assert np.isclose(val, expected, rtol=1e-10), f"Numerical mismatch: {val} vs {expected}"
+    RIGHT: result = sp.simplify(expr); assert result == 0, f"Non-zero: {result}"
 - If the task requires a tool you don't have access to (e.g., Cadabra for
   tensor algebra), say so explicitly and describe what the computation
   would be, so the system can be extended later.

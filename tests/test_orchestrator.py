@@ -158,3 +158,97 @@ class TestCompletionAnalysis:
         workspace.write_file("RESEARCH_STATE.md", state)
         workspace.write_file("CRITIQUE_LOG.md", critique)
         assert orchestrator._completion_analysis() is None
+
+
+class TestCritiqueResolution:
+    """Test that the orchestrator resolves critiques in CRITIQUE_LOG.md."""
+
+    CRITIQUE_LOG = """---
+total_critiques: 2
+unresolved_high: 1
+unresolved_medium: 1
+unresolved_low: 0
+last_critic_pass: "2026-03-07T14:20:00Z"
+---
+
+# Active Critiques
+
+## CRIT-001 [HIGH] [UNRESOLVED]
+- **Target:** WH-1
+- **Filed:** iteration 2
+- **Critique:** Needs verification.
+
+## CRIT-002 [MEDIUM] [UNRESOLVED]
+- **Target:** WH-2
+- **Filed:** iteration 2
+- **Critique:** Missing justification.
+
+# Resolved Critiques
+"""
+
+    def test_resolves_via_list(self, orchestrator, workspace):
+        """Orchestrator output with resolved_critiques list updates CRITIQUE_LOG."""
+        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_LOG)
+        workspace.write_file("RESEARCH_STATE.md",
+            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n\n# Results\n")
+
+        response_text = (
+            "=== RESEARCH_STATE.md ===\n"
+            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n"
+            "resolved_critiques: [CRIT-001]\n---\n\n# Established Results\n## ER-001\nDone.\n"
+            "\n=== CURRENT_TASK.md ===\n"
+            "---\ntask_id: TASK-003\ntask_type: compute\nassigned_to: computationalist\npriority: high\niteration: 3\n---\nVerify.\n"
+        )
+        response = LLMResponse(
+            text=response_text,
+            input_tokens=0, output_tokens=0, stop_reason="end_turn", duration=0.0,
+        )
+        orchestrator.process_response(response, {}, 3)
+
+        critique_log = workspace.read_file("CRITIQUE_LOG.md")
+        from sciralph.markdown import count_unresolved_critiques
+        counts = count_unresolved_critiques(critique_log)
+        assert counts["HIGH"] == 0, "CRIT-001 should be resolved"
+        assert counts["MEDIUM"] == 1, "CRIT-002 should still be unresolved"
+
+    def test_resolves_via_prose(self, orchestrator, workspace):
+        """Orchestrator prose mentioning 'CRIT-002 addressed' triggers resolution."""
+        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_LOG)
+        workspace.write_file("RESEARCH_STATE.md",
+            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n\n# Results\n")
+
+        response_text = (
+            "=== RESEARCH_STATE.md ===\n"
+            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n"
+            "\n# Established Results\nCRIT-002 addressed by new derivation.\n"
+            "\n=== CURRENT_TASK.md ===\n"
+            "---\ntask_id: TASK-003\ntask_type: compute\nassigned_to: computationalist\npriority: high\niteration: 3\n---\nVerify.\n"
+        )
+        response = LLMResponse(
+            text=response_text,
+            input_tokens=0, output_tokens=0, stop_reason="end_turn", duration=0.0,
+        )
+        orchestrator.process_response(response, {}, 3)
+
+        critique_log = workspace.read_file("CRITIQUE_LOG.md")
+        from sciralph.markdown import count_unresolved_critiques
+        counts = count_unresolved_critiques(critique_log)
+        assert counts["MEDIUM"] == 0, "CRIT-002 should be resolved via prose detection"
+        assert counts["HIGH"] == 1, "CRIT-001 should still be unresolved"
+
+    def test_no_resolution_when_no_research_state(self, orchestrator, workspace):
+        """When orchestrator only emits CURRENT_TASK, no critique resolution happens."""
+        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_LOG)
+        workspace.write_file("RESEARCH_STATE.md", "original state")
+
+        response = LLMResponse(
+            text="=== CURRENT_TASK.md ===\n---\ntask_id: TASK-003\ntask_type: critique\nassigned_to: deep_critic\npriority: high\niteration: 3\n---\nReview.\n",
+            input_tokens=0, output_tokens=0, stop_reason="end_turn", duration=0.0,
+        )
+        orchestrator.process_response(response, {}, 3)
+
+        critique_log = workspace.read_file("CRITIQUE_LOG.md")
+        from sciralph.markdown import count_unresolved_critiques
+        counts = count_unresolved_critiques(critique_log)
+        assert counts["HIGH"] == 1
+        assert counts["MEDIUM"] == 1

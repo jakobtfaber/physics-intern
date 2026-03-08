@@ -1,0 +1,47 @@
+problem: |
+  Perform the one-loop renormalisation of scalar phi^4 theory in d=4
+  dimensions using dimensional regularisation and derive the one-loop
+  beta function.
+
+  Part 1 — Setup:
+  1. Write the Lagrangian for real scalar phi^4 theory:
+     L = (1/2)(d_mu phi)^2 - (1/2)*m^2*phi^2 - (lambda/4!)*phi^4
+  2. State the Feynman rules in momentum space (propagator, vertex).
+  3. Identify all one-loop 1PI diagrams: the self-energy (tadpole and
+     sunset/bubble), and the vertex correction (s, t, u channels).
+     Count symmetry factors carefully.
+
+  Part 2 — Self-energy at one loop:
+  1. Write the one-loop self-energy Sigma(p^2) (single tadpole diagram).
+     Evaluate the integral in d = 4 - 2*epsilon dimensions using the
+     standard formula for Int d^dk / (k^2 + Delta)^n.
+  2. Identify the 1/epsilon pole and the finite part.
+  3. In the MS-bar scheme, determine the mass counterterm delta_m^2
+     and the field-strength counterterm delta_Z (show delta_Z = 0
+     at one loop in phi^4).
+
+  Part 3 — Vertex correction at one loop:
+  1. Write the one-loop vertex correction (box/bubble diagram in the
+     s-channel). The integral involves two propagators.
+  2. Introduce a Feynman parameter, complete the square, and evaluate
+     in d = 4 - 2*epsilon dimensions.
+  3. Compute the s+t+u combined result. Extract the 1/epsilon pole.
+  4. Determine the coupling counterterm delta_lambda in MS-bar.
+
+  Part 4 — Beta function:
+  1. From the relation between bare and renormalised coupling
+     lambda_0 = mu^{2*epsilon} * Z_lambda * lambda, and the counterterms
+     computed above, derive:
+     beta(lambda) = mu * d(lambda)/d(mu) = (3*lambda^2)/(16*pi^2)
+     at one loop.
+  2. Solve the RG equation for the running coupling lambda(mu) and
+     show that phi^4 in d=4 is not asymptotically free (the coupling
+     grows at high energies — the Landau pole).
+  3. Compute the anomalous dimension gamma_m for the mass parameter.
+
+  Part 5 — Numerical verification:
+  1. Numerically evaluate the one-loop Feynman parameter integrals
+     for specific external momenta (e.g. p^2 = m^2) and verify they
+     match the analytic expressions.
+  2. Plot the running coupling lambda(mu) from mu = m to mu = 10^4 m
+     and locate the approximate scale of the Landau pole.

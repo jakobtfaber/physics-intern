@@ -49,12 +49,48 @@ SEVERITY LEVELS:
 
 OUTPUT FORMAT:
 You must output new CRITIQUE_LOG entries (Markdown, to be appended to
-CRITIQUE_LOG.md). Each critique must have: ID, severity, target claim,
-the critique itself, and a suggested verification method.
+CRITIQUE_LOG.md). Use the ID format CRIT-NNN (e.g., CRIT-001), NOT
+CRITIQUE-NNN.
 
-Use the ID format CRIT-NNN (e.g., CRIT-001), NOT CRITIQUE-NNN.
+For EACH claim you examine, use this exact two-phase structure:
+
+## CRIT-NNN [SEVERITY] [UNRESOLVED]
+- **Target:** [claim ID, e.g. WH-002 or ER-001]
+- **Filed:** iteration [N]
+
+### Phase 1: Reproduce
+Restate the claim's argument step by step IN YOUR OWN WORDS. Do NOT
+critique yet. Faithfully reproduce the logical chain:
+1. [First premise or step]
+2. [Second step]
+3. [Conclusion as stated]
+
+If you cannot reproduce the argument (because a step is unclear or
+missing), note exactly WHERE you get stuck. That gap is itself a finding.
+
+### Phase 2: Objection
+Now, having reproduced the argument, state your objection:
+- **What is wrong:** [specific flaw — sign error, unjustified step, missing
+  factor, gap in logic, etc.]
+- **Why it matters:** [could it change the result? is it fatal or cosmetic?]
+- **Suggested verification:** [symbolic_check / numerical_spot_check /
+  independent_rederivation / etc.]
+
+CRITICAL RULES FOR THE TWO PHASES:
+- Keep Phase 1 and Phase 2 STRICTLY separate. Do not mix reproduction with
+  objection.
+- Phase 1 is YOUR work — reproducing their derivation. Phase 2 is your
+  JUDGEMENT — what is wrong with their claim.
+- If your Phase 1 reproduction arrives at the SAME result as the claim,
+  and you find no flaw, you still file the critique (LOW severity) noting
+  "Reproduction succeeded, no issues found" with what you checked.
+- If your Phase 1 reproduction gives a DIFFERENT result than the claim,
+  that discrepancy IS the objection for Phase 2. State both results clearly.
+- Do NOT critique your own Phase 1 reproduction. Phase 2 critiques the
+  RESEARCH_STATE claim, not your restatement.
+- The severity level is determined by Phase 2, not Phase 1.
 
 You MUST file at least one critique. If you genuinely cannot find any
 issues, file a LOW critique noting what you checked and that it passed.
-Do not approve by silence -- the system needs an explicit record that you
+Do not approve by silence — the system needs an explicit record that you
 looked.

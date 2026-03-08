@@ -76,3 +76,68 @@ def count_unresolved_critiques(text: str) -> dict[str, int]:
         if severity in counts:
             counts[severity] += 1
     return counts
+
+
+def insert_into_active_critiques(text: str, new_content: str) -> str:
+    """Insert new critique entries under '# Active Critiques', before '# Resolved Critiques'.
+
+    If the headings are missing, falls back to appending to the body.
+    """
+    active_marker = "# Active Critiques"
+    resolved_marker = "# Resolved Critiques"
+
+    active_idx = text.find(active_marker)
+    resolved_idx = text.find(resolved_marker)
+
+    if active_idx == -1:
+        # No Active section — append to end of body
+        return text + "\n" + new_content
+
+    if resolved_idx == -1 or resolved_idx < active_idx:
+        # No Resolved section after Active — append after Active content
+        return text + "\n" + new_content
+
+    # Insert new content just before the "# Resolved Critiques" heading
+    return text[:resolved_idx].rstrip() + "\n\n" + new_content.strip() + "\n\n" + text[resolved_idx:]
+
+
+def resolve_critique(text: str, crit_id: str, resolution_note: str) -> str:
+    """Move a critique from Active to Resolved, changing [UNRESOLVED] -> [RESOLVED].
+
+    Adds a resolution note. Returns text unchanged if crit_id is not found
+    or already resolved.
+    """
+    # Find the critique block (## CRIT-NNN ... until next ## or end)
+    # Use a pattern that captures the full block
+    pattern = re.compile(
+        r'(#{2,3} CRIT(?:IQUE)?-' + re.escape(crit_id.split('-')[-1])
+        + r'\s*\[(\w+)\]\s*\[UNRESOLVED\].*?)(?=\n#{1,3} |\Z)',
+        re.DOTALL,
+    )
+    match = pattern.search(text)
+    if not match:
+        return text  # Not found or already resolved
+
+    block = match.group(1)
+    # Mark as resolved and add resolution note
+    resolved_block = block.replace("[UNRESOLVED]", "[RESOLVED]")
+    resolved_block = resolved_block.rstrip() + f"\n- **Resolution:** {resolution_note}\n"
+
+    # Remove from current position
+    text_without = text[:match.start()] + text[match.end():]
+
+    # Append to Resolved Critiques section
+    resolved_marker = "# Resolved Critiques"
+    resolved_idx = text_without.find(resolved_marker)
+    if resolved_idx == -1:
+        # No Resolved section — append at end
+        return text_without.rstrip() + "\n\n# Resolved Critiques\n\n" + resolved_block
+    else:
+        insert_pos = resolved_idx + len(resolved_marker)
+        return (
+            text_without[:insert_pos].rstrip()
+            + "\n\n"
+            + resolved_block.strip()
+            + "\n"
+            + text_without[insert_pos:]
+        )

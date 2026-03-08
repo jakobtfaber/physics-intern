@@ -68,6 +68,18 @@ Working Hypotheses to Established Results, add new Working Hypotheses,
 record Dead Ends, etc.). For changes that do NOT meet the criteria, leave
 them as Working Hypotheses or note what is still needed.
 
+CRITIQUE RESOLUTION:
+When you integrate changes that address unresolved critiques, you MUST list
+the resolved critique IDs in your RESEARCH_STATE.md output. Add this line
+in the YAML frontmatter:
+
+  resolved_critiques: [CRIT-001, CRIT-003]
+
+Include ALL critique IDs that are now addressed by the current state of
+results (whether by new computations, derivation fixes, or explicit
+responses). The system will automatically move them from Active to Resolved
+in CRITIQUE_LOG.md and update the counters.
+
 TERMINATION URGENCY:
 - If there are NO Working Hypotheses remaining and no unresolved HIGH/MEDIUM
   critiques, and the Established Results form a complete chain from problem

@@ -3,7 +3,12 @@
 import re
 
 from ..llm import LLMResponse
-from ..markdown import parse_frontmatter
+from ..markdown import (
+    parse_frontmatter,
+    render_frontmatter,
+    count_unresolved_critiques,
+    resolve_critique,
+)
 from .base import BaseAgent
 
 DELIM_RESEARCH = "=== RESEARCH_STATE.md ==="
@@ -64,7 +69,58 @@ class OrchestratorAgent(BaseAgent):
         if research_state is not None:
             self.workspace.write_file("RESEARCH_STATE.md", research_state)
             self.workspace.delete_file("PROPOSED_CHANGES.md")
+            # Resolve critiques mentioned in the orchestrator's output
+            self._resolve_critiques(response.text)
         self.workspace.write_file("CURRENT_TASK.md", task_text)
+
+    def _resolve_critiques(self, response_text: str):
+        """Scan orchestrator output for resolved critique IDs and update CRITIQUE_LOG.md."""
+        # Look for resolved_critiques list in YAML or inline references like "CRIT-001 resolved"
+        resolved_ids = set()
+
+        # Pattern 1: resolved_critiques: ["CRIT-001", "CRIT-002"] or [CRIT-001, CRIT-002]
+        list_match = re.search(
+            r'resolved_critiques:\s*\[([^\]]+)\]', response_text
+        )
+        if list_match:
+            for crit in re.findall(r'CRIT(?:IQUE)?-\d+', list_match.group(1)):
+                resolved_ids.add(crit)
+
+        # Pattern 2: "CRIT-NNN" near "resolved"/"addressed"/"incorporated" in prose
+        for match in re.finditer(
+            r'(CRIT(?:IQUE)?-\d+)\b[^.\n]{0,80}\b(?:resolved|addressed|incorporated|verified)',
+            response_text, re.IGNORECASE,
+        ):
+            resolved_ids.add(match.group(1))
+        # Also match reverse: "resolved ... CRIT-NNN"
+        for match in re.finditer(
+            r'(?:resolved|addressed|incorporated|verified)\b[^.\n]{0,80}\b(CRIT(?:IQUE)?-\d+)',
+            response_text, re.IGNORECASE,
+        ):
+            resolved_ids.add(match.group(1))
+
+        if not resolved_ids:
+            return
+
+        # Get current iteration from RESEARCH_STATE frontmatter
+        state_content = self.workspace.read_file("RESEARCH_STATE.md")
+        state_meta, _ = parse_frontmatter(state_content)
+        iteration = state_meta.get("iteration", "?")
+
+        content = self.workspace.read_file("CRITIQUE_LOG.md")
+        for crit_id in sorted(resolved_ids):
+            content = resolve_critique(
+                content, crit_id,
+                f"Addressed by orchestrator integration at iteration {iteration}.",
+            )
+
+        # Update frontmatter counts
+        meta, body = parse_frontmatter(content)
+        counts = count_unresolved_critiques(content)
+        meta["unresolved_high"] = counts["HIGH"]
+        meta["unresolved_medium"] = counts["MEDIUM"]
+        meta["unresolved_low"] = counts["LOW"]
+        self.workspace.write_file("CRITIQUE_LOG.md", render_frontmatter(meta, body))
 
     def parse_task(self, text: str, iteration: int = 0) -> dict:
         """Parse CURRENT_TASK.md content into a task dict."""

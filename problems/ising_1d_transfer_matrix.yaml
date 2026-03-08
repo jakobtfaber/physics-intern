@@ -1,0 +1,32 @@
+problem: |
+  Solve the one-dimensional Ising model with nearest-neighbour coupling J
+  and external magnetic field h using the transfer matrix method.
+
+  Consider a chain of N spins s_i = ±1 with periodic boundary conditions
+  and Hamiltonian H = -J sum_{i=1}^{N} s_i s_{i+1} - h sum_{i=1}^{N} s_i.
+
+  1. Construct the 2×2 transfer matrix T whose elements are
+     T_{s,s'} = exp(beta*J*s*s' + beta*h*(s+s')/2).
+
+  2. Express the partition function Z_N = Tr(T^N) in terms of the
+     eigenvalues lambda_+ and lambda_- of T.
+
+  3. Derive closed-form expressions for lambda_± as functions of
+     beta*J and beta*h.
+
+  4. Take the thermodynamic limit N -> infinity and derive exact
+     expressions for:
+     a) The free energy per spin f = -(1/N) k_B T ln Z_N
+     b) The magnetisation per spin m = -df/dh
+     c) The magnetic susceptibility chi = dm/dh
+     d) The correlation length xi from the ratio lambda_+/lambda_-
+
+  5. Verify the following:
+     - At h=0: m=0 (no spontaneous magnetisation in 1D).
+     - At T->0, h>0: m -> 1 (full alignment).
+     - The susceptibility diverges as T->0 at h=0 (showing a T=0 phase transition).
+     - Numerically compute and plot m(h) at beta*J = 1 for h in [-3, 3]
+       and compare with tanh(beta*h) in the J=0 limit.
+
+  This problem requires linear algebra (eigenvalues), calculus (derivatives
+  of free energy), and numerical verification of limiting cases.
