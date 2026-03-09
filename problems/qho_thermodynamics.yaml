@@ -1,19 +1,6 @@
 problem: |
-  Derive the thermodynamic properties of a quantum harmonic oscillator with
-  frequency omega at temperature T.
-
-  Starting from the energy spectrum E_n = hbar*omega*(n + 1/2), derive:
-
-  1. The canonical partition function Z(beta) in closed form, where
-     beta = 1/(k_B*T).
-  2. The mean energy <E>(T) = -d(ln Z)/d(beta).
-  3. The heat capacity C_V(T) = d<E>/dT.
-
-  Then verify the following limiting cases:
-  - Classical (high-T) limit: <E> -> k_B*T and C_V -> k_B.
-  - Quantum (low-T) limit: <E> -> hbar*omega/2 and C_V -> 0.
-
-  Express final results in terms of beta*hbar*omega (the natural
-  dimensionless ratio). The expected final result for the heat capacity is
+  Derive the thermodynamic properties of a quantum harmonic oscillator
+  with frequency omega at temperature T: the partition function, mean energy,
+  and heat capacity. The expected heat capacity is
   C_V = k_B * (beta*hbar*omega)^2 * exp(beta*hbar*omega) / (exp(beta*hbar*omega) - 1)^2.
-
+  Verify the classical (high-T) and quantum (low-T) limiting behaviours.

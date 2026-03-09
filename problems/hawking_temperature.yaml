@@ -1,4 +1,5 @@
 problem: |
-  Derive the Hawking temperature T_H(M) for a Schwarzschild
-  black hole of mass M using the Euclidean path integral approach.
+  Derive the Hawking temperature T_H(M) for a Schwarzschild black hole
+  of mass M. The expected result is T_H = hbar*c^3 / (8*pi*G*M*k_B).
+  Verify the result numerically for a solar-mass black hole.
 

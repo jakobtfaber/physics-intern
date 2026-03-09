@@ -1,33 +1,7 @@
 problem: |
   Derive the anomalous perihelion precession of Mercury from general
-  relativity by solving the Schwarzschild geodesic equation perturbatively.
-
-  Part 1 — Geodesic equations:
-  1. Write the Schwarzschild metric in coordinates (t, r, theta, phi).
-  2. Use the Killing symmetries to identify two constants of motion:
-     E (energy per unit mass) and L (angular momentum per unit mass).
-  3. Derive the effective potential and the orbital equation for u = 1/r
-     as a function of phi:
-     (du/dphi)^2 = (E^2 - 1)/L^2 + (2M G)/(L^2 c^2) u - u^2 + (2MG/c^2) u^3
-     where the last term is the GR correction absent in Newtonian gravity.
-
-  Part 2 — Perturbative solution:
-  1. Write u = u_0(phi) + epsilon * u_1(phi) where u_0 is the Newtonian
-     elliptical orbit u_0 = (MG/L^2)(1 + e*cos(phi)) and
-     epsilon = (MG/Lc)^2 is the small GR parameter.
-  2. Derive the differential equation for u_1(phi) by substituting into the
-     orbital equation and linearising in epsilon.
-  3. Solve this ODE. Identify the secular (resonant) term proportional to
-     phi*sin(phi) that causes precession.
-  4. Show that the precession angle per orbit is:
-     Delta phi = 6*pi*G*M / (a*(1-e^2)*c^2)
-
-  Part 3 — Mercury:
-  1. Plug in Mercury's orbital parameters (a = 5.791e10 m, e = 0.2056,
-     M_sun = 1.989e30 kg) and compute Delta phi per orbit in arcseconds.
-  2. Convert to arcseconds per century using Mercury's orbital period
-     (87.969 days) and verify the result ≈ 42.98 arcsec/century.
-  3. Numerically integrate the full (non-linearised) orbital equation
-     for Mercury's parameters over several orbits and measure the
-     precession from the numerical solution. Compare with the analytical
-     prediction.
+  relativity. Starting from the Schwarzschild metric, obtain the precession
+  angle per orbit: Delta phi = 6*pi*G*M / (a*(1-e^2)*c^2). Compute the
+  result for Mercury in arcseconds per century (expected: ~43 arcsec/century).
+  Verify by numerically integrating the full relativistic orbital equation
+  and measuring the precession directly.

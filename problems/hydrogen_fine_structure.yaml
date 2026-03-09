@@ -1,35 +1,7 @@
 problem: |
-  Compute the fine structure corrections to the hydrogen atom energy levels
-  through first-order perturbation theory, combining three effects:
-  relativistic kinetic energy, spin-orbit coupling, and the Darwin term.
-
-  Start from the unperturbed Coulomb spectrum E_n^(0) = -13.6 eV / n^2.
-
-  Part A — Relativistic kinetic energy correction:
-  1. Expand the relativistic kinetic energy T = sqrt(p^2 c^2 + m^2 c^4) - mc^2
-     to order p^4 and identify H_rel = -p^4 / (8 m^3 c^2).
-  2. Compute <H_rel> for the state |n,l> using the known expectation values
-     <1/r> and <1/r^2> for hydrogen. Express the result in terms of alpha
-     (fine structure constant) and E_n^(0).
-
-  Part B — Spin-orbit coupling:
-  1. Derive the spin-orbit Hamiltonian H_SO = (e^2 / 2m^2 c^2 r^3) S·L
-     from the interaction of the electron magnetic moment with the
-     magnetic field seen in its rest frame (include the Thomas precession
-     factor of 1/2).
-  2. Evaluate <H_SO> for states with l >= 1 using <1/r^3> and
-     <S·L> = (1/2)[j(j+1) - l(l+1) - 3/4] hbar^2.
-
-  Part C — Darwin term:
-  1. Write the Darwin correction H_D = (pi*hbar^2 e^2 / 2m^2 c^2) delta^3(r),
-     which only affects l=0 states.
-  2. Evaluate <H_D> for s-states using |psi_{n,0,0}(0)|^2 = 1/(pi n^3 a_0^3).
-
-  Part D — Combine all three:
-  1. Show that the total fine structure correction for any |n,l,j> is:
-     Delta E_{fs} = (alpha^2 / n^2) E_n^(0) [n/(j+1/2) - 3/4]
-     This remarkable result depends on n and j only, not on l separately.
-  2. Numerically compute the fine structure splittings for n=1,2,3 in eV
-     and verify that the n=2 level splits into two groups (j=1/2 and j=3/2).
-  3. Compute the 2P_{3/2} - 2S_{1/2} splitting and compare with the known
-     value (should be zero at this order — the Lamb shift lifts this degeneracy).
+  Compute the fine structure corrections to the hydrogen atom energy levels.
+  Identify all relevant physical effects at order alpha^2, evaluate their
+  contributions, and show that the total fine structure shift depends only
+  on n and j (not l separately). The expected combined result is:
+  Delta E_fs = (alpha^2 / n^2) * E_n^(0) * [n/(j+1/2) - 3/4].
+  Numerically compute the splittings for n=1,2,3 in eV.

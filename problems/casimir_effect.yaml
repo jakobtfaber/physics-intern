@@ -1,38 +1,6 @@
 problem: |
-  Derive the Casimir force between two perfectly conducting parallel plates
-  separated by a distance a, using zeta-function regularisation.
-
-  1. Mode structure: Consider a massless scalar field in 1+1 dimensions
-     between plates at x=0 and x=a with Dirichlet boundary conditions.
-     The allowed wave numbers are k_n = n*pi/a for n=1,2,3,...
-     The zero-point energy is E(a) = (hbar/2) sum_{n=1}^{infty} omega_n
-     with omega_n = c*k_n.
-
-  2. Regularisation: Introduce the Riemann zeta function to regularise
-     the divergent sum. Show that:
-     E(a) = (hbar*c*pi)/(2a) sum_{n=1}^{infty} n
-            = (hbar*c*pi)/(2a) * zeta(-1)
-            = -(hbar*c*pi)/(24a)
-     using the analytic continuation zeta(-1) = -1/12.
-
-  3. Extension to 3+1 dimensions: Now consider a real scalar field between
-     infinite parallel plates in 3+1 dimensions. The zero-point energy per
-     unit area involves a sum over n and an integral over transverse momenta
-     k_perp. Show that:
-     E/A = (hbar*c)/(2) sum_{n=1}^{infty} integral d^2k_perp/(2pi)^2
-           * sqrt(k_perp^2 + (n*pi/a)^2)
-
-  4. Evaluate this using dimensional regularisation or a cutoff with
-     Euler-Maclaurin subtraction. Derive the Casimir energy per unit area:
-     E/A = -(pi^2 * hbar * c) / (720 a^3)
-
-  5. Obtain the Casimir force per unit area:
-     F/A = -dE/da / A = -(pi^2 * hbar * c) / (240 a^4)
-
-  6. Numerical verification:
-     a) Compute the Casimir pressure in Pascals for a = 1 micrometre.
-     b) Numerically verify the zeta regularisation in 1+1D: compute
-        the partial sums S_N = sum_{n=1}^{N} n * exp(-epsilon*n) for
-        small epsilon and show they approach -1/12 as epsilon -> 0
-        after subtracting the divergent pieces (1/epsilon^2 - 1/12 + ...).
-     c) Plot the regulated partial sums as a function of epsilon.
+  Derive the Casimir force per unit area between two perfectly conducting
+  parallel plates separated by a distance a in 3+1 dimensions. The expected
+  result is F/A = -pi^2 * hbar * c / (240 * a^4). Compute the Casimir
+  pressure in Pascals for a = 1 micrometre and include numerical verification
+  of any regularisation steps.

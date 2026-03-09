@@ -1,42 +1,7 @@
 problem: |
-  Evaluate the path integral for the quantum harmonic oscillator exactly,
-  derive the propagator, extract the energy spectrum, and verify against
-  the operator formalism.
-
-  Part 1 — Propagator via path integral:
-  1. Write the path integral for the propagator K(x_f, t_f; x_i, t_i)
-     of a particle with mass m in potential V = m*omega^2*x^2/2.
-  2. Split x(t) = x_cl(t) + y(t) where x_cl is the classical path
-     satisfying the boundary conditions, and y(0) = y(T) = 0.
-  3. Show that the action separates: S[x] = S_cl + S[y], where the
-     cross terms vanish.
-  4. Evaluate the classical action S_cl explicitly for the harmonic
-     oscillator. Result:
-     S_cl = (m*omega)/(2*sin(omega*T)) * [(x_f^2 + x_i^2)*cos(omega*T) - 2*x_f*x_i]
-  5. Evaluate the fluctuation integral over y(t) by discretising time
-     into N slices, computing the resulting Gaussian integral (an N×N
-     determinant), and taking N -> infinity. Show the prefactor is
-     F(T) = sqrt(m*omega / (2*pi*i*hbar*sin(omega*T))).
-  6. Combine to get the Mehler kernel:
-     K = F(T) * exp(i*S_cl/hbar)
-
-  Part 2 — Spectral decomposition:
-  1. Write the propagator in the energy eigenstate basis:
-     K = sum_n psi_n(x_f) psi_n^*(x_i) exp(-i*E_n*T/hbar)
-  2. Expand the Mehler kernel for the case x_i = x_f = 0 and extract
-     the energy spectrum E_n = hbar*omega*(n + 1/2) by identifying the
-     expansion as a geometric series after Wick rotating T -> -i*tau.
-  3. Extract |psi_n(0)|^2 from the coefficients and verify they match
-     the known Hermite-Gaussian wave functions (non-zero only for even n).
-
-  Part 3 — Numerical checks:
-  1. Numerically evaluate the discretised path integral (N-fold ordinary
-     integral via Monte Carlo or Gauss-Hermite quadrature) for N = 10,
-     50, 200 slices and compare K(0,T; 0,0) with the exact Mehler result
-     for omega*T = 1.
-  2. Wick-rotate and compute the Euclidean correlator <x(tau) x(0)> by
-     Monte Carlo sampling of discretised paths. Compare with the exact
-     result hbar/(2*m*omega) * cosh(omega*(beta/2 - tau)) / sinh(omega*beta/2)
-     for beta*hbar*omega = 4.
-  3. From the large-tau decay of the Euclidean correlator, extract the
-     energy gap hbar*omega numerically and compare with the input value.
+  Evaluate the path integral for the quantum harmonic oscillator exactly
+  and derive the propagator K(x_f, t_f; x_i, t_i) in closed form (the
+  Mehler kernel). Extract the energy spectrum E_n = hbar*omega*(n+1/2)
+  from the propagator and verify consistency with the operator formalism.
+  Include numerical checks by evaluating the discretised path integral
+  and comparing with the exact result.

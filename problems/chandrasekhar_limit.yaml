@@ -1,42 +1,8 @@
 problem: |
-  Derive the Chandrasekhar mass limit for white dwarf stars by solving the
-  Lane-Emden equation for a relativistic degenerate electron gas.
-
-  Part 1 — Equation of state:
-  1. Derive the equation of state P(rho) for a fully degenerate,
-     zero-temperature ideal Fermi gas of electrons at arbitrary
-     relativity (the Chandrasekhar EOS). Use the parametric form with
-     x = p_F/(m_e c) as the relativity parameter:
-     - P = (pi m_e^4 c^5)/(3 h^3) * f(x)
-     - rho = (8*pi*m_e^3*c^3*mu_e)/(3*h^3) * x^3
-     where f(x) = x*(2x^2-3)*sqrt(1+x^2) + 3*arcsinh(x) and mu_e
-     is the mean molecular weight per electron (mu_e ≈ 2 for C/O).
-  2. Verify the non-relativistic limit (x << 1): P ~ rho^{5/3} (polytrope n=3/2).
-  3. Verify the ultra-relativistic limit (x >> 1): P ~ rho^{4/3} (polytrope n=3).
-
-  Part 2 — Hydrostatic equilibrium:
-  1. Write the equations of hydrostatic equilibrium for a spherically
-     symmetric star: dP/dr = -G*rho*m(r)/r^2 and dm/dr = 4*pi*r^2*rho.
-  2. In the ultra-relativistic limit (P = K*rho^{4/3}), show that the
-     structure reduces to the Lane-Emden equation of index n=3:
-     (1/xi^2) d/dxi (xi^2 dtheta/dxi) = -theta^3
-     with theta(0)=1, theta'(0)=0.
-
-  Part 3 — Numerical solution:
-  1. Numerically integrate the Lane-Emden equation for n=3 and find the
-     first zero xi_1 (where theta(xi_1) = 0, giving the stellar surface).
-     Known result: xi_1 ≈ 6.8968.
-  2. Compute |xi^2 theta'(xi)| at xi = xi_1. Known result ≈ 2.0182.
-  3. Using these, derive the Chandrasekhar mass:
-     M_Ch = (5.836 / mu_e^2) M_sun
-     For mu_e = 2: M_Ch ≈ 1.459 M_sun.
-
-  Part 4 — Mass-radius relation:
-  1. Solve the full (non-limiting) hydrostatic equilibrium equations with
-     the exact Chandrasekhar EOS numerically for central densities
-     rho_c = 10^6 to 10^12 kg/m^3.
-  2. Plot the mass-radius relation M(R) and show that R -> 0 as M -> M_Ch.
-  3. Verify that low-mass white dwarfs follow R ~ M^{-1/3} (non-relativistic
-     scaling) while the mass asymptotes to M_Ch at high density.
-  4. Mark the location of Sirius B (M ≈ 1.018 M_sun, R ≈ 0.0084 R_sun)
-     on the plot and check consistency.
+  Derive the Chandrasekhar mass limit for white dwarf stars. Starting from
+  the physics of a degenerate relativistic electron gas and the equations of
+  stellar structure, obtain the maximum mass a white dwarf can support.
+  The expected result is M_Ch = 5.836/mu_e^2 solar masses (about 1.46 M_sun
+  for carbon/oxygen composition). Numerically solve the relevant structure
+  equations, compute the mass-radius relation, and verify that the radius
+  vanishes as the mass approaches M_Ch.
