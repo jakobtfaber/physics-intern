@@ -1,306 +1,42 @@
-# SciRalph Implementation Plan
+# SciRalph — Task List
 
-## Completed
 
-### Phase 1 — Core loop (DONE)
+## To Do
 
-### Phase 1.1 — Critical fixes (DONE)
+- **Convention locking in orchestrator** — the orchestrator should lock down all conventions (units, normalization, sign conventions, variable definitions) in iteration 1 before any derivation starts. Add an explicit instruction to emit a "Conventions" section in RESEARCH_STATE.md during the first task. Consider adding an optional `conventions:` field to problem YAML.
 
-Post-e2e bug fixes: execution failure banners, orchestrator task types + termination, critique regex broadening, audit logging.
+- **Budget-aware termination** — current completion check requires `wh_count == 0` AND all critiques resolved, which can prevent synthesis when budget is low. Add a `budget_remaining` signal to orchestrator context (e.g., "iteration 16 of 20"). Instruct it to synthesize partial results when ≤3 iterations remain regardless of WH/critique state. Allow "partially complete" termination status.
 
-### Phase 1.5 Steps 1-2 (DONE)
+- **Critic self-retraction gate** — the critic sometimes files a critique then immediately argues against it in Phase 2. Add a gate: if Phase 2 concludes the objection is unfounded, do not emit the critique. Alternatively, instruct the critic to draft Phase 2 mentally before committing to filing.
 
-- Step 1: Remove warm-ups, let the orchestrator plan sub-problems
-- Step 2: Full prompt/response logging
+- **CRITIQUE_LOG cleanup on resolution** — when moving a critique to Resolved, remove the entire block (header + body) from Active, not just the CRIT-NNN header. Currently leaves orphaned Phase 1/Phase 2 body text.
 
-### Post-run fixes (DONE)
+- **Check CLI arguments**
 
-Based on analysis of `workspaces/20260308_070621_hawking_temperature`:
+- **config.yaml** — add a YAML config file with command-line override. Include model selection, thresholds, timeouts, audit logs settings, etc.
 
-- **Critique lifecycle bug** — critiques now land in "# Active Critiques" (not EOF); orchestrator moves them to "# Resolved Critiques" when addressed; frontmatter counters reflect reality.
-- **Metrics flush on termination** — `_final_report()` flushes metrics before printing, so the final orchestrator call is always persisted.
-- **Computationalist assertion discipline** — prompt requires `assert` statements with nonzero exit on failure; review prompt caps verdict at PARTIALLY AGREES for code without assertions.
-- **Critic two-phase format** — prompt enforces Phase 1 (reproduce the argument) then Phase 2 (state the objection), preventing self-contradictory critiques.
+- **Prompt review** — review all prompts for clarity, completeness, and consistency.
 
-### Phase 1.7 — Verification Robustness Follow-up (DONE)
+- **More models** — add support for more models (GPT, Gemini, Open models via Hugging Face inference providers).
 
-Based on analysis of `workspaces/20260308_083325_qho_thermodynamics`:
+- **ToolExecutor + execute_python tool** — new `src/sciralph/tools.py`. Tool definitions in Anthropic API format. `ToolExecutor` class dispatches tool calls: `_execute_python` writes code to file, runs via `sandbox.py`, returns stdout+stderr (truncated to 10K chars). Path validation via `_resolve_and_validate` (rejects `..` traversal). Only the computationalist gets tools initially.
 
-- **Computationalist: adaptive truncation** — require `n_max` based on convergence ratio instead of fixed 100 terms; prevents false negatives when geometric series converge slowly (e.g., β·ℏω = 0.1 needs ~347 terms)
-- **Computationalist: resilient assertions** — wrap each `assert np.isclose` in `try/except` so all test points run even if one fails; prevents early crash hiding valid results
-- **Deep critic: INCONCLUSIVE severity cap** — INCONCLUSIVE verdict must not be sole basis for HIGH critique (discrepancies in INCONCLUSIVE output may reflect code bugs, not math errors); only REFUTED justifies HIGH based on computation
+- **run_agent_loop in llm.py** — add `run_agent_loop()` alongside existing `call_llm()`. Runs a tool-use loop until stop_reason="end_turn", max_rounds, or token_budget. Returns `AgentResult` dataclass (text, tool_calls log, token counts, rounds, truncated flag). Old `call_llm()` stays for agents that don't need tools.
 
-### Phase 1.6 — Verification Robustness (DONE)
+- **Tool support in base agent** — edit `agents/base.py`. Add `tools` class attribute (default empty). If tools present, `run()` uses `run_agent_loop`; otherwise old one-shot `call_llm` path.
 
-Prompt-only changes to fix false negatives from SymPy simplification failures. The computationalist now uses numerical spot-checks as the primary verification method, with symbolic checks as supplementary. Verdicts use a 3-valued system (VERIFIED / REFUTED / INCONCLUSIVE) instead of the old 4-valued one (AGREES / PARTIALLY AGREES / DISAGREES / FAILED).
+- **Tool-use loop tests** — new `tests/test_tools.py`. Path validation (allowed, rejected, traversal attack). execute_python: writes file, executes, returns output. Output truncation. Max rounds enforcement (mock LLM always requests tools). Token budget enforcement.
 
-- **computationalist.md** — numerical-first verification strategy (Tier 1 numerical, Tier 2 symbolic, Tier 3 series expansion)
-- **computationalist_review.md** — 3-valued verdict system with decision table; execution failures → INCONCLUSIVE, not REFUTED
-- **orchestrator.md** — verdict interpretation rules; INCONCLUSIVE handling (1 retry allowed, then move on); legacy verdict mapping
-- **deep_critic.md** — INCONCLUSIVE is not evidence against a claim; execution failures reflect code quality, not math validity
-- **test_computationalist.py** — updated mock verdict strings for consistency
+- **Agentic computationalist** — refactor `agents/computationalist.py`. Current flow: LLM emits fenced code block → scaffold extracts → executes → separate review call. New flow: LLM calls `execute_python` tool → sees output → iterates on errors → emits final COMPUTATION_LOG entry with VERDICT as text. Remove separate `computationalist_review` call. Update `prompts/computationalist.md` accordingly (tool-use instructions, keep assertion discipline, instruct to self-review after seeing output). Remove `prompts/computationalist_review.md`.
 
----
+- **Tool-use metrics** — surface tool-use metadata in METRICS.md: per-agent-call (rounds, tool calls, truncated flag), cumulative total tool calls.
 
-## Phase 1.5 Step 3 — Tool-Use Loop
+- **Agentic computationalist tests** — extend `tests/test_computationalist.py` for tool-use flow. Smoke test: run 3 iterations on a real problem, verify AUDIT_LOG.jsonl has tool_call entries, verify agent iterates on a deliberate SymPy import error.
 
-**Files:** new `src/sciralph/tools.py`, refactor of `llm.py`, edits to `agents/base.py`
+- **Priority-based compression** — compressor falls behind on large COMPUTATION_LOG files (40K+ chars observed). Compress the largest file first instead of round-robin. Old VERIFIED computations: archive everything except the verdict line. Consider lowering threshold or triggering compression mid-iteration at 1.5x threshold.
 
-**Goal:** Replace one-shot `call_llm()` with `run_agent_loop()` that supports tool calls. The old `call_llm()` is preserved for agents that don't need tools (compressor).
+- **read_file tool for orchestrator/researcher/critic** — currently these agents get full context via `build_context()`. Adding `read_file` lets them drill into large files or inspect computation scripts. Implement when file sizes regularly approach compression thresholds.
 
-### 3a. `tools.py` — Tool definitions and executor
+- **External reference files** — allow problem YAML to specify a `files:` list. Copy into `workspace/references/`. Requires `read_file` tool for agents to access them. Useful for problems that need external papers or formula sheets.
 
-```python
-# Tool definitions (Anthropic API format)
-EXECUTE_PYTHON_TOOL = { "name": "execute_python", ... }
-
-# Only the computationalist gets tools in this phase
-AGENT_TOOLS = {
-    "computationalist": [EXECUTE_PYTHON_TOOL],
-    # All other agents: [] (no tools, use one-shot path)
-}
-
-class ToolExecutor:
-    """Executes tool calls within security constraints."""
-
-    def __init__(self, workspace: WorkspaceManager, config: Config):
-        self.workspace = workspace
-        self.config = config
-
-    def execute(self, tool_name: str, tool_input: dict,
-                iteration: int, agent: str) -> str:
-        """Dispatch and execute a tool call. Returns result string."""
-        ...
-
-    def _execute_python(self, code: str, filename: str) -> str:
-        """Write code to file, execute with sandbox.py, return output.
-
-        Reuses existing sandbox.py (subprocess isolation + timeout).
-        Captures both stdout and stderr.
-        Truncates output to max_output_chars (default 10,000) to avoid
-        blowing up the context window on runaway prints.
-        """
-        ...
-
-    def _resolve_and_validate(self, path: str) -> Path:
-        """Resolve path and check it's within workspace root. Raise on violation."""
-        ...
-```
-
-Security: `_resolve_and_validate` uses `Path.resolve()` and checks the resolved path starts with `workspace.root`. Rejects `..` traversal.
-
-### 3b. `llm.py` — Add `run_agent_loop()`
-
-```python
-def run_agent_loop(system: str, context: str, tools: list[dict],
-                   tool_executor: ToolExecutor, config: Config,
-                   max_rounds: int = 10,
-                   token_budget: int = 50_000,
-                   iteration: int = 0,
-                   agent: str = "") -> AgentResult:
-    """Run tool-use loop until the agent produces a final text response.
-
-    Termination conditions (whichever comes first):
-    1. Agent produces a response with stop_reason="end_turn" (normal exit)
-    2. max_rounds reached → take the last text block as final output,
-       prepend a warning banner "⚠ MAX ROUNDS REACHED"
-    3. Cumulative output tokens exceed token_budget → same as (2)
-    """
-    ...
-```
-
-Returns an `AgentResult` dataclass:
-```python
-@dataclass
-class AgentResult:
-    text: str                    # final text output
-    tool_calls: list[dict]       # log of all tool calls made
-    total_input_tokens: int
-    total_output_tokens: int
-    total_duration: float
-    rounds: int                  # number of LLM calls (1 = no tool use)
-    truncated: bool              # True if terminated by max_rounds or budget
-```
-
-### 3c. `agents/base.py` — Support tool-use agents
-
-Add a `tools` class attribute to `BaseAgent` (default empty list). Modify `run()`:
-- If `self.tools` is empty: use old one-shot `call_llm` path
-- If `self.tools` is non-empty: use `run_agent_loop`
-
-Each agent subclass declares its tools:
-```python
-class ComputationalistAgent(BaseAgent):
-    tool_names = ["execute_python"]
-```
-
-### 3d. Tests
-
-`tests/test_tools.py`:
-- Path validation: allowed path, rejected path, traversal attack (`../../etc/passwd`)
-- `execute_python`: writes file, executes, returns stdout+stderr
-- `execute_python`: output truncation at limit
-- Max rounds enforcement: mock LLM that always requests tools → hits max_rounds → returns with `truncated=True`
-- Token budget enforcement: similar mock
-
----
-
-## Phase 1.5 Step 4 — Agentic Computationalist
-
-**Files:** edits to `agents/computationalist.py`, `prompts/computationalist.md`, `engine.py`
-
-**Goal:** Wire `execute_python` tool into the computationalist. This is the single highest-impact change: the agent can now run code, see output, fix errors, and iterate — instead of the current fragile extract-from-fenced-block flow.
-
-### 4a. Computationalist agent refactor
-
-Current flow: LLM emits code in fenced block → scaffold extracts last ```python``` block → executes → separate review LLM call.
-
-New flow: LLM calls `execute_python` tool → sees output in same conversation → can iterate on errors → emits final COMPUTATION_LOG entry as text → no separate review call needed (the agent self-reviews within the loop).
-
-Changes to `agents/computationalist.py`:
-- `build_context`: same as before (task + research state + recent computations)
-- `process_response`: instead of extracting code from text, collect tool calls from `AgentResult.tool_calls`. Each `execute_python` call is already executed and logged. The final text output is the COMPUTATION_LOG entry including VERDICT.
-- Remove the separate `computationalist_review` LLM call — the agent now sees execution output and writes its own verdict within the tool-use loop.
-
-### 4b. Prompt update (`prompts/computationalist.md`)
-
-- Replace fenced-block instructions with tool-use instructions
-- Tell it to use `execute_python` to run code, read the output, and iterate if there are errors
-- Keep the assertion discipline rules (added in post-run fixes)
-- Tell it to write VERDICT and NOTES itself after seeing execution output (no separate review step)
-- Instruct: "If your first script fails, read the error, fix the code, and call execute_python again. You have up to N rounds."
-
-### 4c. Metrics integration
-
-Surface tool-use metadata in METRICS.md:
-- Per-agent-call: number of rounds, number of tool calls, whether truncated
-- Cumulative: total tool calls across the run
-
-### 4d. Tests
-
-- `tests/test_computationalist.py` (extend): test that computationalist with mocked tool-use loop produces a COMPUTATION_LOG entry with VERDICT
-- Smoke test: run 3 iterations on a real problem, verify AUDIT_LOG.jsonl has tool_call entries, verify computationalist iterates on a deliberate SymPy import error
-
----
-
-## Phase 2 — Expanded Tool Use and Operational Features
-
-Deferred items. Implement when there's a driving use case.
-
-### read_file tool for orchestrator/researcher/critic
-
-These agents currently receive full context via `build_context()`. The upfront injection pattern works well (confirmed by test runs). Adding `read_file` provides marginal benefit (drill into large files, inspect computation scripts) but risks wasted rounds. Implement when file sizes regularly approach compression thresholds.
-
-### External reference files
-
-Allow problem YAML to specify `files:` list. Copy into `workspace/references/`. Requires `read_file` tool (above) for agents to access them. Implement when tackling problems that need external papers or formula sheets.
-
-### Workspace resume
-
-Allow `--resume <workspace-dir>` to continue a previous run. Requires: skip `init()` if `.git` exists, load iteration from METRICS.md, handle partial state. Separate concern from tool use — has its own edge cases (corrupted state, version mismatches).
-
-### read_file + list_files tools for other agents
-
-Once `read_file` is proven with the computationalist, consider adding it to:
-- **Critic**: inspect computation scripts for closer review
-- **Researcher**: load reference files
-- **Orchestrator**: drill into specific sections when state files grow large
-
----
-
-## Implementation Order Summary
-
-```
-Step 3: Tool-Use Loop
-  3a. tools.py — ToolExecutor + execute_python   (new file)
-  3b. llm.py — run_agent_loop + AgentResult      (edit)
-  3c. agents/base.py — tool support branching     (edit)
-  3d. test_tools.py                               (new file)
-
-Step 4: Agentic Computationalist
-  4a. computationalist.py — tool-use refactor     (edit)
-  4b. computationalist.md — prompt rewrite        (edit)
-  4c. metrics.py — tool-use tracking              (edit)
-  4d. Tests + smoke test                          (extend)
-
-Phase 2 (deferred):
-  - read_file tool for other agents
-  - External reference files
-  - Workspace resume
-```
-
-## Files affected
-
-| File | Step 3 | Step 4 | Phase 2 |
-|------|--------|--------|---------|
-| `src/sciralph/tools.py` | **NEW** | | |
-| `src/sciralph/llm.py` | edit | | |
-| `src/sciralph/agents/base.py` | edit | | |
-| `src/sciralph/agents/computationalist.py` | | edit | |
-| `src/sciralph/prompts/computationalist.md` | | edit | |
-| `src/sciralph/prompts/computationalist_review.md` | | remove | |
-| `src/sciralph/metrics.py` | | edit | |
-| `src/sciralph/engine.py` | | | edit |
-| `src/sciralph/workspace.py` | | | edit |
-| `src/sciralph/main.py` | | | edit |
-| `src/sciralph/prompts/orchestrator.md` | | | edit |
-| `src/sciralph/prompts/researcher.md` | | | edit |
-| `src/sciralph/prompts/deep_critic.md` | | | edit |
-| `tests/test_tools.py` | **NEW** | extend | extend |
-| `tests/test_computationalist.py` | | extend | |
-
----
-
-## Misc Ideas
-
-Observations from the QHO thermodynamics and Hawking temperature test runs (2026-03-08).
-
-### Computationalist code quality
-
-Both runs had computation failures from LLM-generated code bugs (invalid SymPy import `from sympy import rewrite`; wrong exponent c⁴ vs c² in surface gravity formula). Ideas:
-
-- **Pre-execution import check** — dry-run `import` statements before executing the full script to catch hallucinated imports early
-- **Retry-on-failure policy** — currently INCONCLUSIVE computations are not retried in the same iteration; the agentic computationalist (Step 4) should largely fix this since the agent can see errors and iterate within a single call
-
-### Critic self-retraction
-
-The critic sometimes files a critique then immediately argues against it in Phase 2 (e.g., CRIT-002 in QHO run was self-retracted as "actually not a flaw"). The two-phase format was introduced to prevent contradictory critiques, but doesn't prevent filing non-critiques.
-
-- Add a gate: if Phase 2 concludes the objection is unfounded, do not emit the critique at all
-- Alternatively, instruct the critic to draft Phase 2 mentally before committing to filing
-
-### INCONCLUSIVE computation retry
-
-The Hawking run's only computation crashed (code bug in κ formula) and was labelled INCONCLUSIVE, but never retried. The corrected derivation was accepted purely on analytical grounds. While the INCONCLUSIVE handling rules allow this, a retry with a fixed script would have strengthened confidence.
-
-- The agentic computationalist (Step 4) addresses this directly — the agent can fix and re-run within one call
-- For the current architecture: consider allowing the orchestrator to request a fresh computation pass when a prior one was INCONCLUSIVE and the derivation has since been corrected
-
-### CRITIQUE_LOG cosmetics
-
-When critiques are resolved, their CRIT-NNN headers are removed from the Active section but the Phase 1/Phase 2 body text remains as orphaned content. Not a functional bug (counters are correct), but confusing to read.
-
-- Clean up: when moving a critique to Resolved, remove the entire block (header + body) from Active
-
-### Convention/definition confusion wastes iterations
-
-Observed in both the Ising 1D (energy normalization ε = E/mc² ambiguity, χ definition off by β vs 1/β) and perihelion precession (energy convention confusion burned ~5 early iterations). The orchestrator should lock down all conventions — units, normalization, sign conventions, variable definitions — in iteration 1 before any derivation starts.
-
-- **Orchestrator prompt change**: add an explicit instruction to emit a "Conventions" section in RESEARCH_STATE.md during the first task, covering coordinate conventions, units (natural vs SI), energy normalization, and sign conventions
-- **Problem YAML**: consider adding an optional `conventions:` field so the problem author can pre-specify conventions and remove ambiguity
-
-### Termination logic too strict
-
-The orchestrator's completion check requires `wh_count == 0` AND all critiques resolved. In the Ising run (18 iter), 3 ERs were valid but 5 WHs remained, so the system never synthesized. When budget is running low, the orchestrator should be able to:
-
-- Synthesize partial results (report what is established, flag what remains open)
-- Terminate with a "partially complete" status rather than running to max iterations with no synthesis
-- Possible implementation: add a `budget_remaining` signal to the orchestrator context (e.g., "iteration 16 of 20"), and instruct it to synthesize when ≤3 iterations remain regardless of WH/critique state
-
-### Compressor falls behind on COMPUTATION_LOG
-
-The perihelion run triggered 5 size alerts on COMPUTATION_LOG.md (40K+ chars). The compressor runs once per iteration but may not target COMPUTATION_LOG if other files also need attention. Ideas:
-
-- **Priority-based compression**: compress the largest file first, not round-robin
-- **Aggressive archival for computations**: old VERIFIED computations only need their verdict line retained; the full script output can be archived earlier than other content
-- **Trigger threshold**: lower the threshold or trigger compression mid-iteration when a file grows past 1.5× the threshold
+- **Workspace resume** — `--resume <workspace-dir>` to continue a previous run. Skip `init()` if `.git` exists, load iteration from METRICS.md, handle partial state (corrupted state, version mismatches).
