@@ -286,6 +286,52 @@ def test_terminated_cleanly_detection(tmp_path):
     assert contents3.terminated_cleanly is False
 
 
+def test_terminated_cleanly_via_research_state_status(tmp_path):
+    """Detect clean termination from RESEARCH_STATE status even when
+    CURRENT_TASK has a non-terminate task type (engine exit path 2)."""
+    completed_state = """---
+iteration: 8
+status: completed
+established_results: 3
+---
+
+# Research State
+"""
+    partially_complete_state = """---
+iteration: 8
+status: partially_complete
+established_results: 1
+---
+
+# Research State
+"""
+    # status: completed + non-terminate task → should be clean
+    ws1 = tmp_path / "ws_completed"
+    ws1.mkdir()
+    ws_dir1 = _make_workspace(ws1,
+        current_task=CURRENT_TASK_NOT_TERMINATED,
+        research_state=completed_state)
+    contents1 = load_workspace(ws_dir1)
+    assert contents1.terminated_cleanly is True
+
+    # status: partially_complete + non-terminate task → should be clean
+    ws2 = tmp_path / "ws_partial"
+    ws2.mkdir()
+    ws_dir2 = _make_workspace(ws2,
+        current_task=CURRENT_TASK_NOT_TERMINATED,
+        research_state=partially_complete_state)
+    contents2 = load_workspace(ws_dir2)
+    assert contents2.terminated_cleanly is True
+
+    # No status in RESEARCH_STATE + non-terminate task → still not clean
+    ws3 = tmp_path / "ws_no_status"
+    ws3.mkdir()
+    ws_dir3 = _make_workspace(ws3,
+        current_task=CURRENT_TASK_NOT_TERMINATED)
+    contents3 = load_workspace(ws_dir3)
+    assert contents3.terminated_cleanly is False
+
+
 def test_rerun_computations(tmp_path):
     """Re-run a trivial computation script via sandbox."""
     ws_dir = _make_workspace(tmp_path)

@@ -133,6 +133,15 @@ def load_workspace(workspace_dir: str) -> WorkspaceContents:
         contents.frontmatter = fm
         contents.terminated_cleanly = fm.get("task_type") == "terminate"
 
+    # Also check RESEARCH_STATE status — the engine may exit via
+    # _should_terminate() which sets status: completed/partially_complete
+    # without writing a terminate task to CURRENT_TASK.
+    if not contents.terminated_cleanly and contents.research_state:
+        rs_fm, _ = parse_frontmatter(contents.research_state)
+        rs_status = rs_fm.get("status", "")
+        if rs_status in ("completed", "partially_complete"):
+            contents.terminated_cleanly = True
+
     # Glob computation scripts
     scripts = sorted(glob.glob(str(ws / "computations" / "*.py")))
     contents.computation_scripts = scripts
