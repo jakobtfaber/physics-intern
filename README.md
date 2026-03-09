@@ -2,7 +2,13 @@
 
 Multi-agent scaffolding system for autonomous scientific research in mathematics and theoretical physics.
 
-Uses iterative LLM calls with externally persisted state in Markdown files and a layered verification stack: adversarial critique, symbolic/numerical computation, and structured sanity checks.
+## What is this?
+
+SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
+
+**How it works.** Five specialised LLM agents (orchestrator, researcher, computationalist, critic, compressor) take turns in a loop. No agent carries conversation history: each call starts from a fresh context and reads/writes shared Markdown files in a workspace directory. The orchestrator plans the next step, a worker agent executes it, and the cycle repeats. A layered verification stack — SymPy/NumPy computations, adversarial critique with severity tracking, and dependency-aware result promotion — acts as backpressure against errors. The workspace is version-controlled with git, so every step is recoverable.
+
+**Current status.** Core functionality is complete (66 tests passing). The system can solve known multi-step problems end-to-end, with independent post-hoc verification using a stronger model. It has been tested on problems ranging from quantum harmonic oscillator thermodynamics to casimir effect. See [PLAN.md](PLAN.md) for future work (tool-use loop, agentic agents).
 
 ## Quick Start
 
