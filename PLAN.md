@@ -9,10 +9,10 @@
 
 - **Critic self-retraction gate** — two-layer defense against inflated critique counts. Prompt now instructs the critic not to file LOW critiques when Phase 1 reproduction succeeds with no issues (outputs `NO_CRITIQUES_FILED` marker instead). Code-level safety net in `markdown.py:filter_self_retracted_critiques()` catches any remaining self-retracted LOWs (matched by retraction signals in Phase 2). Filtered critiques logged as HTML comments in CRITIQUE_LOG.md. Metrics alert on retraction.
 
+- **CRITIQUE_LOG cleanup on resolution** — `resolve_critique()` now captures the full block (including `### Phase 1` / `### Phase 2` sub-headings) by stopping only at headings of the same or higher level, instead of stopping at any `#`–`###` heading. Prevents orphaned body text in Active Critiques.
+
 
 ## To Do
-
-- **CRITIQUE_LOG cleanup on resolution** — when moving a critique to Resolved, remove the entire block (header + body) from Active, not just the CRIT-NNN header. Currently leaves orphaned Phase 1/Phase 2 body text.
 
 - **Check CLI arguments**
 

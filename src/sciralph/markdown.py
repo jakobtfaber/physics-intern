@@ -180,25 +180,36 @@ def resolve_critique(text: str, crit_id: str, resolution_note: str) -> str:
 
     Adds a resolution note. Returns text unchanged if crit_id is not found
     or already resolved.
+
+    Captures the full block (including ### Phase 1 / Phase 2 sub-headings)
+    by stopping only at headings of the same or higher level.
     """
-    # Find the critique block (## CRIT-NNN ... until next ## or end)
-    # Use a pattern that captures the full block
-    pattern = re.compile(
-        r'(#{2,3} CRIT(?:IQUE)?-' + re.escape(crit_id.split('-')[-1])
-        + r'\s*\[(\w+)\]\s*\[UNRESOLVED\].*?)(?=\n#{1,3} |\Z)',
-        re.DOTALL,
+    # Find the critique header to determine its heading level
+    header_re = re.compile(
+        r'^(#{2,3}) CRIT(?:IQUE)?-' + re.escape(crit_id.split('-')[-1])
+        + r'\s*\[\w+\]\s*\[UNRESOLVED\]',
+        re.MULTILINE,
     )
-    match = pattern.search(text)
-    if not match:
+    header_match = header_re.search(text)
+    if not header_match:
         return text  # Not found or already resolved
 
-    block = match.group(1)
+    heading_level = len(header_match.group(1))  # 2 or 3
+    start = header_match.start()
+
+    # Capture until next heading of same or higher level (fewer #), or end-of-string
+    block_end_re = re.compile(r'\n#{1,' + str(heading_level) + r'} ')
+    end_match = block_end_re.search(text, header_match.end())
+    end = end_match.start() if end_match else len(text)
+
+    block = text[start:end]
+
     # Mark as resolved and add resolution note
     resolved_block = block.replace("[UNRESOLVED]", "[RESOLVED]")
     resolved_block = resolved_block.rstrip() + f"\n- **Resolution:** {resolution_note}\n"
 
     # Remove from current position
-    text_without = text[:match.start()] + text[match.end():]
+    text_without = text[:start] + text[end:]
 
     # Append to Resolved Critiques section
     resolved_marker = "# Resolved Critiques"

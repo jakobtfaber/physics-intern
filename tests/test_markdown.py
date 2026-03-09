@@ -166,6 +166,64 @@ def test_resolve_critique_not_found():
     assert result == text
 
 
+def test_resolve_critique_with_phase_subheadings():
+    """Resolving a critique with ### Phase 1/Phase 2 removes the entire block from Active."""
+    text = """\
+---
+total_critiques: 2
+unresolved_high: 1
+unresolved_medium: 1
+---
+
+# Active Critiques
+
+## CRIT-010 [HIGH] [UNRESOLVED]
+- **Target:** WH-002
+- **Filed:** iteration 3
+
+### Phase 1: Reproduce
+1. Start with metric ansatz
+2. Apply field equations
+
+### Phase 2: Objection
+- **What is wrong:** Missing factor of 2 in normalization
+- **Why it matters:** Changes final temperature by factor 2
+
+## CRIT-011 [MEDIUM] [UNRESOLVED]
+- **Target:** ER-001
+- **Filed:** iteration 4
+- **Critique:** Check boundary conditions.
+
+# Resolved Critiques
+"""
+    result = resolve_critique(text, "CRIT-010", "Factor of 2 corrected.")
+
+    # CRIT-010 should be in Resolved section
+    resolved_idx = result.find("# Resolved Critiques")
+    crit010_idx = result.find("CRIT-010")
+    assert crit010_idx > resolved_idx
+
+    # Phase 1/Phase 2 content must NOT remain in Active section
+    active_idx = result.find("# Active Critiques")
+    active_section = result[active_idx:resolved_idx]
+    assert "Phase 1" not in active_section, "Phase 1 body orphaned in Active"
+    assert "Phase 2" not in active_section, "Phase 2 body orphaned in Active"
+    assert "metric ansatz" not in active_section
+    assert "Missing factor of 2" not in active_section
+
+    # Phase content SHOULD be in Resolved section
+    resolved_section = result[resolved_idx:]
+    assert "Phase 1" in resolved_section
+    assert "Phase 2" in resolved_section
+    assert "Factor of 2 corrected." in resolved_section
+
+    # CRIT-011 should still be in Active
+    assert "CRIT-011" in active_section
+    counts = count_unresolved_critiques(result)
+    assert counts["HIGH"] == 0
+    assert counts["MEDIUM"] == 1
+
+
 # --- Tests for filter_self_retracted_critiques ---
 
 
