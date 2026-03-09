@@ -10,6 +10,7 @@ from sciralph.markdown import (
     count_unresolved_critiques,
     insert_into_active_critiques,
     resolve_critique,
+    filter_self_retracted_critiques,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -163,3 +164,139 @@ def test_resolve_critique_not_found():
     text = (FIXTURES / "critique_log.md").read_text()
     result = resolve_critique(text, "CRIT-999", "Not found.")
     assert result == text
+
+
+# --- Tests for filter_self_retracted_critiques ---
+
+
+def test_filter_mixed_response():
+    """One genuine MEDIUM + one self-retracted LOW → only MEDIUM survives."""
+    text = """\
+## CRIT-010 [MEDIUM] [UNRESOLVED]
+- **Target:** WH-002
+- **Filed:** iteration 3
+
+### Phase 1: Reproduce
+1. Start with metric ansatz
+2. Apply field equations
+
+### Phase 2: Objection
+- **What is wrong:** Missing factor of 2 in normalization
+- **Why it matters:** Changes final temperature by factor 2
+
+## CRIT-011 [LOW] [UNRESOLVED]
+- **Target:** WH-003
+- **Filed:** iteration 3
+
+### Phase 1: Reproduce
+1. Start with Hawking formula
+2. Derive entropy expression
+3. Matches claimed result
+
+### Phase 2: Objection
+- Reproduction succeeded, no issues found. Documenting what was checked.
+- **Suggested verification:** None needed.
+"""
+    filtered, retracted = filter_self_retracted_critiques(text)
+    assert "CRIT-010" in filtered
+    assert "CRIT-011" not in filtered
+    assert len(retracted) == 1
+    assert "CRIT-011" in retracted[0]
+    assert "WH-003" in retracted[0]
+
+
+def test_filter_genuine_low_kept():
+    """LOW with real objection (notation issue) → not filtered."""
+    text = """\
+## CRIT-012 [LOW] [UNRESOLVED]
+- **Target:** WH-001
+- **Filed:** iteration 2
+
+### Phase 1: Reproduce
+1. Follow the derivation step by step.
+
+### Phase 2: Objection
+- **What is wrong:** Inconsistent notation: kappa used for both surface gravity and a coupling constant.
+- **Why it matters:** Could confuse later derivations.
+- **Suggested verification:** Notation audit.
+"""
+    filtered, retracted = filter_self_retracted_critiques(text)
+    assert "CRIT-012" in filtered
+    assert retracted == []
+
+
+def test_filter_all_retracted():
+    """Two self-retracted LOWs → empty filtered text, two retracted summaries."""
+    text = """\
+## CRIT-013 [LOW] [UNRESOLVED]
+- **Target:** WH-001
+- **Filed:** iteration 4
+
+### Phase 1: Reproduce
+1. Verified all steps.
+
+### Phase 2: Objection
+- Reproduction succeeded, no issues found.
+- **Suggested verification:** None needed.
+
+## CRIT-014 [LOW] [UNRESOLVED]
+- **Target:** ER-001
+- **Filed:** iteration 4
+
+### Phase 1: Reproduce
+1. Checked the algebra.
+
+### Phase 2: Objection
+- Reproduction succeeded, no flaws detected. Documenting successful verification.
+"""
+    filtered, retracted = filter_self_retracted_critiques(text)
+    assert filtered.strip() == ""
+    assert len(retracted) == 2
+
+
+def test_filter_no_critiques_filed_marker():
+    """NO_CRITIQUES_FILED marker → empty text, empty retracted list."""
+    text = "NO_CRITIQUES_FILED: Reviewed 5 claims, no issues found."
+    filtered, retracted = filter_self_retracted_critiques(text)
+    assert filtered == ""
+    assert retracted == []
+
+
+def test_filter_high_never_filtered():
+    """HIGH with retraction-like language → never suppressed."""
+    text = """\
+## CRIT-015 [HIGH] [UNRESOLVED]
+- **Target:** WH-004
+- **Filed:** iteration 5
+
+### Phase 1: Reproduce
+1. Attempted to reproduce the entropy bound derivation.
+
+### Phase 2: Objection
+- Reproduction succeeded, no issues found in algebra, BUT the boundary
+  condition is applied at the wrong surface.
+- **Why it matters:** Invalidates the area law derivation.
+"""
+    filtered, retracted = filter_self_retracted_critiques(text)
+    assert "CRIT-015" in filtered
+    assert retracted == []
+
+
+def test_filter_critique_nnn_drift_tolerance():
+    """CRITIQUE-NNN format (LLM drift) is also handled."""
+    text = """\
+## CRITIQUE-015 [LOW] [UNRESOLVED]
+- **Target:** WH-005
+- **Filed:** iteration 6
+
+### Phase 1: Reproduce
+1. Steps match claimed result.
+
+### Phase 2: Objection
+- Reproduction succeeded, no errors. Documenting successful verification.
+- **Suggested verification:** None needed.
+"""
+    filtered, retracted = filter_self_retracted_critiques(text)
+    assert "CRITIQUE-015" not in filtered
+    assert len(retracted) == 1
+    assert "CRITIQUE-015" in retracted[0]

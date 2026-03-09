@@ -101,6 +101,80 @@ def insert_into_active_critiques(text: str, new_content: str) -> str:
     return text[:resolved_idx].rstrip() + "\n\n" + new_content.strip() + "\n\n" + text[resolved_idx:]
 
 
+_RETRACTION_PATTERNS = [
+    re.compile(r"reproduction succeeded.*no (issues? found|flaws?|errors?)", re.IGNORECASE),
+    re.compile(r"no issues? found.*none needed", re.IGNORECASE),
+    re.compile(r"documenting successful verification", re.IGNORECASE),
+]
+
+_CRITIQUE_HEADER_RE = re.compile(r"^## CRIT(?:IQUE)?-\d+", re.MULTILINE)
+
+
+def filter_self_retracted_critiques(response_text: str) -> tuple[str, list[str]]:
+    """Filter out self-retracted LOW critiques from a critic response.
+
+    A critique is self-retracted if it is LOW severity AND Phase 2 contains
+    retraction signals (e.g. "reproduction succeeded, no issues found").
+
+    Also handles the NO_CRITIQUES_FILED marker line.
+
+    Returns (filtered_text, retracted_summaries) where summaries are
+    one-liners like "CRIT-012 targeting WH-003: self-retracted".
+    """
+    # Handle NO_CRITIQUES_FILED marker
+    if re.search(r"^NO_CRITIQUES_FILED:", response_text, re.MULTILINE):
+        return ("", [])
+
+    # Split into individual critique blocks
+    splits = _CRITIQUE_HEADER_RE.split(response_text)
+    headers = _CRITIQUE_HEADER_RE.findall(response_text)
+
+    if not headers:
+        return (response_text, [])
+
+    preamble = splits[0]  # text before the first critique header
+    blocks = list(zip(headers, splits[1:]))
+
+    kept: list[str] = []
+    retracted: list[str] = []
+
+    for header, body in blocks:
+        full_block = header + body
+        # Extract severity from the header line (first line of body before newline)
+        first_line = (header + body.split("\n")[0]).upper()
+        is_low = "[LOW]" in first_line
+
+        if is_low and _is_self_retracted(body):
+            # Build summary
+            crit_id = re.search(r"CRIT(?:IQUE)?-\d+", header).group()
+            target_match = re.search(r"\*\*Target:\*\*\s*(\S+)", body)
+            target = target_match.group(1) if target_match else "unknown"
+            retracted.append(f"{crit_id} targeting {target}: self-retracted")
+        else:
+            kept.append(full_block)
+
+    filtered_text = preamble.rstrip()
+    if kept:
+        if filtered_text:
+            filtered_text += "\n\n"
+        filtered_text += "\n".join(kept)
+
+    return (filtered_text.strip(), retracted)
+
+
+def _is_self_retracted(block_body: str) -> bool:
+    """Check if a critique block's Phase 2 contains retraction signals."""
+    # Extract text after Phase 2 heading
+    phase2_match = re.search(r"###\s*Phase\s*2", block_body, re.IGNORECASE)
+    if not phase2_match:
+        # No Phase 2 section — check the whole body
+        text_to_check = block_body
+    else:
+        text_to_check = block_body[phase2_match.start():]
+
+    return any(pat.search(text_to_check) for pat in _RETRACTION_PATTERNS)
+
+
 def resolve_critique(text: str, crit_id: str, resolution_note: str) -> str:
     """Move a critique from Active to Resolved, changing [UNRESOLVED] -> [RESOLVED].
 

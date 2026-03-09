@@ -7,11 +7,10 @@
 
 - **Budget-aware termination** — orchestrator context now shows "iteration X of Y (Z remaining)". When ≤3 iterations remain and ≥1 Established Result exists, a BUDGET SYNTHESIS REQUIRED banner forces synthesis regardless of WH/critique state. Engine recognizes `partially_complete` status for graceful early exit. Prompt updated with BUDGET-AWARE TERMINATION rules.
 
+- **Critic self-retraction gate** — two-layer defense against inflated critique counts. Prompt now instructs the critic not to file LOW critiques when Phase 1 reproduction succeeds with no issues (outputs `NO_CRITIQUES_FILED` marker instead). Code-level safety net in `markdown.py:filter_self_retracted_critiques()` catches any remaining self-retracted LOWs (matched by retraction signals in Phase 2). Filtered critiques logged as HTML comments in CRITIQUE_LOG.md. Metrics alert on retraction.
 
 
 ## To Do
-
-- **Critic self-retraction gate** — the critic sometimes files a critique then immediately argues against it in Phase 2. Add a gate: if Phase 2 concludes the objection is unfounded, do not emit the critique. Alternatively, instruct the critic to draft Phase 2 mentally before committing to filing.
 
 - **CRITIQUE_LOG cleanup on resolution** — when moving a critique to Resolved, remove the entire block (header + body) from Active, not just the CRIT-NNN header. Currently leaves orphaned Phase 1/Phase 2 body text.
 

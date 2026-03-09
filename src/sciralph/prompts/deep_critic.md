@@ -101,9 +101,10 @@ CRITICAL RULES FOR THE TWO PHASES:
   objection.
 - Phase 1 is YOUR work — reproducing their derivation. Phase 2 is your
   JUDGEMENT — what is wrong with their claim.
-- If your Phase 1 reproduction arrives at the SAME result as the claim,
-  and you find no flaw, you still file the critique (LOW severity) noting
-  "Reproduction succeeded, no issues found" with what you checked.
+- If your Phase 1 reproduction arrives at the SAME result as the claim
+  and you find no flaw, do NOT file a critique for that claim. Move on
+  to the next claim. Only file critiques where Phase 2 has a genuine
+  objection — a specific error, gap, inconsistency, or unverified step.
 - If your Phase 1 reproduction gives a DIFFERENT result than the claim,
   that discrepancy IS the objection for Phase 2. State both results clearly.
 - Do NOT critique your own Phase 1 reproduction. Phase 2 critiques the
@@ -135,7 +136,11 @@ NON-REPETITION:
   do not re-file the same objection at the same severity. Either escalate
   with NEW evidence or accept the resolution.
 
-You MUST file at least one critique. If you genuinely cannot find any
-issues, file a LOW critique noting what you checked and that it passed.
-Do not approve by silence — the system needs an explicit record that you
-looked.
+If after examining ALL claims you have no genuine objections, output
+EXACTLY the following marker line (and nothing else):
+
+NO_CRITIQUES_FILED: Reviewed [N] claims, no issues found.
+
+where [N] is the number of claims you examined. Do NOT file placeholder
+LOW critiques just to have output. Silence (with the marker) is the
+correct response when the research state is sound.

@@ -7,6 +7,7 @@ from ..markdown import (
     parse_frontmatter,
     count_unresolved_critiques,
     insert_into_active_critiques,
+    filter_self_retracted_critiques,
     render_frontmatter,
 )
 from .base import BaseAgent
@@ -29,10 +30,29 @@ class CriticAgent(BaseAgent):
 
     def process_response(self, response: LLMResponse, task: dict, iteration: int):
         """Insert new critiques into Active section and update frontmatter counts."""
-        content = self.workspace.read_file("CRITIQUE_LOG.md")
-        content = insert_into_active_critiques(content, response.text)
-        self.workspace.write_file("CRITIQUE_LOG.md", content)
+        filtered_text, retracted = filter_self_retracted_critiques(response.text)
+
+        if filtered_text.strip():
+            content = self.workspace.read_file("CRITIQUE_LOG.md")
+            content = insert_into_active_critiques(content, filtered_text)
+            self.workspace.write_file("CRITIQUE_LOG.md", content)
+
+        if retracted:
+            self._log_retractions(retracted, iteration)
+
         self._update_critique_metadata()
+
+    def _log_retractions(self, retracted: list[str], iteration: int):
+        """Log retracted critiques as HTML comments (invisible to agents) and alert."""
+        lines = [f"<!-- Self-retracted critiques (iteration {iteration}):"]
+        for summary in retracted:
+            lines.append(f"  - {summary}")
+        lines.append("-->")
+        self.workspace.append_file("CRITIQUE_LOG.md", "\n" + "\n".join(lines) + "\n")
+        self.metrics.alert(
+            iteration,
+            f"Critic self-retraction: {len(retracted)} critique(s) filtered",
+        )
 
     def _update_critique_metadata(self):
         """Recount unresolved critiques and update frontmatter."""
