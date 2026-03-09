@@ -1,11 +1,15 @@
 # SciRalph — Task List
 
 
+## Done
+
+- **Convention locking in orchestrator**.
+
+- **Budget-aware termination** — orchestrator context now shows "iteration X of Y (Z remaining)". When ≤3 iterations remain and ≥1 Established Result exists, a BUDGET SYNTHESIS REQUIRED banner forces synthesis regardless of WH/critique state. Engine recognizes `partially_complete` status for graceful early exit. Prompt updated with BUDGET-AWARE TERMINATION rules.
+
+
+
 ## To Do
-
-- **Convention locking in orchestrator** — the orchestrator should lock down all conventions (units, normalization, sign conventions, variable definitions) in iteration 1 before any derivation starts. Add an explicit instruction to emit a "Conventions" section in RESEARCH_STATE.md during the first task. Consider adding an optional `conventions:` field to problem YAML.
-
-- **Budget-aware termination** — current completion check requires `wh_count == 0` AND all critiques resolved, which can prevent synthesis when budget is low. Add a `budget_remaining` signal to orchestrator context (e.g., "iteration 16 of 20"). Instruct it to synthesize partial results when ≤3 iterations remain regardless of WH/critique state. Allow "partially complete" termination status.
 
 - **Critic self-retraction gate** — the critic sometimes files a critique then immediately argues against it in Phase 2. Add a gate: if Phase 2 concludes the objection is unfounded, do not emit the critique. Alternatively, instruct the critic to draft Phase 2 mentally before committing to filing.
 

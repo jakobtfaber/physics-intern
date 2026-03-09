@@ -19,8 +19,12 @@ class OrchestratorAgent(BaseAgent):
     name = "orchestrator"
     prompt_file = "orchestrator.md"
 
-    def _completion_analysis(self) -> str | None:
-        """Check if research appears complete; return banner if so."""
+    def _completion_analysis(self, iteration: int = 0) -> str | None:
+        """Check if research appears complete; return banner if so.
+
+        When budget is low (≤3 iterations remaining), returns a synthesis
+        banner even if Working Hypotheses or critiques remain unresolved.
+        """
         state = self.workspace.read_file("RESEARCH_STATE.md")
         critique = self.workspace.read_file("CRITIQUE_LOG.md")
         crit_meta, _ = parse_frontmatter(critique)
@@ -40,10 +44,27 @@ class OrchestratorAgent(BaseAgent):
                 "You SHOULD emit task_type: synthesize or task_type: terminate "
                 "unless you can identify a specific gap. <<<"
             )
+
+        # Budget-aware: force synthesis when ≤3 iterations remain
+        budget_remaining = self.config.max_iterations - iteration
+        if budget_remaining <= 3 and er_count >= 1:
+            return (
+                f">>> BUDGET SYNTHESIS REQUIRED: Only {budget_remaining} "
+                f"iteration(s) remaining (iteration {iteration} of "
+                f"{self.config.max_iterations}). "
+                f"{er_count} Established Results, "
+                f"{wh_count} Working Hypotheses still pending, "
+                f"{high} HIGH / {medium} MEDIUM unresolved critiques. "
+                "You MUST synthesize ALL current Established Results into a "
+                "final answer NOW using task_type: synthesize. "
+                "Unresolved Working Hypotheses and critiques should be noted "
+                "as limitations, not pursued further. Set the research status "
+                "to 'partially_complete' if any items remain unresolved. <<<"
+            )
         return None
 
     def build_context(self, task: dict, iteration: int) -> str:
-        banner = self._completion_analysis()
+        banner = self._completion_analysis(iteration)
         parts = []
         if banner:
             parts.append(f"{banner}\n")
@@ -54,8 +75,10 @@ class OrchestratorAgent(BaseAgent):
                 "is still empty. Consider populating it with the unit system, "
                 "sign conventions, and variable definitions being used. <<<\n"
             )
+        budget_remaining = self.config.max_iterations - iteration
         parts.extend([
-            f"# Current Iteration: {iteration}\n",
+            f"# Current Iteration: {iteration} of {self.config.max_iterations} "
+            f"({budget_remaining} remaining)\n",
             "## RESEARCH_STATE.md\n",
             state,
             "\n## CRITIQUE_LOG.md\n",

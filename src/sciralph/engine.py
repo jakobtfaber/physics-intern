@@ -179,10 +179,9 @@ Hypotheses and recent Established Results in RESEARCH_STATE.md.
     def _should_terminate(self) -> bool:
         """Check termination conditions beyond max_iterations."""
         state = self.workspace.read_file("RESEARCH_STATE.md")
-        if 'status: "completed"' in state or "status: completed" in state:
-            return True
-        if 'status: "abandoned"' in state or "status: abandoned" in state:
-            return True
+        for status in ("completed", "abandoned", "partially_complete"):
+            if f'status: "{status}"' in state or f"status: {status}" in state:
+                return True
         return False
 
     def _update_metrics(self):

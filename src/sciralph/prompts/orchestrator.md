@@ -140,6 +140,20 @@ TERMINATION URGENCY:
   confirmation is wasteful. Only re-verify if a NEW critique raises a
   specific concern.
 
+BUDGET-AWARE TERMINATION:
+- The context header shows "iteration X of Y (Z remaining)".
+- When ≤3 iterations remain, you MUST prioritize synthesis over new work.
+  Do NOT start new derivations, computations, or critique cycles.
+- If a BUDGET SYNTHESIS REQUIRED banner is present, emit task_type:
+  "synthesize" immediately. The researcher will compile all Established
+  Results into a final answer and note unresolved items as limitations.
+- When synthesizing under budget pressure with unresolved Working Hypotheses
+  or critiques, set the RESEARCH_STATE.md frontmatter status to
+  "partially_complete" (not "completed"). This signals that the answer is
+  based on what was established, with caveats noted.
+- A partial synthesis is always better than running out of iterations with
+  no final answer.
+
 VERDICT INTERPRETATION (from COMPUTATION_LOG.md):
 Computations use a three-valued verdict system:
 - VERIFIED — numerically confirmed. Counts as support for promotion criterion (a).

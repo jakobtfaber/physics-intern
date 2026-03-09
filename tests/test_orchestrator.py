@@ -160,6 +160,97 @@ class TestCompletionAnalysis:
         assert orchestrator._completion_analysis() is None
 
 
+class TestBudgetAwareTermination:
+    """Test budget-aware synthesis triggers when iterations are running low."""
+
+    STATE_WITH_WH = (
+        "---\nstatus: in_progress\n---\n\n"
+        "## ER-001\nA\n## ER-002\nB\n## ER-003\nC\n## WH-001\nPending\n"
+    )
+    CRITIQUE_WITH_UNRESOLVED = (
+        "---\nunresolved_high: 1\nunresolved_medium: 0\n---\n"
+    )
+    CRITIQUE_CLEAN = "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n"
+
+    def test_budget_banner_when_low(self, workspace):
+        """Budget synthesis banner fires when ≤3 iterations remain, even with WHs."""
+        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
+        metrics = MetricsTracker()
+        orch = OrchestratorAgent(config, workspace, metrics)
+        workspace.write_file("RESEARCH_STATE.md", self.STATE_WITH_WH)
+        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_CLEAN)
+
+        # iteration 18 of 20 → 2 remaining → should fire
+        result = orch._completion_analysis(iteration=18)
+        assert result is not None
+        assert "BUDGET SYNTHESIS REQUIRED" in result
+        assert "2 iteration(s) remaining" in result
+
+    def test_no_budget_banner_when_plenty_remaining(self, workspace):
+        """No budget banner when >3 iterations remain."""
+        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
+        metrics = MetricsTracker()
+        orch = OrchestratorAgent(config, workspace, metrics)
+        workspace.write_file("RESEARCH_STATE.md", self.STATE_WITH_WH)
+        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_CLEAN)
+
+        # iteration 10 of 20 → 10 remaining → should NOT fire
+        assert orch._completion_analysis(iteration=10) is None
+
+    def test_budget_banner_with_unresolved_critiques(self, workspace):
+        """Budget synthesis fires even with unresolved HIGH critiques."""
+        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
+        metrics = MetricsTracker()
+        orch = OrchestratorAgent(config, workspace, metrics)
+        workspace.write_file("RESEARCH_STATE.md", self.STATE_WITH_WH)
+        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_WITH_UNRESOLVED)
+
+        result = orch._completion_analysis(iteration=19)
+        assert result is not None
+        assert "BUDGET SYNTHESIS REQUIRED" in result
+        assert "1 HIGH" in result
+
+    def test_completion_check_takes_priority_over_budget(self, workspace):
+        """Normal completion check fires when all conditions met, not budget banner."""
+        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
+        metrics = MetricsTracker()
+        orch = OrchestratorAgent(config, workspace, metrics)
+        state = "---\nstatus: in_progress\n---\n\n## ER-001\nA\n## ER-002\nB\n## ER-003\nC\n"
+        workspace.write_file("RESEARCH_STATE.md", state)
+        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_CLEAN)
+
+        # No WHs, no critiques, ≤3 remaining → normal completion check wins
+        result = orch._completion_analysis(iteration=18)
+        assert result is not None
+        assert "COMPLETION CHECK" in result
+        assert "BUDGET" not in result
+
+    def test_no_budget_banner_without_established_results(self, workspace):
+        """Budget banner requires at least 1 ER (nothing to synthesize otherwise)."""
+        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
+        metrics = MetricsTracker()
+        orch = OrchestratorAgent(config, workspace, metrics)
+        state = "---\nstatus: in_progress\n---\n\n## WH-001\nPending\n"
+        workspace.write_file("RESEARCH_STATE.md", state)
+        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_CLEAN)
+
+        assert orch._completion_analysis(iteration=19) is None
+
+    def test_context_includes_iteration_budget(self, workspace):
+        """build_context always shows iteration X of Y (Z remaining)."""
+        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
+        metrics = MetricsTracker()
+        orch = OrchestratorAgent(config, workspace, metrics)
+        workspace.write_file("RESEARCH_STATE.md", "---\nstatus: in_progress\n---\n\nNothing yet.\n")
+        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_CLEAN)
+        workspace.write_file("COMPUTATION_LOG.md", "---\n---\n")
+        workspace.write_file("METRICS.md", "---\n---\n")
+
+        context = orch.build_context({}, iteration=5)
+        assert "5 of 20" in context
+        assert "15 remaining" in context
+
+
 class TestConventionReminder:
     """Test the gentle nudge when the Conventions section is still placeholder."""
 
