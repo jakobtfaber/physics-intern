@@ -1,6 +1,6 @@
 # SciRalph: A Ralph Wiggum–Inspired Scaffolding System for Autonomous Scientific Research
 
-## Design Document v1.0
+## Design Document v2.0
 
 ---
 
@@ -51,7 +51,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 
 | Role | Purpose | Reads | Writes | Frequency |
 |---|---|---|---|---|
-| **Orchestrator** | Planning, task selection, progress tracking | All files | `CURRENT_TASK.md` | Every iteration |
+| **Orchestrator** | Planning, task selection, integration of proposed changes | All files | `CURRENT_TASK.md`, `RESEARCH_STATE.md` | Every iteration |
 | **Researcher** | Derivations, hypothesis generation, conceptual reasoning | `RESEARCH_STATE.md`, `CURRENT_TASK.md`, `CRITIQUE_LOG.md` | `RESEARCH_STATE.md` (proposed changes in `PROPOSED_CHANGES.md`) | On demand |
 | **Computationalist** | Symbolic/numerical verification, code execution | `CURRENT_TASK.md`, `COMPUTATION_LOG.md`, relevant sections of `RESEARCH_STATE.md` | `COMPUTATION_LOG.md`, code files in `computations/` | On demand |
 | **Deep Critic** | Adversarial review, flaw detection | `RESEARCH_STATE.md`, `COMPUTATION_LOG.md` | `CRITIQUE_LOG.md` | Forced every N iterations + on demand |
@@ -227,37 +227,33 @@ last_computation: "2026-03-07T14:15:00Z"
 
 ## COMP-014: Taylor expansion of Schwarzschild metric near horizon
 - **Requested by:** Orchestrator, iteration 36, to verify ER-2
-- **Task:** Expand (1-r_s/r) around r = r_s + ε to first order in ε,
-  using geometrized units (G=c=1).
-- **Code:** `computations/comp_014_near_horizon.py`
-- **Result:**
+- **CLAIM:** Near-horizon expansion gives leading order ε/r_s
+- **METHOD:** Expand (1-r_s/r) around r = r_s + ε in geometrized units (G=c=1)
+- **Code:** `computations/comp_task-036.py`
+- **RESULT:**
   ```
   (1 - r_s/r) at r = r_s + ε:
     = 1 - r_s/(r_s + ε)
     = ε/(r_s + ε)
     = ε/r_s - ε²/r_s² + O(ε³)
-  Leading order: ε/r_s  ✓
-
-  Inverse: r_s/ε + 1 + O(ε)  
-  Leading order: r_s/ε  ✓
+  ALL NUMERICAL CHECKS PASSED
   ```
-- **Agrees with claim:** YES (ER-2 confirmed in geometrized units)
-- **Note:** CRIT-010 raises unit-system concern. SI-unit version TODO.
+- **VERDICT:** VERIFIED
+- **NOTES:** ER-2 confirmed in geometrized units. CRIT-010 raises unit-system concern.
 - **Iteration:** 36
 
 ## COMP-012: Sign verification of Wick-rotated metric
 - **Requested by:** Orchestrator, iteration 29, to verify ER-1
-- **Task:** Verify that t = -iτ_E applied to Schwarzschild metric yields
-  correct signs for Euclidean signature when r > r_s.
-- **Code:** `computations/comp_012_wick_signs.py`
-- **Result:**
+- **CLAIM:** Wick rotation gives positive-definite Euclidean metric for r > r_s
+- **METHOD:** Verify sign of g_tt dt² under t = -iτ_E
+- **Code:** `computations/comp_task-029.py`
+- **RESULT:**
   ```
-  dt = -i dτ_E  →  dt² = -dτ_E²
-  g_tt dt² = -(1-r_s/r)dτ_E²  
-  But original g_tt = -(1-r_s/r), so:
-  g_tt dt² = -(1-r_s/r)·(-dτ_E²) = (1-r_s/r)dτ_E²  ✓ (positive for r > r_s)
+  g_tt dt² = -(1-r_s/r)·(-dτ_E²) = (1-r_s/r)dτ_E²  (positive for r > r_s)
+  ALL NUMERICAL CHECKS PASSED
   ```
-- **Agrees with claim:** YES (ER-1 signs confirmed)
+- **VERDICT:** VERIFIED
+- **NOTES:** ER-1 signs confirmed.
 - **Iteration:** 29
 ```
 
@@ -266,7 +262,7 @@ last_computation: "2026-03-07T14:15:00Z"
 ```markdown
 ---
 task_id: "TASK-043"
-task_type: "compute"  # research | compute | critique | resolve | compress | synthesize
+task_type: "compute"  # research | derive | compute | critique | resolve | synthesize | terminate
 assigned_to: "computationalist"
 priority: "high"
 iteration: 43
@@ -295,7 +291,7 @@ See ER-2 in RESEARCH_STATE.md and CRIT-010 in CRITIQUE_LOG.md.
 
 ### 3.5 `PROPOSED_CHANGES.md`
 
-Written by the Researcher or Computationalist; consumed by the Orchestrator.
+Written by the Researcher; consumed by the Orchestrator on its next pass.
 
 ```markdown
 ---
@@ -374,33 +370,78 @@ Your job is to:
 
 1. Assess the current state: What is established? What is pending? What
    critiques are unresolved?
-2. Decide the single most valuable next action.
-3. Write a focused task description.
+2. If PROPOSED_CHANGES.md is present, evaluate and integrate accepted
+   changes into RESEARCH_STATE.md (see INTEGRATION DUTY below).
+3. Decide the single most valuable next action.
+4. Write a focused task description.
 
-RULES:
+PROMOTION RULES:
 - You MUST NOT mark a Working Hypothesis as an Established Result unless
   ALL of the following are true:
-  (a) At least one computational verification supports it
+  (a) At least one computational VERIFIED verdict supports it (INCONCLUSIVE
+      does NOT count as support, but also does NOT block promotion if other
+      evidence supports the claim)
   (b) A Deep Critic pass has reviewed it with no unresolved HIGH critiques
   (c) Its dependencies are all Established Results
-- If there are unresolved HIGH critiques, your FIRST priority is to create
-  a task that resolves them (usually a "compute" or "resolve" task).
-- If no critiques are pending and the last critic pass was more than 3
-  iterations ago, your next task MUST be a "critique" task.
-- When the problem is complex, identify prerequisite sub-problems or simpler
-  analogues whose solutions inform the main derivation. Tackle these first as
-  "derive" tasks before attempting the full problem.
-- Track dead ends. If a line of reasoning has been attempted twice and
-  critiqued both times, consider marking it as a Dead End and trying an
-  alternative approach.
-- If you believe the research goal has been achieved (all steps from
-  problem statement to final result are Established Results forming a
-  complete logical chain), set task_type to "synthesize" to produce the
-  final write-up.
+- HIGH critiques are not infallible. If a disputed claim has a VERIFIED
+  computation verdict, the critique may itself be wrong. Assess before
+  blindly resolving.
+
+MOMENTUM RULE — PROMOTE EAGERLY AND ADVANCE:
+- When a Working Hypothesis satisfies ALL promotion criteria, promote it
+  in the SAME pass and immediately plan the next derivation step.
+- Remaining LOW critiques should NOT block promotion.
+
+COMPUTE-FIRST RULE:
+- When a new Working Hypothesis has NO computation verdict yet, your FIRST
+  action MUST be a "compute" task, not a "critique" task. Numerical
+  verification is faster and more decisive.
+
+STALL DETECTION:
+- If the researcher has produced the same derivation in 2+ consecutive
+  iterations, the line of reasoning has CONVERGED. Note convergence and
+  proceed to verification or promotion.
+- If stuck in a resolve → critique → resolve loop for the same critique,
+  escalate: send to "compute" for a numerical test, or downgrade the
+  critique and move on.
+
+VALID TASK TYPES:
+  research — new derivation, hypothesis, or conceptual reasoning
+  derive — derivation of a specific formula or result
+  compute — symbolic/numerical verification via code execution
+  critique — adversarial review of research state
+  resolve — address a specific unresolved critique
+  synthesize — produce final write-up when all results established
+  terminate — signal that research is complete or should stop
+
+INTEGRATION DUTY:
+When PROPOSED_CHANGES.md is present, evaluate each proposed change against
+promotion criteria. Integrate accepted changes into RESEARCH_STATE.md.
+
+CRITIQUE RESOLUTION:
+When integrating changes that address critiques, list resolved critique IDs
+in YAML frontmatter: `resolved_critiques: [CRIT-001, CRIT-003]`. The system
+automatically moves them from Active to Resolved in CRITIQUE_LOG.md.
+
+VERDICT INTERPRETATION (from COMPUTATION_LOG.md):
+- VERIFIED — numerically confirmed. Counts as support for promotion.
+- REFUTED — claim is computationally disproved. Blocks promotion.
+- INCONCLUSIVE — tooling could not verify. NOT evidence against the claim.
+  After 2+ INCONCLUSIVE for the same claim, do not retry. Move on.
 
 OUTPUT FORMAT:
-You must output ONLY a valid CURRENT_TASK.md file (with YAML frontmatter
-and Markdown body) as specified in the design document. Nothing else.
+When PROPOSED_CHANGES.md is present, output TWO sections:
+
+=== RESEARCH_STATE.md ===
+(Full updated file including YAML frontmatter and all sections.)
+
+=== CURRENT_TASK.md ===
+(YAML frontmatter + Markdown body.)
+
+When NO proposed changes are present, output only:
+
+=== CURRENT_TASK.md ===
+(YAML frontmatter + Markdown body.)
 ```
 
 ### 4.2 Researcher
@@ -445,7 +486,11 @@ You must output ONLY a valid PROPOSED_CHANGES.md file (with YAML
 frontmatter and Markdown body) as specified in the design document.
 ```
 
-### 4.3 Computationalist
+### 4.3 Computationalist (Two-Pass Design)
+
+The computationalist uses a two-pass design: the first LLM call generates the computation plan and Python code; the scaffold executes the code; a second LLM call reviews the actual execution output and writes the verdict. This ensures verdicts are grounded in real execution results, not pre-execution predictions.
+
+**Pass 1 — Generate:**
 
 ```
 You are a Computationalist in a scientific research system. Your role is
@@ -463,34 +508,60 @@ manipulations and numerical checks.
 RULES:
 - Every computation must be self-contained and reproducible. Write a
   complete Python script that can be run independently.
-- Always print intermediate steps, not just final results. If you are
-  expanding an expression, show each stage of the expansion.
+- Always print intermediate steps, not just final results.
 - When verifying a claim, structure your output as:
   CLAIM: [restate the claim being verified]
   METHOD: [what computation you're performing]
-  CODE: [the Python script]
-  RESULT: [filled automatically from execution]
-- After code execution, a second lightweight LLM call reviews the actual
-  output and writes the final VERDICT and NOTES. This two-pass design
-  ensures verdicts are grounded in real execution results, not pre-execution
-  predictions. The review call adds ~10-15% overhead per computation step.
-  VERDICT: AGREES / DISAGREES / PARTIALLY AGREES / FAILED
-  NOTES: [any caveats, edge cases, or surprises]
-- If a computation DISAGREES with a claim, flag this prominently. Include
-  the expected result and the actual result side by side.
-- For numerical spot-checks, use at least 3 different parameter values
-  spanning different regimes (small, medium, large; or specific physically
-  meaningful values).
-- Always verify units/dimensions when applicable. Use SymPy's unit system
-  or explicit dimensional tracking.
-- If the task requires a tool you don't have access to (e.g., Cadabra for
-  tensor algebra), say so explicitly and describe what the computation
-  would be, so the system can be extended later.
+  RESULT: [left blank — filled automatically from execution]
+- Do NOT include VERDICT or NOTES — those come from the review step.
+
+VERIFICATION STRATEGY (MANDATORY):
+Every verification MUST include numerical spot-checks as the PRIMARY method.
+Symbolic verification is SECONDARY and supplementary.
+
+  TIER 1 — NUMERICAL SPOT-CHECKS (always required):
+  - Evaluate BOTH sides of any identity at 5+ parameter values spanning the
+    valid domain (small, medium, large, edge cases).
+  - Use assert np.isclose() with resilient try/except wrappers so all test
+    points run even if one fails.
+  - For convergence claims: ensure reference sums use adaptive n_max based
+    on convergence ratio, not fixed term counts.
+
+  TIER 2 — SYMBOLIC VERIFICATION (optional, supplementary):
+  - Try MULTIPLE simplification strategies. NEVER use
+    assert sp.simplify(A - B) == 0 as the sole verification (SymPy's
+    simplify() frequently fails on correct expressions).
+  - Wrap symbolic checks in try/except.
+
+  TIER 3 — SERIES EXPANSION (for identity/limit verification):
+  - Compare Taylor/Laurent series of both sides to a given order.
 
 OUTPUT FORMAT:
-You must output:
-1. A COMPUTATION_LOG entry (Markdown, to be appended to COMPUTATION_LOG.md)
-2. The Python script (to be saved in computations/ directory)
+1. A COMPUTATION_LOG entry (Markdown) with CLAIM, METHOD, RESULT sections
+2. The Python script in a ```python fenced code block
+```
+
+**Pass 2 — Review:**
+
+After the scaffold executes the code and fills the RESULT section, a second
+LLM call receives the completed log entry and writes:
+
+```
+VERDICT VALUES:
+- VERIFIED — numerical checks pass across test points.
+- REFUTED — numerical checks fail consistently across multiple test points.
+  Requires convergent evidence (failures at 2+ well-conditioned test points).
+- INCONCLUSIVE — execution errored, insufficient evidence, or disagreement
+  between methods.
+
+CRITICAL RULES:
+- Execution failure (crash, timeout) → INCONCLUSIVE, never REFUTED.
+- Single symbolic failure → INCONCLUSIVE, never REFUTED.
+- Numerical passes + symbolic fails → VERIFIED.
+
+OUTPUT FORMAT:
+**VERDICT:** [VERIFIED / REFUTED / INCONCLUSIVE]
+**NOTES:** [1-3 sentences summarizing what the execution output shows]
 ```
 
 ### 4.4 Deep Critic
@@ -508,52 +579,60 @@ You will be given:
 - COMPUTATION_LOG.md (the evidence supporting those claims)
 - Your previous critiques in CRITIQUE_LOG.md (so you don't repeat yourself)
 
-FOR EVERY CLAIM in the Working Hypotheses and Established Results sections,
-systematically ask:
+FOR EVERY CLAIM, systematically check:
+- LOGICAL: step justification, implicit assumptions, gaps, non sequiturs
+- MATHEMATICAL: sign errors, missing factors, index structure, limits,
+  boundary conditions, order of operations
+- PHYSICAL: units/dimensions, known limits, order of magnitude, symmetries,
+  conservation laws
+- META: unit system consistency, notation, dependency tracking
 
-LOGICAL CHECKS:
-- Is each step justified? What is the logical warrant for each inference?
-- What assumptions are made implicitly? Are they stated?
-- Is there a gap between what is claimed and what is actually shown?
-- Does the conclusion follow from the premises, or is there a non sequitur?
-
-MATHEMATICAL CHECKS:
-- Could there be a sign error?
-- Could there be a missing factor (of 2, π, 2π, etc.)?
-- Is the index structure consistent (for tensors)?
-- Are limits of integration / boundary conditions correct?
-- Is the order of operations / order of limits correct?
-
-PHYSICAL CHECKS:
-- Do the units/dimensions work out?
-- Does the result reduce to known results in appropriate limits?
-- Is the result physically reasonable in order of magnitude?
-- Are symmetries respected?
-- Are conservation laws satisfied?
-
-META CHECKS:
-- Is the unit system consistent throughout?
-- Are notation conventions consistent?
-- Is there a simpler argument that would make a complex one unnecessary?
-  (If so, why is the complex one being used? Possible sign of error.)
-- Are the dependencies between results correctly tracked?
+COMPUTATION EVIDENCE CHECKS:
+- VERIFIED — claim has computational support. You may still critique the
+  derivation logic, but note that numerical checks passed.
+- REFUTED — claim was computationally disproved. Warrants HIGH severity.
+- INCONCLUSIVE — NOT evidence against the claim. INCONCLUSIVE verdicts
+  MUST NOT be the sole basis for a HIGH critique. Cap at MEDIUM.
+  Execution failures reflect code quality, not mathematical validity.
 
 SEVERITY LEVELS:
-- HIGH: This could invalidate the result. Must be resolved before the
-  claim can be promoted to Established.
-- MEDIUM: This is a gap or concern that should be addressed but likely
-  doesn't invalidate the result.
+- HIGH: Could invalidate the result. Must be resolved before promotion.
+- MEDIUM: Gap or concern, likely doesn't invalidate the result.
 - LOW: Stylistic, notational, or minor clarity issue.
 
-OUTPUT FORMAT:
-You must output new CRITIQUE_LOG entries (Markdown, to be appended to
-CRITIQUE_LOG.md). Each critique must have: ID, severity, target claim,
-the critique itself, and a suggested verification method.
+TWO-PHASE OUTPUT FORMAT:
+For EACH claim examined, use this exact structure:
 
-You MUST file at least one critique. If you genuinely cannot find any
-issues, file a LOW critique noting what you checked and that it passed.
-Do not approve by silence — the system needs an explicit record that you
-looked.
+## CRIT-NNN [SEVERITY] [UNRESOLVED]
+- **Target:** [claim ID]
+- **Filed:** iteration [N]
+
+### Phase 1: Reproduce
+Restate the claim's argument step by step IN YOUR OWN WORDS. Do NOT
+critique yet. Faithfully reproduce the logical chain. If you cannot
+reproduce the argument, note exactly WHERE you get stuck.
+
+### Phase 2: Objection
+Having reproduced the argument, state the objection:
+- **What is wrong:** [specific flaw]
+- **Why it matters:** [could it change the result?]
+- **Suggested verification:** [symbolic_check / numerical_spot_check / etc.]
+
+CRITICAL RULES:
+- Keep Phase 1 and Phase 2 STRICTLY separate.
+- If Phase 1 reproduction arrives at the same result and you find no flaw,
+  file a LOW critique noting "Reproduction succeeded, no issues found."
+
+EPISTEMIC CALIBRATION:
+- If your objection rests on competing intuition rather than a concrete
+  algebraic error, cap severity at MEDIUM.
+- If a claim has a VERIFIED computation verdict and your objection is
+  purely analytical, cap at MEDIUM.
+
+NON-REPETITION:
+- Check CRITIQUE_LOG.md for existing equivalent critiques. Do not duplicate.
+
+You MUST file at least one critique. Do not approve by silence.
 ```
 
 ### 4.5 Compressor
@@ -591,65 +670,50 @@ and YAML frontmatter format.
 ### 5.1 Pseudocode
 
 ```python
-import subprocess, json, time, os
-from datetime import datetime
-from pathlib import Path
-
-# --- Configuration ---
-CONFIG = {
-    "model": "claude-sonnet-4-20250514",  # or claude-opus-4-6
-    "max_tokens": 16384,
-    "max_iterations": 200,
-    "critic_every_n": 4,          # force critic pass every N iterations
-    "compress_threshold": {       # char count thresholds
-        "RESEARCH_STATE.md": 50_000,
-        "CRITIQUE_LOG.md": 30_000,
-        "COMPUTATION_LOG.md": 40_000,
-    },
-    "max_retries_on_max_tokens": 2,
-    "sympy_timeout_seconds": 60,
-}
-
-WORKSPACE = Path("./workspace")
-COMPUTATIONS_DIR = WORKSPACE / "computations"
-PROMPTS_DIR = Path("./prompts")   # stores system prompts for each agent
-
 class SciRalph:
-    def __init__(self, problem_description: str):
-        """
-        problem_description: Natural language description of the research goal.
-        """
-        self.iteration = 0
+    def __init__(self, problem: str, config: Config):
+        self.config = config
         self.metrics = MetricsTracker()
-        self.workspace = WORKSPACE
-        self._init_workspace(problem_description)
+        self.workspace = WorkspaceManager(config)
+        self.workspace.init(problem)  # creates workspace dir, initial files, git init
+        self.config.audit_log = str(self.workspace.root / "AUDIT_LOG.jsonl")
+        self.config.logs_dir = str(self.workspace.logs_dir)
+        self.iteration = 0
+        self._stale_iterations = 0
 
-    def _init_workspace(self, problem_description):
-        """Create initial files from templates."""
-        os.makedirs(COMPUTATIONS_DIR, exist_ok=True)
-        # Initialize RESEARCH_STATE.md with problem statement
-        # Initialize empty CRITIQUE_LOG.md, COMPUTATION_LOG.md, METRICS.md
-        # Initialize git repo
-        ...
+        # Initialize all five agents
+        self.orchestrator = OrchestratorAgent(config, self.workspace, self.metrics)
+        self.researcher = ResearcherAgent(config, self.workspace, self.metrics)
+        self.computationalist = ComputationalistAgent(config, self.workspace, self.metrics)
+        self.critic = CriticAgent(config, self.workspace, self.metrics)
+        self.compressor = CompressorAgent(config, self.workspace, self.metrics)
 
     def run(self):
         """Main loop."""
-        while self.iteration < CONFIG["max_iterations"]:
+        while self.iteration < self.config.max_iterations:
             self.iteration += 1
-            print(f"\n{'='*60}")
-            print(f"  ITERATION {self.iteration}")
-            print(f"{'='*60}")
 
             # --- Step 1: Orchestrator decides next task ---
-            task = self._run_orchestrator()
+            # (also integrates PROPOSED_CHANGES.md if present)
+            orch_response = self.orchestrator.run({}, self.iteration)
+            task = self.orchestrator.parse_task(orch_response.text, iteration=self.iteration)
 
+            # Check for termination signal
             if task["task_type"] == "terminate":
-                print("Orchestrator signaled completion.")
                 break
+            if task["task_type"] != "synthesize":
+                # Backstop: detect stale loops when research looks complete
+                # If 3+ ERs, 0 WHs, and orchestrator hasn't terminated for 2 iterations
+                er_count, wh_count = self._count_results()
+                if er_count >= 3 and wh_count == 0:
+                    self._stale_iterations += 1
+                    if self._stale_iterations >= 2:
+                        break  # force exit
+                else:
+                    self._stale_iterations = 0
 
             # --- Step 2: Force critic if overdue ---
             if self._critic_overdue() and task["task_type"] != "critique":
-                print("Forcing critic pass (overdue).")
                 task = self._make_forced_critic_task()
 
             # --- Step 3: Dispatch to appropriate agent ---
@@ -659,299 +723,52 @@ class SciRalph:
             self._check_compression()
 
             # --- Step 5: Metrics & git commit ---
-            self.metrics.record_iteration(self.iteration, agent_name)
-            self._git_commit(f"Iteration {self.iteration}: {agent_name} — {task['task_id']}")
+            self._update_metrics()
+            self.workspace.git_commit(f"Iteration {self.iteration}: {agent_name}")
 
             # --- Step 6: Check termination conditions ---
-            if self._should_terminate():
+            if self._should_terminate():  # checks status: completed/abandoned
                 break
 
-        self._final_report()
-
-    def _run_orchestrator(self) -> dict:
-        """Run orchestrator agent, return parsed task."""
-        system_prompt = self._load_prompt("orchestrator")
-        user_content = self._build_orchestrator_context()
-        response = self._call_llm(system_prompt, user_content, agent="orchestrator")
-        task = self._parse_task(response)
-        self._write_file("CURRENT_TASK.md", response)
-        return task
+        self._final_report()  # flushes metrics, prints summary
 
     def _dispatch(self, task: dict) -> str:
         """Route task to the correct agent."""
         task_type = task["task_type"]
 
-        if task_type in ("research", "resolve", "synthesize"):
-            return self._run_researcher(task)
+        if task_type in ("research", "derive", "resolve", "synthesize"):
+            self.researcher.run(task, self.iteration)
+            return "researcher"
         elif task_type == "compute":
-            return self._run_computationalist(task)
+            self.computationalist.run(task, self.iteration)
+            return "computationalist"
         elif task_type == "critique":
-            return self._run_deep_critic(task)
+            self.critic.run(task, self.iteration)
+            return "deep_critic"
         elif task_type == "compress":
-            return self._run_compressor(task)
+            self.compressor.run(task, self.iteration)
+            return "compressor"
         else:
-            raise ValueError(f"Unknown task type: {task_type}")
-
-    def _run_researcher(self, task) -> str:
-        system_prompt = self._load_prompt("researcher")
-        context = self._build_researcher_context(task)
-        response = self._call_llm(system_prompt, context, agent="researcher")
-        self._write_file("PROPOSED_CHANGES.md", response)
-        return "researcher"
-
-    def _run_computationalist(self, task) -> str:
-        system_prompt = self._load_prompt("computationalist")
-        context = self._build_computationalist_context(task)
-        response = self._call_llm(system_prompt, context, agent="computationalist")
-        # Parse response into log entry + code
-        log_entry, code = self._parse_computation_response(response)
-        self._append_file("COMPUTATION_LOG.md", log_entry)
-        # Save and execute the code
-        code_path = COMPUTATIONS_DIR / f"comp_{task['task_id']}.py"
-        self._write_file(code_path, code)
-        exec_result = self._execute_python(code_path)
-        # Append execution result to log
-        self._append_file("COMPUTATION_LOG.md", f"\n**Execution output:**\n```\n{exec_result}\n```\n")
-        return "computationalist"
-
-    def _run_deep_critic(self, task) -> str:
-        system_prompt = self._load_prompt("deep_critic")
-        context = self._build_critic_context()
-        response = self._call_llm(system_prompt, context, agent="deep_critic")
-        self._append_file("CRITIQUE_LOG.md", response)
-        # Update critique counts in frontmatter
-        self._update_critique_metadata()
-        return "deep_critic"
-
-    def _run_compressor(self, task) -> str:
-        target_file = task.get("target_file")
-        system_prompt = self._load_prompt("compressor")
-        content = self._read_file(target_file)
-        response = self._call_llm(system_prompt, content, agent="compressor")
-        # Archive original, write compressed version
-        self._archive_file(target_file)
-        self._write_file(target_file, response)
-        return "compressor"
-
-    # --- LLM Interface ---
-
-    def _call_llm(self, system_prompt: str, user_content: str,
-                  agent: str, retry_count: int = 0) -> str:
-        """
-        Call the LLM API. Track tokens. Retry on max_tokens_reached.
-        """
-        start_time = time.time()
-
-        response = call_anthropic_api(
-            model=CONFIG["model"],
-            max_tokens=CONFIG["max_tokens"],
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_content}],
-        )
-
-        duration = time.time() - start_time
-        input_tokens = response["usage"]["input_tokens"]
-        output_tokens = response["usage"]["output_tokens"]
-        stop_reason = response["stop_reason"]
-
-        self.metrics.record_call(
-            iteration=self.iteration,
-            agent=agent,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            duration=duration,
-            max_tokens_hit=(stop_reason == "max_tokens"),
-        )
-
-        if stop_reason == "max_tokens":
-            self.metrics.alert(
-                self.iteration,
-                f"max_tokens_reached on {agent} call "
-                f"(input={input_tokens}, output={output_tokens})"
-            )
-            if retry_count < CONFIG["max_retries_on_max_tokens"]:
-                # Retry with truncated context
-                truncated = self._truncate_context(user_content)
-                return self._call_llm(
-                    system_prompt, truncated, agent, retry_count + 1
-                )
-
-        return response["content"][0]["text"]
-
-    # --- Context Builders ---
-
-    def _build_orchestrator_context(self) -> str:
-        """Assemble all state files into orchestrator's context."""
-        parts = [
-            f"# Current Iteration: {self.iteration}\n",
-            "## RESEARCH_STATE.md\n",
-            self._read_file("RESEARCH_STATE.md"),
-            "\n## CRITIQUE_LOG.md\n",
-            self._read_file("CRITIQUE_LOG.md"),
-            "\n## COMPUTATION_LOG.md (last 5 entries)\n",
-            self._read_file_tail("COMPUTATION_LOG.md", n_entries=5),
-            "\n## METRICS.md (summary)\n",
-            self._read_file("METRICS.md"),
-        ]
-        if os.path.exists(self.workspace / "PROPOSED_CHANGES.md"):
-            parts.append("\n## PROPOSED_CHANGES.md (pending review)\n")
-            parts.append(self._read_file("PROPOSED_CHANGES.md"))
-        return "\n".join(parts)
-
-    def _build_researcher_context(self, task) -> str:
-        parts = [
-            "## CURRENT_TASK.md\n",
-            self._read_file("CURRENT_TASK.md"),
-            "\n## RESEARCH_STATE.md\n",
-            self._read_file("RESEARCH_STATE.md"),
-        ]
-        if task["task_type"] == "resolve":
-            parts.append("\n## Relevant Critiques\n")
-            parts.append(self._get_relevant_critiques(task))
-        return "\n".join(parts)
-
-    def _build_computationalist_context(self, task) -> str:
-        parts = [
-            "## CURRENT_TASK.md\n",
-            self._read_file("CURRENT_TASK.md"),
-            "\n## Relevant Research State (excerpts)\n",
-            self._get_relevant_research_sections(task),
-            "\n## Recent Computations (for reference)\n",
-            self._read_file_tail("COMPUTATION_LOG.md", n_entries=3),
-        ]
-        return "\n".join(parts)
-
-    def _build_critic_context(self) -> str:
-        parts = [
-            "## RESEARCH_STATE.md\n",
-            self._read_file("RESEARCH_STATE.md"),
-            "\n## COMPUTATION_LOG.md\n",
-            self._read_file("COMPUTATION_LOG.md"),
-            "\n## Your Previous Critiques (do not repeat)\n",
-            self._read_file("CRITIQUE_LOG.md"),
-        ]
-        return "\n".join(parts)
-
-    # --- Verification & Execution ---
-
-    def _execute_python(self, script_path: Path) -> str:
-        """Execute a Python script in a sandboxed environment with timeout."""
-        try:
-            result = subprocess.run(
-                ["python", str(script_path)],
-                capture_output=True,
-                text=True,
-                timeout=CONFIG["sympy_timeout_seconds"],
-                cwd=str(COMPUTATIONS_DIR),
-            )
-            output = result.stdout
-            if result.returncode != 0:
-                output += f"\n\nSTDERR:\n{result.stderr}"
-            return output
-        except subprocess.TimeoutExpired:
-            return f"TIMEOUT: Script exceeded {CONFIG['sympy_timeout_seconds']}s limit."
-        except Exception as e:
-            return f"EXECUTION ERROR: {e}"
-
-    # --- Termination & Monitoring ---
-
-    def _critic_overdue(self) -> bool:
-        """Check if more than N iterations since last critic pass."""
-        last = self.metrics.last_critic_iteration
-        return (self.iteration - last) >= CONFIG["critic_every_n"]
-
-    def _check_compression(self):
-        """Check file sizes against thresholds."""
-        for filename, threshold in CONFIG["compress_threshold"].items():
-            filepath = self.workspace / filename
-            if filepath.exists():
-                size = filepath.stat().st_size
-                if size > threshold:
-                    self.metrics.alert(
-                        self.iteration,
-                        f"{filename} size ({size}) exceeds threshold ({threshold}). "
-                        f"Scheduling compression."
-                    )
-                    # Will be picked up by orchestrator on next iteration,
-                    # or force it now if critically large (>2x threshold)
-                    if size > threshold * 2:
-                        self._run_compressor({"target_file": filename})
-
-    def _should_terminate(self) -> bool:
-        """Check termination conditions beyond max_iterations."""
-        state = self._read_file("RESEARCH_STATE.md")
-        # Parse status from frontmatter
-        if "status: \"completed\"" in state:
-            return True
-        if "status: \"abandoned\"" in state:
-            return True
-        return False
-
-    def _git_commit(self, message: str):
-        """Commit current state to git."""
-        subprocess.run(["git", "add", "-A"], cwd=str(self.workspace))
-        subprocess.run(["git", "commit", "-m", message, "--allow-empty"],
-                       cwd=str(self.workspace))
-
-
-class MetricsTracker:
-    """Track per-iteration metrics, alerts, and file sizes."""
-
-    def __init__(self):
-        self.calls = []
-        self.alerts = []
-        self.last_critic_iteration = 0
-        self.total_input_tokens = 0
-        self.total_output_tokens = 0
-        self.max_tokens_reached_count = 0
-
-    def record_call(self, iteration, agent, input_tokens, output_tokens,
-                    duration, max_tokens_hit):
-        self.calls.append({
-            "iteration": iteration,
-            "agent": agent,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "duration": duration,
-            "max_tokens_hit": max_tokens_hit,
-        })
-        self.total_input_tokens += input_tokens
-        self.total_output_tokens += output_tokens
-        if max_tokens_hit:
-            self.max_tokens_reached_count += 1
-        if agent == "deep_critic":
-            self.last_critic_iteration = iteration
-
-    def record_iteration(self, iteration, agent_name):
-        """Write current metrics to METRICS.md."""
-        ...
-
-    def alert(self, iteration, message):
-        self.alerts.append({"iteration": iteration, "message": message})
-
-    def to_markdown(self) -> str:
-        """Render metrics as Markdown for METRICS.md."""
-        ...
+            # Unknown type: fall through to researcher
+            self.researcher.run(task, self.iteration)
+            return "researcher"
 ```
 
 ### 5.2 Entry Point
 
-```python
-# main.py
-
-from sciralph import SciRalph
-
-problem = """
-Derive the Hawking temperature T_H = ℏc³/(8πGMk_B) for a Schwarzschild
-black hole using the Euclidean path integral approach. Start from the
-Schwarzschild metric, perform Wick rotation, identify the conical
-singularity condition, and extract the temperature from the required
-periodicity of Euclidean time.
-"""
-
-agent = SciRalph(problem)
-agent.run()
+```bash
+uv run python -m sciralph.main <problem.yaml> [--model MODEL] [--max-iterations N] [--workspace-dir DIR]
 ```
+
+Problems are defined in YAML files:
+
+```yaml
+problem: |
+  Derive the Hawking temperature T_H = ℏc³/(8πGMk_B) for a Schwarzschild
+  black hole using the Euclidean path integral approach...
+```
+
+Each run creates a timestamped workspace directory under `workspaces/`.
 
 ---
 
@@ -983,8 +800,8 @@ SOFT SIGNALS (LLM judgment, adversarial)
 
 A claim moves from Working Hypothesis → Established Result when:
 
-1. **At least one HARD or MEDIUM signal** supports it (a computation agrees).
-2. **A Deep Critic pass has reviewed it** with no unresolved HIGH critiques.
+1. **At least one computation with VERIFIED verdict** supports it. (INCONCLUSIVE does not count as support, but also does not block promotion if other evidence exists.)
+2. **A Deep Critic pass has reviewed it** with no unresolved HIGH critiques. (LOW critiques do not block promotion.)
 3. **All dependencies are themselves Established Results.**
 
 The Orchestrator enforces these rules. The Researcher cannot self-promote.
@@ -1034,264 +851,114 @@ A `Librarian` agent with web search access could:
 
 ### 7.4 Audit Logging
 
-All system activity is logged to a structured JSONL file (`workspace/audit.jsonl`) for human review and debugging. This log is **not** consumed by any agent — it exists purely for the operator.
+Two complementary logging systems capture all system activity:
 
-In addition, every LLM call produces a Markdown file in `logs/` containing the full system prompt, user content, and assistant response. Files are named `iter{NNN}_{agent}_{seq}.md` where `seq` is a per-iteration sequence number (handling retries and multiple calls within one iteration). These files enable inspection and replay of any individual call.
+**JSONL Audit Log** (`AUDIT_LOG.jsonl`): One JSON object per LLM call containing metadata (agent name, iteration, token counts, duration, stop reason, character counts). This log is **not** consumed by any agent — it exists purely for the operator. Flushed immediately so it survives crashes.
 
-Each log entry is a JSON object with a `type` field. Entry types:
+**Conversation Logs** (`logs/`): Every LLM call produces a Markdown file containing the full system prompt, user content, and assistant response verbatim. Files are named `iter{NNN}_{agent}_{seq}.md` where `seq` is a per-iteration sequence number (handling retries and the computationalist's two-pass flow within one iteration). These files enable inspection and replay of any individual call.
 
-```json
-{"type": "llm_call", "timestamp": "...", "iteration": 42, "agent": "researcher",
- "system_prompt_hash": "a1b2c3", "context_chars": 38420,
- "response_chars": 4210, "input_tokens": 38420, "output_tokens": 4210,
- "stop_reason": "end_turn", "duration_s": 12.3,
- "system_prompt": "...", "context": "...", "response": "..."}
+Both live in the workspace directory (gitignored from the source repo, tracked in the workspace's own git).
 
-{"type": "file_write", "timestamp": "...", "iteration": 42,
- "filename": "PROPOSED_CHANGES.md", "size_chars": 2400}
+### 7.5 Agentic Tool Use (Planned)
 
-{"type": "sandbox_exec", "timestamp": "...", "iteration": 42,
- "script": "computations/comp_043.py", "returncode": 0,
- "timed_out": false, "stdout_chars": 340, "stderr_chars": 0}
+The current system uses a one-shot pattern: the scaffold builds context, calls the LLM once, and processes the text response. This has a known limitation for the Computationalist — if generated code has a bug, an entire iteration is wasted on an INCONCLUSIVE result.
 
-{"type": "tool_call", "timestamp": "...", "iteration": 42, "agent": "computationalist",
- "tool": "execute_python", "input": {"code": "..."}, "output": "...", "duration_s": 3.1}
+The planned improvement gives select agents access to **tools** via the Anthropic tool-use API. Instead of a single `messages.create` call, the scaffold would run a **tool-use loop**: the agent calls a tool (e.g., `execute_python`), sees the output, can fix errors and iterate, and eventually produces a final text response.
 
-{"type": "git_commit", "timestamp": "...", "iteration": 42,
- "message": "Iteration 42: researcher — TASK-043", "sha": "abc1234"}
-
-{"type": "decision", "timestamp": "...", "iteration": 42,
- "decision": "force_critic", "reason": "4 iterations since last critic pass"}
-
-{"type": "alert", "timestamp": "...", "iteration": 42,
- "message": "max_tokens_reached on researcher call"}
-```
-
-The logger is a thin wrapper around `json.dumps` + file append. No buffering — every entry is flushed immediately so the log survives crashes. The full LLM prompts and responses are included (these are the most valuable part for debugging), making the log potentially large (hundreds of MB for long sessions). This is acceptable since it lives in the gitignored workspace.
-
-A companion `replay` utility (future) could parse the JSONL to reconstruct a session timeline, filter by agent, visualize token usage, or replay the context that a specific agent saw at a given iteration.
-
-### 7.5 Agentic Tool Use (Tool-Use Loop)
-
-The MVP uses a one-shot pattern: the scaffold builds context, calls the LLM once, and processes the text response. This has a critical limitation for the Computationalist — if generated code has a bug, an entire iteration is wasted.
-
-The improved design gives select agents access to **tools** via the Anthropic tool-use API. Instead of a single `messages.create` call, the scaffold runs a **tool-use loop**:
-
-```python
-def run_agent_loop(system, context, tools, config) -> AgentResult:
-    """Run an agent with tool use until it produces a final text response."""
-    messages = [{"role": "user", "content": context}]
-
-    while True:
-        response = client.messages.create(
-            model=config.model,
-            max_tokens=config.max_tokens,
-            system=system,
-            messages=messages,
-            tools=tools,
-        )
-
-        # Collect tool uses and text blocks
-        tool_results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                result = execute_tool(block.name, block.input)
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result,
-                })
-
-        if not tool_results:
-            # No tool calls — agent is done
-            break
-
-        # Feed tool results back
-        messages.append({"role": "assistant", "content": response.content})
-        messages.append({"role": "user", "content": tool_results})
-
-    return AgentResult(text=..., tool_calls=..., tokens=...)
-```
-
-#### Tool Definitions per Agent
-
-| Agent | Tools | Rationale |
+| Agent | Planned Tools | Rationale |
 |-------|-------|-----------|
-| Orchestrator | `read_file(path)` | Can drill into specific sections on demand rather than receiving everything upfront |
-| Researcher | `read_file(path)`, `list_files()` | Can load external references and specific workspace files |
-| Computationalist | `execute_python(code)`, `read_file(path)` | Can write code, see output, iterate on bugs — all in one turn |
-| Deep Critic | `read_file(path)` | Read-only; can request specific evidence |
-| Compressor | _(none — one-shot is fine)_ | Simple transformation task |
+| Computationalist | `execute_python(code)` | Can run code, see output, iterate on bugs — all in one turn |
+| Orchestrator | `read_file(path)` | Drill into specific sections on demand |
+| Researcher | `read_file(path)` | Load external references |
+| Deep Critic | `read_file(path)` | Inspect specific evidence |
+| Compressor | _(none)_ | Simple transformation, one-shot is fine |
 
-#### Tool Definitions
+Security constraints: `read_file` restricted to workspace root (path traversal rejected); `execute_python` runs in subprocess with timeout; max tool rounds per agent invocation (default 10).
 
-```python
-TOOLS = {
-    "read_file": {
-        "name": "read_file",
-        "description": "Read a file from the workspace or reference directory. "
-                       "Returns the file contents as a string.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Relative path from workspace root, or absolute path "
-                                   "to a reference file listed in the problem definition."
-                }
-            },
-            "required": ["path"]
-        }
-    },
-    "list_files": {
-        "name": "list_files",
-        "description": "List files in a workspace directory.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "directory": {
-                    "type": "string",
-                    "description": "Relative path from workspace root. Default: root.",
-                    "default": "."
-                }
-            }
-        }
-    },
-    "execute_python": {
-        "name": "execute_python",
-        "description": "Execute a Python script and return its output. "
-                       "The script has access to sympy, numpy, scipy, matplotlib. "
-                       "Timeout: 60 seconds.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string",
-                    "description": "Complete, self-contained Python script to execute."
-                },
-                "filename": {
-                    "type": "string",
-                    "description": "Filename to save the script as (in computations/ dir).",
-                    "default": "scratch.py"
-                }
-            },
-            "required": ["code"]
-        }
-    }
-}
-```
+### 7.6 External Reference Files (Planned)
 
-#### Security Constraints
-
-- `read_file`: restricted to workspace root and explicitly allowed reference paths (from problem YAML `files:` list). Path traversal (`../`) outside allowed roots is rejected.
-- `execute_python`: runs in subprocess with timeout. No network access (future: use a network namespace or nsjail). No filesystem writes outside `computations/`.
-- `list_files`: restricted to workspace root.
-- **Max tool rounds per agent invocation:** configurable (default 10) to prevent runaway loops.
-- Every tool call is logged to the audit log (§7.4).
-
-### 7.6 External Reference Files
-
-Problem definitions can include external files (papers, notes, LaTeX documents) that agents can access during their tool-use loops.
+Problem definitions could include external files (papers, notes, LaTeX documents) that agents can access via tool use. Requires the `read_file` tool from §7.5.
 
 ```yaml
-# problems/hawking_temperature.yaml
 problem: |
   Derive the Hawking temperature...
 
 files:
   - path: "references/birrell_davies_ch3.md"
     description: "Chapter 3 of Birrell & Davies on quantum fields in curved spacetime"
-  - path: "references/gibbons_hawking_1977.tex"
-    description: "Gibbons-Hawking 1977 paper on cosmological event horizons"
-  - path: "notes/euclidean_methods.md"
-    description: "Personal notes on Euclidean quantum gravity techniques"
-
 ```
 
-At workspace initialization, reference files are copied into `workspace/references/`. The `read_file` tool allows agents to access these paths. The file descriptions are included in the orchestrator's context so it can direct agents to relevant references.
-
-For large files (LaTeX papers), the system could (future) pre-process them into chunked summaries, but for MVP the full file is loaded when requested by the agent — the tool-use pattern means only agents that need the file pay the token cost.
+At workspace initialization, reference files would be copied into `workspace/references/`. The file descriptions would be included in the orchestrator's context so it can direct agents to relevant references.
 
 ### 7.7 Workspace Git Strategy
 
-The workspace (`workspace/`) is an **independent git repository**, gitignored from the SciRalph source repo. This separation is deliberate:
+Each workspace (`workspaces/<YYYYMMDD_HHMMSS_problem>/`) is an **independent git repository**, gitignored from the SciRalph source repo. This separation is deliberate:
 
 - The SciRalph source code evolves independently of any research session.
 - Multiple research sessions can coexist (each with its own workspace directory).
 - The workspace git history is a complete, replayable record of the research.
 
-**Commit strategy:** The scaffolding loop (not any agent) manages git. One commit per iteration, after all file writes are complete. The commit message includes iteration number, agent name, and task ID.
+**Commit strategy:** The scaffolding loop (not any agent) manages git. One commit per iteration, after all file writes are complete. The commit message includes iteration number, agent name, and task ID. Uses `--allow-empty` so every iteration is recorded even if no files changed.
 
-**Branching (future):** When the orchestrator proposes exploring a speculative direction, the scaffold could create a branch. If the direction is marked as a Dead End, the branch is preserved (for audit) but the main branch is not polluted. This would require the orchestrator to emit a `branch_hint` field in its task output. For MVP, linear history is sufficient — the Dead Ends section in RESEARCH_STATE.md serves the same purpose.
-
-**Session isolation:** Each `sciralph.main` invocation creates a fresh workspace (or resumes an existing one if `--workspace-dir` points to an initialized workspace). The `--workspace-dir` flag defaults to `workspace/` but can be set to e.g. `workspace/session_2026_03_07/` for multiple concurrent sessions.
+**Session isolation:** Each `sciralph.main` invocation creates a fresh timestamped workspace. The `--workspace-dir` flag overrides the default naming.
 
 ---
 
 ## 8. Known Limitations & Risks
 
 1. **No formal verification.** All verification is "soft." A consistent
-   but wrong derivation could pass all checks. Mitigation: sub-problem
-   calibration, multiple independent derivation paths, human review of
-   final output.
+   but wrong derivation could pass all checks. Mitigation: numerical-first
+   verification, adversarial critique, multiple derivation paths, independent
+   verification script (Claude Opus), human review of final output.
 2. **Orchestrator quality is critical.** A bad orchestrator can waste
    iterations on dead ends or skip necessary verification. Mitigation:
-   hard-coded rules (forced critic passes, promotion rules) limit
-   orchestrator discretion.
+   hard-coded rules (forced critic passes, promotion rules, stale-iteration
+   backstop) limit orchestrator discretion.
 3. **Compressor information loss.** Compression may lose nuances.
-   Mitigation: git history preserves originals; only resolved critiques
-   and superseded computations are compressed.
-4. **LLM cost.** Each iteration involves a full-context LLM call.
-   At ~40K input tokens per call and 200 iterations, expect ~8M input
-   tokens per research session (~$20-80 depending on model and pricing).
+   Mitigation: git history preserves originals; archive copies made before
+   compression; only resolved critiques and superseded computations are
+   compressed.
+4. **LLM cost.** Each iteration involves 1-2 full-context LLM calls
+   (orchestrator + dispatched agent; computationalist makes a second review
+   call). At ~40K input tokens per call and 200 iterations, expect ~8M+
+   input tokens per research session.
 5. **Symbolic computation limitations.** SymPy cannot handle all
    computations (e.g., tensor algebra, group theory, advanced differential
    geometry). This is the primary motivation for MCP extension.
 6. **One-shot computation fragility.** Without tool use, a single bug in
-   generated code wastes an entire iteration. Mitigation: agentic tool-use
-   loop (§7.5) lets the computationalist self-correct.
-7. **Tool-use cost amplification.** Agentic tool-use loops multiply token
-   usage per iteration (each round-trip adds input tokens). Mitigation:
-   max tool rounds cap (default 10), audit logging to monitor cost.
-8. **Reference file size.** Large external files (LaTeX papers) loaded via
-   tool use can fill the context window. Mitigation: agents request files
-   on demand (not all upfront), future chunking/summarization.
+   generated code wastes an entire iteration with an INCONCLUSIVE result.
+   The two-pass design (generate + review) helps with verdict accuracy but
+   not with code iteration. The planned agentic tool-use loop (§7.5) would
+   let the computationalist self-correct within a single iteration.
 
 ---
 
-## 9. Implementation Roadmap
+## 9. Implementation Status & Roadmap
 
-### Phase 1: Core Loop (MVP) [DONE]
-- [x] File initialization and git setup
-- [x] LLM API wrapper with token tracking and retry logic
-- [x] Orchestrator agent (task emission + promotion rules)
+### Implemented
+- [x] File initialization and git setup (workspace per run, workspace-local git)
+- [x] LLM API wrapper with token tracking, retry logic, and JSONL audit logging
+- [x] Full conversation logging (system prompt + context + response per LLM call)
+- [x] Orchestrator agent (task emission, promotion rules, integration duty, critique resolution, stall detection, stale-iteration backstop)
 - [x] Researcher agent (proposed changes workflow)
-- [x] Computationalist agent (SymPy execution sandbox)
-- [x] Deep Critic agent (adversarial review)
-- [x] Compressor agent
-- [x] Metrics tracking and METRICS.md generation
-- [x] Main loop with forced critic passes
+- [x] Computationalist agent (two-pass: generate + review, numerical-first verification, 3-valued verdict system)
+- [x] Deep Critic agent (two-phase format, INCONCLUSIVE severity cap, epistemic calibration)
+- [x] Compressor agent (archival + compression, forced at 2x threshold)
+- [x] Metrics tracking and METRICS.md generation (flush on termination)
+- [x] Main loop with forced critic passes, termination detection, stale-iteration backstop
+- [x] Independent verification script (Claude Opus, streaming, optional computation re-run)
+- [x] 10 problem definitions (Hawking temperature, QHO thermodynamics, 1D Ising, hydrogen fine structure, Casimir effect, perihelion precession, Berry phase, Chandrasekhar limit, path integral HO, phi-4 renormalisation)
+- [x] Test suite (66 tests covering all modules)
 
-### Phase 1.5: Audit & Agentic Tools
-- [ ] JSONL audit logger (§7.4)
-- [ ] Tool-use loop in llm.py (§7.5)
-- [ ] Tool executor with security constraints
-- [ ] Agentic computationalist (execute_python tool)
-- [ ] Agentic researcher/orchestrator/critic (read_file, list_files tools)
+### Planned
+- [ ] Tool-use loop in llm.py (§7.5) — agentic computationalist with `execute_python`
+- [ ] Agentic researcher/orchestrator/critic with `read_file` tool
 - [ ] External reference file support in problem YAML (§7.6)
-- [ ] Reference file copying at workspace init
-- [ ] Workspace session resume (`--workspace-dir` pointing to existing workspace)
+- [ ] Workspace session resume
 
-### Phase 2: Robustness
-- [ ] Structured output parsing with fallback (YAML frontmatter extraction)
-- [ ] Sandbox hardening (restricted Python execution environment)
-- [ ] Context truncation strategies (smart selection of relevant sections)
-- [ ] CLI interface for launching research sessions
-
-### Phase 3: Extensions
-- [ ] MCP tool integration (Cadabra, xAct)
+### Future Extensions
+- [ ] MCP tool integration (Cadabra, xAct, Mathematica)
 - [ ] Parallel subagent support
 - [ ] Literature search agent
-- [ ] Web UI for monitoring live research sessions
-- [ ] Human-in-the-loop breakpoints (pause and ask human at critical junctures)
+- [ ] Human-in-the-loop breakpoints
 - [ ] Audit log replay utility

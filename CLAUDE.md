@@ -6,7 +6,7 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 
 - `README.md` — User-facing overview, architecture diagram, quick start
 - `DESIGN.md` — Full system design (architecture, file formats, agent prompts, pseudocode)
-- `PLAN.md` — Implementation plan for Phase 1.5 (tool-use loop, agentic agents)
+- `PLAN.md` — Implementation plan (tool-use loop, agentic agents, future work)
 
 ## Project Structure
 
@@ -29,7 +29,7 @@ src/sciralph/
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
-tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, verify)
+tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, computationalist, verify, workspace, conversation_log)
 problems/              — YAML problem definitions
 run_and_verify.sh      — Run a problem then verify results in one command
 ```
@@ -88,8 +88,14 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-- Phase 1 (core loop): DONE — all agents, main loop, 28 tests passing
-- Phase 1.1 (critical fixes): DONE — integration gap, sandbox interpreter, termination detection, truncation overlap, compressor guard, critique counting
-- Post-e2e bug fixes: DONE — execution failure banners, orchestrator task types + termination, critique regex broadening, audit logging
-- Phase 1.5 Step 1 (warm-up removal): DONE — orchestrator now autonomously decomposes sub-problems
-- Phase 1.5 (next steps): full prompt/response logging, tool-use loop, agentic agents, external reference files — see PLAN.md
+All core functionality is implemented and working (66 tests passing):
+
+- **Core loop** — all five agents, main loop, orchestrator integration, termination detection
+- **Orchestrator** — sub-problem decomposition, integration duty, critique resolution, stale-iteration backstop, momentum/compute-first/stall-detection rules
+- **Computationalist** — two-pass flow (generate code + review execution output), numerical-first verification strategy, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE), resilient assertions with try/except
+- **Deep Critic** — two-phase format (Phase 1: reproduce, Phase 2: objection), INCONCLUSIVE severity cap, epistemic calibration, non-repetition rules
+- **Compressor** — archival + compression with forced compression at 2x threshold
+- **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
+- **Logging** — JSONL audit logging (metadata per LLM call), full conversation logs (system prompt + context + response in `logs/`)
+
+Next steps: tool-use loop, agentic agents — see PLAN.md

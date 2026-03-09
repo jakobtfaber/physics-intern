@@ -281,3 +281,26 @@ The Hawking run's only computation crashed (code bug in κ formula) and was labe
 When critiques are resolved, their CRIT-NNN headers are removed from the Active section but the Phase 1/Phase 2 body text remains as orphaned content. Not a functional bug (counters are correct), but confusing to read.
 
 - Clean up: when moving a critique to Resolved, remove the entire block (header + body) from Active
+
+### Convention/definition confusion wastes iterations
+
+Observed in both the Ising 1D (energy normalization ε = E/mc² ambiguity, χ definition off by β vs 1/β) and perihelion precession (energy convention confusion burned ~5 early iterations). The orchestrator should lock down all conventions — units, normalization, sign conventions, variable definitions — in iteration 1 before any derivation starts.
+
+- **Orchestrator prompt change**: add an explicit instruction to emit a "Conventions" section in RESEARCH_STATE.md during the first task, covering coordinate conventions, units (natural vs SI), energy normalization, and sign conventions
+- **Problem YAML**: consider adding an optional `conventions:` field so the problem author can pre-specify conventions and remove ambiguity
+
+### Termination logic too strict
+
+The orchestrator's completion check requires `wh_count == 0` AND all critiques resolved. In the Ising run (18 iter), 3 ERs were valid but 5 WHs remained, so the system never synthesized. When budget is running low, the orchestrator should be able to:
+
+- Synthesize partial results (report what is established, flag what remains open)
+- Terminate with a "partially complete" status rather than running to max iterations with no synthesis
+- Possible implementation: add a `budget_remaining` signal to the orchestrator context (e.g., "iteration 16 of 20"), and instruct it to synthesize when ≤3 iterations remain regardless of WH/critique state
+
+### Compressor falls behind on COMPUTATION_LOG
+
+The perihelion run triggered 5 size alerts on COMPUTATION_LOG.md (40K+ chars). The compressor runs once per iteration but may not target COMPUTATION_LOG if other files also need attention. Ideas:
+
+- **Priority-based compression**: compress the largest file first, not round-robin
+- **Aggressive archival for computations**: old VERIFIED computations only need their verdict line retained; the full script output can be archived earlier than other content
+- **Trigger threshold**: lower the threshold or trigger compression mid-iteration when a file grows past 1.5× the threshold
