@@ -14,6 +14,7 @@ def test_init_creates_research_state_without_warmups(tmp_path):
 
     content = ws.read_file("RESEARCH_STATE.md")
     assert "# Problem Statement" in content
+    assert "# Conventions" in content
     assert "# Established Results" in content
     assert "Warm-Up" not in content
     assert "warm_up" not in content

@@ -47,10 +47,17 @@ class OrchestratorAgent(BaseAgent):
         parts = []
         if banner:
             parts.append(f"{banner}\n")
+        state = self.workspace.read_file("RESEARCH_STATE.md")
+        if iteration >= 3 and "To be populated by the orchestrator" in state:
+            parts.append(
+                ">>> REMINDER: The '# Conventions' section in RESEARCH_STATE.md "
+                "is still empty. Consider populating it with the unit system, "
+                "sign conventions, and variable definitions being used. <<<\n"
+            )
         parts.extend([
             f"# Current Iteration: {iteration}\n",
             "## RESEARCH_STATE.md\n",
-            self.workspace.read_file("RESEARCH_STATE.md"),
+            state,
             "\n## CRITIQUE_LOG.md\n",
             self.workspace.read_file("CRITIQUE_LOG.md"),
             "\n## COMPUTATION_LOG.md (last 5 entries)\n",

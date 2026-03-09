@@ -160,6 +160,46 @@ class TestCompletionAnalysis:
         assert orchestrator._completion_analysis() is None
 
 
+class TestConventionReminder:
+    """Test the gentle nudge when the Conventions section is still placeholder."""
+
+    RESEARCH_STATE_PLACEHOLDER = (
+        "---\nproblem_id: test\nstatus: in_progress\n---\n\n"
+        "# Problem Statement\n\nDerive something.\n\n"
+        "# Conventions\n\n(To be populated by the orchestrator as conventions become clear.)\n\n"
+        "# Established Results\n\nNone yet.\n"
+    )
+
+    RESEARCH_STATE_POPULATED = (
+        "---\nproblem_id: test\nstatus: in_progress\n---\n\n"
+        "# Problem Statement\n\nDerive something.\n\n"
+        "# Conventions\n\n- Natural units: ħ = c = k_B = 1\n- Metric signature: (−, +, +, +)\n\n"
+        "# Established Results\n\nNone yet.\n"
+    )
+
+    def test_convention_reminder_at_iteration_3(self, orchestrator, workspace):
+        workspace.write_file("RESEARCH_STATE.md", self.RESEARCH_STATE_PLACEHOLDER)
+        workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
+        workspace.write_file("METRICS.md", "---\n---\n")
+        context = orchestrator.build_context({}, iteration=3)
+        assert "REMINDER" in context
+        assert "Conventions" in context
+
+    def test_no_reminder_when_conventions_populated(self, orchestrator, workspace):
+        workspace.write_file("RESEARCH_STATE.md", self.RESEARCH_STATE_POPULATED)
+        workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
+        workspace.write_file("METRICS.md", "---\n---\n")
+        context = orchestrator.build_context({}, iteration=5)
+        assert "REMINDER" not in context
+
+    def test_no_reminder_at_iteration_1(self, orchestrator, workspace):
+        workspace.write_file("RESEARCH_STATE.md", self.RESEARCH_STATE_PLACEHOLDER)
+        workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
+        workspace.write_file("METRICS.md", "---\n---\n")
+        context = orchestrator.build_context({}, iteration=1)
+        assert "REMINDER" not in context
+
+
 class TestCritiqueResolution:
     """Test that the orchestrator resolves critiques in CRITIQUE_LOG.md."""
 

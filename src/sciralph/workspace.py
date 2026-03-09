@@ -39,6 +39,10 @@ class WorkspaceManager:
 
 {problem.strip()}
 
+# Conventions
+
+(To be populated by the orchestrator as conventions become clear.)
+
 # Established Results
 
 Results here have survived critique and computational verification.

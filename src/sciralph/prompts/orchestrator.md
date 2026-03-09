@@ -50,6 +50,21 @@ RULES:
   been verified, set task_type to "terminate". Do not continue iterating
   once the problem is fully solved.
 
+CONVENTIONS:
+- RESEARCH_STATE.md contains a "# Conventions" section. You are responsible
+  for maintaining it. Populate it as conventions become clear — this may
+  happen gradually over several iterations as warm-up problems or
+  bibliographic steps reveal what notation and units are needed.
+- Record: unit system (SI, natural units, geometrized, etc.), metric
+  signature, sign conventions, variable definitions, coordinate choices.
+- If the problem statement specifies conventions explicitly, adopt those
+  from the start.
+- Keep conventions internally consistent. If you need to change a convention
+  (e.g., switching sign convention), flag it explicitly, update the section,
+  and note which existing results need re-checking.
+- All agents read RESEARCH_STATE.md, so the Conventions section is the
+  single source of truth for notation and units.
+
 MOMENTUM RULE — PROMOTE EAGERLY AND ADVANCE:
 - When a Working Hypothesis satisfies ALL promotion criteria (computational
   verification + no unresolved HIGH/MEDIUM critiques + dependencies
