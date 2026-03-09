@@ -1,0 +1,14 @@
+# SciRalph configuration
+# Copy and pass via: --config my_config.yaml
+# CLI arguments override values set here.
+
+# model: claude-sonnet-4-20250514
+# max_tokens: 16384
+# max_iterations: 200
+# critic_every_n: 4
+# compress_threshold:
+#   RESEARCH_STATE.md: 50000
+#   CRITIQUE_LOG.md: 30000
+#   COMPUTATION_LOG.md: 40000
+# max_retries_on_max_tokens: 2
+# sympy_timeout_seconds: 60

@@ -12,11 +12,12 @@
 - **CRITIQUE_LOG cleanup on resolution** — `resolve_critique()` now captures the full block (including `### Phase 1` / `### Phase 2` sub-headings) by stopping only at headings of the same or higher level, instead of stopping at any `#`–`###` heading. Prevents orphaned body text in Active Critiques.
 
 
-## To Do
-
 - **Check CLI arguments**
 
 - **config.yaml** — add a YAML config file with command-line override. Include model selection, thresholds, timeouts, audit logs settings, etc.
+
+## To Do
+
 
 - **Prompt review** — review all prompts for clarity, completeness, and consistency.
 

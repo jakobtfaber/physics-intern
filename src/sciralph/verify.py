@@ -376,50 +376,42 @@ def write_verification_report(result: VerificationResult, workspace_dir: str) ->
 # CLI entry point
 # ---------------------------------------------------------------------------
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python -m sciralph.verify <workspace_dir> [options]")
-        print("  --model MODEL           LLM model (default: claude-opus-4-20250514)")
-        print("  --max-tokens N          Max output tokens (default: 16384)")
-        print("  --rerun-computations    Re-run computation scripts before verification")
-        print("  --timeout N             Computation timeout in seconds (default: 60)")
-        print("  --write-report          Write VERIFICATION.md into workspace")
-        sys.exit(1)
+def build_verify_parser() -> "argparse.ArgumentParser":
+    """Build the CLI argument parser for verification."""
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="sciralph.verify",
+        description="Independent verification of SciRalph research workspaces.",
+    )
+    parser.add_argument("workspace_dir", type=str,
+                        help="Path to workspace directory")
+    parser.add_argument("--model", type=str, default="claude-opus-4-20250514",
+                        help="LLM model (default: claude-opus-4-20250514)")
+    parser.add_argument("--max-tokens", type=int, default=16384,
+                        help="Max output tokens (default: 16384)")
+    parser.add_argument("--timeout", type=int, default=60,
+                        help="Computation timeout in seconds (default: 60)")
+    parser.add_argument("--rerun-computations", action="store_true",
+                        help="Re-run computation scripts before verification")
+    parser.add_argument("--write-report", action="store_true",
+                        help="Write VERIFICATION.md into workspace")
+    return parser
 
-    workspace_dir = sys.argv[1]
+
+def main():
+    parser = build_verify_parser()
+    args = parser.parse_args()
+
+    workspace_dir = args.workspace_dir
     if not Path(workspace_dir).is_dir():
         print(f"Error: workspace directory not found: {workspace_dir}")
         sys.exit(1)
 
-    # Defaults
-    model = "claude-opus-4-20250514"
-    max_tokens = 16384
-    do_rerun = False
-    timeout = 60
-    write_report = False
-
-    # Parse flags
-    args = sys.argv[2:]
-    i = 0
-    while i < len(args):
-        if args[i] == "--model" and i + 1 < len(args):
-            model = args[i + 1]
-            i += 2
-        elif args[i] == "--max-tokens" and i + 1 < len(args):
-            max_tokens = int(args[i + 1])
-            i += 2
-        elif args[i] == "--rerun-computations":
-            do_rerun = True
-            i += 1
-        elif args[i] == "--timeout" and i + 1 < len(args):
-            timeout = int(args[i + 1])
-            i += 2
-        elif args[i] == "--write-report":
-            write_report = True
-            i += 1
-        else:
-            print(f"Unknown argument: {args[i]}")
-            sys.exit(1)
+    model = args.model
+    max_tokens = args.max_tokens
+    do_rerun = args.rerun_computations
+    timeout = args.timeout
+    write_report = args.write_report
 
     # Load workspace
     console.print(f"[bold]Loading workspace:[/] {workspace_dir}")
