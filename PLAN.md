@@ -27,17 +27,7 @@ Ordering informed by the audit of 8 workspace runs (March 2026): 7/8 solved corr
 - **Workspace resume** — `--resume <workspace-dir>` to continue a previous run. Skip `init()` if `.git` exists, load iteration from METRICS.md, handle partial state (corrupted state, version mismatches).
 
 ---
-## DONE
-
-### Tier 3 — Agentic computationalist
-
-- **ToolExecutor + execute_python tool** — `src/sciralph/tools.py` with `ToolCall` dataclass, `ToolExecutor` class, `TOOL_DEFINITIONS` for Anthropic tool-use API. Writes scripts to `computations/tool_exec_NNN.py`, executes via `sandbox.py`, returns truncated output. Structured timeout errors with actionable suggestions.
-- **run_agent_loop in llm.py** — `run_agent_loop()` alongside `call_llm()`. Loops until `end_turn`, `max_tokens`, or `max_rounds`. Returns `AgentResult` (text, tool_calls, aggregated tokens, rounds, truncated). Per-round audit + conversation logging with `round` field.
-- **Tool support in base agent** — `tools` class attribute on `BaseAgent`. If non-empty, `run()` dispatches to `_call_with_tools()` using `run_agent_loop`; otherwise legacy `_call_with_retry()` path. Non-tool agents completely unaffected.
-- **Agentic computationalist** — `ComputationalistAgent` sets `tools = ToolExecutor.TOOL_DEFINITIONS`. Agentic path: LLM calls `execute_python`, sees output, iterates on errors, emits COMPUTATION_LOG entry with VERDICT as text. Legacy two-pass path preserved as fallback (set `tools = []` to revert).
-- **Prompt rewrite** — `computationalist.md` rewritten for tool-use flow: agent writes VERDICT directly after seeing output, BANNED APIs as round-saving guidance, soft-check pattern recommended, verdict decision table included. `computationalist_review.md` retained for legacy fallback.
-- **Tool-use metrics** — `CallRecord` extended with `rounds`, `tool_calls`, `truncated`. METRICS.md shows Rounds + Tool Calls columns when tool-use is active. Cumulative `total_tool_calls` in frontmatter.
-- **Config** — `max_tool_rounds` (default 10) and `tool_output_limit` (default 10K) added to `Config` and `_YAML_CONFIG_FIELDS`.
+# We recently implemented some changes that are the Tier 3 part in the PLAN.md new run. So if you look in the workspaces folder, you can see the results of the eight runs that we made after implementing those Tier 3 changes. It looks rather good. Two problems were only considered as partially valid by the verifier.
 
 ### Tier 1 — Quick fixes (do first, all independent of tool-use work)
 

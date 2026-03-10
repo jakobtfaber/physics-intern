@@ -20,6 +20,7 @@ class WorkspaceManager:
 
     def init(self, problem: str):
         """Create workspace, initialize all .md files, git init."""
+        self.problem_statement = problem.strip()
         self.root.mkdir(parents=True, exist_ok=True)
         self.computations_dir.mkdir(exist_ok=True)
         self.archive_dir.mkdir(exist_ok=True)

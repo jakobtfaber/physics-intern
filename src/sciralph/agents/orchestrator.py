@@ -109,11 +109,26 @@ class OrchestratorAgent(BaseAgent):
         """Write CURRENT_TASK.md (and optionally RESEARCH_STATE.md) from orchestrator output."""
         research_state, task_text = _split_response(response.text)
         if research_state is not None:
+            research_state = self._enforce_problem_statement(research_state)
             self.workspace.write_file("RESEARCH_STATE.md", research_state)
             self.workspace.delete_file("PROPOSED_CHANGES.md")
             # Resolve critiques mentioned in the orchestrator's output
             self._resolve_critiques(response.text)
         self.workspace.write_file("CURRENT_TASK.md", task_text)
+
+    def _enforce_problem_statement(self, research_state: str) -> str:
+        """Replace the Problem Statement section with the original from the problem YAML."""
+        original = getattr(self.workspace, "problem_statement", None)
+        if not original:
+            return research_state
+        # Replace everything between "# Problem Statement" and the next "# " heading
+        return re.sub(
+            r"(# Problem Statement\s*\n).*?(?=\n# )",
+            rf"\g<1>\n{original}\n",
+            research_state,
+            count=1,
+            flags=re.DOTALL,
+        )
 
     def _resolve_critiques(self, response_text: str):
         """Scan orchestrator output for resolved critique IDs and update CRITIQUE_LOG.md."""

@@ -17,7 +17,7 @@ class ExecutionResult:
 
 def execute_python(script_path: str | Path, timeout: int = 60, cwd: str | Path | None = None) -> ExecutionResult:
     """Execute a Python script with timeout. Returns ExecutionResult."""
-    script_path = Path(script_path)
+    script_path = Path(script_path).resolve()
     try:
         result = subprocess.run(
             ["python", str(script_path)],
