@@ -8,7 +8,26 @@ from pathlib import Path
 import pytest
 import yaml
 
-from sciralph.config import Config, _YAML_CONFIG_FIELDS, load_config_yaml, build_config
+from sciralph.config import Config, DEFAULTS, _YAML_CONFIG_FIELDS, load_config_yaml, build_config
+
+
+# ---------------------------------------------------------------------------
+# DEFAULTS loaded from config.default.yaml
+# ---------------------------------------------------------------------------
+
+class TestDefaults:
+    def test_defaults_has_required_keys(self):
+        required = {"model", "verify_model", "max_tokens", "max_iterations",
+                     "critic_every_n", "compress_threshold",
+                     "max_retries_on_max_tokens", "sympy_timeout_seconds",
+                     "max_tool_rounds", "tool_output_limit", "min_er_for_completion"}
+        assert required.issubset(DEFAULTS.keys())
+
+    def test_defaults_model_is_string(self):
+        assert isinstance(DEFAULTS["model"], str) and DEFAULTS["model"]
+
+    def test_defaults_verify_model_is_string(self):
+        assert isinstance(DEFAULTS["verify_model"], str) and DEFAULTS["verify_model"]
 
 
 # ---------------------------------------------------------------------------
@@ -18,9 +37,9 @@ from sciralph.config import Config, _YAML_CONFIG_FIELDS, load_config_yaml, build
 class TestLoadConfigYaml:
     def test_valid_file(self, tmp_path):
         cfg = tmp_path / "config.yaml"
-        cfg.write_text(yaml.dump({"model": "claude-opus-4-20250514", "max_iterations": 10}))
+        cfg.write_text(yaml.dump({"model": "custom-model", "max_iterations": 10}))
         result = load_config_yaml(cfg)
-        assert result == {"model": "claude-opus-4-20250514", "max_iterations": 10}
+        assert result == {"model": "custom-model", "max_iterations": 10}
 
     def test_unknown_keys_warn(self, tmp_path):
         cfg = tmp_path / "config.yaml"
@@ -55,6 +74,12 @@ class TestLoadConfigYaml:
         assert "workspace_dir" not in result
         assert "api_key" not in result
 
+    def test_verify_model_accepted(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({"verify_model": "some-model"}))
+        result = load_config_yaml(cfg)
+        assert result["verify_model"] == "some-model"
+
 
 # ---------------------------------------------------------------------------
 # build_config
@@ -66,19 +91,20 @@ class TestBuildConfig:
                          max_iterations=None, workspace_dir=None,
                          critic_every_n=None, sympy_timeout_seconds=None)
         cfg = build_config(args)
-        assert cfg.model == "claude-sonnet-4-20250514"
-        assert cfg.max_iterations == 200
-        assert cfg.max_tokens == 16384
+        assert cfg.model == DEFAULTS["model"]
+        assert cfg.verify_model == DEFAULTS["verify_model"]
+        assert cfg.max_iterations == DEFAULTS["max_iterations"]
+        assert cfg.max_tokens == DEFAULTS["max_tokens"]
 
     def test_cli_overrides_defaults(self):
-        args = Namespace(config=None, model="claude-opus-4-20250514",
+        args = Namespace(config=None, model="cli-model",
                          max_tokens=None, max_iterations=5,
                          workspace_dir=None, critic_every_n=None,
                          sympy_timeout_seconds=None)
         cfg = build_config(args)
-        assert cfg.model == "claude-opus-4-20250514"
+        assert cfg.model == "cli-model"
         assert cfg.max_iterations == 5
-        assert cfg.max_tokens == 16384  # default preserved
+        assert cfg.max_tokens == DEFAULTS["max_tokens"]  # default preserved
 
     def test_yaml_overrides_defaults(self, tmp_path):
         cfg_file = tmp_path / "config.yaml"
@@ -170,7 +196,7 @@ class TestVerifyParser:
         parser = build_verify_parser()
         args = parser.parse_args(["workspaces/run1"])
         assert args.workspace_dir == "workspaces/run1"
-        assert args.model == "claude-opus-4-20250514"
+        assert args.model == DEFAULTS["verify_model"]
         assert args.max_tokens == 16384
         assert args.timeout == 60
         assert args.rerun_computations is False

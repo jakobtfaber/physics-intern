@@ -1,0 +1,18 @@
+# SciRalph default configuration
+# This is the single source of truth for all default values.
+# Do NOT hardcode defaults in Python — they are read from this file.
+
+model: claude-haiku-4-5-20251001
+verify_model: claude-opus-4-6
+max_tokens: 16384
+max_iterations: 200
+critic_every_n: 4
+compress_threshold:
+  RESEARCH_STATE.md: 50000
+  CRITIQUE_LOG.md: 30000
+  COMPUTATION_LOG.md: 40000
+max_retries_on_max_tokens: 2
+sympy_timeout_seconds: 60
+max_tool_rounds: 10
+tool_output_limit: 10000
+min_er_for_completion: 3

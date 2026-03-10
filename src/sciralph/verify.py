@@ -16,7 +16,7 @@ import time
 
 import anthropic
 
-from .config import Config
+from .config import Config, DEFAULTS
 from .llm import LLMResponse  # noqa: F401 — reuse dataclass, call via streaming
 from .markdown import parse_frontmatter
 from .sandbox import ExecutionResult, execute_python
@@ -394,8 +394,8 @@ def build_verify_parser() -> "argparse.ArgumentParser":
     )
     parser.add_argument("workspace_dir", type=str,
                         help="Path to workspace directory")
-    parser.add_argument("--model", type=str, default="claude-opus-4-20250514",
-                        help="LLM model (default: claude-opus-4-20250514)")
+    parser.add_argument("--model", type=str, default=DEFAULTS["verify_model"],
+                        help=f"LLM model (default: {DEFAULTS['verify_model']})")
     parser.add_argument("--max-tokens", type=int, default=16384,
                         help="Max output tokens (default: 16384)")
     parser.add_argument("--timeout", type=int, default=60,
