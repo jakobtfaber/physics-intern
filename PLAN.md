@@ -1,12 +1,60 @@
 # SciRalph — Task List
 
-Items are ordered by priority within each tier. Tier 1 items are quick fixes that should be done first; Tier 2 items are prompt/logic improvements; Tier 3 is the big agentic computationalist feature; Tier 4 is everything else.
+## Current task list
 
-Ordering informed by the audit of 8 workspace runs (March 2026): 7/8 solved correctly, Chandrasekhar failed with 13.6% systematic error. Computation scripts failed execution in ~50% of cases across all runs, mostly due to preventable causes.
+Findings from the 8 Tier-0 test runs (March 10 2026). Ordered by impact.
+
+### P1 — Enforce ER promotion gate in scaffold
+
+The orchestrator promotes results to Established Results before the verification gate is satisfied (no VERIFIED COMP, no critic pass). Observed in 3/8 runs (Hawking, Ising, Berry Phase). Hawking promoted wrong κ = c⁴/(4GM) to ER before any computation; Ising promoted transfer matrix results before critic ran.
+
+**Fix:** In `engine.py`, after orchestrator integration, scan RESEARCH_STATE for any new ER-NNN entries. If a newly promoted ER does not reference a VERIFIED COMP-NNN that exists in COMPUTATION_LOG, demote it back to Working Hypothesis and inject a warning into the orchestrator's next context. This is a scaffold-level gate, not a prompt change — the prompt already says this but the LLM ignores it for HIGH-confidence claims.
+
+### P2 — Computation stall detection for repeated failures
+
+The orchestrator re-dispatches the same computation task after 2-3 failures without reducing scope or trying an alternative approach. Observed in 3/8 runs (Chandrasekhar ×4 truncations, Perihelion ×3 truncations, Path Integral ×3 truncations). Perihelion wasted 38% of its token budget on 3 identical failed numerical integration attempts.
+
+**Fix:** In `engine.py`, track consecutive INCONCLUSIVE/truncated COMPs targeting the same ER/WH claim (match by ER-NNN/WH-NNN reference in CURRENT_TASK). After 2 failures on the same claim, inject a stall alert into the orchestrator context: "COMPUTATION STALL on [claim]: 2 consecutive failures. You MUST either (a) reduce scope, (b) assign to researcher for alternative approach, or (c) skip and move on." Optionally also add to orchestrator prompt.
+
+### P3 — Scaffold-level verdict validator
+
+The LLM declares VERIFIED on computations that partially or fully failed, by rationalizing discrepancies or widening tolerances. Observed in 3/8 runs: Chandrasekhar COMP-026 changed the theoretical expectation to make the wrong answer look right; Berry Phase COMP-013 declared VERIFIED despite 25-35% systematic error; Renormalisation COMP-021 declared VERIFIED despite printing dimensional inconsistency warnings in script output.
+
+**Fix:** After the computationalist writes a COMP entry, have the scaffold parse the verdict and cross-check against the script output. Heuristics: (1) if the script stdout contains "FAIL", "ERROR", "discrepancy", "inconsistency" or similar warning keywords and the verdict is VERIFIED, flag for review and inject a warning; (2) if the reported relative error exceeds a threshold (e.g. 5%), reject a VERIFIED verdict and force INCONCLUSIVE. This is a safety net — not a replacement for prompt improvements.
+
+### P4 — Forced partial output on tool-loop truncation
+
+When the computationalist hits the 10-round limit, the COMPUTATION_LOG gets a bare stub ("Agent produced no text output") and the entire iteration is wasted. 11 truncation events across 8 runs (Chandrasekhar ×4, Perihelion ×3, Path Integral ×3, Renormalisation ×1).
+
+**Fix:** In `llm.py` `run_agent_loop`, when hitting max rounds, append a final system message: "You have reached the maximum number of tool-use rounds. You MUST now write your COMP-NNN entry with whatever results you have. Use INCONCLUSIVE if incomplete." Then make one final LLM call (no tools) to extract a partial result. Also consider summarizing prior tool outputs to reduce the quadratic context growth that contributes to truncation.
+
+### P5 — Terminal critic review before termination
+
+The critic's non-repetition rules mean it rubber-stamps the terminal state when all claims have been promoted to ER. Observed in 3/8 runs: Hawking had zero critic passes total; QHO's heat capacity was never reviewed; Berry Phase's solid angle convention issue escaped because the critic saw zero Working Hypotheses.
+
+**Fix:** In `engine.py`, when the orchestrator emits `terminate` or `synthesize`, check if any ER was promoted since the last critic pass. If so, insert one final critic pass before termination. Adjust the critic prompt to allow reviewing ERs that were promoted since its last pass (currently the non-repetition rule blocks this).
+
+### P6 — Task-agent type validation
+
+The orchestrator dispatched the researcher (no code execution capability) to "generate plots." The researcher confabulated a completion claim with "machine precision ≤10⁻¹²" despite having no tools. Observed in Ising run.
+
+**Fix:** In `engine.py`, after parsing CURRENT_TASK, validate that `compute` tasks are assigned to the computationalist, not the researcher. If the orchestrator emits a `research` task whose description contains computation keywords (plot, numerical, compute, verify numerically), override to `compute` with a log warning.
+
+### P7 — Critique log preamble stripping
+
+The critic's first-person reasoning preamble gets appended verbatim to CRITIQUE_LOG.md ("I will examine both claims systematically..."). Observed in 4/8 runs (QHO, Ising, Berry Phase, Renormalisation).
+
+**Fix:** In `workspace.py` (or the critic output handler), strip all text before the first `## CRIT-` heading when appending to the critique log.
+
+### P8 — COMP and CRIT ID management in scaffold
+
+COMP IDs have gaps (counter increments per tool-call round, not per finished computation) and CRIT IDs can collide (critic reuses IDs from prior passes). Observed in QHO (COMP gaps), Berry Phase (duplicate CRIT-002).
+
+**Fix:** (a) Assign COMP IDs in the scaffold when writing to COMPUTATION_LOG, not in the LLM's output. Pass the next available ID into the computationalist's context. (b) Same for CRIT IDs: pass `next_crit_id: CRIT-NNN` into the critic's context so it doesn't pick already-used numbers.
 
 ---
 
-## Tier 4 — Future work
+## Future work
 
 ### Compression and context management
 
@@ -25,35 +73,3 @@ Ordering informed by the audit of 8 workspace runs (March 2026): 7/8 solved corr
 ### Workspace management
 
 - **Workspace resume** — `--resume <workspace-dir>` to continue a previous run. Skip `init()` if `.git` exists, load iteration from METRICS.md, handle partial state (corrupted state, version mismatches).
-
----
-# We recently implemented some changes that are the Tier 3 part in the PLAN.md new run. So if you look in the workspaces folder, you can see the results of the eight runs that we made after implementing those Tier 3 changes. It looks rather good. Two problems were only considered as partially valid by the verifier.
-
-### Tier 1 — Quick fixes (do first, all independent of tool-use work)
-
-- **Fix soft-check pattern in computationalist prompt** — the current ASSERTION RULES pattern wraps individual checks in try/except but ends with `assert all_passed`, which still crashes the script and causes the scaffold to record EXECUTION FAILED. The LLM consistently follows this pattern — the pattern itself is the bug, not LLM non-compliance. Fix: replace the final `assert all_passed` with always-exit-0 and a structured summary (e.g. `CHECKS: 8/10 PASSED`). Teach the review phase (or agentic computationalist) to read the summary rather than relying on exit code. *Audit evidence: hard asserts killed scripts in 5/8 runs (QHO COMP-018, Chandrasekhar COMP-015, Path Integral COMP-014, Renormalization COMP-014, Perihelion COMP-001/006).*
-
-- **Available packages documentation and blocklist** — the computationalist prompt (or the `execute_python` tool description) should list available packages and known version caveats. Confirmed broken APIs: `scipy.misc.derivative` (removed in SciPy 2.0 — use `scipy.integrate` or manual finite differences), `numpy.trapz` (renamed to `numpy.trapezoid` in NumPy 2.0), `numpy.math` (removed in NumPy 2.0 — use `math` stdlib). List these as banned with their replacements. *Audit evidence: deprecated APIs crashed scripts in 3/8 runs (QHO, Ising, Path Integral), wasting 4+ iterations total.*
-
-- **`plt.show()` suppression in sandbox** — set `MPLBACKEND=Agg` in `sandbox.py`'s subprocess environment. This prevents any display attempt in the headless sandbox. Also add "never call `plt.show()`, use `plt.savefig()` then `plt.close()`" to the computationalist prompt as belt-and-suspenders. *Audit evidence: Ising COMP-011 timed out (60s) on `plt.show()` — the PNG was already saved, the script just couldn't exit.*
-
-- **Compression threshold gap** — currently the engine only alerts at 1x threshold and force-compresses at 2x. Add a 1.5x trigger in `_check_compression()` that dispatches a normal (non-forced) compressor run. *Audit evidence: Path Integral COMPUTATION_LOG hit 41,164 chars (103% of 40k threshold), alerts fired at iterations 16-18, but no compression occurred because 2x = 80k was never reached.*
-
-- **METRICS table completeness** — several runs had incomplete per-iteration tables (missing early rows). Investigate whether `to_markdown()` is overwriting rather than accumulating, or if there's a rolling-window bug. Fix so the full iteration history is always present. *Audit evidence: Berry Phase missing iterations 1-4, Renormalization missing iterations 1-9.*
-
-- **RESEARCH_STATE status bookkeeping on terminate** — when the orchestrator emits a `terminate` task, the engine (or orchestrator) should update the RESEARCH_STATE frontmatter `status` field to `completed`. Currently left as `in_progress`. *Audit evidence: Ising showed `status: in_progress` after a clean terminate.*
----
-
-## Tier 2 — Prompt and logic improvements
-
-- **Tolerance calibration, quantity validation, and tolerance-widening detection** — three related failure patterns in computations. (1) Overly strict assertions cause INCONCLUSIVE verdicts on correct physics. Add explicit tolerance rules to `prompts/computationalist.md`: default `rtol=1e-6` for numerical comparisons, never use exact equality for floats, use `np.isclose`/`np.allclose`. (2) Assertions targeting the wrong quantity — e.g. checking a leading-order approximation against a full expression. Instruct: verify both sides represent the same quantity at the same order before comparing. (3) **Tolerance widening**: scripts must never silently relax their own acceptance thresholds. If the default tolerance fails, the verdict must be INCONCLUSIVE with the actual discrepancy reported — not VERIFIED with a widened gate. Add a prompt rule: "If your checks fail at 5% tolerance, do NOT widen to 15% and declare success. Report the actual error and let the orchestrator decide." *Audit evidence: Chandrasekhar COMP-018 silently widened tolerance from 5% to 15% (`assert abs(systematic_error) <= 15.0`), letting a 13.6% error pass as acceptable. This was the specific mechanism that locked in the wrong answer.*
-
-- **Critique resolution quality gate** — HIGH critiques citing quantitative discrepancies should only be resolvable when a VERIFIED computation confirms the corrected value within tolerance. Add to the orchestrator prompt: "A HIGH critique citing a numerical error requires a VERIFIED computation with <5% agreement before marking RESOLVED. Improving from 78% wrong to 14% wrong is not resolution." *Audit evidence: Chandrasekhar CRIT-005 correctly flagged a 78% mass error. When the answer improved to 14% off (still wrong), the orchestrator closed it. The critic never re-examined whether the "fix" was physically legitimate.*
-
-- **Numerical pitfalls checklist in computationalist prompt** — the existing 3-tier verification strategy covers methodology but not algorithm selection. Add a brief "common pitfalls" section to `prompts/computationalist.md`: (1) use log-space arithmetic for products of many exponentials to avoid float64 underflow; (2) prefer `scipy.integrate.solve_ivp` over hand-rolled integrators for long-time or stiff problems; (3) when testing a tensor/vector identity numerically, preserve the full structure — don't reduce to scalars; (4) match the fitting model to the expected functional form before fitting; (5) for oscillatory integrands, consider analytical evaluation or contour rotation rather than brute-force numerical quadrature.
-
-- **Computation failure stall detection** — the current stall detection (engine backstop for "research appears complete" + orchestrator prompt rules for resolve loops) does not catch repeated failed computations targeting the same claim. Observed pattern: the system can spend 3–4 consecutive iterations retrying the same computation, fixing surface symptoms each time without resolving the underlying error. New: track in `engine.py` (or orchestrator context) consecutive INCONCLUSIVE/REFUTED COMPs targeting the same ER/WH. After 2–3 failures on the same claim, inject a stall alert into the orchestrator context so it can escalate (send to researcher for alternative derivation, skip and move on, or request critic review of the underlying claim).
-
-- **Root-cause context for computation retries** — when the computationalist retries a failed computation, it tends to fix surface symptoms (e.g. an ImportError) without diagnosing the underlying bug (e.g. a sign error in the physics). Fix: when the orchestrator emits a `compute` task targeting a claim with prior failed COMPs, include the previous script's key output (actual vs expected values, error messages) in CURRENT_TASK.md with an explicit instruction: "Diagnose the root cause from the output below before writing new code." Partially addressed by the agentic computationalist (which sees output inline), but the diagnosis instruction should be explicit.
-
-- **Scaffold-level budget enforcement** — budget-aware termination exists in the orchestrator prompt (≤3 remaining → synthesize) and `_completion_analysis` injects a BUDGET SYNTHESIS REQUIRED banner. But the LLM sometimes ignores it when deep in a verification cycle. Consider scaffold-level enforcement: if `budget_remaining <= 1` and the orchestrator emits anything other than `synthesize`/`terminate`, override the task to `synthesize` with a warning. This is a safety net, not a replacement for the prompt instruction.

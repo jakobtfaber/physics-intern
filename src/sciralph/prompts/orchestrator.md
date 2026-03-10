@@ -103,11 +103,15 @@ record Dead Ends, etc.). For changes that do NOT meet the criteria, leave
 them as Working Hypotheses or note what is still needed.
 
 CRITIQUE RESOLUTION:
-When you integrate changes that address unresolved critiques, you MUST list
-the resolved critique IDs in your RESEARCH_STATE.md output. Add this line
-in the YAML frontmatter:
-
-  resolved_critiques: [CRIT-001, CRIT-003]
+When you integrate changes that address unresolved critiques, you MUST:
+1. List resolved critique IDs in your RESEARCH_STATE.md YAML frontmatter:
+     resolved_critiques: [CRIT-001, CRIT-003]
+2. For EACH resolved critique, write a one-sentence description of the
+   specific change that addresses it, using this format in your prose:
+     CRIT-001: Corrected sign in Eq. 3 from + to −.
+     CRIT-003: Added missing factor of 2π in normalization.
+   The system extracts these notes as resolution records. Generic notes like
+   "addressed by integration" are not acceptable — state WHAT changed.
 
 Include ALL critique IDs that are now addressed by the current state of
 results (whether by new computations, derivation fixes, or explicit
@@ -141,6 +145,12 @@ Computations use a three-valued verdict system:
 - REFUTED — multiple methods agree the claim is wrong. Blocks promotion, triggers
   "resolve" task.
 - INCONCLUSIVE — tooling could not verify. NOT evidence against the claim.
+
+REFUTED HANDLING:
+A REFUTED computation means the original claim was WRONG. If you adopt a
+corrected version of the formula, it needs its own NEW COMP entry with a
+fresh verification — never relabel the original REFUTED COMP-NNN as VERIFIED.
+The system will automatically dispatch a recompute task after a REFUTED verdict.
 
 INCONCLUSIVE HANDLING:
 - After 1 INCONCLUSIVE: you MAY request one retry with a different verification

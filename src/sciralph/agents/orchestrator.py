@@ -113,7 +113,7 @@ class OrchestratorAgent(BaseAgent):
             self.workspace.write_file("RESEARCH_STATE.md", research_state)
             self.workspace.delete_file("PROPOSED_CHANGES.md")
             # Resolve critiques mentioned in the orchestrator's output
-            self._resolve_critiques(response.text)
+            self._resolve_critiques(response.text, iteration)
         self.workspace.write_file("CURRENT_TASK.md", task_text)
 
     def _enforce_problem_statement(self, research_state: str) -> str:
@@ -130,7 +130,7 @@ class OrchestratorAgent(BaseAgent):
             flags=re.DOTALL,
         )
 
-    def _resolve_critiques(self, response_text: str):
+    def _resolve_critiques(self, response_text: str, iteration: int):
         """Scan orchestrator output for resolved critique IDs and update CRITIQUE_LOG.md."""
         # Look for resolved_critiques list in YAML or inline references like "CRIT-001 resolved"
         resolved_ids = set()
@@ -159,17 +159,24 @@ class OrchestratorAgent(BaseAgent):
         if not resolved_ids:
             return
 
-        # Get current iteration from RESEARCH_STATE frontmatter
-        state_content = self.workspace.read_file("RESEARCH_STATE.md")
-        state_meta, _ = parse_frontmatter(state_content)
-        iteration = state_meta.get("iteration", "?")
+        # Try to extract per-critique resolution notes from prose
+        resolution_notes = {}
+        for crit_id in resolved_ids:
+            # Look for "CRIT-NNN: <note>" or "CRIT-NNN — <note>" patterns
+            note_match = re.search(
+                rf'{re.escape(crit_id)}[\s:—\-]+([^.\n]{{10,120}}[.])',
+                response_text,
+            )
+            if note_match:
+                resolution_notes[crit_id] = note_match.group(1).strip()
 
         content = self.workspace.read_file("CRITIQUE_LOG.md")
         for crit_id in sorted(resolved_ids):
-            content = resolve_critique(
-                content, crit_id,
+            note = resolution_notes.get(
+                crit_id,
                 f"Addressed by orchestrator integration at iteration {iteration}.",
             )
+            content = resolve_critique(content, crit_id, note)
 
         # Update frontmatter counts
         meta, body = parse_frontmatter(content)

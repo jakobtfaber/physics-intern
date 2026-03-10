@@ -1,5 +1,6 @@
 """Workspace manager for SciRalph file I/O and git operations."""
 
+import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -144,6 +145,36 @@ Not yet fully verified. Subject to critique.
         now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
         dest = self.archive_dir / f"{src.stem}_{now}{src.suffix}"
         shutil.copy2(str(src), str(dest))
+
+    def validate_comp_references(self) -> list[str]:
+        """Strip phantom COMP/TASK references from RESEARCH_STATE.md.
+
+        Returns list of stripped reference IDs for alerting.
+        """
+        from .markdown import _parse_comp_entries
+
+        state = self.read_file("RESEARCH_STATE.md")
+        comp_log = self.read_file("COMPUTATION_LOG.md")
+
+        # Get valid IDs from COMPUTATION_LOG
+        entries = _parse_comp_entries(comp_log)
+        valid_ids = {e["id"] for e in entries}
+
+        # Find all COMP-NNN / TASK-NNN references in RESEARCH_STATE
+        ref_pattern = re.compile(r'\b((?:COMP|TASK)-\d+)\b')
+        found_refs = set(ref_pattern.findall(state))
+
+        # Identify phantoms
+        phantoms = sorted(found_refs - valid_ids)
+        if not phantoms:
+            return []
+
+        # Strip phantom references: replace "COMP-NNN" with "[COMP-NNN:unverified]"
+        for phantom in phantoms:
+            state = state.replace(phantom, f"[{phantom}:unverified]")
+
+        self.write_file("RESEARCH_STATE.md", state)
+        return phantoms
 
     def git_commit(self, message: str):
         """Stage all changes and commit."""

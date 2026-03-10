@@ -1,8 +1,9 @@
 """Tests for SciRalph engine (compression thresholds, research status, budget enforcement)."""
 
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch, PropertyMock, call
 
 from sciralph.config import Config
+from sciralph.llm import LLMResponse
 from sciralph.markdown import parse_frontmatter, render_frontmatter
 
 
@@ -229,3 +230,161 @@ class TestEnrichComputeTask:
         engine._enrich_compute_task_with_prior_failures(task)
 
         assert "CURRENT_TASK.md" not in written  # write_file not called
+
+
+class TestRefutedRecompute:
+    """Test REFUTED verdict triggers forced recompute next iteration."""
+
+    COMP_LOG_REFUTED = """\
+## COMP-001: Check WH-001
+**CLAIM**: Verify formula X = Y
+**VERDICT**: REFUTED
+**NOTES**: Numerical checks fail consistently.
+"""
+
+    COMP_LOG_VERIFIED = """\
+## COMP-001: Check WH-001
+**CLAIM**: Verify formula X = Y
+**VERDICT**: VERIFIED
+**NOTES**: All checks pass.
+"""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            written = {}
+
+            def capture_write(filename, content):
+                written[filename] = content
+            ws.write_file = MagicMock(side_effect=capture_write)
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 3
+            engine._pending_recompute_claim = None
+        return engine, ws, written
+
+    def test_refuted_sets_pending_recompute(self):
+        """REFUTED verdict sets _pending_recompute_claim."""
+        engine, ws, _ = self._make_engine()
+        ws.read_file = MagicMock(return_value=self.COMP_LOG_REFUTED)
+
+        task = {"task_type": "compute", "body": "Verify formula X = Y"}
+        engine._check_for_refuted_verdict(task)
+
+        assert engine._pending_recompute_claim is not None
+        assert "formula X = Y" in engine._pending_recompute_claim
+
+    def test_verified_no_pending(self):
+        """VERIFIED verdict does not set _pending_recompute_claim."""
+        engine, ws, _ = self._make_engine()
+        ws.read_file = MagicMock(return_value=self.COMP_LOG_VERIFIED)
+
+        task = {"task_type": "compute", "body": "Verify formula X = Y"}
+        engine._check_for_refuted_verdict(task)
+
+        assert engine._pending_recompute_claim is None
+
+    def test_make_recompute_task(self):
+        """_make_recompute_task creates a valid compute task."""
+        engine, _, written = self._make_engine()
+
+        task = engine._make_recompute_task("Test claim")
+
+        assert task["task_type"] == "compute"
+        assert task["priority"] == "high"
+        assert "CURRENT_TASK.md" in written
+        assert "Re-verification After REFUTED Verdict" in written["CURRENT_TASK.md"]
+        assert "Test claim" in written["CURRENT_TASK.md"]
+
+    def test_pending_recompute_consumed_on_next_iteration(self):
+        """Pending recompute claim is consumed and cleared."""
+        engine, ws, written = self._make_engine()
+        engine._pending_recompute_claim = "Verify formula X = Y"
+
+        # Simulate what happens at top of loop
+        claim = engine._pending_recompute_claim
+        engine._pending_recompute_claim = None
+        task = {"task_type": "research"}
+        if task["task_type"] not in ("synthesize", "terminate"):
+            task = engine._make_recompute_task(claim)
+
+        assert task["task_type"] == "compute"
+        assert engine._pending_recompute_claim is None
+
+    def test_pending_recompute_skipped_on_synthesize(self):
+        """Pending recompute is NOT forced during synthesize/terminate."""
+        engine, _, _ = self._make_engine()
+        engine._pending_recompute_claim = "Verify formula X = Y"
+
+        task = {"task_type": "synthesize"}
+        claim = engine._pending_recompute_claim
+        engine._pending_recompute_claim = None
+        if task["task_type"] not in ("synthesize", "terminate"):
+            task = engine._make_recompute_task(claim)
+
+        assert task["task_type"] == "synthesize"
+
+
+class TestCriticRetry:
+    """Test critic retry on underflow (silent failure)."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 5
+            engine.critic = MagicMock()
+        return engine
+
+    def test_critic_retry_on_low_tokens(self):
+        """Critic retried when output_tokens < 200."""
+        engine = self._make_engine()
+        low_response = LLMResponse(
+            text="OK", input_tokens=5000, output_tokens=23,
+            stop_reason="end_turn", duration=1.0,
+        )
+        normal_response = LLMResponse(
+            text="## CRIT-001\nReal critique.", input_tokens=5000,
+            output_tokens=800, stop_reason="end_turn", duration=2.0,
+        )
+        engine.critic.run = MagicMock(side_effect=[low_response, normal_response])
+
+        task = {"task_type": "critique", "task_id": "TASK-005"}
+        result = engine._dispatch(task)
+
+        assert result == "deep_critic"
+        assert engine.critic.run.call_count == 2
+        engine.metrics.alert.assert_called_once()
+
+    def test_critic_no_retry_on_normal_tokens(self):
+        """Critic NOT retried when output_tokens >= 200."""
+        engine = self._make_engine()
+        normal_response = LLMResponse(
+            text="## CRIT-001\nReal critique.", input_tokens=5000,
+            output_tokens=800, stop_reason="end_turn", duration=2.0,
+        )
+        engine.critic.run = MagicMock(return_value=normal_response)
+
+        task = {"task_type": "critique", "task_id": "TASK-005"}
+        result = engine._dispatch(task)
+
+        assert result == "deep_critic"
+        assert engine.critic.run.call_count == 1
+        engine.metrics.alert.assert_not_called()

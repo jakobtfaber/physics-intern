@@ -31,6 +31,7 @@ class SciRalph:
         self.config.logs_dir = str(self.workspace.logs_dir)
         self.iteration = 0
         self._stale_iterations = 0
+        self._pending_recompute_claim: str | None = None
 
         # Initialize agents
         self.orchestrator = OrchestratorAgent(self.config, self.workspace, self.metrics)
@@ -51,6 +52,22 @@ class SciRalph:
             console.print("[cyan]Orchestrator[/cyan] planning...")
             orch_response = self.orchestrator.run({}, self.iteration)
             task = self.orchestrator.parse_task(orch_response.text, iteration=self.iteration)
+
+            # Validate COMP/TASK references in RESEARCH_STATE
+            phantoms = self.workspace.validate_comp_references()
+            if phantoms:
+                self.metrics.alert(
+                    self.iteration,
+                    f"Phantom references stripped: {', '.join(phantoms)}"
+                )
+
+            # Auto-recompute after REFUTED verdict
+            if self._pending_recompute_claim:
+                claim = self._pending_recompute_claim
+                self._pending_recompute_claim = None
+                if task["task_type"] not in ("synthesize", "terminate"):
+                    console.print("[yellow]Forcing recompute after REFUTED verdict.[/yellow]")
+                    task = self._make_recompute_task(claim)
 
             # Budget enforcement: hard override when budget exhausted
             budget_remaining = self.config.max_iterations - self.iteration
@@ -133,11 +150,26 @@ class SciRalph:
         elif task_type == "compute":
             console.print("[magenta]Computationalist[/magenta] working...")
             self.computationalist.run(task, self.iteration)
+            self._check_for_refuted_verdict(task)
             return "computationalist"
 
         elif task_type == "critique":
             console.print("[red]Deep Critic[/red] reviewing...")
-            self.critic.run(task, self.iteration)
+            response = self.critic.run(task, self.iteration)
+            # Check for silent failure (near-empty output)
+            output_tokens = (
+                response.output_tokens if hasattr(response, 'output_tokens')
+                else response.total_output_tokens
+            )
+            if output_tokens < 200:
+                self.metrics.alert(
+                    self.iteration,
+                    f"Critic underflow: {output_tokens} output tokens — retrying once"
+                )
+                console.print(
+                    f"[yellow]Critic produced only {output_tokens} tokens, retrying...[/yellow]"
+                )
+                self.critic.run(task, self.iteration)
             return "deep_critic"
 
         elif task_type == "compress":
@@ -227,6 +259,49 @@ a final answer. Note unresolved items as limitations. Set status to
         if len(prior) > 1:
             addendum += f"\n\n({len(prior) - 1} earlier failure(s) in COMPUTATION_LOG.md)\n"
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
+
+    def _check_for_refuted_verdict(self, task: dict):
+        """After computationalist runs, check if latest verdict is REFUTED."""
+        from .markdown import _parse_comp_entries
+        comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
+        entries = _parse_comp_entries(comp_log)
+        if entries and entries[-1]["verdict"] == "REFUTED":
+            claim = entries[-1].get("claim", task.get("body", ""))
+            self._pending_recompute_claim = claim
+            self.metrics.alert(
+                self.iteration,
+                "REFUTED verdict detected — will force recompute next iteration"
+            )
+
+    def _make_recompute_task(self, claim: str) -> dict:
+        """Create a forced compute task to re-verify a REFUTED claim after correction."""
+        task_content = f"""---
+task_id: "TASK-{self.iteration:03d}"
+task_type: "compute"
+assigned_to: "computationalist"
+priority: "high"
+iteration: {self.iteration}
+---
+
+# Re-verification After REFUTED Verdict
+
+The previous computation REFUTED the following claim. The orchestrator has
+integrated corrections. Verify the CORRECTED version now appears in
+RESEARCH_STATE.md and compute a fresh verification.
+
+**Claim to re-verify:** {claim[:500]}
+"""
+        self.workspace.write_file("CURRENT_TASK.md", task_content)
+        return {
+            "task_id": f"TASK-{self.iteration:03d}",
+            "task_type": "compute",
+            "assigned_to": "computationalist",
+            "priority": "high",
+            "iteration": self.iteration,
+            "blocking_critiques": [],
+            "target_file": "",
+            "body": claim[:500],
+        }
 
     def _check_compression(self):
         """Check file sizes against thresholds, compress if needed."""

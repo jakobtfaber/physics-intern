@@ -37,6 +37,11 @@ RULES:
 - If the task requires a tool you don't have access to, say so explicitly.
 - If you hit a timeout, simplify: reduce grid sizes, use fewer iterations,
   or switch to analytical approaches.
+- INDEPENDENCE REQUIREMENT: Your verification must compute the result by an
+  independent method (numerical integration, series summation, finite
+  differences, symbolic CAS, Monte Carlo). Never hardcode the predicted
+  formula as both sides of a comparison. If verifying identity A = B,
+  compute A and B through DIFFERENT code paths.
 
 ## VERIFICATION STRATEGY
 

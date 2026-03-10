@@ -21,8 +21,6 @@ class ComputationalistAgent(BaseAgent):
             self.workspace.read_file("CURRENT_TASK.md"),
             "\n## Relevant Research State (excerpts)\n",
             self.workspace.read_file("RESEARCH_STATE.md"),
-            "\n## Recent Computations (for reference)\n",
-            self.workspace.read_file_tail("COMPUTATION_LOG.md", n_entries=3),
         ]
         return "\n".join(parts)
 
