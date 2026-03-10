@@ -5,8 +5,9 @@ import tempfile
 from unittest.mock import MagicMock, patch, call
 
 from sciralph.agents.computationalist import ComputationalistAgent
-from sciralph.llm import LLMResponse
+from sciralph.llm import AgentResult, LLMResponse
 from sciralph.sandbox import execute_python
+from sciralph.tools import ToolCall, ToolExecutor
 
 
 class TestResultRegex:
@@ -227,3 +228,82 @@ print(f"\\nCHECKS: {n_passed}/{n_total} PASSED")
             f.flush()
             result = execute_python(f.name)
         assert result.returncode != 0
+
+
+class TestToolsAttribute:
+    def test_computationalist_has_tools(self):
+        assert ComputationalistAgent.tools
+        assert len(ComputationalistAgent.tools) == 1
+        assert ComputationalistAgent.tools[0]["name"] == "execute_python"
+
+    def test_other_agents_no_tools(self):
+        from sciralph.agents.orchestrator import OrchestratorAgent
+        from sciralph.agents.researcher import ResearcherAgent
+        from sciralph.agents.critic import CriticAgent
+        assert OrchestratorAgent.tools == []
+        assert ResearcherAgent.tools == []
+        assert CriticAgent.tools == []
+
+
+class TestAgenticResponse:
+    def test_process_agentic_response_appends_to_log(self):
+        agent = _make_agent()
+        agent.workspace.read_file.return_value = ""
+
+        result = AgentResult(
+            text=(
+                "## COMP-020: Test\n\n"
+                "**CLAIM:** x = 1\n"
+                "**VERDICT:** VERIFIED\n"
+                "**NOTES:** All checks passed."
+            ),
+            tool_calls=[
+                ToolCall("execute_python", {"code": "print(1)"}, "1\n", False, 0.5),
+            ],
+            total_input_tokens=500,
+            total_output_tokens=200,
+            rounds=2,
+        )
+
+        agent.process_response(result, {"task_id": "COMP-020"}, iteration=7)
+
+        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert "**VERDICT:** VERIFIED" in appended_text
+        assert "**Iteration:** 7" in appended_text
+        assert "**Tool calls:** 1" in appended_text
+
+    def test_process_agentic_response_adds_header(self):
+        agent = _make_agent()
+        agent.workspace.read_file.return_value = ""
+
+        result = AgentResult(
+            text="**CLAIM:** x = 1\n**VERDICT:** VERIFIED\n**NOTES:** OK.",
+            tool_calls=[],
+            total_input_tokens=300,
+            total_output_tokens=100,
+            rounds=1,
+        )
+
+        agent.process_response(result, {"task_id": "TASK-005"}, iteration=5)
+
+        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert "## TASK-005" in appended_text
+        # Header should have been added since text didn't start with ##
+        assert "## TASK-005: Computation" in appended_text
+
+    def test_process_agentic_response_empty_text(self):
+        agent = _make_agent()
+        agent.workspace.read_file.return_value = ""
+
+        result = AgentResult(
+            text="",
+            tool_calls=[],
+            total_input_tokens=100,
+            total_output_tokens=10,
+            rounds=1,
+        )
+
+        agent.process_response(result, {"task_id": "TASK-010"}, iteration=10)
+
+        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert "INCONCLUSIVE" in appended_text

@@ -4,47 +4,6 @@ Items are ordered by priority within each tier. Tier 1 items are quick fixes tha
 
 Ordering informed by the audit of 8 workspace runs (March 2026): 7/8 solved correctly, Chandrasekhar failed with 13.6% systematic error. Computation scripts failed execution in ~50% of cases across all runs, mostly due to preventable causes.
 
-
-
-
-
-
----
-
-## Intermediary review checkpoint (before Tier 3)
-
-- **Prompt review** — review all prompts for conciseness, clarity, completeness, and consistency. Do this after the Tier 1 and Tier 2 prompt changes are landed.
-
----
-
-
-## Tier 3 — Agentic computationalist (big feature)
-
-The tool-use loop is the single largest improvement planned. It structurally addresses most computation failure patterns by letting the LLM see tracebacks and iterate: deprecated APIs get fixed on the spot, type errors get caught, tolerance issues get diagnosed interactively. Items in this section are ordered by implementation dependency.
-
-- **ToolExecutor + execute_python tool** — new `src/sciralph/tools.py`. Tool definitions in appropriate format (depends on provider?). `ToolExecutor` class dispatches tool calls: `_execute_python` writes code to file, runs via `sandbox.py`, returns stdout+stderr (truncated to 10K chars). Path validation via `_resolve_and_validate` (rejects `..` traversal). Only the computationalist gets tools initially.
-
-- **run_agent_loop in llm.py** — add `run_agent_loop()` alongside existing `call_llm()`. Runs a tool-use loop until stop_reason="end_turn", max_rounds, or token_budget. Returns `AgentResult` dataclass (text, tool_calls log, token counts, rounds, truncated flag). Old `call_llm()` stays for agents that don't need tools.
-
-- **Tool support in base agent** — edit `agents/base.py`. Add `tools` class attribute (default empty). If tools present, `run()` uses `run_agent_loop`; otherwise old one-shot `call_llm` path.
-
-- **Tool-use loop tests** — new `tests/test_tools.py`. Path validation (allowed, rejected, traversal attack). execute_python: writes file, executes, returns output. Output truncation. Max rounds enforcement (mock LLM always requests tools). Token budget enforcement.
-
-- **Agentic computationalist** — refactor `agents/computationalist.py`. Current flow: LLM emits fenced code block → scaffold extracts → executes → separate review call. New flow: LLM calls `execute_python` tool → sees output → iterates on errors → emits final COMPUTATION_LOG entry with VERDICT as text. Remove separate `computationalist_review` call. Update `prompts/computationalist.md` accordingly (tool-use instructions, replace hard asserts with soft-check pattern per Tier 1 item, instruct to self-review after seeing output). Remove `prompts/computationalist_review.md`.
-
-- **Structured timeout errors in tool-use loop** — when `execute_python` hits the sandbox timeout (60s), return a structured error message (e.g. `{"error": "timeout", "limit_seconds": 60}`) rather than treating it as a fatal failure. This lets the agentic computationalist see the timeout and respond by simplifying the algorithm, reducing grid sizes, or switching to analytical approaches. Observed in 2 cases (Perihelion COMP-006, Casimir COMP-006) where timeouts produced permanent INCONCLUSIVE verdicts with no recovery path.
-
-- **Tool-use metrics** — surface tool-use metadata in METRICS.md: per-agent-call (rounds, tool calls, truncated flag), cumulative total tool calls.
-
-- **Agentic computationalist tests** — extend `tests/test_computationalist.py` for tool-use flow. Smoke test: run 3 iterations on a real problem, verify AUDIT_LOG.jsonl has tool_call entries, verify agent iterates on a deliberate SymPy import error.
-
-- **Prompt cleanup for agentic flow** — once the agentic computationalist is working, revisit prompts to remove/rework rules that are now redundant:
-  - `prompts/computationalist_review.md` — delete entirely (the agentic loop self-reviews inline).
-  - `prompts/computationalist.md` — remove the two-step generate/review instructions (lines about "separate review step", "do not include VERDICT or NOTES", "do NOT predict output in RESULT"). Rewrite OUTPUT FORMAT: the agent now emits VERDICT directly after seeing execution output.
-  - `prompts/computationalist.md` — BANNED APIs section becomes nice-to-have rather than essential (the agent sees ImportErrors and can fix them). Consider trimming to a one-line note or moving to a tool description.
-  - `prompts/computationalist.md` — soft-check CODE PATTERN: still good practice but less critical since the agent can see crashes and iterate. Consider relaxing from MANDATORY to recommended.
-  - `prompts/computationalist.md` — some NUMERICAL PITFALLS items (overflow, stiff ODEs) become less urgent since the agent sees warnings and wrong results interactively. Keep as upfront guidance to save tool-use rounds but deprioritize.
-
 ---
 
 ## Tier 4 — Future work
@@ -69,6 +28,17 @@ The tool-use loop is the single largest improvement planned. It structurally add
 
 ---
 ## DONE
+
+### Tier 3 — Agentic computationalist
+
+- **ToolExecutor + execute_python tool** — `src/sciralph/tools.py` with `ToolCall` dataclass, `ToolExecutor` class, `TOOL_DEFINITIONS` for Anthropic tool-use API. Writes scripts to `computations/tool_exec_NNN.py`, executes via `sandbox.py`, returns truncated output. Structured timeout errors with actionable suggestions.
+- **run_agent_loop in llm.py** — `run_agent_loop()` alongside `call_llm()`. Loops until `end_turn`, `max_tokens`, or `max_rounds`. Returns `AgentResult` (text, tool_calls, aggregated tokens, rounds, truncated). Per-round audit + conversation logging with `round` field.
+- **Tool support in base agent** — `tools` class attribute on `BaseAgent`. If non-empty, `run()` dispatches to `_call_with_tools()` using `run_agent_loop`; otherwise legacy `_call_with_retry()` path. Non-tool agents completely unaffected.
+- **Agentic computationalist** — `ComputationalistAgent` sets `tools = ToolExecutor.TOOL_DEFINITIONS`. Agentic path: LLM calls `execute_python`, sees output, iterates on errors, emits COMPUTATION_LOG entry with VERDICT as text. Legacy two-pass path preserved as fallback (set `tools = []` to revert).
+- **Prompt rewrite** — `computationalist.md` rewritten for tool-use flow: agent writes VERDICT directly after seeing output, BANNED APIs as round-saving guidance, soft-check pattern recommended, verdict decision table included. `computationalist_review.md` retained for legacy fallback.
+- **Tool-use metrics** — `CallRecord` extended with `rounds`, `tool_calls`, `truncated`. METRICS.md shows Rounds + Tool Calls columns when tool-use is active. Cumulative `total_tool_calls` in frontmatter.
+- **Config** — `max_tool_rounds` (default 10) and `tool_output_limit` (default 10K) added to `Config` and `_YAML_CONFIG_FIELDS`.
+
 ### Tier 1 — Quick fixes (do first, all independent of tool-use work)
 
 - **Fix soft-check pattern in computationalist prompt** — the current ASSERTION RULES pattern wraps individual checks in try/except but ends with `assert all_passed`, which still crashes the script and causes the scaffold to record EXECUTION FAILED. The LLM consistently follows this pattern — the pattern itself is the bug, not LLM non-compliance. Fix: replace the final `assert all_passed` with always-exit-0 and a structured summary (e.g. `CHECKS: 8/10 PASSED`). Teach the review phase (or agentic computationalist) to read the summary rather than relying on exit code. *Audit evidence: hard asserts killed scripts in 5/8 runs (QHO COMP-018, Chandrasekhar COMP-015, Path Integral COMP-014, Renormalization COMP-014, Perihelion COMP-001/006).*

@@ -16,16 +16,17 @@ src/sciralph/
   engine.py            — Main loop: orchestrate → dispatch → compress → metrics → git
   verify.py            — Independent verification script (Claude Opus, streaming)
   config.py            — Config dataclass (model, thresholds, timeouts, audit_log)
-  llm.py               — Anthropic API wrapper (call_llm) with JSONL audit logging
+  llm.py               — Anthropic API wrapper (call_llm, run_agent_loop) with JSONL audit logging
+  tools.py             — ToolExecutor + ToolCall for agentic tool-use (execute_python)
   workspace.py         — File I/O + git operations on workspace/
   markdown.py          — YAML frontmatter parsing, section extraction, critique counting
   sandbox.py           — Python script execution with timeout
-  metrics.py           — MetricsTracker (token counts, alerts, Markdown rendering)
+  metrics.py           — MetricsTracker (token counts, tool calls, alerts, Markdown rendering)
   agents/
-    base.py            — BaseAgent ABC with template method + retry
+    base.py            — BaseAgent ABC with template method + retry + tool-use dispatch
     orchestrator.py    — Plans tasks, integrates proposed changes
     researcher.py      — Derivations and reasoning
-    computationalist.py — Code extraction, execution, failure flagging
+    computationalist.py — Agentic code execution via execute_python tool, verdict writing
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
@@ -46,7 +47,7 @@ Five agents (orchestrator, researcher, computationalist, deep critic, compressor
 
 - **Orchestrator** reads all state, integrates proposed changes into RESEARCH_STATE.md, emits CURRENT_TASK.md
 - **Researcher** writes PROPOSED_CHANGES.md (never modifies RESEARCH_STATE directly)
-- **Computationalist** extracts/runs Python code, appends to COMPUTATION_LOG.md; flags execution failures prominently
+- **Computationalist** uses `execute_python` tool via agentic loop — writes code, sees output, iterates on errors, emits COMPUTATION_LOG entry with VERDICT
 - **Deep Critic** appends critiques to CRITIQUE_LOG.md
 - **Compressor** archives + shrinks files exceeding size thresholds
 
@@ -58,11 +59,12 @@ The orchestrator emits one of these task types: `research`, `derive`, `compute`,
 
 ## Conventions
 
-- `call_llm` is a stateless function, not a class; accepts optional `agent_name`/`iteration` for audit logging
+- `call_llm` is a stateless function for one-shot agents; `run_agent_loop` handles tool-use agents
+- `AgentResult` (tool-use) is distinct from `LLMResponse` (one-shot) — accumulates tokens across rounds
 - Agent prompts are static `.md` files loaded at runtime — no templating
 - YAML frontmatter parsing always falls back to regex on failure — never crash the loop
 - Workspace git is managed by the scaffolding loop, not by agents
-- Code extraction from computationalist: take last ```python``` fenced block
+- BaseAgent `tools` class attribute: non-empty → agentic loop, empty → one-shot `call_llm`
 - Critique ID format: `CRIT-NNN` (regex also accepts `CRITIQUE-NNN` for LLM drift tolerance)
 
 ## Running
@@ -88,14 +90,15 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-All core functionality is implemented and working (66 tests passing):
+All core functionality is implemented and working (151 tests passing):
 
 - **Core loop** — all five agents, main loop, orchestrator integration, termination detection
 - **Orchestrator** — sub-problem decomposition, integration duty, critique resolution, stale-iteration backstop, momentum/compute-first/stall-detection rules
-- **Computationalist** — two-pass flow (generate code + review execution output), numerical-first verification strategy, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE), resilient assertions with try/except
+- **Computationalist** — agentic tool-use with `execute_python` (writes code, sees output, iterates on errors, emits VERDICT), numerical-first verification strategy, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE), legacy two-pass fallback
 - **Deep Critic** — two-phase format (Phase 1: reproduce, Phase 2: objection), INCONCLUSIVE severity cap, epistemic calibration, non-repetition rules
 - **Compressor** — archival + compression with forced compression at 2x threshold
+- **Tool-use infrastructure** — `run_agent_loop` in llm.py, `ToolExecutor` in tools.py, `AgentResult` dataclass, per-round audit/conversation logging, tool-use metrics (rounds, tool calls in METRICS.md)
 - **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
-- **Logging** — JSONL audit logging (metadata per LLM call), full conversation logs (system prompt + context + response in `logs/`)
+- **Logging** — JSONL audit logging (metadata per LLM call, round field for tool-use), full conversation logs (system prompt + context + response in `logs/`)
 
-Next steps: tool-use loop, agentic agents — see PLAN.md
+Next steps: `read_file` tool for orchestrator/researcher/critic — see PLAN.md

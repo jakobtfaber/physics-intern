@@ -3,15 +3,17 @@
 import re
 from datetime import datetime, timezone
 
-from ..llm import LLMResponse, call_llm
+from ..llm import AgentResult, LLMResponse, call_llm
 from ..markdown import parse_frontmatter
 from ..sandbox import execute_python
+from ..tools import ToolExecutor
 from .base import BaseAgent, PROMPTS_DIR
 
 
 class ComputationalistAgent(BaseAgent):
     name = "computationalist"
     prompt_file = "computationalist.md"
+    tools = ToolExecutor.TOOL_DEFINITIONS
 
     def build_context(self, task: dict, iteration: int) -> str:
         parts = [
@@ -24,7 +26,47 @@ class ComputationalistAgent(BaseAgent):
         ]
         return "\n".join(parts)
 
-    def process_response(self, response: LLMResponse, task: dict, iteration: int):
+    def process_response(self, response: LLMResponse | AgentResult, task: dict, iteration: int):
+        """Dispatch to agentic or legacy processing path."""
+        if isinstance(response, AgentResult):
+            self._process_agentic_response(response, task, iteration)
+        else:
+            self._process_legacy_response(response, task, iteration)
+
+    # --- Agentic path (tool-use loop) ---
+
+    def _process_agentic_response(self, result: AgentResult, task: dict, iteration: int):
+        """Process result from tool-use agent loop.
+
+        The LLM's final text IS the COMPUTATION_LOG entry (with CLAIM, METHOD,
+        RESULT, VERDICT, NOTES). Scaffold adds header if missing and metadata.
+        """
+        text = result.text.strip()
+        if not text:
+            text = "**VERDICT:** INCONCLUSIVE\n**NOTES:** Agent produced no text output."
+
+        # Ensure ## header
+        if not text.startswith("##"):
+            task_id = task.get("task_id", f"TASK-{iteration:03d}")
+            text = f"## {task_id}: Computation\n\n" + text
+
+        # Add metadata
+        text += f"\n\n- **Iteration:** {iteration}\n"
+        text += f"- **Tool calls:** {len(result.tool_calls)}\n"
+        text += f"- **Rounds:** {result.rounds}\n"
+
+        # Add code file references
+        for tc in result.tool_calls:
+            if tc.tool_name == "execute_python":
+                # Find the script files written by ToolExecutor
+                pass  # Files are already saved by ToolExecutor
+
+        self.workspace.append_file("COMPUTATION_LOG.md", "\n" + text)
+        self._update_computation_metadata()
+
+    # --- Legacy path (two-pass: generate code + review) ---
+
+    def _process_legacy_response(self, response: LLMResponse, task: dict, iteration: int):
         """Extract code, save, execute, insert results into log entry."""
         text = response.text
         log_entry, code = self._parse_computation_response(text, task, iteration)
@@ -68,8 +110,6 @@ class ComputationalistAgent(BaseAgent):
             log_entry += "\n- **WARNING:** No Python code block found in response.\n"
 
         self.workspace.append_file("COMPUTATION_LOG.md", "\n" + log_entry)
-
-        # Update frontmatter counts
         self._update_computation_metadata()
 
     def _parse_computation_response(self, text: str, task: dict, iteration: int) -> tuple[str, str]:
@@ -131,6 +171,8 @@ class ComputationalistAgent(BaseAgent):
         )
 
         return response.text.strip()
+
+    # --- Shared ---
 
     def _update_computation_metadata(self):
         """Update COMPUTATION_LOG.md frontmatter with counts."""

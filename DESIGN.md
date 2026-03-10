@@ -486,83 +486,20 @@ You must output ONLY a valid PROPOSED_CHANGES.md file (with YAML
 frontmatter and Markdown body) as specified in the design document.
 ```
 
-### 4.3 Computationalist (Two-Pass Design)
+### 4.3 Computationalist (Agentic Tool-Use Design)
 
-The computationalist uses a two-pass design: the first LLM call generates the computation plan and Python code; the scaffold executes the code; a second LLM call reviews the actual execution output and writes the verdict. This ensures verdicts are grounded in real execution results, not pre-execution predictions.
+The computationalist uses the Anthropic tool-use API with an `execute_python` tool. The agent writes code, calls the tool, sees the output (including tracebacks), can fix errors and iterate, and eventually produces the final COMPUTATION_LOG entry with VERDICT as text. This replaces the previous two-pass design where bugs wasted entire iterations.
 
-**Pass 1 — Generate:**
+**Tool-use loop:** The scaffold runs `run_agent_loop()` which loops until the LLM returns `stop_reason="end_turn"`, hits `max_tool_rounds` (default 10), or `max_tokens`. Each round that involves a tool call: the LLM emits a `tool_use` block, the scaffold executes it via `ToolExecutor`, and the result is fed back as a `tool_result` message. Typical computations need 1-3 tool calls.
 
-```
-You are a Computationalist in a scientific research system. Your role is
-to perform symbolic and numerical computations that verify, support, or
-refute claims made by the Researcher.
+**Legacy fallback:** The old two-pass flow (generate code → scaffold executes → separate review LLM call) is preserved in `_process_legacy_response`. Setting `tools = []` on the agent class reverts to this path.
 
-You will be given:
-- CURRENT_TASK.md describing what to compute
-- Relevant context from RESEARCH_STATE.md and COMPUTATION_LOG.md
+The system prompt instructs the agent on verification strategy, comparison rules, numerical pitfalls, and verdict criteria. See `prompts/computationalist.md` for the full prompt. Key elements:
 
-You have access to a Python environment with SymPy, NumPy, SciPy, and
-matplotlib. You write and execute code to perform exact symbolic
-manipulations and numerical checks.
-
-RULES:
-- Every computation must be self-contained and reproducible. Write a
-  complete Python script that can be run independently.
-- Always print intermediate steps, not just final results.
-- When verifying a claim, structure your output as:
-  CLAIM: [restate the claim being verified]
-  METHOD: [what computation you're performing]
-  RESULT: [left blank — filled automatically from execution]
-- Do NOT include VERDICT or NOTES — those come from the review step.
-
-VERIFICATION STRATEGY (MANDATORY):
-Every verification MUST include numerical spot-checks as the PRIMARY method.
-Symbolic verification is SECONDARY and supplementary.
-
-  TIER 1 — NUMERICAL SPOT-CHECKS (always required):
-  - Evaluate BOTH sides of any identity at 5+ parameter values spanning the
-    valid domain (small, medium, large, edge cases).
-  - Use assert np.isclose() with resilient try/except wrappers so all test
-    points run even if one fails.
-  - For convergence claims: ensure reference sums use adaptive n_max based
-    on convergence ratio, not fixed term counts.
-
-  TIER 2 — SYMBOLIC VERIFICATION (optional, supplementary):
-  - Try MULTIPLE simplification strategies. NEVER use
-    assert sp.simplify(A - B) == 0 as the sole verification (SymPy's
-    simplify() frequently fails on correct expressions).
-  - Wrap symbolic checks in try/except.
-
-  TIER 3 — SERIES EXPANSION (for identity/limit verification):
-  - Compare Taylor/Laurent series of both sides to a given order.
-
-OUTPUT FORMAT:
-1. A COMPUTATION_LOG entry (Markdown) with CLAIM, METHOD, RESULT sections
-2. The Python script in a ```python fenced code block
-```
-
-**Pass 2 — Review:**
-
-After the scaffold executes the code and fills the RESULT section, a second
-LLM call receives the completed log entry and writes:
-
-```
-VERDICT VALUES:
-- VERIFIED — numerical checks pass across test points.
-- REFUTED — numerical checks fail consistently across multiple test points.
-  Requires convergent evidence (failures at 2+ well-conditioned test points).
-- INCONCLUSIVE — execution errored, insufficient evidence, or disagreement
-  between methods.
-
-CRITICAL RULES:
-- Execution failure (crash, timeout) → INCONCLUSIVE, never REFUTED.
-- Single symbolic failure → INCONCLUSIVE, never REFUTED.
-- Numerical passes + symbolic fails → VERIFIED.
-
-OUTPUT FORMAT:
-**VERDICT:** [VERIFIED / REFUTED / INCONCLUSIVE]
-**NOTES:** [1-3 sentences summarizing what the execution output shows]
-```
+- **Verification strategy:** Numerical spot-checks (Tier 1, mandatory) → Symbolic verification (Tier 2, optional) → Series expansion (Tier 3, when inconclusive).
+- **Soft-check pattern:** Never use `assert`; use `np.isclose()` with try/except and a `CHECKS: N/M PASSED` summary.
+- **Verdict values:** VERIFIED, REFUTED (requires convergent evidence), INCONCLUSIVE (execution errors, insufficient evidence). Execution failure → always INCONCLUSIVE.
+- **Tolerance rules:** Default `rtol=1e-6`, no tolerance widening, quantity validation before comparison.
 
 ### 4.4 Deep Critic
 
@@ -859,21 +796,23 @@ Two complementary logging systems capture all system activity:
 
 Both live in the workspace directory (gitignored from the source repo, tracked in the workspace's own git).
 
-### 7.5 Agentic Tool Use (Planned)
+### 7.5 Agentic Tool Use
 
-The current system uses a one-shot pattern: the scaffold builds context, calls the LLM once, and processes the text response. This has a known limitation for the Computationalist — if generated code has a bug, an entire iteration is wasted on an INCONCLUSIVE result.
+The scaffold supports **tool-use agents** via the Anthropic tool-use API. Instead of a single `messages.create` call, `run_agent_loop()` in `llm.py` runs a multi-round loop: the agent calls a tool, sees the output, can fix errors and iterate, and eventually produces a final text response.
 
-The planned improvement gives select agents access to **tools** via the Anthropic tool-use API. Instead of a single `messages.create` call, the scaffold would run a **tool-use loop**: the agent calls a tool (e.g., `execute_python`), sees the output, can fix errors and iterate, and eventually produces a final text response.
+**Implementation:** `tools.py` defines `ToolExecutor` (dispatches tool calls) and `ToolCall` (records each invocation). `BaseAgent` has a `tools` class attribute — if non-empty, `run()` uses `_call_with_tools()` → `run_agent_loop()` instead of the one-shot `_call_with_retry()`. Non-tool agents are completely unaffected.
 
-| Agent | Planned Tools | Rationale |
-|-------|-------|-----------|
-| Computationalist | `execute_python(code)` | Can run code, see output, iterate on bugs — all in one turn |
-| Orchestrator | `read_file(path)` | Drill into specific sections on demand |
-| Researcher | `read_file(path)` | Load external references |
-| Deep Critic | `read_file(path)` | Inspect specific evidence |
-| Compressor | _(none)_ | Simple transformation, one-shot is fine |
+| Agent | Tools | Status |
+|-------|-------|--------|
+| Computationalist | `execute_python(code)` | **Implemented** — runs code, sees output, iterates on bugs |
+| Orchestrator | `read_file(path)` | Planned |
+| Researcher | `read_file(path)` | Planned |
+| Deep Critic | `read_file(path)` | Planned |
+| Compressor | _(none)_ | N/A — simple transformation, one-shot is fine |
 
-Security constraints: `read_file` restricted to workspace root (path traversal rejected); `execute_python` runs in subprocess with timeout; max tool rounds per agent invocation (default 10).
+**Security:** The LLM never chooses file paths — `execute_python` takes code as a string, and `ToolExecutor` writes it to `computations/tool_exec_NNN.py`. Scripts run in subprocess with timeout (default 60s). Max tool rounds configurable via `max_tool_rounds` (default 10). Output truncated to `tool_output_limit` (default 10K chars).
+
+**Audit logging:** Each round in the loop gets its own audit entry (with a `round` field) and conversation log file. `AgentResult` accumulates tokens across rounds, carries the tool_calls log, and tracks rounds/truncated status.
 
 ### 7.6 External Reference Files (Planned)
 
@@ -925,11 +864,11 @@ Each workspace (`workspaces/<YYYYMMDD_HHMMSS_problem>/`) is an **independent git
 5. **Symbolic computation limitations.** SymPy cannot handle all
    computations (e.g., tensor algebra, group theory, advanced differential
    geometry). This is the primary motivation for MCP extension.
-6. **One-shot computation fragility.** Without tool use, a single bug in
-   generated code wastes an entire iteration with an INCONCLUSIVE result.
-   The two-pass design (generate + review) helps with verdict accuracy but
-   not with code iteration. The planned agentic tool-use loop (§7.5) would
-   let the computationalist self-correct within a single iteration.
+6. **Tool-use token cost.** The agentic computationalist (§7.5) can use
+   5-10x more tokens per compute task than the old one-shot design, since
+   it may run multiple rounds of code execution. Mitigation: `max_tool_rounds`
+   (default 10) caps iteration count; metrics track rounds and tool calls
+   per agent invocation; prompt instructs "1-3 tool calls typical."
 
 ---
 
@@ -941,17 +880,19 @@ Each workspace (`workspaces/<YYYYMMDD_HHMMSS_problem>/`) is an **independent git
 - [x] Full conversation logging (system prompt + context + response per LLM call)
 - [x] Orchestrator agent (task emission, promotion rules, integration duty, critique resolution, stall detection, stale-iteration backstop)
 - [x] Researcher agent (proposed changes workflow)
-- [x] Computationalist agent (two-pass: generate + review, numerical-first verification, 3-valued verdict system)
+- [x] Computationalist agent (agentic tool-use with `execute_python`, numerical-first verification, 3-valued verdict system, legacy two-pass fallback)
 - [x] Deep Critic agent (two-phase format, INCONCLUSIVE severity cap, epistemic calibration)
 - [x] Compressor agent (archival + compression, forced at 2x threshold)
 - [x] Metrics tracking and METRICS.md generation (flush on termination)
 - [x] Main loop with forced critic passes, termination detection, stale-iteration backstop
 - [x] Independent verification script (Claude Opus, streaming, optional computation re-run)
 - [x] 10 problem definitions (Hawking temperature, QHO thermodynamics, 1D Ising, hydrogen fine structure, Casimir effect, perihelion precession, Berry phase, Chandrasekhar limit, path integral HO, phi-4 renormalisation)
-- [x] Test suite (66 tests covering all modules)
+- [x] Tool-use loop in llm.py (§7.5) — `run_agent_loop()`, `AgentResult`, `ToolExecutor`
+- [x] Agentic computationalist with `execute_python` tool
+- [x] Tool-use metrics (rounds, tool calls, truncated flag in METRICS.md)
+- [x] Test suite (151 tests covering all modules)
 
 ### Planned
-- [ ] Tool-use loop in llm.py (§7.5) — agentic computationalist with `execute_python`
 - [ ] Agentic researcher/orchestrator/critic with `read_file` tool
 - [ ] External reference file support in problem YAML (§7.6)
 - [ ] Workspace session resume
