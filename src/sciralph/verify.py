@@ -2,6 +2,7 @@
 
 import glob
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -78,6 +79,8 @@ class WorkspaceContents:
     computation_scripts: list[str] = field(default_factory=list)
     terminated_cleanly: bool = False
     frontmatter: dict = field(default_factory=dict)
+    metrics_md: str = ""
+    git_log: str = ""
 
 
 @dataclass
@@ -108,12 +111,41 @@ class VerificationResult:
     parse_warnings: list[str] = field(default_factory=list)
 
 
+@dataclass
+class ProcessEvent:
+    """A single process event identified by the process auditor."""
+    event_id: str
+    classification: str  # SUCCESS / FAILURE / MIXED
+    event_type: str
+    iterations: str = ""
+    description: str = ""
+    evidence: str = ""
+
+
+@dataclass
+class ProcessAuditResult:
+    """Result of the process audit pass."""
+    verdict: str  # EFFECTIVE / PARTIALLY_EFFECTIVE / INEFFECTIVE
+    summary: str = ""
+    events: list[ProcessEvent] = field(default_factory=list)
+    token_efficiency: str = ""
+    recommendations: list[str] = field(default_factory=list)
+    raw_response: str = ""
+    parse_warnings: list[str] = field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Load workspace
 # ---------------------------------------------------------------------------
 
-def load_workspace(workspace_dir: str) -> WorkspaceContents:
-    """Read all relevant files from a completed workspace."""
+def load_workspace(workspace_dir: str, *, include_process_data: bool = False) -> WorkspaceContents:
+    """Read all relevant files from a completed workspace.
+
+    Args:
+        workspace_dir: Path to the workspace directory.
+        include_process_data: If True, also load METRICS.md and git log
+            (needed for process audit but not for science verification).
+    """
     ws = Path(workspace_dir)
     contents = WorkspaceContents(workspace_dir=workspace_dir)
 
@@ -145,6 +177,26 @@ def load_workspace(workspace_dir: str) -> WorkspaceContents:
     # Glob computation scripts
     scripts = sorted(glob.glob(str(ws / "computations" / "*.py")))
     contents.computation_scripts = scripts
+
+    # Process audit data (optional)
+    if include_process_data:
+        metrics_path = ws / "METRICS.md"
+        if metrics_path.exists():
+            contents.metrics_md = metrics_path.read_text()
+
+        # Git log from workspace (may not be a git repo)
+        try:
+            result = subprocess.run(
+                ["git", "log", "--oneline"],
+                cwd=str(ws),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                contents.git_log = result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass  # Not a git repo or git not available
 
     return contents
 
@@ -382,6 +434,223 @@ def write_verification_report(result: VerificationResult, workspace_dir: str) ->
 
 
 # ---------------------------------------------------------------------------
+# Process audit
+# ---------------------------------------------------------------------------
+
+def build_process_audit_prompt(contents: WorkspaceContents) -> tuple[str, str]:
+    """Assemble the system prompt and user content for the process auditor LLM call."""
+    system = (PROMPTS_DIR / "process_auditor.md").read_text()
+
+    sections = []
+
+    # Termination status
+    if contents.terminated_cleanly:
+        sections.append("## Termination Status\nThe research run terminated cleanly.\n")
+    else:
+        sections.append("## Termination Status\n⚠ The research run did NOT terminate cleanly.\n")
+
+    # Core workspace files
+    for label, text in [
+        ("RESEARCH_STATE.md", contents.research_state),
+        ("COMPUTATION_LOG.md", contents.computation_log),
+        ("CRITIQUE_LOG.md", contents.critique_log),
+        ("CURRENT_TASK.md", contents.current_task),
+    ]:
+        if text:
+            sections.append(f"## {label}\n\n```markdown\n{text}\n```\n")
+        else:
+            sections.append(f"## {label}\n\n(File not found or empty.)\n")
+
+    # Process-specific data
+    if contents.metrics_md:
+        sections.append(f"## METRICS.md\n\n```markdown\n{contents.metrics_md}\n```\n")
+    else:
+        sections.append("## METRICS.md\n\n(Not available.)\n")
+
+    if contents.git_log:
+        sections.append(f"## Git Log\n\n```\n{contents.git_log}\n```\n")
+    else:
+        sections.append("## Git Log\n\n(Not available.)\n")
+
+    user_content = "\n".join(sections)
+    return system, user_content
+
+
+def parse_process_audit(response_text: str) -> ProcessAuditResult:
+    """Parse XML-tagged sections from the process auditor LLM response."""
+    result = ProcessAuditResult(verdict="INEFFECTIVE", raw_response=response_text)
+
+    # Verdict
+    verdict = _extract_tag(response_text, "process_verdict")
+    if verdict:
+        verdict_upper = verdict.strip().upper()
+        if verdict_upper in ("EFFECTIVE", "PARTIALLY_EFFECTIVE", "INEFFECTIVE"):
+            result.verdict = verdict_upper
+        else:
+            result.verdict = verdict_upper
+            result.parse_warnings.append(f"Non-standard process verdict: {verdict}")
+    else:
+        result.parse_warnings.append("No <process_verdict> tag found — defaulting to INEFFECTIVE")
+
+    # Summary
+    summary = _extract_tag(response_text, "process_summary")
+    if summary:
+        result.summary = summary
+    else:
+        result.parse_warnings.append("No <process_summary> tag found")
+
+    # Token efficiency
+    token_eff = _extract_tag(response_text, "token_efficiency")
+    if token_eff:
+        result.token_efficiency = token_eff
+    else:
+        result.parse_warnings.append("No <token_efficiency> tag found")
+
+    # Recommendations
+    recs_text = _extract_tag(response_text, "recommendations")
+    if recs_text:
+        for line in recs_text.splitlines():
+            line = line.strip().lstrip("-").strip()
+            if line:
+                result.recommendations.append(line)
+    else:
+        result.parse_warnings.append("No <recommendations> tag found")
+
+    # Process events
+    events_text = _extract_tag(response_text, "process_events")
+    if events_text:
+        # Parse EVENT-NNN lines
+        for m in re.finditer(
+            r"(EVENT-\d+)\s+\[(SUCCESS|FAILURE|MIXED)]\s+(\S+)\s+\(([^)]*)\)\s*\n(.*?)(?=EVENT-\d+|\Z)",
+            events_text,
+            re.DOTALL,
+        ):
+            description = m.group(5).strip()
+            evidence = ""
+            # Extract evidence line if present
+            ev_match = re.search(r"Evidence:\s*(.+)", description)
+            if ev_match:
+                evidence = ev_match.group(1).strip()
+                description = description[:ev_match.start()].strip()
+            result.events.append(ProcessEvent(
+                event_id=m.group(1),
+                classification=m.group(2),
+                event_type=m.group(3),
+                iterations=m.group(4).strip(),
+                description=description,
+                evidence=evidence,
+            ))
+    else:
+        result.parse_warnings.append("No <process_events> tag found")
+
+    return result
+
+
+PROCESS_VERDICT_COLORS = {
+    "EFFECTIVE": "green",
+    "PARTIALLY_EFFECTIVE": "yellow",
+    "INEFFECTIVE": "red",
+}
+
+
+def render_process_audit(result: ProcessAuditResult) -> None:
+    """Print the process audit result to the console using Rich."""
+    color = PROCESS_VERDICT_COLORS.get(result.verdict, "white")
+    console.print()
+    console.print("[bold]--- Process Audit ---[/]")
+    console.print(f"  Process Verdict: [{color} bold]{result.verdict}[/]")
+    console.print()
+
+    if result.summary:
+        console.print(f"[bold]Summary:[/] {result.summary}")
+        console.print()
+
+    if result.events:
+        table = Table(title="Process Events")
+        table.add_column("Event", style="cyan")
+        table.add_column("Type")
+        table.add_column("Class")
+        table.add_column("Iterations")
+        table.add_column("Description", max_width=50)
+        for ev in result.events:
+            ev_color = {"SUCCESS": "green", "FAILURE": "red", "MIXED": "yellow"}.get(ev.classification, "white")
+            table.add_row(
+                ev.event_id,
+                ev.event_type,
+                f"[{ev_color}]{ev.classification}[/]",
+                ev.iterations,
+                ev.description[:150],
+            )
+        console.print(table)
+        console.print()
+
+    if result.token_efficiency:
+        console.print(f"[bold]Token Efficiency:[/] {result.token_efficiency}")
+        console.print()
+
+    if result.recommendations:
+        console.print("[bold]Recommendations:[/]")
+        for r in result.recommendations:
+            console.print(f"  - {r}")
+        console.print()
+
+    if result.parse_warnings:
+        console.print("[dim]Parse warnings:[/]")
+        for w in result.parse_warnings:
+            console.print(f"  [dim]- {w}[/]")
+        console.print()
+
+
+def append_process_audit_to_report(result: ProcessAuditResult, workspace_dir: str) -> None:
+    """Append process audit sections to an existing VERIFICATION.md, patching frontmatter."""
+    report_path = Path(workspace_dir) / "VERIFICATION.md"
+
+    if report_path.exists():
+        existing = report_path.read_text()
+    else:
+        existing = "---\n---\n"
+
+    # Patch frontmatter to add process_verdict
+    # Match the closing --- of frontmatter and insert before it
+    fm_match = re.match(r"(---\n)(.*?)(---\n)", existing, re.DOTALL)
+    if fm_match:
+        fm_body = fm_match.group(2)
+        # Remove existing process_verdict if present
+        fm_body = re.sub(r"process_verdict:.*\n", "", fm_body)
+        fm_body += f"process_verdict: {result.verdict}\n"
+        existing = f"---\n{fm_body}---\n" + existing[fm_match.end():]
+
+    # Build process audit sections
+    sections = ["\n---\n\n# Process Audit\n"]
+
+    if result.summary:
+        sections.append(f"## Process Summary\n\n{result.summary}\n")
+
+    sections.append(f"## Process Verdict: {result.verdict}\n")
+
+    if result.token_efficiency:
+        sections.append(f"## Token Efficiency\n\n{result.token_efficiency}\n")
+
+    if result.events:
+        sections.append("## Process Events\n")
+        for ev in result.events:
+            sections.append(f"### {ev.event_id} [{ev.classification}] {ev.event_type} ({ev.iterations})\n")
+            if ev.description:
+                sections.append(f"{ev.description}\n")
+            if ev.evidence:
+                sections.append(f"**Evidence:** {ev.evidence}\n")
+
+    if result.recommendations:
+        sections.append("## Recommendations\n")
+        for r in result.recommendations:
+            sections.append(f"- {r}")
+        sections.append("")
+
+    report_path.write_text(existing + "\n".join(sections))
+    console.print(f"[green]Process audit appended to {report_path}[/]")
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -404,6 +673,10 @@ def build_verify_parser() -> "argparse.ArgumentParser":
                         help="Re-run computation scripts before verification")
     parser.add_argument("--write-report", action="store_true",
                         help="Write VERIFICATION.md into workspace")
+    parser.add_argument("--process-audit", action="store_true", default=None,
+                        help="Run process audit (default: on when --write-report)")
+    parser.add_argument("--no-process-audit", action="store_true",
+                        help="Disable process audit")
     return parser
 
 
@@ -421,6 +694,13 @@ def main():
     do_rerun = args.rerun_computations
     timeout = args.timeout
     write_report = args.write_report
+
+    # Determine process audit flag
+    do_process_audit = args.process_audit
+    if args.no_process_audit:
+        do_process_audit = False
+    elif do_process_audit is None:
+        do_process_audit = write_report  # default: on when --write-report
 
     # Load workspace
     console.print(f"[bold]Loading workspace:[/] {workspace_dir}")
@@ -446,11 +726,11 @@ def main():
             status = "TIMEOUT" if ex.timed_out else ("OK" if ex.returncode == 0 else "FAIL")
             console.print(f"  {name}: {status}")
 
-    # Build prompt and call LLM
+    # Build prompt and call LLM (science verification)
     config = Config(model=model, max_tokens=max_tokens, workspace_dir=workspace_dir)
     system, user_content = build_verification_prompt(contents, rerun_results)
 
-    console.print(f"\n[bold]Calling {model} (streaming)...[/]")
+    console.print(f"\n[bold]Phase 2a: Science verification ({model}, streaming)...[/]")
     response = _call_llm_streaming(system, user_content, config)
     console.print(f"[dim]({response.input_tokens} in / {response.output_tokens} out, {response.duration:.1f}s)[/]")
 
@@ -460,6 +740,20 @@ def main():
 
     if write_report:
         write_verification_report(result, workspace_dir)
+
+    # Process audit (second LLM pass)
+    if do_process_audit:
+        console.print(f"\n[bold]Phase 2b: Process audit ({model}, streaming)...[/]")
+        process_contents = load_workspace(workspace_dir, include_process_data=True)
+        pa_system, pa_user = build_process_audit_prompt(process_contents)
+        pa_response = _call_llm_streaming(pa_system, pa_user, config)
+        console.print(f"[dim]({pa_response.input_tokens} in / {pa_response.output_tokens} out, {pa_response.duration:.1f}s)[/]")
+
+        pa_result = parse_process_audit(pa_response.text)
+        render_process_audit(pa_result)
+
+        if write_report:
+            append_process_audit_to_report(pa_result, workspace_dir)
 
 
 if __name__ == "__main__":

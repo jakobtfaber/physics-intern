@@ -8,10 +8,15 @@ import pytest
 
 from sciralph.verify import (
     WorkspaceContents,
+    ProcessEvent,
+    ProcessAuditResult,
     load_workspace,
     rerun_computations,
     build_verification_prompt,
+    build_process_audit_prompt,
     parse_verdict,
+    parse_process_audit,
+    append_process_audit_to_report,
 )
 
 
@@ -343,3 +348,235 @@ def test_rerun_computations(tmp_path):
     assert len(results) == 1
     assert results[0].execution.returncode == 0
     assert "4" in results[0].execution.stdout
+
+
+# ---------------------------------------------------------------------------
+# Process audit fixtures
+# ---------------------------------------------------------------------------
+
+METRICS_MD = """---
+total_iterations: 10
+total_input_tokens: 150000
+total_output_tokens: 50000
+---
+
+# Metrics
+
+| Iteration | Agent           | Input Tokens | Output Tokens |
+|-----------|-----------------|--------------|---------------|
+| 1         | orchestrator    | 5000         | 2000          |
+| 2         | researcher      | 15000        | 5000          |
+| 3         | computationalist| 10000        | 3000          |
+| 4         | deep_critic     | 12000        | 4000          |
+| 5         | orchestrator    | 8000         | 2500          |
+
+## Alerts
+- iteration 8: computationalist max rounds reached
+"""
+
+WELL_FORMED_PROCESS_RESPONSE = """
+Let me analyze the multi-agent process.
+
+<process_events>
+EVENT-001 [SUCCESS] error_correction_cycle (iterations 3-7)
+CRIT-001 identified missing c² factor in ER-002. Researcher corrected in iteration 5, computationalist re-verified (COMP-007 VERIFIED).
+Evidence: CRIT-001, COMP-003, COMP-007
+
+EVENT-002 [FAILURE] computation_stall (iterations 8-12)
+Computationalist hit max rounds 3 times trying to verify ER-003 numerically. Same approach retried without adaptation.
+Evidence: COMP-005, COMP-007, COMP-009
+
+EVENT-003 [MIXED] good_sequencing (iterations 1-5)
+Orchestrator correctly prioritized establishing the metric before computing derived quantities, but delayed critique resolution.
+Evidence: ER-001, ER-002
+</process_events>
+
+<process_verdict>PARTIALLY_EFFECTIVE</process_verdict>
+
+<process_summary>
+The multi-agent system showed good error correction capability (CRIT-001 cycle) but suffered from computation stalls in later iterations. Budget usage was acceptable but could be improved by breaking stalls earlier.
+</process_summary>
+
+<token_efficiency>
+Total tokens: 200k input, 65k output. Approximately 15% wasted on the computation stall in iterations 8-12. The researcher and computationalist consumed the bulk of the budget, which is expected for a derivation-heavy problem.
+</token_efficiency>
+
+<recommendations>
+- Add stall detection for repeated INCONCLUSIVE verdicts on the same claim
+- Increase critique resolution priority to avoid carrying unresolved HIGH critiques
+- Consider adaptive compute timeout based on problem complexity
+</recommendations>
+"""
+
+PARTIAL_PROCESS_RESPONSE = """
+The process had issues.
+
+<process_verdict>INEFFECTIVE</process_verdict>
+
+<process_summary>
+Multiple unresolved critiques and repeated stalls.
+</process_summary>
+"""
+
+
+# ---------------------------------------------------------------------------
+# Process audit tests
+# ---------------------------------------------------------------------------
+
+def test_parse_process_audit_well_formed():
+    """All XML tags parsed correctly from a well-formed response."""
+    result = parse_process_audit(WELL_FORMED_PROCESS_RESPONSE)
+
+    assert result.verdict == "PARTIALLY_EFFECTIVE"
+    assert "error correction" in result.summary.lower()
+    assert len(result.events) == 3
+
+    # Check first event
+    ev0 = result.events[0]
+    assert ev0.event_id == "EVENT-001"
+    assert ev0.classification == "SUCCESS"
+    assert ev0.event_type == "error_correction_cycle"
+    assert ev0.iterations == "iterations 3-7"
+    assert "CRIT-001" in ev0.description
+    assert "CRIT-001" in ev0.evidence
+
+    # Check second event
+    ev1 = result.events[1]
+    assert ev1.event_id == "EVENT-002"
+    assert ev1.classification == "FAILURE"
+    assert ev1.event_type == "computation_stall"
+
+    # Check third event
+    ev2 = result.events[2]
+    assert ev2.classification == "MIXED"
+
+    assert "200k" in result.token_efficiency or "Total tokens" in result.token_efficiency
+    assert len(result.recommendations) == 3
+    assert len(result.parse_warnings) == 0
+
+
+def test_parse_process_audit_partial():
+    """Missing tags should produce warnings, not crashes."""
+    result = parse_process_audit(PARTIAL_PROCESS_RESPONSE)
+
+    assert result.verdict == "INEFFECTIVE"
+    assert "unresolved" in result.summary.lower()
+    # Missing tags should generate warnings
+    assert any("token_efficiency" in w.lower() for w in result.parse_warnings)
+    assert any("recommendations" in w.lower() for w in result.parse_warnings)
+    assert any("process_events" in w.lower() for w in result.parse_warnings)
+
+
+def test_parse_process_audit_empty():
+    """Empty response defaults to INEFFECTIVE with warnings."""
+    result = parse_process_audit("")
+
+    assert result.verdict == "INEFFECTIVE"
+    assert len(result.parse_warnings) > 0
+    assert any("process_verdict" in w.lower() for w in result.parse_warnings)
+
+
+def test_build_process_audit_prompt_includes_metrics(tmp_path):
+    """METRICS.md content should appear in user content."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "METRICS.md").write_text(METRICS_MD)
+
+    contents = load_workspace(ws_dir, include_process_data=True)
+    system, user_content = build_process_audit_prompt(contents)
+
+    assert "METRICS.md" in user_content
+    assert "total_iterations" in user_content
+    assert "computationalist max rounds" in user_content
+    # System prompt should be the process auditor prompt
+    assert "process auditor" in system.lower()
+
+
+def test_build_process_audit_prompt_includes_git_log(tmp_path):
+    """Git log should appear in user content when available."""
+    ws_dir = _make_workspace(tmp_path)
+    # Simulate by setting git_log directly on contents
+    contents = load_workspace(ws_dir)
+    contents.git_log = "abc1234 iteration 1: orchestrator\ndef5678 iteration 2: researcher"
+    system, user_content = build_process_audit_prompt(contents)
+
+    assert "Git Log" in user_content
+    assert "abc1234" in user_content
+    assert "iteration 2: researcher" in user_content
+
+
+def test_load_workspace_with_process_data(tmp_path):
+    """include_process_data=True loads METRICS.md."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "METRICS.md").write_text(METRICS_MD)
+
+    # Without process data
+    contents_basic = load_workspace(ws_dir)
+    assert contents_basic.metrics_md == ""
+    assert contents_basic.git_log == ""
+
+    # With process data
+    contents_full = load_workspace(ws_dir, include_process_data=True)
+    assert "total_iterations" in contents_full.metrics_md
+
+
+def test_load_workspace_with_process_data_no_metrics(tmp_path):
+    """Missing METRICS.md should not crash, just leave field empty."""
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir, include_process_data=True)
+    assert contents.metrics_md == ""
+
+
+def test_append_process_audit_patches_frontmatter(tmp_path):
+    """Appending process audit should add process_verdict to YAML frontmatter."""
+    ws_dir = _make_workspace(tmp_path)
+    report_path = tmp_path / "VERIFICATION.md"
+    report_path.write_text("---\nverdict: VALID\nconfidence: HIGH\n---\n\n# Verification Report\n\n## Summary\nAll good.\n")
+
+    pa_result = ProcessAuditResult(
+        verdict="PARTIALLY_EFFECTIVE",
+        summary="Good error correction but some stalls.",
+        events=[ProcessEvent(
+            event_id="EVENT-001",
+            classification="SUCCESS",
+            event_type="error_correction_cycle",
+            iterations="iterations 3-7",
+            description="Fixed missing factor.",
+            evidence="CRIT-001, COMP-003",
+        )],
+        token_efficiency="200k tokens, 15% waste.",
+        recommendations=["Detect stalls earlier", "Prioritize HIGH critiques"],
+    )
+
+    append_process_audit_to_report(pa_result, ws_dir)
+
+    report = report_path.read_text()
+    # Frontmatter should have process_verdict
+    assert "process_verdict: PARTIALLY_EFFECTIVE" in report
+    # Original verdict should still be there
+    assert "verdict: VALID" in report
+    # Process audit sections should be present
+    assert "# Process Audit" in report
+    assert "Process Summary" in report
+    assert "Good error correction" in report
+    assert "EVENT-001" in report
+    assert "Token Efficiency" in report
+    assert "Recommendations" in report
+    assert "Detect stalls earlier" in report
+
+
+def test_append_process_audit_creates_report_if_missing(tmp_path):
+    """Should create VERIFICATION.md if it doesn't exist."""
+    ws_dir = _make_workspace(tmp_path)
+    report_path = tmp_path / "VERIFICATION.md"
+    assert not report_path.exists()
+
+    pa_result = ProcessAuditResult(
+        verdict="EFFECTIVE",
+        summary="Excellent process.",
+    )
+
+    append_process_audit_to_report(pa_result, ws_dir)
+
+    report = report_path.read_text()
+    assert "process_verdict: EFFECTIVE" in report
+    assert "# Process Audit" in report

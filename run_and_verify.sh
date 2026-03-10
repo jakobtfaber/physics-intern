@@ -77,5 +77,6 @@ uv run python -m sciralph.main "${run_args[@]}"
 echo ""
 
 # --- Phase 2: Verification ---
-echo "--- Phase 2: Verification (Claude Opus) ---"
+echo "--- Phase 2a: Science verification (Claude Opus) ---"
+echo "--- Phase 2b: Process audit (Claude Opus) ---"
 uv run python -m sciralph.verify "$workspace_dir" --write-report ${verify_args[@]+"${verify_args[@]}"}
