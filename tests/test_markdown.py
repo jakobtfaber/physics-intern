@@ -11,6 +11,9 @@ from sciralph.markdown import (
     insert_into_active_critiques,
     resolve_critique,
     filter_self_retracted_critiques,
+    _parse_comp_entries,
+    detect_computation_stalls,
+    find_prior_failures_for_claim,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -358,3 +361,126 @@ def test_filter_critique_nnn_drift_tolerance():
     assert "CRITIQUE-015" not in filtered
     assert len(retracted) == 1
     assert "CRITIQUE-015" in retracted[0]
+
+
+# --- Tests for computation log parsing and stall detection ---
+
+SAMPLE_COMP_LOG = """\
+---
+total_computations: 5
+---
+
+# Computations
+
+## COMP-001: Check WH-001 energy
+- **CLAIM**: Verify WH-001 ground state energy E_0 = hbar*omega/2
+- **VERDICT**: VERIFIED
+- **RESULT**:
+  All checks passed. E_0 = 0.5 * hbar * omega.
+
+## COMP-002: Check WH-002 partition function
+- **CLAIM**: Verify WH-002 partition function Z = 1/(1 - exp(-beta*hbar*omega))
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Symbolic simplification failed. Numerical checks inconclusive at high T.
+
+## COMP-003: Retry WH-002 partition function
+- **CLAIM**: Verify WH-002 partition function Z = 1/(1 - exp(-beta*hbar*omega))
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Series expansion did not converge within 100 terms at beta=0.01.
+
+## COMP-004: Retry WH-002 again
+- **CLAIM**: Verify WH-002 partition function Z = 1/(1 - exp(-beta*hbar*omega))
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Used 10000 terms but still 8% discrepancy at beta=0.001.
+
+## COMP-005: Check ER-001 temperature
+- **CLAIM**: Verify ER-001 Hawking temperature T_H = hbar*kappa/(2*pi)
+- **VERDICT**: VERIFIED
+- **RESULT**:
+  All numerical checks passed.
+"""
+
+
+class TestParseCompEntries:
+    def test_parse_comp_entries(self):
+        entries = _parse_comp_entries(SAMPLE_COMP_LOG)
+        assert len(entries) == 5
+        assert entries[0]["id"] == "COMP-001"
+        assert "WH-001" in entries[0]["claim"]
+        assert entries[0]["verdict"] == "VERIFIED"
+        assert "E_0 = 0.5" in entries[0]["result"]
+
+        assert entries[1]["id"] == "COMP-002"
+        assert entries[1]["verdict"] == "INCONCLUSIVE"
+
+    def test_parse_comp_entries_empty(self):
+        entries = _parse_comp_entries("No computations yet.")
+        assert entries == []
+
+
+class TestDetectStalls:
+    def test_detect_stalls_triggered(self):
+        """3 INCONCLUSIVE on same claim (WH-002) -> returns stall."""
+        stalls = detect_computation_stalls(SAMPLE_COMP_LOG, threshold=3)
+        assert len(stalls) == 1
+        assert stalls[0]["count"] == 3
+        assert "WH-002" in stalls[0]["claim"]
+        assert all(v == "INCONCLUSIVE" for v in stalls[0]["verdicts"])
+
+    def test_detect_stalls_verified_resets(self):
+        """VERIFIED breaks the streak — WH-001 has VERIFIED so no stall."""
+        stalls = detect_computation_stalls(SAMPLE_COMP_LOG, threshold=1)
+        # WH-001 was VERIFIED, so no stall for it
+        claim_keys = [s["claim"] for s in stalls]
+        assert not any("WH-001" in k for k in claim_keys)
+
+    def test_detect_stalls_below_threshold(self):
+        """2 failures -> no stall at threshold=3."""
+        log = """\
+## COMP-001: Check claim
+- **CLAIM**: Verify WH-003 something
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Failed.
+
+## COMP-002: Retry claim
+- **CLAIM**: Verify WH-003 something else
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Failed again.
+"""
+        stalls = detect_computation_stalls(log, threshold=3)
+        assert stalls == []
+
+
+class TestFindPriorFailures:
+    def test_find_prior_failures_by_er_id(self):
+        """Match via WH-002 in task body."""
+        results = find_prior_failures_for_claim(
+            SAMPLE_COMP_LOG,
+            "Verify WH-002 partition function using numerical methods"
+        )
+        assert len(results) == 3  # COMP-002, COMP-003, COMP-004
+        # Most recent first
+        assert "8% discrepancy" in results[0]
+        assert "100 terms" in results[1]
+
+    def test_find_prior_failures_none(self):
+        """No matching failures -> empty list."""
+        results = find_prior_failures_for_claim(
+            SAMPLE_COMP_LOG,
+            "Verify WH-099 something totally unrelated"
+        )
+        assert results == []
+
+    def test_find_prior_failures_skips_verified(self):
+        """VERIFIED entries for the same claim are not returned."""
+        results = find_prior_failures_for_claim(
+            SAMPLE_COMP_LOG,
+            "Check WH-001 ground state energy"
+        )
+        # COMP-001 is VERIFIED, should not appear
+        assert results == []

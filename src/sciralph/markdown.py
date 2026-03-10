@@ -226,3 +226,130 @@ def resolve_critique(text: str, crit_id: str, resolution_note: str) -> str:
             + "\n"
             + text_without[insert_pos:]
         )
+
+
+# --- Computation log parsing and stall detection ---
+
+_COMP_HEADER_RE = re.compile(r"^## (?:COMP|TASK)-\d+", re.MULTILINE)
+_ER_WH_ID_RE = re.compile(r"(?:ER|WH)-\d+")
+
+
+def _parse_comp_entries(text: str) -> list[dict]:
+    """Parse COMPUTATION_LOG.md into structured entries.
+
+    Returns list of {"id": "COMP-001", "claim": "...", "verdict": "VERIFIED"|..., "result": "..."}.
+    """
+    splits = _COMP_HEADER_RE.split(text)
+    headers = _COMP_HEADER_RE.findall(text)
+    if not headers:
+        return []
+
+    entries = []
+    for header, body in zip(headers, splits[1:]):
+        entry_id_match = re.search(r"(?:COMP|TASK)-\d+", header)
+        entry_id = entry_id_match.group() if entry_id_match else "UNKNOWN"
+
+        # Extract CLAIM line
+        claim_match = re.search(r"\*\*(?:CLAIM|Task|Claim)\*?\*?:?\s*(.+)", body, re.IGNORECASE)
+        claim = claim_match.group(1).strip() if claim_match else ""
+
+        # Extract VERDICT line
+        verdict_match = re.search(r"\*\*VERDICT\*?\*?:?\s*(\w+)", body, re.IGNORECASE)
+        verdict = verdict_match.group(1).strip().upper() if verdict_match else ""
+
+        # Extract RESULT block: text between **RESULT**: and next ** header or ## header
+        result_match = re.search(
+            r"\*\*(?:RESULT|Result)\*?\*?:?\s*\n(.*?)(?=\n\*\*[A-Z]|\n## |\Z)",
+            body, re.DOTALL | re.IGNORECASE,
+        )
+        result = result_match.group(1).strip() if result_match else ""
+
+        entries.append({
+            "id": entry_id,
+            "claim": claim,
+            "verdict": verdict,
+            "result": result,
+        })
+    return entries
+
+
+def detect_computation_stalls(text: str, threshold: int = 3) -> list[dict]:
+    """Find claims with >= threshold consecutive non-VERIFIED verdicts.
+
+    Returns [{"claim": str, "count": int, "verdicts": list[str]}].
+    Claim matching: extract ER/WH IDs via regex; fall back to first-80-char prefix.
+    A VERIFIED verdict resets the consecutive count.
+    """
+    entries = _parse_comp_entries(text)
+    # Group by normalized claim key
+    claim_streaks: dict[str, list[str]] = {}  # key -> current streak of non-VERIFIED verdicts
+
+    for entry in entries:
+        key = _normalize_claim_key(entry["claim"])
+        if not key:
+            continue
+        if entry["verdict"] == "VERIFIED":
+            claim_streaks[key] = []  # reset
+        else:
+            if key not in claim_streaks:
+                claim_streaks[key] = []
+            claim_streaks[key].append(entry["verdict"] or "UNKNOWN")
+
+    stalls = []
+    for key, verdicts in claim_streaks.items():
+        if len(verdicts) >= threshold:
+            stalls.append({
+                "claim": key,
+                "count": len(verdicts),
+                "verdicts": verdicts,
+            })
+    return stalls
+
+
+def _normalize_claim_key(claim: str) -> str:
+    """Normalize a claim to a matching key.
+
+    Prefers ER/WH IDs if present; falls back to first-80-char prefix (lowered, stripped).
+    """
+    ids = _ER_WH_ID_RE.findall(claim)
+    if ids:
+        return " ".join(sorted(set(ids)))
+    # Fallback: first 80 chars, lowercased, whitespace-collapsed
+    normalized = " ".join(claim.lower().split())[:80]
+    return normalized
+
+
+def find_prior_failures_for_claim(comp_log: str, task_body: str) -> list[str]:
+    """Find RESULT blocks from prior non-VERIFIED computations matching the claim in task_body.
+
+    Matching: extract ER/WH IDs from task_body; match against claim lines in COMP entries.
+    Falls back to first-80-char normalized prefix matching.
+    Returns RESULT blocks, most recent first. Uses _parse_comp_entries().
+    """
+    entries = _parse_comp_entries(comp_log)
+    task_key = _normalize_claim_key(task_body)
+    if not task_key:
+        return []
+
+    # Also extract raw IDs from task_body for ID-based matching
+    task_ids = set(_ER_WH_ID_RE.findall(task_body))
+
+    results = []
+    for entry in entries:
+        if entry["verdict"] == "VERIFIED":
+            continue
+        entry_key = _normalize_claim_key(entry["claim"])
+        entry_ids = set(_ER_WH_ID_RE.findall(entry["claim"]))
+
+        # Match by ER/WH IDs (if both have them and they overlap)
+        if task_ids and entry_ids and task_ids & entry_ids:
+            if entry["result"]:
+                results.append(entry["result"])
+        elif not task_ids and not entry_ids and entry_key == task_key:
+            # Fallback: prefix matching (only when neither has IDs)
+            if entry["result"]:
+                results.append(entry["result"])
+
+    # Most recent first (entries are in document order, so reverse)
+    results.reverse()
+    return results

@@ -46,7 +46,7 @@ RULES:
   TIER 1 — NUMERICAL SPOT-CHECKS (always required):
   - Evaluate BOTH sides of any identity at 5+ parameter values spanning the
     valid domain (small, medium, large, edge cases).
-  - Use `assert np.isclose(lhs_val, rhs_val, rtol=1e-10), f"Mismatch at {params}: {lhs_val} vs {rhs_val}"`
+  - Use `np.isclose(lhs_val, rhs_val, rtol=1e-6)` for all numerical comparisons.
   - For limiting behaviors: evaluate at parameter values approaching the limit
     (e.g., x = 0.1, 0.01, 0.001) and check convergence to expected value.
   - For convergence claims: test partial sums at increasing truncation orders.
@@ -81,7 +81,7 @@ RULES:
       results = []
       for params in test_points:
           try:
-              ok = np.isclose(lhs, rhs, rtol=1e-10)
+              ok = np.isclose(lhs, rhs, rtol=1e-6)
               results.append(ok)
               status = "PASS" if ok else "FAIL"
               print(f"{status}: {params} -> lhs={lhs}, rhs={rhs}")
@@ -99,14 +99,55 @@ RULES:
   - If symbolic checks fail or are inconclusive, print
     "SYMBOLIC CHECKS INCONCLUSIVE — numerical verification is primary".
 
+  TOLERANCE AND COMPARISON RULES:
+  - Default tolerance: rtol=1e-6 for all np.isclose/np.allclose checks.
+    Never use exact equality (==) for floating-point comparisons.
+  - If a comparison needs tighter tolerance, justify it in a comment.
+    Looser tolerance (e.g., rtol=1e-3) is acceptable ONLY for known
+    approximations where you explicitly state which terms are neglected
+    and what error order is expected.
+  - QUANTITY VALIDATION: Before comparing LHS and RHS, verify both
+    represent the same quantity at the same approximation order.
+    Do not compare a leading-order approximation against a full expression.
+    If one side includes higher-order corrections that the other omits,
+    either (a) expand both to the same order, or (b) estimate the expected
+    discrepancy and set tolerance accordingly.
+  - TOLERANCE WIDENING BAN: Scripts must NEVER silently relax acceptance
+    thresholds. If your checks fail at the default tolerance, the verdict
+    must be INCONCLUSIVE with the actual discrepancy printed — not VERIFIED
+    with a wider gate. If checks fail at 5% tolerance, do NOT widen to 15%
+    and call it a pass. Print the actual relative error and let the
+    orchestrator decide next steps.
+
   FRAGILE PATTERNS (DO NOT USE as sole verification):
   - `assert sp.simplify(expr1 - expr2) == 0` — SymPy often cannot simplify
     correct expressions to zero
   - `assert expr1.equals(expr2)` — can hang or return False for correct equalities
   - Any verification relying only on symbolic manipulation without numerical
     cross-checks
+
+  NUMERICAL PITFALLS:
+  (1) Log-space arithmetic: for products of many exponentials (partition
+      functions, Boltzmann factors), compute in log-space to avoid float64
+      overflow/underflow. E.g., log(Z) = logsumexp(-beta * E_n).
+  (2) Stiff/long-time ODEs: use scipy.integrate.solve_ivp (method='Radau'
+      or 'BDF' for stiff systems) over hand-rolled Euler/RK4 integrators.
+  (3) Tensor/vector identities: preserve full tensor structure when testing
+      numerically. Do not contract to a scalar — it might agree by accident.
+  (4) Curve fitting: match the fitting model to the expected functional form
+      before fitting. Fitting a polynomial to exponential data gives
+      misleading residuals.
+  (5) Oscillatory integrals: prefer analytical evaluation, contour rotation,
+      or scipy.integrate.quad with weight='cos'/'sin' over brute-force
+      quadrature with fixed grids.
+
 - Never call `plt.show()` — the execution environment is headless. Use
   `plt.savefig('output.png')` then `plt.close()`.
+- ROOT-CAUSE DIAGNOSIS: If the task includes "Prior Computation Failure
+  Context", read it carefully. Identify whether the failure is physics
+  (wrong sign/factor/formula), algorithmic (insufficient precision, wrong
+  bounds), or code (deprecated API, type mismatch). State your diagnosis
+  before writing new code. Do not just fix the surface symptom.
 - If the task requires a tool you don't have access to (e.g., Cadabra for
   tensor algebra), say so explicitly and describe what the computation
   would be, so the system can be extended later.

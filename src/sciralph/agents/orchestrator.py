@@ -75,6 +75,18 @@ class OrchestratorAgent(BaseAgent):
                 "is still empty. Consider populating it with the unit system, "
                 "sign conventions, and variable definitions being used. <<<\n"
             )
+        # Computation stall detection
+        from ..markdown import detect_computation_stalls
+        comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
+        stalls = detect_computation_stalls(comp_log, threshold=3)
+        for stall in stalls:
+            parts.append(
+                f">>> COMPUTATION STALL: {stall['count']} consecutive failures "
+                f"on claim: {stall['claim'][:100]}. "
+                f"Verdicts: {', '.join(stall['verdicts'])}. "
+                f"Do NOT retry the same approach. Consider: (a) alternative derivation, "
+                f"(b) skip and advance, or (c) critic review of the claim. <<<\n"
+            )
         budget_remaining = self.config.max_iterations - iteration
         parts.extend([
             f"# Current Iteration: {iteration} of {self.config.max_iterations} "

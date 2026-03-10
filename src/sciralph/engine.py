@@ -51,6 +51,21 @@ class SciRalph:
             console.print("[cyan]Orchestrator[/cyan] planning...")
             orch_response = self.orchestrator.run({}, self.iteration)
             task = self.orchestrator.parse_task(orch_response.text, iteration=self.iteration)
+
+            # Budget enforcement: hard override when budget exhausted
+            budget_remaining = self.config.max_iterations - self.iteration
+            if budget_remaining <= 1 and task["task_type"] not in ("synthesize", "terminate"):
+                console.print(
+                    f"[yellow]Budget enforcement: {budget_remaining} iteration(s) left, "
+                    f"overriding '{task['task_type']}' -> 'synthesize'.[/yellow]"
+                )
+                self.metrics.alert(self.iteration, f"Budget override: {task['task_type']} -> synthesize")
+                task = self._make_budget_synthesize_task()
+
+            # Enrich compute tasks with prior failure context
+            if task["task_type"] == "compute":
+                self._enrich_compute_task_with_prior_failures(task)
+
             self._print_task(task)
 
             # Check for termination signal
@@ -165,6 +180,53 @@ Hypotheses and recent Established Results in RESEARCH_STATE.md.
             "target_file": "",
             "body": "",
         }
+
+    def _make_budget_synthesize_task(self) -> dict:
+        """Create a forced synthesize task due to budget exhaustion."""
+        task_content = f"""---
+task_id: "TASK-{self.iteration:03d}"
+task_type: "synthesize"
+assigned_to: "researcher"
+priority: "high"
+iteration: {self.iteration}
+---
+
+# Budget-Enforced Synthesis
+
+Iteration budget nearly exhausted. Synthesize ALL Established Results into
+a final answer. Note unresolved items as limitations. Set status to
+'partially_complete' if gaps remain.
+"""
+        self.workspace.write_file("CURRENT_TASK.md", task_content)
+        return {
+            "task_id": f"TASK-{self.iteration:03d}",
+            "task_type": "synthesize",
+            "assigned_to": "researcher",
+            "priority": "high",
+            "iteration": self.iteration,
+            "blocking_critiques": [],
+            "target_file": "",
+            "body": "",
+        }
+
+    def _enrich_compute_task_with_prior_failures(self, task: dict):
+        """Append prior failure context to CURRENT_TASK.md for compute retries."""
+        from .markdown import find_prior_failures_for_claim
+        comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
+        prior = find_prior_failures_for_claim(comp_log, task.get("body", ""))
+        if not prior:
+            return
+        task_text = self.workspace.read_file("CURRENT_TASK.md")
+        addendum = (
+            "\n\n---\n\n## Prior Computation Failure Context\n\n"
+            f"**{len(prior)} prior failure(s) on this claim.** "
+            "Diagnose the ROOT CAUSE before writing new code.\n\n"
+            "### Most Recent Failed Result\n\n"
+            + prior[0][:3000]
+        )
+        if len(prior) > 1:
+            addendum += f"\n\n({len(prior) - 1} earlier failure(s) in COMPUTATION_LOG.md)\n"
+        self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
 
     def _check_compression(self):
         """Check file sizes against thresholds, compress if needed."""

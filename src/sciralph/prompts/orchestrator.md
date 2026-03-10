@@ -132,6 +132,14 @@ results (whether by new computations, derivation fixes, or explicit
 responses). The system will automatically move them from Active to Resolved
 in CRITIQUE_LOG.md and update the counters.
 
+CRITIQUE RESOLUTION QUALITY GATE:
+A HIGH critique that cites a specific numerical discrepancy (e.g., "X% error
+in quantity Y") requires a VERIFIED computation showing <5% agreement with
+the expected value before it can be marked RESOLVED. Reducing the error
+(e.g., from 78% to 14%) without achieving acceptable agreement is progress,
+not resolution. Keep the critique UNRESOLVED and emit a new "compute" or
+"resolve" task to continue narrowing the discrepancy.
+
 TERMINATION URGENCY:
 - If there are NO Working Hypotheses remaining and no unresolved HIGH/MEDIUM
   critiques, and the Established Results form a complete chain from problem
@@ -169,6 +177,11 @@ INCONCLUSIVE HANDLING:
   critic review; note the lack of computational confirmation.
 - NEVER get stuck retrying the same verification. Progress on other sub-problems
   is always preferable to repeated inconclusive checks.
+
+COMPUTATION STALL HANDLING:
+- If a COMPUTATION STALL banner appears, the same claim has failed 3+ times.
+  Do NOT retry with compute. Instead: (a) send to researcher for alternative
+  derivation, (b) skip and advance, or (c) request critic review.
 
 LEGACY VERDICT MAPPING:
 If you see older verdicts: AGREES → VERIFIED, DISAGREES → REFUTED,

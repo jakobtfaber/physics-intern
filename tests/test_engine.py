@@ -1,4 +1,4 @@
-"""Tests for SciRalph engine (compression thresholds, research status)."""
+"""Tests for SciRalph engine (compression thresholds, research status, budget enforcement)."""
 
 from unittest.mock import MagicMock, patch, PropertyMock
 
@@ -87,3 +87,145 @@ class TestSetResearchStatus:
             assert meta["status"] == "completed"
             assert meta["title"] == "Test"
             assert "Some content" in body
+
+
+class TestBudgetEnforcement:
+    """Test scaffold-level budget enforcement (item 6)."""
+
+    def _make_engine(self, max_iterations: int, current_iteration: int):
+        """Create a SciRalph instance with mocked workspace."""
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            written = {}
+
+            def capture_write(filename, content):
+                written[filename] = content
+            ws.write_file = MagicMock(side_effect=capture_write)
+            ws.read_file = MagicMock(return_value="")
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config(max_iterations=max_iterations)
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = current_iteration
+        return engine, written
+
+    def test_budget_enforcement_overrides(self):
+        """When <=1 iteration remaining, compute task -> overridden to synthesize."""
+        engine, written = self._make_engine(max_iterations=10, current_iteration=10)
+        task = {
+            "task_id": "TASK-010",
+            "task_type": "compute",
+            "assigned_to": "computationalist",
+            "priority": "high",
+            "iteration": 10,
+            "blocking_critiques": [],
+            "target_file": "",
+            "body": "Verify something.",
+        }
+        budget_remaining = engine.config.max_iterations - engine.iteration
+        assert budget_remaining <= 1
+
+        # Simulate budget enforcement logic
+        if budget_remaining <= 1 and task["task_type"] not in ("synthesize", "terminate"):
+            task = engine._make_budget_synthesize_task()
+
+        assert task["task_type"] == "synthesize"
+        assert task["assigned_to"] == "researcher"
+        assert "CURRENT_TASK.md" in written
+        assert "Budget-Enforced Synthesis" in written["CURRENT_TASK.md"]
+
+    def test_budget_enforcement_allows_terminal(self):
+        """synthesize/terminate are not overridden even at budget limit."""
+        engine, _ = self._make_engine(max_iterations=10, current_iteration=10)
+        for task_type in ("synthesize", "terminate"):
+            task = {"task_type": task_type, "task_id": "TASK-010"}
+            budget_remaining = engine.config.max_iterations - engine.iteration
+            if budget_remaining <= 1 and task["task_type"] not in ("synthesize", "terminate"):
+                task = engine._make_budget_synthesize_task()
+            assert task["task_type"] == task_type  # unchanged
+
+    def test_budget_enforcement_not_triggered_with_budget(self):
+        """Plenty of budget -> no override."""
+        engine, _ = self._make_engine(max_iterations=20, current_iteration=5)
+        task = {"task_type": "compute", "task_id": "TASK-005"}
+        budget_remaining = engine.config.max_iterations - engine.iteration
+        assert budget_remaining > 1
+        # No override
+        if budget_remaining <= 1 and task["task_type"] not in ("synthesize", "terminate"):
+            task = engine._make_budget_synthesize_task()
+        assert task["task_type"] == "compute"  # unchanged
+
+
+class TestEnrichComputeTask:
+    """Test compute task enrichment with prior failure context (item 5)."""
+
+    COMP_LOG_WITH_FAILURES = """\
+## COMP-001: Check WH-003
+- **CLAIM**: Verify WH-003 Chandrasekhar mass limit
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Relative error: 13.6%. Expected 1.44 M_sun, got 1.24 M_sun.
+
+## COMP-002: Retry WH-003
+- **CLAIM**: Verify WH-003 mass limit with improved integration
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Still 8% error after improving step size.
+"""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            written = {}
+
+            def capture_write(filename, content):
+                written[filename] = content
+            ws.write_file = MagicMock(side_effect=capture_write)
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 3
+        return engine, ws, written
+
+    def test_enrich_compute_task_appends_context(self):
+        """Prior failures exist -> CURRENT_TASK enriched."""
+        engine, ws, written = self._make_engine()
+        ws.read_file = MagicMock(side_effect=lambda f: {
+            "COMPUTATION_LOG.md": self.COMP_LOG_WITH_FAILURES,
+            "CURRENT_TASK.md": "---\ntask_type: compute\n---\n\nVerify WH-003 mass.",
+        }.get(f, ""))
+
+        task = {"task_type": "compute", "body": "Verify WH-003 mass limit"}
+        engine._enrich_compute_task_with_prior_failures(task)
+
+        assert "CURRENT_TASK.md" in written
+        enriched = written["CURRENT_TASK.md"]
+        assert "Prior Computation Failure Context" in enriched
+        assert "2 prior failure(s)" in enriched
+        assert "ROOT CAUSE" in enriched
+
+    def test_enrich_compute_task_no_match(self):
+        """No prior failures -> unchanged."""
+        engine, ws, written = self._make_engine()
+        ws.read_file = MagicMock(side_effect=lambda f: {
+            "COMPUTATION_LOG.md": self.COMP_LOG_WITH_FAILURES,
+            "CURRENT_TASK.md": "---\ntask_type: compute\n---\n\nVerify WH-099 something.",
+        }.get(f, ""))
+
+        task = {"task_type": "compute", "body": "Verify WH-099 something new"}
+        engine._enrich_compute_task_with_prior_failures(task)
+
+        assert "CURRENT_TASK.md" not in written  # write_file not called

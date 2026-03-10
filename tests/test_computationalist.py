@@ -200,7 +200,7 @@ results = []
 test_points = [("a", 1.0, 1.0), ("b", 1.0, 2.0), ("c", 3.0, 3.0)]
 for name, lhs, rhs in test_points:
     try:
-        ok = np.isclose(lhs, rhs, rtol=1e-10)
+        ok = np.isclose(lhs, rhs, rtol=1e-6)
         results.append(ok)
         status = "PASS" if ok else "FAIL"
         print(f"{status}: {name} -> lhs={lhs}, rhs={rhs}")

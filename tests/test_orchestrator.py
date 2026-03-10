@@ -383,3 +383,77 @@ last_critic_pass: "2026-03-07T14:20:00Z"
         counts = count_unresolved_critiques(critique_log)
         assert counts["HIGH"] == 1
         assert counts["MEDIUM"] == 1
+
+
+class TestStallBannerInContext:
+    """Test that computation stall banners appear in orchestrator context."""
+
+    COMP_LOG_WITH_STALL = """\
+---
+total_computations: 3
+---
+
+## COMP-001: Check WH-002
+- **CLAIM**: Verify WH-002 partition function
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Failed attempt 1.
+
+## COMP-002: Retry WH-002
+- **CLAIM**: Verify WH-002 partition function
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Failed attempt 2.
+
+## COMP-003: Retry WH-002 again
+- **CLAIM**: Verify WH-002 partition function
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Failed attempt 3.
+"""
+
+    COMP_LOG_BELOW_THRESHOLD = """\
+---
+total_computations: 2
+---
+
+## COMP-001: Check WH-002
+- **CLAIM**: Verify WH-002 partition function
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Failed attempt 1.
+
+## COMP-002: Retry WH-002
+- **CLAIM**: Verify WH-002 partition function
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Failed attempt 2.
+"""
+
+    def test_stall_banner_in_context(self, workspace):
+        """COMPUTATION_LOG with 3 failures -> banner in context."""
+        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
+        metrics = MetricsTracker()
+        orch = OrchestratorAgent(config, workspace, metrics)
+        workspace.write_file("RESEARCH_STATE.md", "---\nstatus: in_progress\n---\n\nNothing yet.\n")
+        workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
+        workspace.write_file("COMPUTATION_LOG.md", self.COMP_LOG_WITH_STALL)
+        workspace.write_file("METRICS.md", "---\n---\n")
+
+        context = orch.build_context({}, iteration=5)
+        assert "COMPUTATION STALL" in context
+        assert "WH-002" in context
+        assert "3 consecutive failures" in context
+
+    def test_no_stall_banner_below_threshold(self, workspace):
+        """2 failures -> no banner."""
+        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
+        metrics = MetricsTracker()
+        orch = OrchestratorAgent(config, workspace, metrics)
+        workspace.write_file("RESEARCH_STATE.md", "---\nstatus: in_progress\n---\n\nNothing yet.\n")
+        workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
+        workspace.write_file("COMPUTATION_LOG.md", self.COMP_LOG_BELOW_THRESHOLD)
+        workspace.write_file("METRICS.md", "---\n---\n")
+
+        context = orch.build_context({}, iteration=5)
+        assert "COMPUTATION STALL" not in context

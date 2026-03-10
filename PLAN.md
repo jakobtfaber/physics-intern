@@ -22,9 +22,15 @@ Ordering informed by the audit of 8 workspace runs (March 2026): 7/8 solved corr
 
 - **Scaffold-level budget enforcement** — budget-aware termination exists in the orchestrator prompt (≤3 remaining → synthesize) and `_completion_analysis` injects a BUDGET SYNTHESIS REQUIRED banner. But the LLM sometimes ignores it when deep in a verification cycle. Consider scaffold-level enforcement: if `budget_remaining <= 1` and the orchestrator emits anything other than `synthesize`/`terminate`, override the task to `synthesize` with a warning. This is a safety net, not a replacement for the prompt instruction.
 
+
+---
+
+## Intermediary review checkpoint (before Tier 3)
+
 - **Prompt review** — review all prompts for conciseness, clarity, completeness, and consistency. Do this after the Tier 1 and Tier 2 prompt changes are landed.
 
 ---
+
 
 ## Tier 3 — Agentic computationalist (big feature)
 
