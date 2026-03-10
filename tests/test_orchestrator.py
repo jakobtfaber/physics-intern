@@ -8,7 +8,10 @@ from sciralph.agents.orchestrator import OrchestratorAgent, _split_response
 from sciralph.config import Config
 from sciralph.llm import LLMResponse
 from sciralph.metrics import MetricsTracker
+from sciralph.task import Task, TaskType
 from sciralph.workspace import WorkspaceManager
+
+_EMPTY_TASK = Task(task_id="", task_type=TaskType.RESEARCH, assigned_to="orchestrator")
 
 
 @pytest.fixture
@@ -80,7 +83,7 @@ class TestProcessResponse:
             text=f"=== RESEARCH_STATE.md ===\n{RESEARCH_STATE}\n=== CURRENT_TASK.md ===\n{TASK_TEXT}",
             input_tokens=0, output_tokens=0, stop_reason="end_turn", duration=0.0,
         )
-        orchestrator.process_response(response, {}, 2)
+        orchestrator.process_response(response, _EMPTY_TASK,2)
 
         assert "Result A is proven" in workspace.read_file("RESEARCH_STATE.md")
         assert "TASK-002" in workspace.read_file("CURRENT_TASK.md")
@@ -94,7 +97,7 @@ class TestProcessResponse:
             text=f"=== CURRENT_TASK.md ===\n{TASK_TEXT}",
             input_tokens=0, output_tokens=0, stop_reason="end_turn", duration=0.0,
         )
-        orchestrator.process_response(response, {}, 1)
+        orchestrator.process_response(response, _EMPTY_TASK,1)
 
         assert workspace.read_file("RESEARCH_STATE.md") == "original state"
         assert "TASK-002" in workspace.read_file("CURRENT_TASK.md")
@@ -104,7 +107,7 @@ class TestProcessResponse:
             text=TASK_TEXT,
             input_tokens=0, output_tokens=0, stop_reason="end_turn", duration=0.0,
         )
-        orchestrator.process_response(response, {}, 1)
+        orchestrator.process_response(response, _EMPTY_TASK,1)
 
         assert "TASK-002" in workspace.read_file("CURRENT_TASK.md")
 
@@ -113,26 +116,26 @@ class TestParseTask:
     def test_with_delimiters(self, orchestrator):
         text = f"=== RESEARCH_STATE.md ===\n{RESEARCH_STATE}\n=== CURRENT_TASK.md ===\n{TASK_TEXT}"
         task = orchestrator.parse_task(text)
-        assert task["task_id"] == "TASK-002"
-        assert task["task_type"] == "compute"
-        assert task["assigned_to"] == "computationalist"
+        assert task.task_id == "TASK-002"
+        assert task.task_type == "compute"
+        assert task.assigned_to == "computationalist"
 
     def test_bare_text(self, orchestrator):
         task = orchestrator.parse_task(TASK_TEXT)
-        assert task["task_id"] == "TASK-002"
-        assert task["task_type"] == "compute"
+        assert task.task_id == "TASK-002"
+        assert task.task_type == "compute"
 
     def test_parse_task_missing_id_uses_engine_iteration(self, orchestrator):
         text = "---\ntask_type: research\nassigned_to: researcher\npriority: high\n---\nDo something."
         task = orchestrator.parse_task(text, iteration=7)
-        assert task["task_id"] == "TASK-007"
-        assert task["iteration"] == 7
+        assert task.task_id == "TASK-007"
+        assert task.iteration == 7
 
     def test_parse_task_present_id_preferred(self, orchestrator):
         text = "---\ntask_id: TASK-042\ntask_type: compute\nassigned_to: computationalist\npriority: high\niteration: 42\n---\nVerify."
         task = orchestrator.parse_task(text, iteration=5)
-        assert task["task_id"] == "TASK-042"
-        assert task["iteration"] == 42
+        assert task.task_id == "TASK-042"
+        assert task.iteration == 42
 
 
 class TestCompletionAnalysis:
@@ -246,7 +249,7 @@ class TestBudgetAwareTermination:
         workspace.write_file("COMPUTATION_LOG.md", "---\n---\n")
         workspace.write_file("METRICS.md", "---\n---\n")
 
-        context = orch.build_context({}, iteration=5)
+        context = orch.build_context(_EMPTY_TASK,iteration=5)
         assert "5 of 20" in context
         assert "15 remaining" in context
 
@@ -272,7 +275,7 @@ class TestConventionReminder:
         workspace.write_file("RESEARCH_STATE.md", self.RESEARCH_STATE_PLACEHOLDER)
         workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
         workspace.write_file("METRICS.md", "---\n---\n")
-        context = orchestrator.build_context({}, iteration=3)
+        context = orchestrator.build_context(_EMPTY_TASK,iteration=3)
         assert "REMINDER" in context
         assert "Conventions" in context
 
@@ -280,14 +283,14 @@ class TestConventionReminder:
         workspace.write_file("RESEARCH_STATE.md", self.RESEARCH_STATE_POPULATED)
         workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
         workspace.write_file("METRICS.md", "---\n---\n")
-        context = orchestrator.build_context({}, iteration=5)
+        context = orchestrator.build_context(_EMPTY_TASK,iteration=5)
         assert "REMINDER" not in context
 
     def test_no_reminder_at_iteration_1(self, orchestrator, workspace):
         workspace.write_file("RESEARCH_STATE.md", self.RESEARCH_STATE_PLACEHOLDER)
         workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
         workspace.write_file("METRICS.md", "---\n---\n")
-        context = orchestrator.build_context({}, iteration=1)
+        context = orchestrator.build_context(_EMPTY_TASK,iteration=1)
         assert "REMINDER" not in context
 
 
@@ -334,7 +337,7 @@ last_critic_pass: "2026-03-07T14:20:00Z"
             text=response_text,
             input_tokens=0, output_tokens=0, stop_reason="end_turn", duration=0.0,
         )
-        orchestrator.process_response(response, {}, 3)
+        orchestrator.process_response(response, _EMPTY_TASK,3)
 
         critique_log = workspace.read_file("CRITIQUE_LOG.md")
         from sciralph.markdown import count_unresolved_critiques
@@ -359,7 +362,7 @@ last_critic_pass: "2026-03-07T14:20:00Z"
             text=response_text,
             input_tokens=0, output_tokens=0, stop_reason="end_turn", duration=0.0,
         )
-        orchestrator.process_response(response, {}, 3)
+        orchestrator.process_response(response, _EMPTY_TASK,3)
 
         critique_log = workspace.read_file("CRITIQUE_LOG.md")
         from sciralph.markdown import count_unresolved_critiques
@@ -376,7 +379,7 @@ last_critic_pass: "2026-03-07T14:20:00Z"
             text="=== CURRENT_TASK.md ===\n---\ntask_id: TASK-003\ntask_type: critique\nassigned_to: deep_critic\npriority: high\niteration: 3\n---\nReview.\n",
             input_tokens=0, output_tokens=0, stop_reason="end_turn", duration=0.0,
         )
-        orchestrator.process_response(response, {}, 3)
+        orchestrator.process_response(response, _EMPTY_TASK,3)
 
         critique_log = workspace.read_file("CRITIQUE_LOG.md")
         from sciralph.markdown import count_unresolved_critiques
@@ -440,7 +443,7 @@ total_computations: 2
         workspace.write_file("COMPUTATION_LOG.md", self.COMP_LOG_WITH_STALL)
         workspace.write_file("METRICS.md", "---\n---\n")
 
-        context = orch.build_context({}, iteration=5)
+        context = orch.build_context(_EMPTY_TASK,iteration=5)
         assert "COMPUTATION STALL" in context
         assert "WH-002" in context
         assert "3 consecutive failures" in context
@@ -455,5 +458,5 @@ total_computations: 2
         workspace.write_file("COMPUTATION_LOG.md", self.COMP_LOG_BELOW_THRESHOLD)
         workspace.write_file("METRICS.md", "---\n---\n")
 
-        context = orch.build_context({}, iteration=5)
+        context = orch.build_context(_EMPTY_TASK,iteration=5)
         assert "COMPUTATION STALL" not in context

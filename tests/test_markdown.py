@@ -11,6 +11,8 @@ from sciralph.markdown import (
     insert_into_active_critiques,
     resolve_critique,
     filter_self_retracted_critiques,
+    extract_resolved_critique_ids,
+    recount_critique_metadata,
     _parse_comp_entries,
     detect_computation_stalls,
     find_prior_failures_for_claim,
@@ -361,6 +363,60 @@ def test_filter_critique_nnn_drift_tolerance():
     assert "CRITIQUE-015" not in filtered
     assert len(retracted) == 1
     assert "CRITIQUE-015" in retracted[0]
+
+
+# --- Tests for extract_resolved_critique_ids ---
+
+
+def test_extract_resolved_via_list():
+    text = "resolved_critiques: [CRIT-001, CRIT-003]\nSome other text."
+    ids = extract_resolved_critique_ids(text)
+    assert ids == {"CRIT-001", "CRIT-003"}
+
+
+def test_extract_resolved_via_prose():
+    text = "CRIT-002 has been addressed by new derivation."
+    ids = extract_resolved_critique_ids(text)
+    assert "CRIT-002" in ids
+
+
+def test_extract_resolved_via_reverse_prose():
+    text = "The issue was resolved for CRIT-005 in iteration 7."
+    ids = extract_resolved_critique_ids(text)
+    assert "CRIT-005" in ids
+
+
+def test_extract_resolved_empty():
+    ids = extract_resolved_critique_ids("No critiques mentioned here.")
+    assert ids == set()
+
+
+def test_extract_resolved_critique_prefix():
+    text = "resolved_critiques: [CRITIQUE-010]"
+    ids = extract_resolved_critique_ids(text)
+    assert "CRITIQUE-010" in ids
+
+
+# --- Tests for recount_critique_metadata ---
+
+
+def test_recount_critique_metadata():
+    text = (FIXTURES / "critique_log.md").read_text()
+    meta = recount_critique_metadata(text)
+    assert meta["unresolved_high"] == 1
+    assert meta["unresolved_medium"] == 1
+    assert meta["unresolved_low"] == 0
+    assert meta["total_critiques"] >= 3  # CRIT-001, CRIT-002, CRIT-003
+
+
+def test_recount_critique_metadata_empty():
+    meta = recount_critique_metadata("No critiques.")
+    assert meta == {
+        "unresolved_high": 0,
+        "unresolved_medium": 0,
+        "unresolved_low": 0,
+        "total_critiques": 0,
+    }
 
 
 # --- Tests for computation log parsing and stall detection ---

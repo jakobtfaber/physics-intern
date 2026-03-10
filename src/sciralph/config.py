@@ -25,6 +25,7 @@ class Config:
     sympy_timeout_seconds: int = 60
     max_tool_rounds: int = 10
     tool_output_limit: int = 10_000
+    min_er_for_completion: int = 3
     workspace_dir: str = "workspaces"
     audit_log: str = ""
     logs_dir: str = ""
@@ -39,7 +40,7 @@ class Config:
 _YAML_CONFIG_FIELDS = frozenset({
     "model", "max_tokens", "max_iterations", "critic_every_n",
     "compress_threshold", "max_retries_on_max_tokens", "sympy_timeout_seconds",
-    "max_tool_rounds", "tool_output_limit",
+    "max_tool_rounds", "tool_output_limit", "min_er_for_completion",
 })
 
 

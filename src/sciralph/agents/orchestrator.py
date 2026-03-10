@@ -1,5 +1,7 @@
 """Orchestrator agent: plans and coordinates research."""
 
+from __future__ import annotations
+
 import re
 
 from ..llm import LLMResponse
@@ -8,7 +10,12 @@ from ..markdown import (
     render_frontmatter,
     count_unresolved_critiques,
     resolve_critique,
+    extract_resolved_critique_ids,
+    recount_critique_metadata,
+    detect_computation_stalls,
+    CRIT_ID_RE,
 )
+from ..task import Task, TaskType
 from .base import BaseAgent
 
 DELIM_RESEARCH = "=== RESEARCH_STATE.md ==="
@@ -34,7 +41,7 @@ class OrchestratorAgent(BaseAgent):
         high = crit_meta.get("unresolved_high", 0) or 0
         medium = crit_meta.get("unresolved_medium", 0) or 0
 
-        if er_count >= 3 and wh_count == 0 and high == 0 and medium == 0:
+        if er_count >= self.config.min_er_for_completion and wh_count == 0 and high == 0 and medium == 0:
             return (
                 ">>> COMPLETION CHECK: "
                 f"{er_count} Established Results, "
@@ -63,7 +70,7 @@ class OrchestratorAgent(BaseAgent):
             )
         return None
 
-    def build_context(self, task: dict, iteration: int) -> str:
+    def build_context(self, task: Task, iteration: int) -> str:
         banner = self._completion_analysis(iteration)
         parts = []
         if banner:
@@ -76,7 +83,6 @@ class OrchestratorAgent(BaseAgent):
                 "sign conventions, and variable definitions being used. <<<\n"
             )
         # Computation stall detection
-        from ..markdown import detect_computation_stalls
         comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
         stalls = detect_computation_stalls(comp_log, threshold=3)
         for stall in stalls:
@@ -105,7 +111,7 @@ class OrchestratorAgent(BaseAgent):
             parts.append(self.workspace.read_file("PROPOSED_CHANGES.md"))
         return "\n".join(parts)
 
-    def process_response(self, response: LLMResponse, task: dict, iteration: int):
+    def process_response(self, response: LLMResponse, task: Task, iteration: int):
         """Write CURRENT_TASK.md (and optionally RESEARCH_STATE.md) from orchestrator output."""
         research_state, task_text = _split_response(response.text)
         if research_state is not None:
@@ -132,29 +138,7 @@ class OrchestratorAgent(BaseAgent):
 
     def _resolve_critiques(self, response_text: str, iteration: int):
         """Scan orchestrator output for resolved critique IDs and update CRITIQUE_LOG.md."""
-        # Look for resolved_critiques list in YAML or inline references like "CRIT-001 resolved"
-        resolved_ids = set()
-
-        # Pattern 1: resolved_critiques: ["CRIT-001", "CRIT-002"] or [CRIT-001, CRIT-002]
-        list_match = re.search(
-            r'resolved_critiques:\s*\[([^\]]+)\]', response_text
-        )
-        if list_match:
-            for crit in re.findall(r'CRIT(?:IQUE)?-\d+', list_match.group(1)):
-                resolved_ids.add(crit)
-
-        # Pattern 2: "CRIT-NNN" near "resolved"/"addressed"/"incorporated" in prose
-        for match in re.finditer(
-            r'(CRIT(?:IQUE)?-\d+)\b[^.\n]{0,80}\b(?:resolved|addressed|incorporated|verified)',
-            response_text, re.IGNORECASE,
-        ):
-            resolved_ids.add(match.group(1))
-        # Also match reverse: "resolved ... CRIT-NNN"
-        for match in re.finditer(
-            r'(?:resolved|addressed|incorporated|verified)\b[^.\n]{0,80}\b(CRIT(?:IQUE)?-\d+)',
-            response_text, re.IGNORECASE,
-        ):
-            resolved_ids.add(match.group(1))
+        resolved_ids = extract_resolved_critique_ids(response_text)
 
         if not resolved_ids:
             return
@@ -162,7 +146,6 @@ class OrchestratorAgent(BaseAgent):
         # Try to extract per-critique resolution notes from prose
         resolution_notes = {}
         for crit_id in resolved_ids:
-            # Look for "CRIT-NNN: <note>" or "CRIT-NNN — <note>" patterns
             note_match = re.search(
                 rf'{re.escape(crit_id)}[\s:—\-]+([^.\n]{{10,120}}[.])',
                 response_text,
@@ -180,27 +163,16 @@ class OrchestratorAgent(BaseAgent):
 
         # Update frontmatter counts
         meta, body = parse_frontmatter(content)
-        counts = count_unresolved_critiques(content)
-        meta["unresolved_high"] = counts["HIGH"]
-        meta["unresolved_medium"] = counts["MEDIUM"]
-        meta["unresolved_low"] = counts["LOW"]
+        recounted = recount_critique_metadata(content)
+        meta["unresolved_high"] = recounted["unresolved_high"]
+        meta["unresolved_medium"] = recounted["unresolved_medium"]
+        meta["unresolved_low"] = recounted["unresolved_low"]
         self.workspace.write_file("CRITIQUE_LOG.md", render_frontmatter(meta, body))
 
-    def parse_task(self, text: str, iteration: int = 0) -> dict:
-        """Parse CURRENT_TASK.md content into a task dict."""
+    def parse_task(self, text: str, iteration: int = 0) -> Task:
+        """Parse CURRENT_TASK.md content into a Task."""
         _, task_text = _split_response(text)
-        meta, body = parse_frontmatter(task_text)
-        effective_iter = meta.get("iteration", iteration) or iteration
-        return {
-            "task_id": meta.get("task_id", f"TASK-{effective_iter:03d}"),
-            "task_type": meta.get("task_type", "research"),
-            "assigned_to": meta.get("assigned_to", "researcher"),
-            "priority": meta.get("priority", "medium"),
-            "iteration": effective_iter,
-            "blocking_critiques": meta.get("blocking_critiques", []),
-            "target_file": meta.get("target_file", ""),
-            "body": body,
-        }
+        return Task.from_frontmatter(task_text, fallback_iteration=iteration)
 
 
 def _split_response(text: str) -> tuple[str | None, str]:

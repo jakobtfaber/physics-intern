@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch, PropertyMock, call
 from sciralph.config import Config
 from sciralph.llm import LLMResponse
 from sciralph.markdown import parse_frontmatter, render_frontmatter
+from sciralph.task import Task, TaskType
 
 
 class TestCheckCompression:
@@ -45,13 +46,17 @@ class TestCheckCompression:
         engine = self._make_engine({"TEST.md": 16_000})  # 1.6x
         engine._check_compression()
         engine.metrics.alert.assert_called_once()
-        engine.compressor.run.assert_called_once_with({"target_file": "TEST.md"}, 1)
+        engine.compressor.run.assert_called_once()
+        task_arg = engine.compressor.run.call_args[0][0]
+        assert task_arg.target_file == "TEST.md"
 
     def test_force_compression_at_2x(self):
         engine = self._make_engine({"TEST.md": 25_000})  # 2.5x
         engine._check_compression()
         engine.metrics.alert.assert_called_once()
-        engine.compressor.run.assert_called_once_with({"target_file": "TEST.md"}, 1)
+        engine.compressor.run.assert_called_once()
+        task_arg = engine.compressor.run.call_args[0][0]
+        assert task_arg.target_file == "TEST.md"
 
 
 class TestSetResearchStatus:
@@ -119,48 +124,43 @@ class TestBudgetEnforcement:
     def test_budget_enforcement_overrides(self):
         """When <=1 iteration remaining, compute task -> overridden to synthesize."""
         engine, written = self._make_engine(max_iterations=10, current_iteration=10)
-        task = {
-            "task_id": "TASK-010",
-            "task_type": "compute",
-            "assigned_to": "computationalist",
-            "priority": "high",
-            "iteration": 10,
-            "blocking_critiques": [],
-            "target_file": "",
-            "body": "Verify something.",
-        }
+        task = Task(
+            task_id="TASK-010", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist", priority="high",
+            iteration=10, body="Verify something.",
+        )
         budget_remaining = engine.config.max_iterations - engine.iteration
         assert budget_remaining <= 1
 
         # Simulate budget enforcement logic
-        if budget_remaining <= 1 and task["task_type"] not in ("synthesize", "terminate"):
+        if budget_remaining <= 1 and task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
             task = engine._make_budget_synthesize_task()
 
-        assert task["task_type"] == "synthesize"
-        assert task["assigned_to"] == "researcher"
+        assert task.task_type == TaskType.SYNTHESIZE
+        assert task.assigned_to == "researcher"
         assert "CURRENT_TASK.md" in written
         assert "Budget-Enforced Synthesis" in written["CURRENT_TASK.md"]
 
     def test_budget_enforcement_allows_terminal(self):
         """synthesize/terminate are not overridden even at budget limit."""
         engine, _ = self._make_engine(max_iterations=10, current_iteration=10)
-        for task_type in ("synthesize", "terminate"):
-            task = {"task_type": task_type, "task_id": "TASK-010"}
+        for tt in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
+            task = Task(task_id="TASK-010", task_type=tt, assigned_to="researcher")
             budget_remaining = engine.config.max_iterations - engine.iteration
-            if budget_remaining <= 1 and task["task_type"] not in ("synthesize", "terminate"):
+            if budget_remaining <= 1 and task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
                 task = engine._make_budget_synthesize_task()
-            assert task["task_type"] == task_type  # unchanged
+            assert task.task_type == tt  # unchanged
 
     def test_budget_enforcement_not_triggered_with_budget(self):
         """Plenty of budget -> no override."""
         engine, _ = self._make_engine(max_iterations=20, current_iteration=5)
-        task = {"task_type": "compute", "task_id": "TASK-005"}
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE, assigned_to="computationalist")
         budget_remaining = engine.config.max_iterations - engine.iteration
         assert budget_remaining > 1
         # No override
-        if budget_remaining <= 1 and task["task_type"] not in ("synthesize", "terminate"):
+        if budget_remaining <= 1 and task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
             task = engine._make_budget_synthesize_task()
-        assert task["task_type"] == "compute"  # unchanged
+        assert task.task_type == TaskType.COMPUTE  # unchanged
 
 
 class TestEnrichComputeTask:
@@ -209,7 +209,8 @@ class TestEnrichComputeTask:
             "CURRENT_TASK.md": "---\ntask_type: compute\n---\n\nVerify WH-003 mass.",
         }.get(f, ""))
 
-        task = {"task_type": "compute", "body": "Verify WH-003 mass limit"}
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify WH-003 mass limit")
         engine._enrich_compute_task_with_prior_failures(task)
 
         assert "CURRENT_TASK.md" in written
@@ -226,7 +227,8 @@ class TestEnrichComputeTask:
             "CURRENT_TASK.md": "---\ntask_type: compute\n---\n\nVerify WH-099 something.",
         }.get(f, ""))
 
-        task = {"task_type": "compute", "body": "Verify WH-099 something new"}
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify WH-099 something new")
         engine._enrich_compute_task_with_prior_failures(task)
 
         assert "CURRENT_TASK.md" not in written  # write_file not called
@@ -276,7 +278,8 @@ class TestRefutedRecompute:
         engine, ws, _ = self._make_engine()
         ws.read_file = MagicMock(return_value=self.COMP_LOG_REFUTED)
 
-        task = {"task_type": "compute", "body": "Verify formula X = Y"}
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
         engine._check_for_refuted_verdict(task)
 
         assert engine._pending_recompute_claim is not None
@@ -287,7 +290,8 @@ class TestRefutedRecompute:
         engine, ws, _ = self._make_engine()
         ws.read_file = MagicMock(return_value=self.COMP_LOG_VERIFIED)
 
-        task = {"task_type": "compute", "body": "Verify formula X = Y"}
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
         engine._check_for_refuted_verdict(task)
 
         assert engine._pending_recompute_claim is None
@@ -298,8 +302,8 @@ class TestRefutedRecompute:
 
         task = engine._make_recompute_task("Test claim")
 
-        assert task["task_type"] == "compute"
-        assert task["priority"] == "high"
+        assert task.task_type == TaskType.COMPUTE
+        assert task.priority == "high"
         assert "CURRENT_TASK.md" in written
         assert "Re-verification After REFUTED Verdict" in written["CURRENT_TASK.md"]
         assert "Test claim" in written["CURRENT_TASK.md"]
@@ -312,11 +316,11 @@ class TestRefutedRecompute:
         # Simulate what happens at top of loop
         claim = engine._pending_recompute_claim
         engine._pending_recompute_claim = None
-        task = {"task_type": "research"}
-        if task["task_type"] not in ("synthesize", "terminate"):
+        task = Task(task_id="TASK-003", task_type=TaskType.RESEARCH, assigned_to="researcher")
+        if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
             task = engine._make_recompute_task(claim)
 
-        assert task["task_type"] == "compute"
+        assert task.task_type == TaskType.COMPUTE
         assert engine._pending_recompute_claim is None
 
     def test_pending_recompute_skipped_on_synthesize(self):
@@ -324,13 +328,13 @@ class TestRefutedRecompute:
         engine, _, _ = self._make_engine()
         engine._pending_recompute_claim = "Verify formula X = Y"
 
-        task = {"task_type": "synthesize"}
+        task = Task(task_id="TASK-003", task_type=TaskType.SYNTHESIZE, assigned_to="researcher")
         claim = engine._pending_recompute_claim
         engine._pending_recompute_claim = None
-        if task["task_type"] not in ("synthesize", "terminate"):
+        if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
             task = engine._make_recompute_task(claim)
 
-        assert task["task_type"] == "synthesize"
+        assert task.task_type == TaskType.SYNTHESIZE
 
 
 class TestCriticRetry:
@@ -366,7 +370,7 @@ class TestCriticRetry:
         )
         engine.critic.run = MagicMock(side_effect=[low_response, normal_response])
 
-        task = {"task_type": "critique", "task_id": "TASK-005"}
+        task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
         result = engine._dispatch(task)
 
         assert result == "deep_critic"
@@ -382,7 +386,7 @@ class TestCriticRetry:
         )
         engine.critic.run = MagicMock(return_value=normal_response)
 
-        task = {"task_type": "critique", "task_id": "TASK-005"}
+        task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
         result = engine._dispatch(task)
 
         assert result == "deep_critic"

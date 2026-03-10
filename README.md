@@ -8,7 +8,7 @@ SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temp
 
 **How it works.** Five specialised LLM agents (orchestrator, researcher, computationalist, critic, compressor) take turns in a loop. No agent carries conversation history: each call starts from a fresh context and reads/writes shared Markdown files in a workspace directory. The orchestrator plans the next step, a worker agent executes it, and the cycle repeats. A layered verification stack — SymPy/NumPy computations, adversarial critique with severity tracking, and dependency-aware result promotion — acts as backpressure against errors. The workspace is version-controlled with git, so every step is recoverable.
 
-**Current status.** Core functionality is complete (66 tests passing). The system can solve known multi-step problems end-to-end, with independent post-hoc verification using a stronger model. It has been tested on problems ranging from quantum harmonic oscillator thermodynamics to casimir effect. See [PLAN.md](PLAN.md) for future work (tool-use loop, agentic agents).
+**Current status.** Core functionality is complete (172 tests passing). The system can solve known multi-step problems end-to-end, with independent post-hoc verification using a stronger model. It has been tested on problems ranging from quantum harmonic oscillator thermodynamics to casimir effect. See [PLAN.md](PLAN.md) for the Phase 2 roadmap (P1-P8 fixes from test runs) and future work.
 
 ## Quick Start
 
@@ -129,7 +129,8 @@ src/sciralph/
   engine.py            — Main loop: orchestrate → dispatch → compress → metrics → git
   verify.py            — Independent verification script (Claude Opus, streaming)
   config.py            — Config dataclass (model, thresholds, timeouts, audit log)
-  llm.py               — Anthropic API wrapper (call_llm) with audit logging
+  llm.py               — Anthropic API wrapper (call_llm, run_agent_loop) with audit logging
+  task.py              — Task dataclass + TaskType enum for typed task handling
   workspace.py         — File I/O + git operations on workspace/
   markdown.py          — YAML frontmatter parsing, section extraction, critique counting
   sandbox.py           — Python script execution with timeout
@@ -138,11 +139,11 @@ src/sciralph/
     base.py            — BaseAgent ABC with template method + retry on max_tokens
     orchestrator.py    — Plans tasks, integrates proposed changes into research state
     researcher.py      — Derivations and reasoning
-    computationalist.py — Code extraction, execution, failure flagging
+    computationalist.py — Agentic code execution via execute_python tool, verdict writing
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
-tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, computationalist, verify, workspace, conversation_log)
+tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, computationalist, verify, workspace, task)
 problems/              — YAML problem definitions
 run_and_verify.sh      — Run a problem then verify results in one command
 ```

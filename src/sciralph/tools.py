@@ -57,9 +57,10 @@ class ToolExecutor:
         }
     ]
 
-    def __init__(self, workspace_root: Path, timeout: int = 60):
+    def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000):
         self.workspace_root = workspace_root
         self.timeout = timeout
+        self._output_limit = output_limit
         self._counter = 0
         self._computations_dir = workspace_root / "computations"
 
@@ -108,9 +109,9 @@ class ToolExecutor:
         output = result.stdout
         if result.returncode != 0:
             output = result.stdout + "\n\nSTDERR:\n" + result.stderr if result.stdout else result.stderr
-            return self._truncate_output(output), True
+            return self._truncate_output(output, self._output_limit), True
 
-        return self._truncate_output(output), False
+        return self._truncate_output(output, self._output_limit), False
 
     @staticmethod
     def _truncate_output(text: str, limit: int = 10_000) -> str:

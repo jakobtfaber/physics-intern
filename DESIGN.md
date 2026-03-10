@@ -360,89 +360,18 @@ retries: 3
 
 ### 4.1 Orchestrator
 
-```
-You are the Orchestrator of a scientific research system. Your role is
-PLANNING AND COORDINATION ONLY. You do not derive, compute, or critique.
-You decide what should happen next.
+The orchestrator prompt (~95 lines in `prompts/orchestrator.md`) covers:
 
-You will be given the current state of a research project via several files.
-Your job is to:
+1. **Role definition** — planning and coordination only; assess state, integrate proposed changes, plan next task
+2. **Promotion criteria** — three-gate rule (VERIFIED computation + critic pass with no HIGH critiques + dependencies established), momentum rule (promote eagerly), HIGH critique fallibility note
+3. **Task planning** — compute-first rule, convergence/stall detection, sub-problem decomposition, dead-end tracking
+4. **Verdict interpretation** — VERIFIED/REFUTED/INCONCLUSIVE semantics, 2+ INCONCLUSIVE → stop retrying
+5. **Conventions** — maintain unit system and notation in RESEARCH_STATE.md
+6. **Integration duty** — evaluate PROPOSED_CHANGES.md against promotion criteria
+7. **Critique resolution** — list resolved IDs in YAML frontmatter with specific one-sentence descriptions (no generic "addressed by integration")
+8. **Output format** — `=== RESEARCH_STATE.md ===` + `=== CURRENT_TASK.md ===` sections, YAML frontmatter requirements
 
-1. Assess the current state: What is established? What is pending? What
-   critiques are unresolved?
-2. If PROPOSED_CHANGES.md is present, evaluate and integrate accepted
-   changes into RESEARCH_STATE.md (see INTEGRATION DUTY below).
-3. Decide the single most valuable next action.
-4. Write a focused task description.
-
-PROMOTION RULES:
-- You MUST NOT mark a Working Hypothesis as an Established Result unless
-  ALL of the following are true:
-  (a) At least one computational VERIFIED verdict supports it (INCONCLUSIVE
-      does NOT count as support, but also does NOT block promotion if other
-      evidence supports the claim)
-  (b) A Deep Critic pass has reviewed it with no unresolved HIGH critiques
-  (c) Its dependencies are all Established Results
-- HIGH critiques are not infallible. If a disputed claim has a VERIFIED
-  computation verdict, the critique may itself be wrong. Assess before
-  blindly resolving.
-
-MOMENTUM RULE — PROMOTE EAGERLY AND ADVANCE:
-- When a Working Hypothesis satisfies ALL promotion criteria, promote it
-  in the SAME pass and immediately plan the next derivation step.
-- Remaining LOW critiques should NOT block promotion.
-
-COMPUTE-FIRST RULE:
-- When a new Working Hypothesis has NO computation verdict yet, your FIRST
-  action MUST be a "compute" task, not a "critique" task. Numerical
-  verification is faster and more decisive.
-
-STALL DETECTION:
-- If the researcher has produced the same derivation in 2+ consecutive
-  iterations, the line of reasoning has CONVERGED. Note convergence and
-  proceed to verification or promotion.
-- If stuck in a resolve → critique → resolve loop for the same critique,
-  escalate: send to "compute" for a numerical test, or downgrade the
-  critique and move on.
-
-VALID TASK TYPES:
-  research — new derivation, hypothesis, or conceptual reasoning
-  derive — derivation of a specific formula or result
-  compute — symbolic/numerical verification via code execution
-  critique — adversarial review of research state
-  resolve — address a specific unresolved critique
-  synthesize — produce final write-up when all results established
-  terminate — signal that research is complete or should stop
-
-INTEGRATION DUTY:
-When PROPOSED_CHANGES.md is present, evaluate each proposed change against
-promotion criteria. Integrate accepted changes into RESEARCH_STATE.md.
-
-CRITIQUE RESOLUTION:
-When integrating changes that address critiques, list resolved critique IDs
-in YAML frontmatter: `resolved_critiques: [CRIT-001, CRIT-003]`. The system
-automatically moves them from Active to Resolved in CRITIQUE_LOG.md.
-
-VERDICT INTERPRETATION (from COMPUTATION_LOG.md):
-- VERIFIED — numerically confirmed. Counts as support for promotion.
-- REFUTED — claim is computationally disproved. Blocks promotion.
-- INCONCLUSIVE — tooling could not verify. NOT evidence against the claim.
-  After 2+ INCONCLUSIVE for the same claim, do not retry. Move on.
-
-OUTPUT FORMAT:
-When PROPOSED_CHANGES.md is present, output TWO sections:
-
-=== RESEARCH_STATE.md ===
-(Full updated file including YAML frontmatter and all sections.)
-
-=== CURRENT_TASK.md ===
-(YAML frontmatter + Markdown body.)
-
-When NO proposed changes are present, output only:
-
-=== CURRENT_TASK.md ===
-(YAML frontmatter + Markdown body.)
-```
+Sections removed during Phase 1 cleanup (scaffold already enforces): REFUTED handling, computation stall alerts, budget rules, critic scheduling, INCONCLUSIVE retry limits, critique resolution quality gate.
 
 ### 4.2 Researcher
 
@@ -492,7 +421,7 @@ The computationalist uses the Anthropic tool-use API with an `execute_python` to
 
 **Tool-use loop:** The scaffold runs `run_agent_loop()` which loops until the LLM returns `stop_reason="end_turn"`, hits `max_tool_rounds` (default 10), or `max_tokens`. Each round that involves a tool call: the LLM emits a `tool_use` block, the scaffold executes it via `ToolExecutor`, and the result is fed back as a `tool_result` message. Typical computations need 1-3 tool calls.
 
-**Legacy fallback:** The old two-pass flow (generate code → scaffold executes → separate review LLM call) is preserved in `_process_legacy_response`. Setting `tools = []` on the agent class reverts to this path.
+The legacy two-pass flow has been removed; the computationalist always uses the agentic tool-use path.
 
 The system prompt instructs the agent on verification strategy, comparison rules, numerical pitfalls, and verdict criteria. See `prompts/computationalist.md` for the full prompt. Key elements:
 
@@ -503,74 +432,16 @@ The system prompt instructs the agent on verification strategy, comparison rules
 
 ### 4.4 Deep Critic
 
-```
-You are the Deep Critic of a scientific research system. Your SOLE PURPOSE
-is to find flaws, gaps, unjustified steps, and potential errors in the
-current research state.
+The deep critic prompt (~90 lines in `prompts/deep_critic.md`) covers:
 
-You are not helpful. You do not suggest fixes. You do not praise good work.
-You ONLY identify problems.
-
-You will be given:
-- RESEARCH_STATE.md (the claims to scrutinize)
-- COMPUTATION_LOG.md (the evidence supporting those claims)
-- Your previous critiques in CRITIQUE_LOG.md (so you don't repeat yourself)
-
-FOR EVERY CLAIM, systematically check:
-- LOGICAL: step justification, implicit assumptions, gaps, non sequiturs
-- MATHEMATICAL: sign errors, missing factors, index structure, limits,
-  boundary conditions, order of operations
-- PHYSICAL: units/dimensions, known limits, order of magnitude, symmetries,
-  conservation laws
-- META: unit system consistency, notation, dependency tracking
-
-COMPUTATION EVIDENCE CHECKS:
-- VERIFIED — claim has computational support. You may still critique the
-  derivation logic, but note that numerical checks passed.
-- REFUTED — claim was computationally disproved. Warrants HIGH severity.
-- INCONCLUSIVE — NOT evidence against the claim. INCONCLUSIVE verdicts
-  MUST NOT be the sole basis for a HIGH critique. Cap at MEDIUM.
-  Execution failures reflect code quality, not mathematical validity.
-
-SEVERITY LEVELS:
-- HIGH: Could invalidate the result. Must be resolved before promotion.
-- MEDIUM: Gap or concern, likely doesn't invalidate the result.
-- LOW: Stylistic, notational, or minor clarity issue.
-
-TWO-PHASE OUTPUT FORMAT:
-For EACH claim examined, use this exact structure:
-
-## CRIT-NNN [SEVERITY] [UNRESOLVED]
-- **Target:** [claim ID]
-- **Filed:** iteration [N]
-
-### Phase 1: Reproduce
-Restate the claim's argument step by step IN YOUR OWN WORDS. Do NOT
-critique yet. Faithfully reproduce the logical chain. If you cannot
-reproduce the argument, note exactly WHERE you get stuck.
-
-### Phase 2: Objection
-Having reproduced the argument, state the objection:
-- **What is wrong:** [specific flaw]
-- **Why it matters:** [could it change the result?]
-- **Suggested verification:** [symbolic_check / numerical_spot_check / etc.]
-
-CRITICAL RULES:
-- Keep Phase 1 and Phase 2 STRICTLY separate.
-- If Phase 1 reproduction arrives at the same result and you find no flaw,
-  file a LOW critique noting "Reproduction succeeded, no issues found."
-
-EPISTEMIC CALIBRATION:
-- If your objection rests on competing intuition rather than a concrete
-  algebraic error, cap severity at MEDIUM.
-- If a claim has a VERIFIED computation verdict and your objection is
-  purely analytical, cap at MEDIUM.
-
-NON-REPETITION:
-- Check CRITIQUE_LOG.md for existing equivalent critiques. Do not duplicate.
-
-You MUST file at least one critique. Do not approve by silence.
-```
+1. **Role** — find flaws only; no fixes to derivations (may suggest verification methods); no praise
+2. **Systematic checks** — logical (step justification, assumptions), mathematical (sign errors, missing factors), physical (units, known limits), meta (notation, dependency tracking)
+3. **Severity calibration** — HIGH only for specific wrong steps (sign error, dropped term, invalid commutation), not competing intuitions; cap at MEDIUM when objection is intuition-based, only evidence is INCONCLUSIVE, or a VERIFIED computation exists
+4. **Computation evidence** — VERIFIED = support (still critique logic), REFUTED = HIGH severity, INCONCLUSIVE = NOT evidence against claim (cap at MEDIUM), execution failures ≠ mathematical invalidity
+5. **Two-phase output format** — Phase 1: reproduce argument in own words (no critique yet); Phase 2: specific objection + why it matters + suggested verification
+6. **Critical rules** — strict Phase 1/2 separation; if reproduction succeeds with no flaw, do NOT file a critique (move on); do not critique own reproduction; use `CRIT-NNN` format
+7. **Non-repetition** — check existing critiques, don't duplicate, don't re-file resolved critiques
+8. **No-issues marker** — if no genuine objections after examining all claims, output `NO_CRITIQUES_FILED: Reviewed [N] claims, no issues found.` — do NOT file placeholder LOW critiques
 
 ### 4.5 Compressor
 
@@ -632,17 +503,18 @@ class SciRalph:
 
             # --- Step 1: Orchestrator decides next task ---
             # (also integrates PROPOSED_CHANGES.md if present)
-            orch_response = self.orchestrator.run({}, self.iteration)
+            empty_task = Task(task_id="", task_type=TaskType.RESEARCH,
+                              assigned_to="orchestrator", iteration=self.iteration)
+            orch_response = self.orchestrator.run(empty_task, self.iteration)
             task = self.orchestrator.parse_task(orch_response.text, iteration=self.iteration)
 
             # Check for termination signal
-            if task["task_type"] == "terminate":
+            if task.task_type == TaskType.TERMINATE:
                 break
-            if task["task_type"] != "synthesize":
+            if task.task_type != TaskType.SYNTHESIZE:
                 # Backstop: detect stale loops when research looks complete
-                # If 3+ ERs, 0 WHs, and orchestrator hasn't terminated for 2 iterations
                 er_count, wh_count = self._count_results()
-                if er_count >= 3 and wh_count == 0:
+                if er_count >= self.config.min_er_for_completion and wh_count == 0:
                     self._stale_iterations += 1
                     if self._stale_iterations >= 2:
                         break  # force exit
@@ -650,7 +522,7 @@ class SciRalph:
                     self._stale_iterations = 0
 
             # --- Step 2: Force critic if overdue ---
-            if self._critic_overdue() and task["task_type"] != "critique":
+            if self._critic_overdue() and task.task_type != TaskType.CRITIQUE:
                 task = self._make_forced_critic_task()
 
             # --- Step 3: Dispatch to appropriate agent ---
@@ -669,22 +541,18 @@ class SciRalph:
 
         self._final_report()  # flushes metrics, prints summary
 
-    def _dispatch(self, task: dict) -> str:
+    def _dispatch(self, task: Task) -> str:
         """Route task to the correct agent."""
-        task_type = task["task_type"]
-
-        if task_type in ("research", "derive", "resolve", "synthesize"):
+        if task.task_type in (TaskType.RESEARCH, TaskType.DERIVE,
+                              TaskType.RESOLVE, TaskType.SYNTHESIZE):
             self.researcher.run(task, self.iteration)
             return "researcher"
-        elif task_type == "compute":
+        elif task.task_type == TaskType.COMPUTE:
             self.computationalist.run(task, self.iteration)
             return "computationalist"
-        elif task_type == "critique":
+        elif task.task_type == TaskType.CRITIQUE:
             self.critic.run(task, self.iteration)
             return "deep_critic"
-        elif task_type == "compress":
-            self.compressor.run(task, self.iteration)
-            return "compressor"
         else:
             # Unknown type: fall through to researcher
             self.researcher.run(task, self.iteration)
@@ -792,7 +660,7 @@ Two complementary logging systems capture all system activity:
 
 **JSONL Audit Log** (`AUDIT_LOG.jsonl`): One JSON object per LLM call containing metadata (agent name, iteration, token counts, duration, stop reason, character counts). This log is **not** consumed by any agent — it exists purely for the operator. Flushed immediately so it survives crashes.
 
-**Conversation Logs** (`logs/`): Every LLM call produces a Markdown file containing the full system prompt, user content, and assistant response verbatim. Files are named `iter{NNN}_{agent}_{seq}.md` where `seq` is a per-iteration sequence number (handling retries and the computationalist's two-pass flow within one iteration). These files enable inspection and replay of any individual call.
+**Conversation Logs** (`logs/`): Every LLM call produces a Markdown file containing the full system prompt, user content, and assistant response verbatim. Files are named `iter{NNN}_{agent}_{seq}.md` where `seq` is a per-iteration sequence number (handling retries and multi-round tool-use within one iteration). These files enable inspection and replay of any individual call.
 
 Both live in the workspace directory (gitignored from the source repo, tracked in the workspace's own git).
 
@@ -858,9 +726,8 @@ Each workspace (`workspaces/<YYYYMMDD_HHMMSS_problem>/`) is an **independent git
    compression; only resolved critiques and superseded computations are
    compressed.
 4. **LLM cost.** Each iteration involves 1-2 full-context LLM calls
-   (orchestrator + dispatched agent; computationalist makes a second review
-   call). At ~40K input tokens per call and 200 iterations, expect ~8M+
-   input tokens per research session.
+   (orchestrator + dispatched agent). At ~40K input tokens per call and
+   200 iterations, expect ~8M+ input tokens per research session.
 5. **Symbolic computation limitations.** SymPy cannot handle all
    computations (e.g., tensor algebra, group theory, advanced differential
    geometry). This is the primary motivation for MCP extension.
@@ -880,7 +747,7 @@ Each workspace (`workspaces/<YYYYMMDD_HHMMSS_problem>/`) is an **independent git
 - [x] Full conversation logging (system prompt + context + response per LLM call)
 - [x] Orchestrator agent (task emission, promotion rules, integration duty, critique resolution, stall detection, stale-iteration backstop)
 - [x] Researcher agent (proposed changes workflow)
-- [x] Computationalist agent (agentic tool-use with `execute_python`, numerical-first verification, 3-valued verdict system, legacy two-pass fallback)
+- [x] Computationalist agent (agentic tool-use with `execute_python`, numerical-first verification, 3-valued verdict system)
 - [x] Deep Critic agent (two-phase format, INCONCLUSIVE severity cap, epistemic calibration)
 - [x] Compressor agent (archival + compression, forced at 2x threshold)
 - [x] Metrics tracking and METRICS.md generation (flush on termination)
@@ -890,7 +757,8 @@ Each workspace (`workspaces/<YYYYMMDD_HHMMSS_problem>/`) is an **independent git
 - [x] Tool-use loop in llm.py (§7.5) — `run_agent_loop()`, `AgentResult`, `ToolExecutor`
 - [x] Agentic computationalist with `execute_python` tool
 - [x] Tool-use metrics (rounds, tool calls, truncated flag in METRICS.md)
-- [x] Test suite (151 tests covering all modules)
+- [x] Test suite (172 tests covering all modules)
+- [x] Phase 1 structural cleanup: `Task` dataclass, shared critique helpers, dead code removal, prompt rewrites
 
 ### Planned
 - [ ] Agentic researcher/orchestrator/critic with `read_file` tool

@@ -7,5 +7,5 @@ dist/
 *.egg-info/
 .pytest_cache/
 logs/
-.claude/
+.claude/settings.local.json
 .idea/

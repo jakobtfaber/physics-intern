@@ -1,23 +1,29 @@
 """Deep Critic agent: adversarial review of research state."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from ..llm import LLMResponse
 from ..markdown import (
     parse_frontmatter,
-    count_unresolved_critiques,
     insert_into_active_critiques,
     filter_self_retracted_critiques,
     render_frontmatter,
+    recount_critique_metadata,
 )
 from .base import BaseAgent
+
+if TYPE_CHECKING:
+    from ..task import Task
 
 
 class CriticAgent(BaseAgent):
     name = "deep_critic"
     prompt_file = "deep_critic.md"
 
-    def build_context(self, task: dict, iteration: int) -> str:
+    def build_context(self, task: Task, iteration: int) -> str:
         parts = [
             "## RESEARCH_STATE.md\n",
             self.workspace.read_file("RESEARCH_STATE.md"),
@@ -28,7 +34,7 @@ class CriticAgent(BaseAgent):
         ]
         return "\n".join(parts)
 
-    def process_response(self, response: LLMResponse, task: dict, iteration: int):
+    def process_response(self, response: LLMResponse, task: Task, iteration: int):
         """Insert new critiques into Active section and update frontmatter counts."""
         filtered_text, retracted = filter_self_retracted_critiques(response.text)
 
@@ -58,12 +64,7 @@ class CriticAgent(BaseAgent):
         """Recount unresolved critiques and update frontmatter."""
         content = self.workspace.read_file("CRITIQUE_LOG.md")
         meta, body = parse_frontmatter(content)
-        counts = count_unresolved_critiques(content)
-        meta["unresolved_high"] = counts["HIGH"]
-        meta["unresolved_medium"] = counts["MEDIUM"]
-        meta["unresolved_low"] = counts["LOW"]
+        recounted = recount_critique_metadata(content)
+        meta.update(recounted)
         meta["last_critic_pass"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        # Count total critiques
-        import re
-        meta["total_critiques"] = len(re.findall(r'^#{2,3} CRIT(?:IQUE)?-', content, re.MULTILINE))
         self.workspace.write_file("CRITIQUE_LOG.md", render_frontmatter(meta, body))

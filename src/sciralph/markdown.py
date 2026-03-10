@@ -7,6 +7,13 @@ import yaml
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 SECTION_RE = re.compile(r"^## .+", re.MULTILINE)
 
+# Shared critique regex constants
+CRIT_ID_RE = re.compile(r"CRIT(?:IQUE)?-\d+")
+CRIT_HEADER_RE = re.compile(r"^#{2,3} CRIT(?:IQUE)?-\d+", re.MULTILINE)
+CRIT_UNRESOLVED_RE = re.compile(
+    r"#{2,3} CRIT(?:IQUE)?-\d+\s*\[(\w+)\]\s*\[UNRESOLVED\]"
+)
+
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
     """Split text into (frontmatter_dict, body). Returns ({}, text) on failure."""
@@ -71,7 +78,7 @@ def count_unresolved_critiques(text: str) -> dict[str, int]:
     """Count unresolved critiques by severity from CRITIQUE_LOG.md content."""
     counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
     # Match patterns like ## CRIT-010 [HIGH] [UNRESOLVED]
-    for match in re.finditer(r'#{2,3} CRIT(?:IQUE)?-\d+\s*\[(\w+)\]\s*\[UNRESOLVED\]', text):
+    for match in CRIT_UNRESOLVED_RE.finditer(text):
         severity = match.group(1).upper()
         if severity in counts:
             counts[severity] += 1
@@ -107,7 +114,7 @@ _RETRACTION_PATTERNS = [
     re.compile(r"documenting successful verification", re.IGNORECASE),
 ]
 
-_CRITIQUE_HEADER_RE = re.compile(r"^## CRIT(?:IQUE)?-\d+", re.MULTILINE)
+_CRITIQUE_HEADER_RE = CRIT_HEADER_RE
 
 
 def filter_self_retracted_critiques(response_text: str) -> tuple[str, list[str]]:
@@ -146,7 +153,7 @@ def filter_self_retracted_critiques(response_text: str) -> tuple[str, list[str]]
 
         if is_low and _is_self_retracted(body):
             # Build summary
-            crit_id = re.search(r"CRIT(?:IQUE)?-\d+", header).group()
+            crit_id = CRIT_ID_RE.search(header).group()
             target_match = re.search(r"\*\*Target:\*\*\s*(\S+)", body)
             target = target_match.group(1) if target_match else "unknown"
             retracted.append(f"{crit_id} targeting {target}: self-retracted")
@@ -226,6 +233,55 @@ def resolve_critique(text: str, crit_id: str, resolution_note: str) -> str:
             + "\n"
             + text_without[insert_pos:]
         )
+
+
+def extract_resolved_critique_ids(text: str) -> set[str]:
+    """Extract critique IDs that appear to be resolved in the given text.
+
+    Detects three patterns:
+    1. resolved_critiques: [CRIT-001, CRIT-002] in YAML
+    2. CRIT-NNN near "resolved"/"addressed"/"incorporated"/"verified" in prose
+    3. Reverse: "resolved"/"addressed"/etc. near CRIT-NNN
+    """
+    resolved_ids: set[str] = set()
+
+    # Pattern 1: resolved_critiques list
+    list_match = re.search(r'resolved_critiques:\s*\[([^\]]+)\]', text)
+    if list_match:
+        for crit in CRIT_ID_RE.findall(list_match.group(1)):
+            resolved_ids.add(crit)
+
+    # Pattern 2: CRIT-NNN near resolution keywords
+    for match in re.finditer(
+        r'(CRIT(?:IQUE)?-\d+)\b[^.\n]{0,80}\b(?:resolved|addressed|incorporated|verified)',
+        text, re.IGNORECASE,
+    ):
+        resolved_ids.add(match.group(1))
+
+    # Pattern 3: resolution keywords near CRIT-NNN
+    for match in re.finditer(
+        r'(?:resolved|addressed|incorporated|verified)\b[^.\n]{0,80}\b(CRIT(?:IQUE)?-\d+)',
+        text, re.IGNORECASE,
+    ):
+        resolved_ids.add(match.group(1))
+
+    return resolved_ids
+
+
+def recount_critique_metadata(content: str) -> dict:
+    """Recount unresolved and total critiques from CRITIQUE_LOG content.
+
+    Returns dict with keys: unresolved_high, unresolved_medium, unresolved_low,
+    total_critiques.
+    """
+    counts = count_unresolved_critiques(content)
+    total = len(CRIT_HEADER_RE.findall(content))
+    return {
+        "unresolved_high": counts["HIGH"],
+        "unresolved_medium": counts["MEDIUM"],
+        "unresolved_low": counts["LOW"],
+        "total_critiques": total,
+    }
 
 
 # --- Computation log parsing and stall detection ---

@@ -7,8 +7,14 @@ from rich.panel import Panel
 from rich.text import Text
 
 from .config import Config
-from .markdown import parse_frontmatter, render_frontmatter
+from .markdown import (
+    parse_frontmatter,
+    render_frontmatter,
+    find_prior_failures_for_claim,
+    _parse_comp_entries,
+)
 from .metrics import MetricsTracker
+from .task import Task, TaskType
 from .workspace import WorkspaceManager
 from .agents.orchestrator import OrchestratorAgent
 from .agents.researcher import ResearcherAgent
@@ -50,7 +56,11 @@ class SciRalph:
 
             # Step 1: Orchestrator decides next task
             console.print("[cyan]Orchestrator[/cyan] planning...")
-            orch_response = self.orchestrator.run({}, self.iteration)
+            orch_task = Task(
+                task_id="", task_type=TaskType.RESEARCH,
+                assigned_to="orchestrator", iteration=self.iteration,
+            )
+            orch_response = self.orchestrator.run(orch_task, self.iteration)
             task = self.orchestrator.parse_task(orch_response.text, iteration=self.iteration)
 
             # Validate COMP/TASK references in RESEARCH_STATE
@@ -65,29 +75,29 @@ class SciRalph:
             if self._pending_recompute_claim:
                 claim = self._pending_recompute_claim
                 self._pending_recompute_claim = None
-                if task["task_type"] not in ("synthesize", "terminate"):
+                if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
                     console.print("[yellow]Forcing recompute after REFUTED verdict.[/yellow]")
                     task = self._make_recompute_task(claim)
 
             # Budget enforcement: hard override when budget exhausted
             budget_remaining = self.config.max_iterations - self.iteration
-            if budget_remaining <= 1 and task["task_type"] not in ("synthesize", "terminate"):
+            if budget_remaining <= 1 and task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
                 console.print(
                     f"[yellow]Budget enforcement: {budget_remaining} iteration(s) left, "
-                    f"overriding '{task['task_type']}' -> 'synthesize'.[/yellow]"
+                    f"overriding '{task.task_type}' -> 'synthesize'.[/yellow]"
                 )
-                self.metrics.alert(self.iteration, f"Budget override: {task['task_type']} -> synthesize")
+                self.metrics.alert(self.iteration, f"Budget override: {task.task_type} -> synthesize")
                 task = self._make_budget_synthesize_task()
 
             # Enrich compute tasks with prior failure context
-            if task["task_type"] == "compute":
+            if task.task_type == TaskType.COMPUTE:
                 self._enrich_compute_task_with_prior_failures(task)
 
             self._print_task(task)
 
             # Check for termination signal
-            if task["task_type"] in ("synthesize", "terminate"):
-                if task["task_type"] == "terminate":
+            if task.task_type in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
+                if task.task_type == TaskType.TERMINATE:
                     console.print("[green]Orchestrator signaled completion.[/green]")
                     self._set_research_status("completed")
                     break
@@ -98,7 +108,7 @@ class SciRalph:
                 state = self.workspace.read_file("RESEARCH_STATE.md")
                 er_count = len(re.findall(r'^## ER-\d+', state, re.MULTILINE))
                 wh_count = len(re.findall(r'^## WH-\d+', state, re.MULTILINE))
-                if er_count >= 3 and wh_count == 0:
+                if er_count >= self.config.min_er_for_completion and wh_count == 0:
                     self._stale_iterations += 1
                     if self._stale_iterations >= 2:
                         console.print(
@@ -111,7 +121,7 @@ class SciRalph:
                     self._stale_iterations = 0
 
             # Step 2: Force critic if overdue
-            if self._critic_overdue() and task["task_type"] != "critique":
+            if self._critic_overdue() and task.task_type != TaskType.CRITIQUE:
                 console.print(
                     f"[yellow]Forcing critic pass (overdue: last critic at "
                     f"iter {self.metrics.last_critic_iteration}, "
@@ -128,7 +138,7 @@ class SciRalph:
             # Step 5: Metrics & git commit
             self._update_metrics()
             self.workspace.git_commit(
-                f"Iteration {self.iteration}: {agent_name} - {task.get('task_id', 'unknown')}"
+                f"Iteration {self.iteration}: {agent_name} - {task.task_id}"
             )
 
             # Step 6: Check termination conditions
@@ -138,22 +148,22 @@ class SciRalph:
 
         self._final_report()
 
-    def _dispatch(self, task: dict) -> str:
+    def _dispatch(self, task: Task) -> str:
         """Route task to the correct agent."""
-        task_type = task["task_type"]
+        tt = task.task_type
 
-        if task_type in ("research", "derive", "resolve", "synthesize"):
-            console.print(f"[green]Researcher[/green] working on: {task_type}")
+        if tt in (TaskType.RESEARCH, TaskType.DERIVE, TaskType.RESOLVE, TaskType.SYNTHESIZE):
+            console.print(f"[green]Researcher[/green] working on: {tt}")
             self.researcher.run(task, self.iteration)
             return "researcher"
 
-        elif task_type == "compute":
+        elif tt == TaskType.COMPUTE:
             console.print("[magenta]Computationalist[/magenta] working...")
             self.computationalist.run(task, self.iteration)
             self._check_for_refuted_verdict(task)
             return "computationalist"
 
-        elif task_type == "critique":
+        elif tt == TaskType.CRITIQUE:
             console.print("[red]Deep Critic[/red] reviewing...")
             response = self.critic.run(task, self.iteration)
             # Check for silent failure (near-empty output)
@@ -172,13 +182,8 @@ class SciRalph:
                 self.critic.run(task, self.iteration)
             return "deep_critic"
 
-        elif task_type == "compress":
-            console.print(f"[yellow]Compressor[/yellow] compressing: {task.get('target_file')}")
-            self.compressor.run(task, self.iteration)
-            return "compressor"
-
         else:
-            console.print(f"[yellow]Unknown task type '{task_type}', defaulting to researcher[/yellow]")
+            console.print(f"[yellow]Unknown task type '{tt}', defaulting to researcher[/yellow]")
             self.researcher.run(task, self.iteration)
             return "researcher"
 
@@ -186,66 +191,45 @@ class SciRalph:
         """Check if more than N iterations since last critic pass."""
         return (self.iteration - self.metrics.last_critic_iteration) >= self.config.critic_every_n
 
-    def _make_forced_critic_task(self) -> dict:
+    def _make_forced_critic_task(self) -> Task:
         """Create a forced critic task."""
-        task_content = f"""---
-task_id: "TASK-{self.iteration:03d}"
-task_type: "critique"
-assigned_to: "deep_critic"
-priority: "high"
-iteration: {self.iteration}
----
+        task = Task(
+            task_id=f"TASK-{self.iteration:03d}",
+            task_type=TaskType.CRITIQUE,
+            assigned_to="deep_critic",
+            priority="high",
+            iteration=self.iteration,
+            body=(
+                "# Task Description\n\n"
+                "Mandatory periodic review. Perform a thorough critique of all Working\n"
+                "Hypotheses and recent Established Results in RESEARCH_STATE.md.\n"
+            ),
+        )
+        self.workspace.write_file("CURRENT_TASK.md", task.to_markdown())
+        return task
 
-# Task Description
-
-Mandatory periodic review. Perform a thorough critique of all Working
-Hypotheses and recent Established Results in RESEARCH_STATE.md.
-"""
-        self.workspace.write_file("CURRENT_TASK.md", task_content)
-        return {
-            "task_id": f"TASK-{self.iteration:03d}",
-            "task_type": "critique",
-            "assigned_to": "deep_critic",
-            "priority": "high",
-            "iteration": self.iteration,
-            "blocking_critiques": [],
-            "target_file": "",
-            "body": "",
-        }
-
-    def _make_budget_synthesize_task(self) -> dict:
+    def _make_budget_synthesize_task(self) -> Task:
         """Create a forced synthesize task due to budget exhaustion."""
-        task_content = f"""---
-task_id: "TASK-{self.iteration:03d}"
-task_type: "synthesize"
-assigned_to: "researcher"
-priority: "high"
-iteration: {self.iteration}
----
+        task = Task(
+            task_id=f"TASK-{self.iteration:03d}",
+            task_type=TaskType.SYNTHESIZE,
+            assigned_to="researcher",
+            priority="high",
+            iteration=self.iteration,
+            body=(
+                "# Budget-Enforced Synthesis\n\n"
+                "Iteration budget nearly exhausted. Synthesize ALL Established Results into\n"
+                "a final answer. Note unresolved items as limitations. Set status to\n"
+                "'partially_complete' if gaps remain.\n"
+            ),
+        )
+        self.workspace.write_file("CURRENT_TASK.md", task.to_markdown())
+        return task
 
-# Budget-Enforced Synthesis
-
-Iteration budget nearly exhausted. Synthesize ALL Established Results into
-a final answer. Note unresolved items as limitations. Set status to
-'partially_complete' if gaps remain.
-"""
-        self.workspace.write_file("CURRENT_TASK.md", task_content)
-        return {
-            "task_id": f"TASK-{self.iteration:03d}",
-            "task_type": "synthesize",
-            "assigned_to": "researcher",
-            "priority": "high",
-            "iteration": self.iteration,
-            "blocking_critiques": [],
-            "target_file": "",
-            "body": "",
-        }
-
-    def _enrich_compute_task_with_prior_failures(self, task: dict):
+    def _enrich_compute_task_with_prior_failures(self, task: Task):
         """Append prior failure context to CURRENT_TASK.md for compute retries."""
-        from .markdown import find_prior_failures_for_claim
         comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
-        prior = find_prior_failures_for_claim(comp_log, task.get("body", ""))
+        prior = find_prior_failures_for_claim(comp_log, task.body)
         if not prior:
             return
         task_text = self.workspace.read_file("CURRENT_TASK.md")
@@ -260,48 +244,36 @@ a final answer. Note unresolved items as limitations. Set status to
             addendum += f"\n\n({len(prior) - 1} earlier failure(s) in COMPUTATION_LOG.md)\n"
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
 
-    def _check_for_refuted_verdict(self, task: dict):
+    def _check_for_refuted_verdict(self, task: Task):
         """After computationalist runs, check if latest verdict is REFUTED."""
-        from .markdown import _parse_comp_entries
         comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
         entries = _parse_comp_entries(comp_log)
         if entries and entries[-1]["verdict"] == "REFUTED":
-            claim = entries[-1].get("claim", task.get("body", ""))
+            claim = entries[-1].get("claim", task.body)
             self._pending_recompute_claim = claim
             self.metrics.alert(
                 self.iteration,
                 "REFUTED verdict detected — will force recompute next iteration"
             )
 
-    def _make_recompute_task(self, claim: str) -> dict:
+    def _make_recompute_task(self, claim: str) -> Task:
         """Create a forced compute task to re-verify a REFUTED claim after correction."""
-        task_content = f"""---
-task_id: "TASK-{self.iteration:03d}"
-task_type: "compute"
-assigned_to: "computationalist"
-priority: "high"
-iteration: {self.iteration}
----
-
-# Re-verification After REFUTED Verdict
-
-The previous computation REFUTED the following claim. The orchestrator has
-integrated corrections. Verify the CORRECTED version now appears in
-RESEARCH_STATE.md and compute a fresh verification.
-
-**Claim to re-verify:** {claim[:500]}
-"""
-        self.workspace.write_file("CURRENT_TASK.md", task_content)
-        return {
-            "task_id": f"TASK-{self.iteration:03d}",
-            "task_type": "compute",
-            "assigned_to": "computationalist",
-            "priority": "high",
-            "iteration": self.iteration,
-            "blocking_critiques": [],
-            "target_file": "",
-            "body": claim[:500],
-        }
+        task = Task(
+            task_id=f"TASK-{self.iteration:03d}",
+            task_type=TaskType.COMPUTE,
+            assigned_to="computationalist",
+            priority="high",
+            iteration=self.iteration,
+            body=(
+                "# Re-verification After REFUTED Verdict\n\n"
+                "The previous computation REFUTED the following claim. The orchestrator has\n"
+                "integrated corrections. Verify the CORRECTED version now appears in\n"
+                "RESEARCH_STATE.md and compute a fresh verification.\n\n"
+                f"**Claim to re-verify:** {claim[:500]}\n"
+            ),
+        )
+        self.workspace.write_file("CURRENT_TASK.md", task.to_markdown())
+        return task
 
     def _check_compression(self):
         """Check file sizes against thresholds, compress if needed."""
@@ -314,10 +286,24 @@ RESEARCH_STATE.md and compute a fresh verification.
                 )
                 if size > threshold * 2:
                     console.print(f"[yellow]Force-compressing {filename}[/yellow]")
-                    self.compressor.run({"target_file": filename}, self.iteration)
+                    compress_task = Task(
+                        task_id=f"COMPRESS-{self.iteration:03d}",
+                        task_type=TaskType.RESEARCH,
+                        assigned_to="compressor",
+                        iteration=self.iteration,
+                        target_file=filename,
+                    )
+                    self.compressor.run(compress_task, self.iteration)
                 elif size > threshold * 1.5:
                     console.print(f"[yellow]Compressing {filename}[/yellow]")
-                    self.compressor.run({"target_file": filename}, self.iteration)
+                    compress_task = Task(
+                        task_id=f"COMPRESS-{self.iteration:03d}",
+                        task_type=TaskType.RESEARCH,
+                        assigned_to="compressor",
+                        iteration=self.iteration,
+                        target_file=filename,
+                    )
+                    self.compressor.run(compress_task, self.iteration)
 
     def _set_research_status(self, status: str):
         """Update the status field in RESEARCH_STATE.md frontmatter."""
@@ -344,13 +330,13 @@ RESEARCH_STATE.md and compute a fresh verification.
         md = self.metrics.to_markdown(file_sizes, self.config.compress_threshold)
         self.workspace.write_file("METRICS.md", md)
 
-    def _print_task(self, task: dict):
+    def _print_task(self, task: Task):
         """Print task summary to console."""
         text = Text()
-        text.append(f"Task: ", style="bold")
-        text.append(f"{task.get('task_id', '?')} ", style="cyan")
-        text.append(f"[{task.get('task_type', '?')}] ", style="yellow")
-        text.append(f"-> {task.get('assigned_to', '?')}", style="green")
+        text.append("Task: ", style="bold")
+        text.append(f"{task.task_id} ", style="cyan")
+        text.append(f"[{task.task_type}] ", style="yellow")
+        text.append(f"-> {task.assigned_to}", style="green")
         console.print(text)
 
     def _final_report(self):

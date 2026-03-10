@@ -1,14 +1,19 @@
 """Base agent with template method pattern."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, TYPE_CHECKING
 
 from ..config import Config
 from ..llm import AgentResult, LLMResponse, call_llm, run_agent_loop
 from ..metrics import MetricsTracker
 from ..tools import ToolExecutor
 from ..workspace import WorkspaceManager
+
+if TYPE_CHECKING:
+    from ..task import Task
 
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
@@ -35,16 +40,16 @@ class BaseAgent(ABC):
         return self._system_prompt
 
     @abstractmethod
-    def build_context(self, task: dict, iteration: int) -> str:
+    def build_context(self, task: Task, iteration: int) -> str:
         """Build the user message context for the LLM call."""
         ...
 
     @abstractmethod
-    def process_response(self, response: LLMResponse | AgentResult, task: dict, iteration: int):
+    def process_response(self, response: LLMResponse | AgentResult, task: Task, iteration: int):
         """Process the LLM response: write files, execute code, etc."""
         ...
 
-    def run(self, task: dict, iteration: int) -> LLMResponse | AgentResult:
+    def run(self, task: Task, iteration: int) -> LLMResponse | AgentResult:
         """Template method: build context -> call LLM -> process response."""
         context = self.build_context(task, iteration)
         if self.tools:
@@ -54,11 +59,12 @@ class BaseAgent(ABC):
         self.process_response(response, task, iteration)
         return response
 
-    def _call_with_tools(self, context: str, task: dict, iteration: int) -> AgentResult:
+    def _call_with_tools(self, context: str, task: Task, iteration: int) -> AgentResult:
         """Run the tool-use agent loop."""
         tool_executor = ToolExecutor(
             workspace_root=self.workspace.root,
             timeout=self.config.sympy_timeout_seconds,
+            output_limit=self.config.tool_output_limit,
         )
         result = run_agent_loop(
             system=self.system_prompt,
