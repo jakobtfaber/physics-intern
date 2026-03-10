@@ -37,3 +37,30 @@ def test_execute_timeout():
 def test_execute_nonexistent_script():
     result = execute_python("/nonexistent/script.py")
     assert result.returncode != 0
+
+
+def test_mplbackend_set():
+    """Verify sandbox sets MPLBACKEND=Agg in the subprocess environment."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write("import os; print(os.environ.get('MPLBACKEND', ''))\n")
+        f.flush()
+        result = execute_python(f.name)
+    assert result.returncode == 0
+    assert "Agg" in result.stdout
+
+
+def test_plt_show_no_block():
+    """Verify plt.show() does not block with the Agg backend."""
+    script = (
+        "import matplotlib\n"
+        "import matplotlib.pyplot as plt\n"
+        "plt.plot([1, 2, 3])\n"
+        "plt.show()\n"
+        "print('done')\n"
+    )
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(script)
+        f.flush()
+        result = execute_python(f.name, timeout=10)
+    assert not result.timed_out
+    assert "done" in result.stdout

@@ -4,21 +4,7 @@ Items are ordered by priority within each tier. Tier 1 items are quick fixes tha
 
 Ordering informed by the audit of 8 workspace runs (March 2026): 7/8 solved correctly, Chandrasekhar failed with 13.6% systematic error. Computation scripts failed execution in ~50% of cases across all runs, mostly due to preventable causes.
 
----
 
-## Tier 1 — Quick fixes (do first, all independent of tool-use work)
-
-- **Fix soft-check pattern in computationalist prompt** — the current ASSERTION RULES pattern wraps individual checks in try/except but ends with `assert all_passed`, which still crashes the script and causes the scaffold to record EXECUTION FAILED. The LLM consistently follows this pattern — the pattern itself is the bug, not LLM non-compliance. Fix: replace the final `assert all_passed` with always-exit-0 and a structured summary (e.g. `CHECKS: 8/10 PASSED`). Teach the review phase (or agentic computationalist) to read the summary rather than relying on exit code. *Audit evidence: hard asserts killed scripts in 5/8 runs (QHO COMP-018, Chandrasekhar COMP-015, Path Integral COMP-014, Renormalization COMP-014, Perihelion COMP-001/006).*
-
-- **Available packages documentation and blocklist** — the computationalist prompt (or the `execute_python` tool description) should list available packages and known version caveats. Confirmed broken APIs: `scipy.misc.derivative` (removed in SciPy 2.0 — use `scipy.integrate` or manual finite differences), `numpy.trapz` (renamed to `numpy.trapezoid` in NumPy 2.0), `numpy.math` (removed in NumPy 2.0 — use `math` stdlib). List these as banned with their replacements. *Audit evidence: deprecated APIs crashed scripts in 3/8 runs (QHO, Ising, Path Integral), wasting 4+ iterations total.*
-
-- **`plt.show()` suppression in sandbox** — set `MPLBACKEND=Agg` in `sandbox.py`'s subprocess environment. This prevents any display attempt in the headless sandbox. Also add "never call `plt.show()`, use `plt.savefig()` then `plt.close()`" to the computationalist prompt as belt-and-suspenders. *Audit evidence: Ising COMP-011 timed out (60s) on `plt.show()` — the PNG was already saved, the script just couldn't exit.*
-
-- **Compression threshold gap** — currently the engine only alerts at 1x threshold and force-compresses at 2x. Add a 1.5x trigger in `_check_compression()` that dispatches a normal (non-forced) compressor run. *Audit evidence: Path Integral COMPUTATION_LOG hit 41,164 chars (103% of 40k threshold), alerts fired at iterations 16-18, but no compression occurred because 2x = 80k was never reached.*
-
-- **METRICS table completeness** — several runs had incomplete per-iteration tables (missing early rows). Investigate whether `to_markdown()` is overwriting rather than accumulating, or if there's a rolling-window bug. Fix so the full iteration history is always present. *Audit evidence: Berry Phase missing iterations 1-4, Renormalization missing iterations 1-9.*
-
-- **RESEARCH_STATE status bookkeeping on terminate** — when the orchestrator emits a `terminate` task, the engine (or orchestrator) should update the RESEARCH_STATE frontmatter `status` field to `completed`. Currently left as `in_progress`. *Audit evidence: Ising showed `status: in_progress` after a clean terminate.*
 
 ---
 
@@ -81,3 +67,19 @@ The tool-use loop is the single largest improvement planned. It structurally add
 ### Workspace management
 
 - **Workspace resume** — `--resume <workspace-dir>` to continue a previous run. Skip `init()` if `.git` exists, load iteration from METRICS.md, handle partial state (corrupted state, version mismatches).
+
+---
+## DONE
+### Tier 1 — Quick fixes (do first, all independent of tool-use work)
+
+- **Fix soft-check pattern in computationalist prompt** — the current ASSERTION RULES pattern wraps individual checks in try/except but ends with `assert all_passed`, which still crashes the script and causes the scaffold to record EXECUTION FAILED. The LLM consistently follows this pattern — the pattern itself is the bug, not LLM non-compliance. Fix: replace the final `assert all_passed` with always-exit-0 and a structured summary (e.g. `CHECKS: 8/10 PASSED`). Teach the review phase (or agentic computationalist) to read the summary rather than relying on exit code. *Audit evidence: hard asserts killed scripts in 5/8 runs (QHO COMP-018, Chandrasekhar COMP-015, Path Integral COMP-014, Renormalization COMP-014, Perihelion COMP-001/006).*
+
+- **Available packages documentation and blocklist** — the computationalist prompt (or the `execute_python` tool description) should list available packages and known version caveats. Confirmed broken APIs: `scipy.misc.derivative` (removed in SciPy 2.0 — use `scipy.integrate` or manual finite differences), `numpy.trapz` (renamed to `numpy.trapezoid` in NumPy 2.0), `numpy.math` (removed in NumPy 2.0 — use `math` stdlib). List these as banned with their replacements. *Audit evidence: deprecated APIs crashed scripts in 3/8 runs (QHO, Ising, Path Integral), wasting 4+ iterations total.*
+
+- **`plt.show()` suppression in sandbox** — set `MPLBACKEND=Agg` in `sandbox.py`'s subprocess environment. This prevents any display attempt in the headless sandbox. Also add "never call `plt.show()`, use `plt.savefig()` then `plt.close()`" to the computationalist prompt as belt-and-suspenders. *Audit evidence: Ising COMP-011 timed out (60s) on `plt.show()` — the PNG was already saved, the script just couldn't exit.*
+
+- **Compression threshold gap** — currently the engine only alerts at 1x threshold and force-compresses at 2x. Add a 1.5x trigger in `_check_compression()` that dispatches a normal (non-forced) compressor run. *Audit evidence: Path Integral COMPUTATION_LOG hit 41,164 chars (103% of 40k threshold), alerts fired at iterations 16-18, but no compression occurred because 2x = 80k was never reached.*
+
+- **METRICS table completeness** — several runs had incomplete per-iteration tables (missing early rows). Investigate whether `to_markdown()` is overwriting rather than accumulating, or if there's a rolling-window bug. Fix so the full iteration history is always present. *Audit evidence: Berry Phase missing iterations 1-4, Renormalization missing iterations 1-9.*
+
+- **RESEARCH_STATE status bookkeeping on terminate** — when the orchestrator emits a `terminate` task, the engine (or orchestrator) should update the RESEARCH_STATE frontmatter `status` field to `completed`. Currently left as `in_progress`. *Audit evidence: Ising showed `status: in_progress` after a clean terminate.*

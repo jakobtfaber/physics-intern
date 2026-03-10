@@ -1,10 +1,12 @@
 """Tests for computationalist agent response parsing."""
 
 import re
+import tempfile
 from unittest.mock import MagicMock, patch, call
 
 from sciralph.agents.computationalist import ComputationalistAgent
 from sciralph.llm import LLMResponse
+from sciralph.sandbox import execute_python
 
 
 class TestResultRegex:
@@ -184,3 +186,44 @@ class TestReviewSeesExecutionFailure:
         review_call_args = mock_call_llm.call_args
         user_content = review_call_args[0][1]  # second positional arg
         assert "EXECUTION FAILED" in user_content
+
+
+class TestSoftCheckPattern:
+    """Test that the soft-check pattern exits 0 and genuine crashes exit nonzero."""
+
+    def test_soft_check_pattern_exits_zero(self):
+        """Script with the new soft-check pattern (some checks fail) exits 0."""
+        script = """\
+import numpy as np
+
+results = []
+test_points = [("a", 1.0, 1.0), ("b", 1.0, 2.0), ("c", 3.0, 3.0)]
+for name, lhs, rhs in test_points:
+    try:
+        ok = np.isclose(lhs, rhs, rtol=1e-10)
+        results.append(ok)
+        status = "PASS" if ok else "FAIL"
+        print(f"{status}: {name} -> lhs={lhs}, rhs={rhs}")
+    except Exception as e:
+        results.append(False)
+        print(f"ERROR: {name} -> {e}")
+n_passed = sum(results)
+n_total = len(results)
+print(f"\\nCHECKS: {n_passed}/{n_total} PASSED")
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(script)
+            f.flush()
+            result = execute_python(f.name)
+        assert result.returncode == 0
+        assert "CHECKS: 2/3 PASSED" in result.stdout
+        assert "FAIL:" in result.stdout
+
+    def test_genuine_crash_exits_nonzero(self):
+        """Script with an ImportError exits with nonzero returncode."""
+        script = "import nonexistent_module_xyz\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(script)
+            f.flush()
+            result = execute_python(f.name)
+        assert result.returncode != 0

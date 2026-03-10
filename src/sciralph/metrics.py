@@ -66,7 +66,7 @@ class MetricsTracker:
         lines.append("# Per-Iteration Metrics\n")
         lines.append("| Iter | Agent | Input Tokens | Output Tokens | Max Tokens Hit | Duration (s) |")
         lines.append("|------|-------|-------------|---------------|----------------|-------------|")
-        for c in reversed(self.calls[-20:]):
+        for c in reversed(self.calls):
             lines.append(
                 f"| {c.iteration} | {c.agent} | {c.input_tokens} | {c.output_tokens} "
                 f"| {'yes' if c.max_tokens_hit else 'no'} | {c.duration:.1f} |"

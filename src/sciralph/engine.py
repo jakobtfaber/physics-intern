@@ -7,6 +7,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from .config import Config
+from .markdown import parse_frontmatter, render_frontmatter
 from .metrics import MetricsTracker
 from .workspace import WorkspaceManager
 from .agents.orchestrator import OrchestratorAgent
@@ -56,6 +57,7 @@ class SciRalph:
             if task["task_type"] in ("synthesize", "terminate"):
                 if task["task_type"] == "terminate":
                     console.print("[green]Orchestrator signaled completion.[/green]")
+                    self._set_research_status("completed")
                     break
                 # synthesize: dispatch it, then terminate next iteration
                 self._stale_iterations = 0
@@ -71,6 +73,7 @@ class SciRalph:
                             "[yellow]Backstop: research appears complete but orchestrator "
                             "did not terminate. Forcing exit.[/yellow]"
                         )
+                        self._set_research_status("completed")
                         break
                 else:
                     self._stale_iterations = 0
@@ -164,7 +167,7 @@ Hypotheses and recent Established Results in RESEARCH_STATE.md.
         }
 
     def _check_compression(self):
-        """Check file sizes against thresholds, force compression if critical."""
+        """Check file sizes against thresholds, compress if needed."""
         for filename, threshold in self.config.compress_threshold.items():
             size = self.workspace.file_size(filename)
             if size > threshold:
@@ -175,6 +178,18 @@ Hypotheses and recent Established Results in RESEARCH_STATE.md.
                 if size > threshold * 2:
                     console.print(f"[yellow]Force-compressing {filename}[/yellow]")
                     self.compressor.run({"target_file": filename}, self.iteration)
+                elif size > threshold * 1.5:
+                    console.print(f"[yellow]Compressing {filename}[/yellow]")
+                    self.compressor.run({"target_file": filename}, self.iteration)
+
+    def _set_research_status(self, status: str):
+        """Update the status field in RESEARCH_STATE.md frontmatter."""
+        text = self.workspace.read_file("RESEARCH_STATE.md")
+        if not text:
+            return
+        meta, body = parse_frontmatter(text)
+        meta["status"] = status
+        self.workspace.write_file("RESEARCH_STATE.md", render_frontmatter(meta, body))
 
     def _should_terminate(self) -> bool:
         """Check termination conditions beyond max_iterations."""

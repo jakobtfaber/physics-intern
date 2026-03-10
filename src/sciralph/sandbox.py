@@ -1,5 +1,6 @@
 """Sandboxed Python script execution."""
 
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,7 @@ def execute_python(script_path: str | Path, timeout: int = 60, cwd: str | Path |
             text=True,
             timeout=timeout,
             cwd=str(cwd) if cwd else None,
+            env={**os.environ, "MPLBACKEND": "Agg"},
         )
         return ExecutionResult(
             stdout=result.stdout,

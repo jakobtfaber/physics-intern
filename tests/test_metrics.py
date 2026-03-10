@@ -45,3 +45,13 @@ def test_to_markdown():
     assert "orchestrator" in md
     assert "max_tokens hit" in md
     assert "RESEARCH_STATE.md" in md
+
+
+def test_to_markdown_shows_all_calls():
+    """Verify all calls appear in rendered markdown, not just the last 20."""
+    m = MetricsTracker()
+    for i in range(1, 31):
+        m.record_call(i, f"agent_{i}", 100, 50, 1.0, False)
+    md = m.to_markdown()
+    for i in range(1, 31):
+        assert f"agent_{i}" in md, f"agent_{i} missing from metrics markdown"
