@@ -1,4 +1,4 @@
-1problem: |
+problem: |
   Perform the one-loop renormalisation of scalar phi^4 theory in d=4
   dimensions. Compute all one-loop 1PI diagrams, extract the divergences,
   determine the counterterms, and derive the one-loop beta function.
