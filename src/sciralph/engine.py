@@ -11,7 +11,6 @@ from .markdown import (
     find_prior_failures_for_claim,
     _parse_comp_entries,
     detect_computation_stalls,
-    detect_zero_output_stalls,
     _normalize_claim_key,
     count_er_sections,
     count_wh_sections,
@@ -428,13 +427,9 @@ class SciRalph:
     def _update_stall_tracking(self):
         """Update stall tracking after compute dispatch."""
         comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
-        stalls = detect_computation_stalls(comp_log, threshold=2)  # lowered from 3
+        stalls = detect_computation_stalls(comp_log, threshold=self.config.stall_threshold)
         for stall in stalls:
             self._stalled_claims.add(stall["claim"])
-        # A single zero-output INCONCLUSIVE counts as stalled immediately
-        zero_stalls = detect_zero_output_stalls(comp_log)
-        for zs in zero_stalls:
-            self._stalled_claims.add(zs["claim"])
 
     def _make_recompute_task(self, claim: str) -> Task:
         """Create a forced compute task to re-verify a REFUTED claim after correction."""

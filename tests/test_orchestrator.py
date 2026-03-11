@@ -417,7 +417,7 @@ total_computations: 3
 
     COMP_LOG_BELOW_THRESHOLD = """\
 ---
-total_computations: 2
+total_computations: 1
 ---
 
 ## COMP-001: Check WH-002
@@ -425,16 +425,10 @@ total_computations: 2
 - **VERDICT**: INCONCLUSIVE
 - **RESULT**:
   Failed attempt 1.
-
-## COMP-002: Retry WH-002
-- **CLAIM**: Verify WH-002 partition function
-- **VERDICT**: INCONCLUSIVE
-- **RESULT**:
-  Failed attempt 2.
 """
 
     def test_stall_banner_in_context(self, workspace):
-        """COMPUTATION_LOG with 3 failures -> banner in context."""
+        """COMPUTATION_LOG with 3 failures (>= stall_threshold=2) -> banner in context."""
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
@@ -449,7 +443,7 @@ total_computations: 2
         assert "3 consecutive failures" in context
 
     def test_no_stall_banner_below_threshold(self, workspace):
-        """2 failures -> no banner."""
+        """1 failure (< stall_threshold=2) -> no banner."""
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)

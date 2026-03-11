@@ -14,6 +14,8 @@ from .base import BaseAgent
 if TYPE_CHECKING:
     from ..task import Task
 
+_ER_WH_ID_RE = re.compile(r"(?:ER|WH)-\d+")
+
 
 class ComputationalistAgent(BaseAgent):
     name = "computationalist"
@@ -37,7 +39,14 @@ class ComputationalistAgent(BaseAgent):
         """
         text = response.text.strip()
         if not text:
-            text = "**VERDICT:** INCONCLUSIVE\n**NOTES:** Agent produced no text output."
+            # Extract claim IDs from task body so stall detection can match
+            claim_ids = _ER_WH_ID_RE.findall(task.body or "")
+            claim_line = ", ".join(dict.fromkeys(claim_ids)) if claim_ids else "unknown"
+            text = (
+                f"**CLAIM:** {claim_line}\n"
+                "**VERDICT:** INCONCLUSIVE\n"
+                "**NOTES:** Agent produced no text output."
+            )
 
         # Ensure ## header
         if not text.startswith("##"):

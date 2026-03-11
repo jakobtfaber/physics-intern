@@ -98,7 +98,7 @@ class OrchestratorAgent(BaseAgent):
             )
         # Computation stall detection
         comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
-        stalls = detect_computation_stalls(comp_log, threshold=3)
+        stalls = detect_computation_stalls(comp_log, threshold=self.config.stall_threshold)
         for stall in stalls:
             parts.append(
                 f">>> COMPUTATION STALL: {stall['count']} consecutive failures "

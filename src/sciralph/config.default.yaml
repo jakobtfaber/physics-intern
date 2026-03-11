@@ -18,4 +18,5 @@ zero_text_bailout: 3
 checkpoint_round: 2
 computation_token_alert: 150000
 tool_output_limit: 10000
+stall_threshold: 2
 min_er_for_completion: 3

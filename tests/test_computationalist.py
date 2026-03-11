@@ -140,3 +140,27 @@ class TestAgenticResponse:
 
         appended_text = agent.workspace.append_file.call_args[0][1]
         assert "INCONCLUSIVE" in appended_text
+        assert "**CLAIM:** unknown" in appended_text
+
+    def test_process_empty_text_extracts_claim_from_task_body(self):
+        agent = _make_agent()
+        agent.workspace.read_file.return_value = ""
+
+        result = AgentResult(
+            text="",
+            tool_calls=[],
+            total_input_tokens=100,
+            total_output_tokens=10,
+            rounds=1,
+        )
+
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist",
+            body="Verify WH-005 Maslov phase for ωT > π",
+        )
+        agent.process_response(result, task, iteration=5)
+
+        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert "**CLAIM:** WH-005" in appended_text
+        assert "INCONCLUSIVE" in appended_text

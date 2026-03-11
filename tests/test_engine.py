@@ -1029,10 +1029,39 @@ Agent produced no text output. Writing INCONCLUSIVE stub.
             engine._last_content_iteration = 5
         return engine, ws, written
 
-    def test_zero_output_stall_immediately_blocks(self):
-        """A single zero-output INCONCLUSIVE should add to _stalled_claims."""
+    def test_single_zero_output_does_not_block(self):
+        """A single zero-output INCONCLUSIVE should NOT add to _stalled_claims.
+
+        One failure deserves a retry; only threshold (2) consecutive failures block.
+        """
         engine, ws, _ = self._make_engine()
         ws.read_file = MagicMock(return_value=self.COMP_LOG_ZERO_OUTPUT)
+        engine._update_stall_tracking()
+        assert not any("WH-001" in c for c in engine._stalled_claims)
+
+    def test_two_zero_output_stalls_block(self):
+        """Two consecutive zero-output INCONCLUSIVEs on the same claim DO block."""
+        comp_log_two_failures = """\
+---
+total_computations: 2
+---
+
+# Computations
+
+## COMP-001: Check WH-001
+**CLAIM**: Verify WH-001 formula
+**VERDICT**: INCONCLUSIVE
+
+Agent produced no text output. Writing INCONCLUSIVE stub.
+
+## COMP-002: Check WH-001
+**CLAIM**: Verify WH-001 formula
+**VERDICT**: INCONCLUSIVE
+
+Agent produced no text output. Writing INCONCLUSIVE stub.
+"""
+        engine, ws, _ = self._make_engine()
+        ws.read_file = MagicMock(return_value=comp_log_two_failures)
         engine._update_stall_tracking()
         assert any("WH-001" in c for c in engine._stalled_claims)
 

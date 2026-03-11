@@ -44,6 +44,7 @@ class Config:
     checkpoint_round: int = DEFAULTS["checkpoint_round"]
     computation_token_alert: int = DEFAULTS["computation_token_alert"]
     tool_output_limit: int = DEFAULTS["tool_output_limit"]
+    stall_threshold: int = DEFAULTS["stall_threshold"]
     min_er_for_completion: int = DEFAULTS["min_er_for_completion"]
     workspace_dir: str = "workspaces"
     audit_log: str = ""
@@ -60,7 +61,8 @@ _YAML_CONFIG_FIELDS = frozenset({
     "model", "verify_model", "max_tokens", "max_iterations", "critic_every_n",
     "compress_threshold", "max_retries_on_max_tokens", "sympy_timeout_seconds",
     "max_tool_rounds", "zero_text_bailout", "checkpoint_round",
-    "computation_token_alert", "tool_output_limit", "min_er_for_completion",
+    "computation_token_alert", "tool_output_limit", "stall_threshold",
+    "min_er_for_completion",
 })
 
 
