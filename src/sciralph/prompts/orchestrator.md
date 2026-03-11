@@ -48,6 +48,12 @@ VERDICT INTERPRETATION:
 - INCONCLUSIVE — tooling could not verify. NOT evidence against the claim.
   After 2+ INCONCLUSIVE for the same claim, do not retry. Move on.
 
+FORMATTING:
+- Established Results MUST use H2 Markdown headers: `## ER-NNN — Title`
+- Working Hypotheses MUST use H2 Markdown headers: `## WH-NNN — Title`
+- Do NOT use bold text (**ER-NNN**) for section headers. The system relies
+  on H2 headers to detect and count results.
+
 CONVENTIONS:
 - Maintain the "# Conventions" section in RESEARCH_STATE.md: unit system,
   metric signature, sign conventions, variable definitions.

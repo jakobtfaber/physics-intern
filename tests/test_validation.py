@@ -720,3 +720,80 @@ Big problem.
         metrics = MockMetrics(last_critic_iteration=0)
         allowed, blockers = can_terminate(ws, self._base_config(), metrics, None)
         assert allowed is True
+
+    def test_bold_format_er_detected_for_critic_gate(self):
+        """ERs in bold format (**ER-NNN**) should trigger the critic-pass gate."""
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": "**ER-001 — Partition Function**\nBody.\n",
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        assert allowed is False
+        assert any("critic pass" in b.lower() for b in blockers)
+
+
+class TestErPromotionGateBoldFormat:
+    """Test that check_er_promotion_gate handles bold ER entries."""
+
+    def test_bold_er_detected_and_demoted(self):
+        state = "**ER-001 — Partition Function Z**\nBody.\n"
+        meta = {"total_computations": 1, "last_computation": "2026-03-10"}
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify ER-001\n**VERDICT**: REFUTED\n**RESULT**:\nFailed.\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
+        })
+        violations = check_er_promotion_gate(ws)
+        assert len(violations) == 1
+        assert "demoted" in violations[0].message
+        updated = ws.read_file("RESEARCH_STATE.md")
+        assert "**WH-001" in updated
+        assert "**ER-001" not in updated
+
+    def test_bold_er_with_verified_passes(self):
+        state = "**ER-001 — Partition Function Z**\nBody.\n"
+        meta = {"total_computations": 1, "last_computation": "2026-03-10"}
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify ER-001\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
+        })
+        violations = check_er_promotion_gate(ws)
+        assert len(violations) == 0
+
+
+# ---------------------------------------------------------------------------
+# Regression: colon-inside-bold verdict + WH IDs only in entry body
+# ---------------------------------------------------------------------------
+
+class TestErPromotionGateColonInsideBold:
+    """Reproduce the QHO termination bug: **VERDICT:** format + WH IDs on bullet lines."""
+
+    def test_verdict_colon_inside_bold_with_body_ids(self):
+        """ER promotion should pass when VERDICT uses colon-inside-bold
+        and WH IDs appear in the body (not the claim line)."""
+        state = "## ER-001 Partition Function\nZ = exp(-x/2)/(1-exp(-x))\n"
+        meta = {"total_computations": 1}
+        comp_body = """# Computations
+
+## COMP-001: Verification
+
+**CLAIM:** Four working hypotheses for QHO thermodynamics:
+- WH-001: Z = exp(-x/2)/(1-exp(-x))
+- WH-002: mean energy
+
+**RESULT:**
+All checks passed.
+
+**VERDICT:** VERIFIED for all four working hypotheses (WH-001, WH-002).
+"""
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
+        })
+        violations = check_er_promotion_gate(ws)
+        assert len(violations) == 0, (
+            "ER-001 should NOT be demoted — WH-001 is VERIFIED in the entry body"
+        )

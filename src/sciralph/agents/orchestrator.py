@@ -13,6 +13,9 @@ from ..markdown import (
     extract_resolved_critique_ids,
     recount_critique_metadata,
     detect_computation_stalls,
+    count_er_sections,
+    count_wh_sections,
+    normalize_er_wh_headers,
     CRIT_ID_RE,
 )
 from ..task import Task, TaskType
@@ -40,8 +43,8 @@ class OrchestratorAgent(BaseAgent):
         critique = self.workspace.read_file("CRITIQUE_LOG.md")
         crit_meta, _ = parse_frontmatter(critique)
 
-        er_count = len(re.findall(r'^## ER-\d+', state, re.MULTILINE))
-        wh_count = len(re.findall(r'^## WH-\d+', state, re.MULTILINE))
+        er_count = count_er_sections(state)
+        wh_count = count_wh_sections(state)
         high = crit_meta.get("unresolved_high", 0) or 0
         medium = crit_meta.get("unresolved_medium", 0) or 0
 
@@ -123,6 +126,7 @@ class OrchestratorAgent(BaseAgent):
         research_state, task_text = _split_response(response.text)
         if research_state is not None:
             research_state = self._enforce_problem_statement(research_state)
+            research_state = normalize_er_wh_headers(research_state)
             self.workspace.write_file("RESEARCH_STATE.md", research_state)
             self.workspace.delete_file("PROPOSED_CHANGES.md")
             # Resolve critiques mentioned in the orchestrator's output

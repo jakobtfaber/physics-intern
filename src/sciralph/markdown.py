@@ -17,7 +17,14 @@ CRIT_UNRESOLVED_RE = re.compile(
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
     """Split text into (frontmatter_dict, body). Returns ({}, text) on failure."""
-    match = FRONTMATTER_RE.match(text)
+    # Strip code fences wrapping frontmatter (LLMs sometimes emit ```yaml\n---\n...\n---\n```)
+    stripped = re.sub(r'^```\w*\s*\n', '', text)
+    stripped = re.sub(r'\n```\s*(?:\n|$)', '\n', stripped, count=1)
+    match = FRONTMATTER_RE.match(stripped)
+    if match:
+        text = stripped
+    else:
+        match = FRONTMATTER_RE.match(text)
     if not match:
         return {}, text
     yaml_str = match.group(1)
@@ -289,6 +296,36 @@ def recount_critique_metadata(content: str) -> dict:
 _COMP_HEADER_RE = re.compile(r"^## (?:COMP|TASK)-\d+", re.MULTILINE)
 _ER_WH_ID_RE = re.compile(r"(?:ER|WH)-\d+")
 
+# ER/WH section detection — matches both ## headers and **bold** line-start formats.
+# LLMs sometimes write **ER-001 — Title** instead of ## ER-001 — Title.
+_ER_SECTION_RE = re.compile(r'^(?:#{2,3} |\*\*)(ER-\d+)', re.MULTILINE)
+_WH_SECTION_RE = re.compile(r'^(?:#{2,3} |\*\*)(WH-\d+)', re.MULTILINE)
+
+
+def count_er_sections(text: str) -> int:
+    """Count ER-NNN section entries (H2/H3 headers or bold-line-start)."""
+    return len(_ER_SECTION_RE.findall(text))
+
+
+def count_wh_sections(text: str) -> int:
+    """Count WH-NNN section entries (H2/H3 headers or bold-line-start)."""
+    return len(_WH_SECTION_RE.findall(text))
+
+
+def find_er_section_ids(text: str) -> list[str]:
+    """Extract ER-NNN IDs from section entries (H2/H3 headers or bold-line-start)."""
+    return _ER_SECTION_RE.findall(text)
+
+
+def normalize_er_wh_headers(text: str) -> str:
+    r"""Convert \*\*ER-NNN ...\*\* and \*\*WH-NNN ...\*\* bold lines to ## headers."""
+    return re.sub(
+        r'^\*\*((?:ER|WH)-\d+[^*]*?)\*\*\s*$',
+        r'## \1',
+        text,
+        flags=re.MULTILINE,
+    )
+
 
 def _parse_comp_entries(text: str) -> list[dict]:
     """Parse COMPUTATION_LOG.md into structured entries.
@@ -305,12 +342,12 @@ def _parse_comp_entries(text: str) -> list[dict]:
         entry_id_match = re.search(r"(?:COMP|TASK)-\d+", header)
         entry_id = entry_id_match.group() if entry_id_match else "UNKNOWN"
 
-        # Extract CLAIM line
-        claim_match = re.search(r"\*\*(?:CLAIM|Task|Claim)\*?\*?:?\s*(.+)", body, re.IGNORECASE)
+        # Extract CLAIM line — handle colon inside or outside bold markers
+        claim_match = re.search(r"\*\*(?:CLAIM|Task|Claim):?\*{0,2}:?\s*(.+)", body, re.IGNORECASE)
         claim = claim_match.group(1).strip() if claim_match else ""
 
-        # Extract VERDICT line
-        verdict_match = re.search(r"\*\*VERDICT\*?\*?:?\s*(\w+)", body, re.IGNORECASE)
+        # Extract VERDICT line — handle **VERDICT:** or **VERDICT**: or **VERDICT**
+        verdict_match = re.search(r"\*\*VERDICT:?\*{0,2}:?\s*(\w+)", body, re.IGNORECASE)
         verdict = verdict_match.group(1).strip().upper() if verdict_match else ""
 
         # Extract RESULT block: text between **RESULT**: and next ** header or ## header
@@ -325,6 +362,7 @@ def _parse_comp_entries(text: str) -> list[dict]:
             "claim": claim,
             "verdict": verdict,
             "result": result,
+            "body": body,
         })
     return entries
 

@@ -1,7 +1,5 @@
 """SciRalph main loop engine."""
 
-import re
-
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -14,6 +12,8 @@ from .markdown import (
     _parse_comp_entries,
     detect_computation_stalls,
     _normalize_claim_key,
+    count_er_sections,
+    count_wh_sections,
 )
 from .metrics import MetricsTracker
 from .task import Task, TaskType
@@ -228,8 +228,8 @@ class SciRalph:
             self._stale_iterations = 0
             return False
         state = self.workspace.read_file("RESEARCH_STATE.md")
-        er_count = len(re.findall(r'^## ER-\d+', state, re.MULTILINE))
-        wh_count = len(re.findall(r'^## WH-\d+', state, re.MULTILINE))
+        er_count = count_er_sections(state)
+        wh_count = count_wh_sections(state)
         if er_count >= self.config.min_er_for_completion and wh_count == 0:
             self._stale_iterations += 1
             if self._stale_iterations >= 2:

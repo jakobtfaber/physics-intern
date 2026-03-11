@@ -16,6 +16,10 @@ from sciralph.markdown import (
     _parse_comp_entries,
     detect_computation_stalls,
     find_prior_failures_for_claim,
+    count_er_sections,
+    count_wh_sections,
+    find_er_section_ids,
+    normalize_er_wh_headers,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -540,3 +544,171 @@ class TestFindPriorFailures:
         )
         # COMP-001 is VERIFIED, should not appear
         assert results == []
+
+
+class TestErWhSectionCounting:
+    """Tests for robust ER/WH section detection across format variants."""
+
+    def test_count_er_h2_headers(self):
+        text = "## ER-001 Title\nBody\n\n## ER-002 Title\nBody\n"
+        assert count_er_sections(text) == 2
+
+    def test_count_er_bold_format(self):
+        text = "**ER-001 — Partition Function Z**\nBody\n\n**ER-002 — Mean Energy**\nBody\n"
+        assert count_er_sections(text) == 2
+
+    def test_count_er_mixed_formats(self):
+        text = "## ER-001 Title\nBody\n\n**ER-002 — Bold Title**\nBody\n"
+        assert count_er_sections(text) == 2
+
+    def test_count_wh_h2_headers(self):
+        text = "## WH-001 Hypothesis\nBody\n\n## WH-002 Another\nBody\n"
+        assert count_wh_sections(text) == 2
+
+    def test_count_wh_bold_format(self):
+        text = "**WH-001 — Some hypothesis**\nBody\n"
+        assert count_wh_sections(text) == 1
+
+    def test_count_ignores_inline_references(self):
+        """ER-NNN in body text (not at line start as header/bold) should not be counted."""
+        text = "## ER-001 Title\nThis depends on ER-002.\n"
+        assert count_er_sections(text) == 1
+
+    def test_find_er_ids_mixed(self):
+        text = "## ER-001 Title\nBody\n\n**ER-003 — Bold**\nBody\n"
+        ids = find_er_section_ids(text)
+        assert ids == ["ER-001", "ER-003"]
+
+    def test_count_empty_text(self):
+        assert count_er_sections("") == 0
+        assert count_wh_sections("") == 0
+
+    def test_h3_headers_also_counted(self):
+        """H3 headers (### ER-NNN) should also be detected."""
+        text = "### ER-001 Schwarzschild metric\nContent\n"
+        assert count_er_sections(text) == 1
+
+
+class TestNormalizeErWhHeaders:
+    """Tests for the bold-to-H2 normalizer."""
+
+    def test_converts_bold_er_to_h2(self):
+        text = "**ER-001 — Partition Function Z**\nBody text.\n"
+        result = normalize_er_wh_headers(text)
+        assert result == "## ER-001 — Partition Function Z\nBody text.\n"
+
+    def test_converts_bold_wh_to_h2(self):
+        text = "**WH-003 — Some hypothesis**\nBody.\n"
+        result = normalize_er_wh_headers(text)
+        assert result == "## WH-003 — Some hypothesis\nBody.\n"
+
+    def test_leaves_h2_headers_unchanged(self):
+        text = "## ER-001 Title\nBody.\n"
+        assert normalize_er_wh_headers(text) == text
+
+    def test_converts_multiple_entries(self):
+        text = (
+            "**ER-001 — First**\nBody 1.\n\n"
+            "**ER-002 — Second**\nBody 2.\n\n"
+            "**WH-001 — Hypothesis**\nBody 3.\n"
+        )
+        result = normalize_er_wh_headers(text)
+        assert "## ER-001 — First" in result
+        assert "## ER-002 — Second" in result
+        assert "## WH-001 — Hypothesis" in result
+        assert "**ER-" not in result
+        assert "**WH-" not in result
+
+    def test_preserves_non_er_wh_bold(self):
+        """Bold text that isn't ER/WH should be untouched."""
+        text = "**Important note**\nSome text.\n\n**ER-001 — Title**\nBody.\n"
+        result = normalize_er_wh_headers(text)
+        assert "**Important note**" in result
+        assert "## ER-001 — Title" in result
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for code-fenced frontmatter and colon-inside-bold format
+# ---------------------------------------------------------------------------
+
+
+class TestFrontmatterCodeFenced:
+    """parse_frontmatter must handle LLM-emitted code fences around YAML."""
+
+    def test_code_fenced_yaml(self):
+        text = "```yaml\n---\ntask_type: terminate\nassigned_to: orchestrator\n---\n```\n\nBody."
+        meta, body = parse_frontmatter(text)
+        assert meta["task_type"] == "terminate"
+        assert meta["assigned_to"] == "orchestrator"
+        assert "Body." in body
+
+    def test_code_fenced_no_lang(self):
+        text = "```\n---\nstatus: completed\n---\n```\n\nDone."
+        meta, body = parse_frontmatter(text)
+        assert meta["status"] == "completed"
+
+    def test_bare_frontmatter_still_works(self):
+        text = "---\ntitle: hello\n---\n\nBody."
+        meta, body = parse_frontmatter(text)
+        assert meta["title"] == "hello"
+
+
+class TestVerdictColonInsideBold:
+    """_parse_comp_entries must parse **VERDICT:** (colon inside bold markers)."""
+
+    def test_verdict_colon_inside_bold(self):
+        log = """\
+## COMP-001: Verify QHO
+
+**CLAIM:** Partition function matches.
+- WH-001: Z = exp(-x/2)/(1-exp(-x))
+
+**RESULT:**
+All checks pass.
+
+**VERDICT:** VERIFIED for WH-001.
+"""
+        entries = _parse_comp_entries(log)
+        assert len(entries) == 1
+        assert entries[0]["verdict"] == "VERIFIED"
+
+    def test_verdict_colon_outside_bold(self):
+        """Original format still works."""
+        log = """\
+## COMP-001: Check
+- **CLAIM**: Verify WH-001
+- **VERDICT**: VERIFIED
+- **RESULT**:
+  Done.
+"""
+        entries = _parse_comp_entries(log)
+        assert entries[0]["verdict"] == "VERIFIED"
+
+    def test_claim_colon_inside_bold(self):
+        log = """\
+## COMP-001: Check
+
+**CLAIM:** Four working hypotheses for QHO thermodynamics:
+- WH-001: Z = exp(-x/2)/(1-exp(-x))
+
+**VERDICT:** VERIFIED
+"""
+        entries = _parse_comp_entries(log)
+        assert "Four working hypotheses" in entries[0]["claim"]
+        # claim should not start with residual **
+        assert not entries[0]["claim"].startswith("**")
+
+    def test_body_field_contains_full_text(self):
+        """Entries include a body field for searching WH/ER IDs beyond the claim line."""
+        log = """\
+## COMP-001: Verification
+
+**CLAIM:** Four working hypotheses for QHO:
+- WH-001: partition function
+- WH-002: mean energy
+
+**VERDICT:** VERIFIED
+"""
+        entries = _parse_comp_entries(log)
+        assert "WH-001" in entries[0]["body"]
+        assert "WH-002" in entries[0]["body"]

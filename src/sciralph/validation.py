@@ -12,6 +12,8 @@ from .markdown import (
     render_frontmatter,
     _parse_comp_entries,
     count_unresolved_critiques,
+    count_er_sections,
+    find_er_section_ids,
     _ER_WH_ID_RE,
 )
 
@@ -59,20 +61,31 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
     comp_log = workspace.read_file("COMPUTATION_LOG.md")
     entries = _parse_comp_entries(comp_log)
 
-    # Find all ER-NNN section headers
-    er_ids = re.findall(r'^## (ER-\d+)', state, re.MULTILINE)
+    # Find all ER-NNN section entries (H2 headers or **bold** line-start)
+    er_ids = find_er_section_ids(state)
 
     for er_id in er_ids:
         num = er_id.split("-")[1]
         wh_id = f"WH-{num}"
         # Check if any VERIFIED entry mentions ER-NNN or WH-NNN
+        # Search both the claim line and the full body (IDs often appear
+        # on bullet lines below the claim, not on the claim line itself)
         has_verified = any(
-            e["verdict"] == "VERIFIED" and (er_id in e["claim"] or wh_id in e["claim"])
+            e["verdict"] == "VERIFIED" and (
+                er_id in e["claim"] or wh_id in e["claim"]
+                or er_id in e.get("body", "") or wh_id in e.get("body", "")
+            )
             for e in entries
         )
         if not has_verified:
-            # Demote ER back to WH
-            state = state.replace(f"## {er_id}", f"## {wh_id}", 1)
+            # Demote ER back to WH — handle both ## header and **bold** formats
+            state = re.sub(
+                rf'^(#{{2,3}} |(?:\*\*)){re.escape(er_id)}',
+                rf'\g<1>{wh_id}',
+                state,
+                count=1,
+                flags=re.MULTILINE,
+            )
             violations.append(Violation(
                 check="er_promotion_gate",
                 severity=ViolationSeverity.ERROR,
@@ -254,7 +267,7 @@ def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsT
     state = workspace.read_file("RESEARCH_STATE.md")
     comp_log = workspace.read_file("COMPUTATION_LOG.md")
 
-    er_count = len(re.findall(r'^## ER-\d+', state, re.MULTILINE))
+    er_count = count_er_sections(state)
 
     # Gate 1: At least one critic pass if ERs exist
     if er_count > 0 and metrics.last_critic_iteration == 0:
