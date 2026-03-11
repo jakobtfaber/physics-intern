@@ -8,7 +8,7 @@ SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temp
 
 **How it works.** Five specialised LLM agents (orchestrator, researcher, computationalist, critic, compressor) take turns in a loop. No agent carries conversation history: each call starts from a fresh context and reads/writes shared Markdown files in a workspace directory. The orchestrator plans the next step, a worker agent executes it, and the cycle repeats. A layered verification stack — SymPy/NumPy computations, adversarial critique with severity tracking, and dependency-aware result promotion — acts as backpressure against errors. The workspace is version-controlled with git, so every step is recoverable.
 
-**Current status.** Core functionality is complete (172 tests passing). The system produces correct science (VALID/HIGH) on all 8 tested problems, but process effectiveness is only 2/8 EFFECTIVE due to recurring failure modes (premature termination, wasted computation cycles, phantom references). See [PLAN.md](PLAN.md) for the Phase 2 roadmap: a three-layer architecture (iteration contract, validation pipeline, agent loop resilience) to address these failure modes systematically.
+**Current status.** Core functionality is complete with Phase 2 engine hardening done (258 tests passing). The system produces correct science (VALID/HIGH) on all tested problems. Phase 2 addressed recurring process failures (premature termination, wasted computation cycles, phantom references) via three layers: iteration contract rewrite with termination gates, post-integration validation pipeline, and agent loop resilience (forced partial output, stall detection).
 
 ## Quick Start
 
@@ -103,7 +103,7 @@ Results go through layered verification before being promoted to "Established":
 2. **Adversarial critique** — Deep Critic reviews with no unresolved HIGH critiques
 3. **Dependency tracking** — All prerequisite results must themselves be Established
 
-The orchestrator enforces these promotion criteria and forces periodic critic passes every N iterations.
+The orchestrator enforces these promotion criteria and forces periodic critic passes every N iterations. A post-integration validation pipeline (`validation.py`) checks invariants after every orchestrator pass — demoting unverified ERs, stripping phantom labels, fixing agent routing. Termination goes through gates requiring critic review, no unresolved HIGH critiques, and numerical verification when required by the problem.
 
 ### Workspace Files
 
@@ -126,7 +126,8 @@ All research state is persisted under `workspaces/<run>/` (each run gets a times
 ```
 src/sciralph/
   main.py              — Entry point, CLI argument parsing
-  engine.py            — Main loop: orchestrate → dispatch → compress → metrics → git
+  engine.py            — Main loop: orchestrate → validate → override → dispatch → compress → git
+  validation.py        — Post-integration checks (ER gate, phantom labels, routing) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
   config.py            — Config dataclass (model, thresholds, timeouts, audit log)
   llm.py               — Anthropic API wrapper (call_llm, run_agent_loop) with audit logging
@@ -143,7 +144,7 @@ src/sciralph/
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
-tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, computationalist, verify, workspace, task)
+tests/                 — pytest tests (engine, validation, markdown, tools, orchestrator, computationalist, verify, workspace, ...)
 problems/              — YAML problem definitions
 run_and_verify.sh      — Run a problem then verify results in one command
 ```
@@ -156,6 +157,8 @@ Problems are defined in YAML files under `problems/`:
 problem: |
   Derive the Hawking temperature of a Schwarzschild black hole
   from the Euclidean path integral approach...
+
+requires_numerical: true  # enforced by termination gate
 ```
 
 Available problems:
@@ -186,5 +189,5 @@ uv run python -m pytest --cov=sciralph -v
 ## Design Documents
 
 - **`DESIGN.md`** — Full system design: architecture, file formats, agent prompts, pseudocode
-- **`PLAN.md`** — Phase 2 roadmap: three-layer architecture for engine hardening (iteration contract, validation pipeline, agent loop resilience)
+- **`PLAN.md`** — Implementation history (Phase 1 cleanup, Phase 2 engine hardening — both done) and future work
 - **`CODEBASE.md`** — Developer-oriented codebase reference (architecture, data flow, known issues, planned changes)

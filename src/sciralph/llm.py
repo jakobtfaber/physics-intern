@@ -164,17 +164,47 @@ def run_agent_loop(
 
             messages.append({"role": "user", "content": tool_results})
 
-    # Exhausted max_rounds
-    final_text = _extract_text(response.content) if response else ""
+    # Exhausted max_rounds — force one final text-only call for partial output
+    forced_system = (
+        system + "\n\n"
+        "IMPORTANT: You have reached the maximum number of tool-use rounds. "
+        "You cannot call any more tools. You MUST now write your final "
+        "COMP-NNN entry with whatever results you have so far.\n\n"
+        "Format: ## COMP-NNN header, **CLAIM**, **METHOD**, **RESULT**, "
+        "**VERDICT** (use INCONCLUSIVE if incomplete), **NOTES**.\n"
+        "Summarize what you computed successfully and what remains."
+    )
+
+    start = time.time()
+    final_response = client.messages.create(
+        model=config.model,
+        max_tokens=config.max_tokens,
+        system=forced_system,
+        messages=messages,
+        # NO tools parameter — forces text-only response
+    )
+    dur = time.time() - start
+
+    total_input += final_response.usage.input_tokens
+    total_output += final_response.usage.output_tokens
+    final_text = _extract_text(final_response.content)
+
+    if config.audit_log:
+        _write_audit_entry(config, LLMResponse(
+            final_text, final_response.usage.input_tokens,
+            final_response.usage.output_tokens, "forced_partial", dur
+        ), forced_system, user_content, agent_name, iteration,
+        round=max_rounds + 1)
+
     return AgentResult(
         text=final_text,
         tool_calls=all_tool_calls,
         total_input_tokens=total_input,
         total_output_tokens=total_output,
-        rounds=max_rounds,
+        rounds=max_rounds + 1,
         truncated=True,
         duration=time.time() - overall_start,
-        stop_reason="max_rounds",
+        stop_reason="max_rounds_forced",
     )
 
 

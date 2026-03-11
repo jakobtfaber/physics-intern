@@ -12,9 +12,12 @@ from .markdown import (
     render_frontmatter,
     find_prior_failures_for_claim,
     _parse_comp_entries,
+    detect_computation_stalls,
+    _normalize_claim_key,
 )
 from .metrics import MetricsTracker
 from .task import Task, TaskType
+from .validation import validate_post_integration, can_terminate, Violation, ViolationSeverity
 from .workspace import WorkspaceManager
 from .agents.orchestrator import OrchestratorAgent
 from .agents.researcher import ResearcherAgent
@@ -28,7 +31,8 @@ console = Console()
 class SciRalph:
     """Main loop for the SciRalph research system."""
 
-    def __init__(self, problem: str, config: Config | None = None):
+    def __init__(self, problem: str, config: Config | None = None,
+                 problem_meta: dict | None = None):
         self.config = config or Config()
         self.metrics = MetricsTracker()
         self.workspace = WorkspaceManager(self.config)
@@ -38,6 +42,10 @@ class SciRalph:
         self.iteration = 0
         self._stale_iterations = 0
         self._pending_recompute_claim: str | None = None
+        self._stalled_claims: set[str] = set()
+        self.problem_meta = problem_meta or {}
+        self._pending_violations: list = []
+        self._pending_termination_blockers: list[str] = []
 
         # Initialize agents
         self.orchestrator = OrchestratorAgent(self.config, self.workspace, self.metrics)
@@ -54,99 +62,182 @@ class SciRalph:
             self.iteration += 1
             console.rule(f"[bold]ITERATION {self.iteration}[/bold]")
 
-            # Step 1: Orchestrator decides next task
-            console.print("[cyan]Orchestrator[/cyan] planning...")
-            orch_task = Task(
-                task_id="", task_type=TaskType.RESEARCH,
-                assigned_to="orchestrator", iteration=self.iteration,
-            )
-            orch_response = self.orchestrator.run(orch_task, self.iteration)
-            task = self.orchestrator.parse_task(orch_response.text, iteration=self.iteration)
+            # 1. Orchestrator pass -> CURRENT_TASK.md
+            task = self._run_orchestrator()
 
-            # Validate COMP/TASK references in RESEARCH_STATE
-            phantoms = self.workspace.validate_comp_references()
-            if phantoms:
-                self.metrics.alert(
-                    self.iteration,
-                    f"Phantom references stripped: {', '.join(phantoms)}"
-                )
+            # 2. Post-integration validation (Layer B hook -- stub returns [])
+            violations = validate_post_integration(self.workspace, self.config)
+            if violations:
+                self._pending_violations.extend(violations)
 
-            # Auto-recompute after REFUTED verdict
-            if self._pending_recompute_claim:
-                claim = self._pending_recompute_claim
-                self._pending_recompute_claim = None
-                if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-                    console.print("[yellow]Forcing recompute after REFUTED verdict.[/yellow]")
-                    task = self._make_recompute_task(claim)
+            # 3. Pre-dispatch overrides (explicit priority chain)
+            task = self._apply_overrides(task)
 
-            # Budget enforcement: hard override when budget exhausted
-            budget_remaining = self.config.max_iterations - self.iteration
-            if budget_remaining <= 1 and task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-                console.print(
-                    f"[yellow]Budget enforcement: {budget_remaining} iteration(s) left, "
-                    f"overriding '{task.task_type}' -> 'synthesize'.[/yellow]"
-                )
-                self.metrics.alert(self.iteration, f"Budget override: {task.task_type} -> synthesize")
-                task = self._make_budget_synthesize_task()
-
-            # Enrich compute tasks with prior failure context
-            if task.task_type == TaskType.COMPUTE:
-                self._enrich_compute_task_with_prior_failures(task)
-
-            self._print_task(task)
-
-            # Check for termination signal
-            if task.task_type in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-                if task.task_type == TaskType.TERMINATE:
+            # 4. Termination gate
+            if task.task_type == TaskType.TERMINATE:
+                allowed, blockers = can_terminate(
+                    self.workspace, self.config, self.metrics, self.problem_meta)
+                if allowed:
                     console.print("[green]Orchestrator signaled completion.[/green]")
                     self._set_research_status("completed")
                     break
-                # synthesize: dispatch it, then terminate next iteration
-                self._stale_iterations = 0
-            else:
-                # Backstop: detect stale loops when research looks complete
-                state = self.workspace.read_file("RESEARCH_STATE.md")
-                er_count = len(re.findall(r'^## ER-\d+', state, re.MULTILINE))
-                wh_count = len(re.findall(r'^## WH-\d+', state, re.MULTILINE))
-                if er_count >= self.config.min_er_for_completion and wh_count == 0:
-                    self._stale_iterations += 1
-                    if self._stale_iterations >= 2:
-                        console.print(
-                            "[yellow]Backstop: research appears complete but orchestrator "
-                            "did not terminate. Forcing exit.[/yellow]"
-                        )
-                        self._set_research_status("completed")
-                        break
-                else:
-                    self._stale_iterations = 0
+                self._pending_termination_blockers = blockers
+                continue  # re-enter loop
 
-            # Step 2: Force critic if overdue
-            if self._critic_overdue() and task.task_type != TaskType.CRITIQUE:
-                console.print(
-                    f"[yellow]Forcing critic pass (overdue: last critic at "
-                    f"iter {self.metrics.last_critic_iteration}, "
-                    f"threshold {self.config.critic_every_n}).[/yellow]"
-                )
-                task = self._make_forced_critic_task()
-
-            # Step 3: Dispatch to appropriate agent
+            # 5. Dispatch to agent
             agent_name = self._dispatch(task)
 
-            # Step 4: File size check & compression
-            self._check_compression()
+            # 6. Post-dispatch checks
+            if task.task_type == TaskType.COMPUTE:
+                self._check_for_refuted_verdict(task)
+                self._update_stall_tracking()
 
-            # Step 5: Metrics & git commit
+            # 7. Compression, metrics, git
+            self._check_compression()
             self._update_metrics()
             self.workspace.git_commit(
                 f"Iteration {self.iteration}: {agent_name} - {task.task_id}"
             )
 
-            # Step 6: Check termination conditions
-            if self._should_terminate():
+            # 8. Post-dispatch status check (safety net)
+            if self._check_status_field():
                 console.print("[green]Research completed or abandoned.[/green]")
                 break
 
         self._final_report()
+
+    def _run_orchestrator(self) -> Task:
+        """Run orchestrator pass: validate phantoms, set context prefix, get task."""
+        console.print("[cyan]Orchestrator[/cyan] planning...")
+
+        # Validate COMP/TASK references in RESEARCH_STATE
+        phantoms = self.workspace.validate_comp_references()
+        if phantoms:
+            self.metrics.alert(
+                self.iteration,
+                f"Phantom references stripped: {', '.join(phantoms)}"
+            )
+
+        # Set context prefix for violations/blockers
+        self.orchestrator.context_prefix = self._build_context_prefix()
+
+        orch_task = Task(
+            task_id="", task_type=TaskType.RESEARCH,
+            assigned_to="orchestrator", iteration=self.iteration,
+        )
+        orch_response = self.orchestrator.run(orch_task, self.iteration)
+        task = self.orchestrator.parse_task(orch_response.text, iteration=self.iteration)
+        self._print_task(task)
+        return task
+
+    def _build_context_prefix(self) -> str:
+        """Build prefix for orchestrator context with violations and blockers."""
+        lines = []
+        if self._pending_violations:
+            lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
+            for v in self._pending_violations:
+                lines.append(f"  [{v.severity}] {v.check}: {v.message}")
+            lines.append(">>> END VIOLATIONS <<<\n")
+            self._pending_violations.clear()
+        if self._pending_termination_blockers:
+            lines.append(">>> TERMINATION BLOCKED <<<")
+            for b in self._pending_termination_blockers:
+                lines.append(f"  - {b}")
+            lines.append("You must address these before terminating.")
+            lines.append(">>> END TERMINATION BLOCKERS <<<\n")
+            self._pending_termination_blockers.clear()
+        return "\n".join(lines)
+
+    def _apply_overrides(self, task: Task) -> Task:
+        """Consolidated pre-dispatch override chain (explicit priority order)."""
+        # P1: Budget enforcement (highest priority)
+        budget_remaining = self.config.max_iterations - self.iteration
+        if budget_remaining <= 1 and task.task_type not in (
+                TaskType.SYNTHESIZE, TaskType.TERMINATE):
+            console.print(
+                f"[yellow]Budget enforcement: {budget_remaining} iteration(s) left, "
+                f"overriding '{task.task_type}' -> 'synthesize'.[/yellow]"
+            )
+            self.metrics.alert(self.iteration, f"Budget override: {task.task_type} -> synthesize")
+            return self._make_budget_synthesize_task()
+
+        # P2: Stale-loop -> force SYNTHESIZE (not break)
+        if self._is_stale_loop(task):
+            return self._make_budget_synthesize_task()
+
+        # P3: Forced critic (overdue) — never override terminal tasks
+        if (self._critic_overdue()
+                and task.task_type not in (TaskType.CRITIQUE, TaskType.SYNTHESIZE, TaskType.TERMINATE)):
+            console.print(
+                f"[yellow]Forcing critic pass (overdue: last critic at "
+                f"iter {self.metrics.last_critic_iteration}, "
+                f"threshold {self.config.critic_every_n}).[/yellow]"
+            )
+            return self._make_forced_critic_task()
+
+        # P4: REFUTED recompute
+        if self._pending_recompute_claim:
+            claim = self._pending_recompute_claim
+            self._pending_recompute_claim = None
+            if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
+                console.print("[yellow]Forcing recompute after REFUTED verdict.[/yellow]")
+                return self._make_recompute_task(claim)
+
+        # P5: Block dispatch to stalled claim
+        if task.task_type == TaskType.COMPUTE:
+            claim_key = _normalize_claim_key(task.body)
+            if claim_key in self._stalled_claims:
+                self._pending_violations.append(
+                    Violation(
+                        check="stall_detection",
+                        severity=ViolationSeverity.WARNING,
+                        message=f"Stalled claim blocked: {claim_key[:80]}",
+                        file="COMPUTATION_LOG.md",
+                        detail=claim_key,
+                    )
+                )
+                self.metrics.alert(self.iteration, f"Stall block: {claim_key[:60]}")
+                # Return a research task instead — let orchestrator rethink
+                return Task(
+                    task_id=task.task_id,
+                    task_type=TaskType.RESEARCH,
+                    assigned_to="researcher",
+                    priority=task.priority,
+                    iteration=task.iteration,
+                    body=(
+                        "# Alternative Approach Needed\n\n"
+                        f"Computation stalled on: {claim_key[:200]}\n"
+                        "Multiple attempts have failed. Consider an alternative derivation "
+                        "or analytical approach.\n"
+                    ),
+                )
+
+        # P6: Enrichment (non-overriding, mutates task body)
+        if task.task_type == TaskType.COMPUTE:
+            self._enrich_compute_task_with_prior_failures(task)
+
+        return task
+
+    def _is_stale_loop(self, task: Task) -> bool:
+        """Detect stale loop when research appears complete but orchestrator didn't terminate."""
+        if task.task_type in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
+            self._stale_iterations = 0
+            return False
+        state = self.workspace.read_file("RESEARCH_STATE.md")
+        er_count = len(re.findall(r'^## ER-\d+', state, re.MULTILINE))
+        wh_count = len(re.findall(r'^## WH-\d+', state, re.MULTILINE))
+        if er_count >= self.config.min_er_for_completion and wh_count == 0:
+            self._stale_iterations += 1
+            if self._stale_iterations >= 2:
+                console.print(
+                    "[yellow]Backstop: research appears complete but orchestrator "
+                    "did not terminate. Forcing synthesize.[/yellow]"
+                )
+                self.metrics.alert(self.iteration, "Stale loop detected — forcing synthesize")
+                return True
+        else:
+            self._stale_iterations = 0
+        return False
 
     def _dispatch(self, task: Task) -> str:
         """Route task to the correct agent."""
@@ -160,7 +251,6 @@ class SciRalph:
         elif tt == TaskType.COMPUTE:
             console.print("[magenta]Computationalist[/magenta] working...")
             self.computationalist.run(task, self.iteration)
-            self._check_for_refuted_verdict(task)
             return "computationalist"
 
         elif tt == TaskType.CRITIQUE:
@@ -257,6 +347,13 @@ class SciRalph:
                 "REFUTED verdict detected — will force recompute next iteration"
             )
 
+    def _update_stall_tracking(self):
+        """Update stall tracking after compute dispatch."""
+        comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
+        stalls = detect_computation_stalls(comp_log, threshold=2)  # lowered from 3
+        for stall in stalls:
+            self._stalled_claims.add(stall["claim"])
+
     def _make_recompute_task(self, claim: str) -> Task:
         """Create a forced compute task to re-verify a REFUTED claim after correction."""
         task = Task(
@@ -315,7 +412,7 @@ class SciRalph:
         meta["status"] = status
         self.workspace.write_file("RESEARCH_STATE.md", render_frontmatter(meta, body))
 
-    def _should_terminate(self) -> bool:
+    def _check_status_field(self) -> bool:
         """Check termination conditions beyond max_iterations."""
         state = self.workspace.read_file("RESEARCH_STATE.md")
         for status in ("completed", "abandoned", "partially_complete"):

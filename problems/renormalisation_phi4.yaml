@@ -5,3 +5,5 @@ problem: |
   The expected result is beta(lambda) = 3*lambda^2 / (16*pi^2).
   Discuss asymptotic freedom (or lack thereof) and locate the Landau pole.
   Verify the Feynman parameter integrals numerically for specific kinematics.
+
+requires_numerical: false

@@ -26,6 +26,10 @@ class OrchestratorAgent(BaseAgent):
     name = "orchestrator"
     prompt_file = "orchestrator.md"
 
+    def __init__(self, config, workspace, metrics):
+        super().__init__(config, workspace, metrics)
+        self.context_prefix: str = ""
+
     def _completion_analysis(self, iteration: int = 0) -> str | None:
         """Check if research appears complete; return banner if so.
 
@@ -71,8 +75,11 @@ class OrchestratorAgent(BaseAgent):
         return None
 
     def build_context(self, task: Task, iteration: int) -> str:
-        banner = self._completion_analysis(iteration)
         parts = []
+        if self.context_prefix:
+            parts.append(self.context_prefix)
+            self.context_prefix = ""  # consume after use
+        banner = self._completion_analysis(iteration)
         if banner:
             parts.append(f"{banner}\n")
         state = self.workspace.read_file("RESEARCH_STATE.md")

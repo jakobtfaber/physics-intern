@@ -4,3 +4,5 @@ problem: |
   and heat capacity. The expected heat capacity is
   C_V = k_B * (beta*hbar*omega)^2 * exp(beta*hbar*omega) / (exp(beta*hbar*omega) - 1)^2.
   Verify the classical (high-T) and quantum (low-T) limiting behaviours.
+
+requires_numerical: true

@@ -4,3 +4,5 @@ problem: |
   result is F/A = -pi^2 * hbar * c / (240 * a^4). Compute the Casimir
   pressure in Pascals for a = 1 micrometre and include numerical verification
   of any regularisation steps.
+
+requires_numerical: true

@@ -5,3 +5,5 @@ problem: |
   result for Mercury in arcseconds per century (expected: ~43 arcsec/century).
   Verify by numerically integrating the full relativistic orbital equation
   and measuring the precession directly.
+
+requires_numerical: true

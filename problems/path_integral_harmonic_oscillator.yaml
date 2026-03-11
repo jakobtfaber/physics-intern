@@ -5,3 +5,5 @@ problem: |
   from the propagator and verify consistency with the operator formalism.
   Include numerical checks by evaluating the discretised path integral
   and comparing with the exact result.
+
+requires_numerical: true

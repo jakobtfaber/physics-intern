@@ -3,3 +3,5 @@ problem: |
   of mass M. The expected result is T_H = hbar*c^3 / (8*pi*G*M*k_B).
   Verify the result numerically for a solar-mass black hole.
 
+requires_numerical: true
+

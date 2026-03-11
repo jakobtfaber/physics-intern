@@ -171,14 +171,20 @@ class TestAgentLoop:
 
     @patch("sciralph.llm.anthropic.Anthropic")
     def test_max_rounds_exhausted(self, mock_anthropic_cls):
-        """LLM always returns tool_use — stops at max_rounds."""
+        """LLM always returns tool_use — stops at max_rounds with forced final call."""
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
 
         tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        mock_client.messages.create.return_value = _mock_response(
-            [tool_block], "tool_use", 100, 50
+        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
+        text_response = _mock_response(
+            [_mock_text_block("## COMP-001\n**VERDICT:** INCONCLUSIVE")],
+            "end_turn", 150, 80
         )
+        mock_client.messages.create.side_effect = [
+            tool_response, tool_response, tool_response,  # 3 tool-use rounds
+            text_response,  # forced final call
+        ]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -187,10 +193,11 @@ class TestAgentLoop:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=3,
         )
 
-        assert result.rounds == 3
+        assert result.rounds == 4  # 3 tool rounds + 1 forced
         assert result.truncated
-        assert result.stop_reason == "max_rounds"
+        assert result.stop_reason == "max_rounds_forced"
         assert len(result.tool_calls) == 3
+        assert mock_client.messages.create.call_count == 4
 
     @patch("sciralph.llm.anthropic.Anthropic")
     def test_token_accumulation(self, mock_anthropic_cls):
@@ -234,3 +241,109 @@ class TestAgentLoop:
         assert result.truncated
         assert result.stop_reason == "max_tokens"
         assert result.rounds == 1
+
+
+class TestForcedPartialOutput:
+    """Test the forced text-only final call when max_rounds is exhausted."""
+
+    @patch("sciralph.llm.anthropic.Anthropic")
+    def test_forced_call_has_no_tools_param(self, mock_anthropic_cls):
+        """Last call should NOT include tools parameter."""
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+
+        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
+        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
+        text_response = _mock_response(
+            [_mock_text_block("## COMP-001\n**VERDICT:** INCONCLUSIVE")],
+            "end_turn", 150, 80
+        )
+        mock_client.messages.create.side_effect = [
+            tool_response, tool_response,  # 2 rounds of tool use
+            text_response,  # forced final call
+        ]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=2,
+        )
+
+        # Verify the last call had no tools parameter
+        calls = mock_client.messages.create.call_args_list
+        assert len(calls) == 3
+        # First two calls should have tools
+        assert "tools" in calls[0].kwargs or (len(calls[0].args) > 0)
+        # Last call should NOT have tools
+        last_call_kwargs = calls[2].kwargs
+        assert "tools" not in last_call_kwargs
+
+    @patch("sciralph.llm.anthropic.Anthropic")
+    def test_forced_call_text_in_result(self, mock_anthropic_cls):
+        """Result text should come from the forced final call."""
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+
+        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
+        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
+        text_response = _mock_response(
+            [_mock_text_block("Forced partial output here")],
+            "end_turn", 150, 80
+        )
+        mock_client.messages.create.side_effect = [tool_response, text_response]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
+        )
+
+        assert result.text == "Forced partial output here"
+        assert result.stop_reason == "max_rounds_forced"
+
+    @patch("sciralph.llm.anthropic.Anthropic")
+    def test_token_accumulation_includes_forced(self, mock_anthropic_cls):
+        """Total tokens should include the forced call."""
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+
+        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
+        tool_response = _mock_response([tool_block], "tool_use", 200, 80)
+        text_response = _mock_response(
+            [_mock_text_block("Final")], "end_turn", 300, 120
+        )
+        mock_client.messages.create.side_effect = [tool_response, text_response]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
+        )
+
+        assert result.total_input_tokens == 500  # 200 + 300
+        assert result.total_output_tokens == 200  # 80 + 120
+        assert result.rounds == 2  # 1 tool round + 1 forced
+
+    @patch("sciralph.llm.anthropic.Anthropic")
+    def test_stop_reason_is_max_rounds_forced(self, mock_anthropic_cls):
+        """Stop reason should be 'max_rounds_forced'."""
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+
+        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
+        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
+        text_response = _mock_response([_mock_text_block("Done")], "end_turn", 100, 50)
+        mock_client.messages.create.side_effect = [tool_response, text_response]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
+        )
+
+        assert result.stop_reason == "max_rounds_forced"
+        assert result.truncated is True

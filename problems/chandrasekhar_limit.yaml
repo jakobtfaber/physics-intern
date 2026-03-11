@@ -6,3 +6,5 @@ problem: |
   for carbon/oxygen composition). Numerically solve the relevant structure
   equations, compute the mass-radius relation, and verify that the radius
   vanishes as the mass approaches M_Ch.
+
+requires_numerical: true

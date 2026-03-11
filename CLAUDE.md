@@ -6,14 +6,15 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 
 - `README.md` — User-facing overview, architecture diagram, quick start
 - `DESIGN.md` — Full system design (architecture, file formats, agent prompts, pseudocode)
-- `PLAN.md` — Implementation plan (Phase 1 cleanup done, Phase 2 P1-P8 fixes, future work)
+- `PLAN.md` — Implementation plan (Phase 1 done, Phase 2 engine hardening done, future work)
 
 ## Project Structure
 
 ```
 src/sciralph/
   main.py              — Entry point (reads problem YAML, CLI flags)
-  engine.py            — Main loop: orchestrate → dispatch → compress → metrics → git
+  engine.py            — Main loop: orchestrate → validate → override → dispatch → compress → git
+  validation.py        — Post-integration checks (ER gate, phantom labels, routing) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
   config.py            — Config dataclass (model, thresholds, timeouts, audit_log)
   llm.py               — Anthropic API wrapper (call_llm, run_agent_loop) with JSONL audit logging
@@ -31,7 +32,7 @@ src/sciralph/
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
-tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, computationalist, verify, workspace, task)
+tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, computationalist, verify, workspace, task, engine, validation)
 problems/              — YAML problem definitions
 run_and_verify.sh      — Run a problem then verify results in one command
 ```
@@ -52,7 +53,7 @@ Five agents (orchestrator, researcher, computationalist, deep critic, compressor
 - **Deep Critic** appends critiques to CRITIQUE_LOG.md
 - **Compressor** archives + shrinks files exceeding size thresholds
 
-The orchestrator integrates proposed changes on its next pass. Forced critic passes every N iterations. Audit logging (JSONL) records metadata for every LLM call.
+The orchestrator integrates proposed changes on its next pass. After each orchestrator pass, `validation.py` runs invariant checks (ER promotion gate, phantom labels/references, agent routing, ID consistency). Termination via `TERMINATE` goes through `can_terminate()` gates (critic pass required, no unresolved HIGH critiques, numerical verification required when `requires_numerical: true` in problem YAML). The engine's `_apply_overrides()` consolidates all pre-dispatch overrides (budget, stale loop, forced critic, REFUTED recompute, stall blocking) in explicit priority order. Audit logging (JSONL) records metadata for every LLM call.
 
 ### Valid Task Types
 
@@ -69,6 +70,10 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 - BaseAgent `tools` class attribute: non-empty → agentic loop, empty → one-shot `call_llm`
 - Critique regex constants (`CRIT_ID_RE`, `CRIT_HEADER_RE`, `CRIT_UNRESOLVED_RE`) and helpers (`extract_resolved_critique_ids`, `recount_critique_metadata`) are in `markdown.py`
 - Critique ID format: `CRIT-NNN` (regex also accepts `CRITIQUE-NNN` for LLM drift tolerance)
+- Engine overrides live in `_apply_overrides()` with explicit priority: budget > stale loop > forced critic > REFUTED recompute > stall blocking > enrichment
+- Post-integration checks are pure functions in `validation.py` returning `list[Violation]`; violations inject into orchestrator context via `context_prefix`
+- `run_agent_loop` forces a text-only final call on `max_rounds` exhaustion (no more empty stubs); `stop_reason="max_rounds_forced"`
+- Problem YAMLs may include `requires_numerical: true/false` — consumed by `can_terminate()` gate
 
 ## Running
 
@@ -93,15 +98,16 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-All core functionality is implemented and working (172 tests passing):
+All core functionality is implemented and working (258 tests passing). Phase 2 engine hardening complete:
 
-- **Core loop** — all five agents, main loop, orchestrator integration, termination detection
-- **Orchestrator** — sub-problem decomposition, integration duty, critique resolution, stale-iteration backstop, momentum/compute-first/stall-detection rules
-- **Computationalist** — agentic tool-use with `execute_python` (writes code, sees output, iterates on errors, emits VERDICT), numerical-first verification strategy, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE)
-- **Deep Critic** — two-phase format (Phase 1: reproduce, Phase 2: objection), INCONCLUSIVE severity cap, epistemic calibration, non-repetition rules
+- **Core loop** — all five agents, main loop, orchestrator integration, consolidated override chain (`_apply_overrides`), termination gates (`can_terminate`)
+- **Validation pipeline** — 5 post-integration checks (ER promotion gate, phantom references/labels, agent routing, ID consistency), violation injection into orchestrator context
+- **Orchestrator** — sub-problem decomposition, integration duty, critique resolution, stale-iteration backstop, momentum/compute-first/stall-detection rules, context prefix for violations/blockers
+- **Computationalist** — agentic tool-use with `execute_python`, forced partial output on truncation, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE)
+- **Deep Critic** — two-phase format, preamble stripping, self-retraction filtering, INCONCLUSIVE severity cap
 - **Compressor** — archival + compression with forced compression at 2x threshold
-- **Tool-use infrastructure** — `run_agent_loop` in llm.py, `ToolExecutor` in tools.py, `AgentResult` dataclass, per-round audit/conversation logging, tool-use metrics (rounds, tool calls in METRICS.md)
+- **Tool-use infrastructure** — `run_agent_loop` with forced text-only final call on `max_rounds`, stall detection (threshold=2)
 - **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
-- **Logging** — JSONL audit logging (metadata per LLM call, round field for tool-use), full conversation logs (system prompt + context + response in `logs/`)
+- **Logging** — JSONL audit logging (metadata per LLM call, round field for tool-use), full conversation logs
 
-Next steps: P1-P8 fixes from test runs (see PLAN.md Phase 2), `read_file` tool for orchestrator/researcher/critic
+Next steps: `read_file` tool for orchestrator/researcher/critic (see PLAN.md future work)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -34,9 +35,17 @@ class CriticAgent(BaseAgent):
         ]
         return "\n".join(parts)
 
+    def _strip_preamble(self, text: str) -> str:
+        """Remove text before the first ## CRIT- heading."""
+        match = re.search(r'^## CRIT', text, re.MULTILINE)
+        if match:
+            return text[match.start():]
+        return text  # no CRIT header found — keep all (could be NO_CRITIQUES_FILED)
+
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
         """Insert new critiques into Active section and update frontmatter counts."""
-        filtered_text, retracted = filter_self_retracted_critiques(response.text)
+        stripped = self._strip_preamble(response.text)
+        filtered_text, retracted = filter_self_retracted_critiques(stripped)
 
         if filtered_text.strip():
             content = self.workspace.read_file("CRITIQUE_LOG.md")

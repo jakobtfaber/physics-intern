@@ -7,3 +7,5 @@ problem: |
   full 3D parameter space. Verify by numerical simulation of the
   time-dependent Schrodinger equation for several cone angles and
   adiabaticity parameters.
+
+requires_numerical: false

@@ -61,8 +61,14 @@ def main():
         run_name = f"{timestamp}_{args.problem.stem}"
         config.workspace_dir = str(Path("workspaces") / run_name)
 
+    # Build problem metadata for termination gates
+    problem_meta = {
+        "requires_numerical": problem_def.get("requires_numerical", False),
+        "steps": problem_def.get("steps", []),
+    }
+
     # Run
-    engine = SciRalph(problem, config=config)
+    engine = SciRalph(problem, config=config, problem_meta=problem_meta)
     engine.run()
 
 

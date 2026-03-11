@@ -6,3 +6,5 @@ problem: |
   limit (N -> infinity). Verify that there is no spontaneous magnetisation
   at finite temperature and that the susceptibility diverges as T -> 0 at
   h = 0. Include numerical plots of the magnetisation curve.
+
+requires_numerical: false

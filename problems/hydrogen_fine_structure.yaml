@@ -5,3 +5,5 @@ problem: |
   on n and j (not l separately). The expected combined result is:
   Delta E_fs = (alpha^2 / n^2) * E_n^(0) * [n/(j+1/2) - 3/4].
   Numerically compute the splittings for n=1,2,3 in eV.
+
+requires_numerical: true
