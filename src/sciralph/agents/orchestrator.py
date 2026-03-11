@@ -16,6 +16,7 @@ from ..markdown import (
     count_er_sections,
     count_wh_sections,
     normalize_er_wh_headers,
+    flatten_unverified_brackets,
     CRIT_ID_RE,
 )
 from ..task import Task, TaskType
@@ -86,6 +87,9 @@ class OrchestratorAgent(BaseAgent):
         if banner:
             parts.append(f"{banner}\n")
         state = self.workspace.read_file("RESEARCH_STATE.md")
+        # Clean phantom markers to prevent LLM from copying bracketed form
+        state = flatten_unverified_brackets(state)
+        state = re.sub(r'\[((COMP|TASK)-\d+):unverified\]', r'\1 (unverified)', state)
         if iteration >= 3 and "To be populated by the orchestrator" in state:
             parts.append(
                 ">>> REMINDER: The '# Conventions' section in RESEARCH_STATE.md "
@@ -147,6 +151,16 @@ class OrchestratorAgent(BaseAgent):
             flags=re.DOTALL,
         )
 
+    @staticmethod
+    def _validate_resolution_note(note: str, crit_id: str, iteration: int) -> str:
+        """Validate and clean resolution note quality."""
+        _SYSTEM_MARKERS = ("[error]", "phantom", ":unverified]", ">>> ", "<<<")
+        if len(note) < 20:
+            return f"Resolved via computation/analysis at iteration {iteration}."
+        if any(marker in note.lower() for marker in _SYSTEM_MARKERS):
+            return f"Resolved via computation/analysis at iteration {iteration}."
+        return note
+
     def _resolve_critiques(self, response_text: str, iteration: int):
         """Scan orchestrator output for resolved critique IDs and update CRITIQUE_LOG.md."""
         resolved_ids = extract_resolved_critique_ids(response_text)
@@ -177,6 +191,7 @@ class OrchestratorAgent(BaseAgent):
                 crit_id,
                 f"Addressed by orchestrator integration at iteration {iteration}.",
             )
+            note = self._validate_resolution_note(note, crit_id, iteration)
             content = resolve_critique(content, crit_id, note)
 
         # Update frontmatter counts

@@ -14,6 +14,7 @@ from .markdown import (
     count_unresolved_critiques,
     count_er_sections,
     find_er_section_ids,
+    flatten_unverified_brackets,
     _ER_WH_ID_RE,
     _WH_SECTION_RE,
 )
@@ -49,6 +50,33 @@ _AGENT_ALIASES = {
     "review": "deep_critic",
 }
 _VALID_AGENTS = {"orchestrator", "researcher", "computationalist", "deep_critic", "compressor"}
+
+
+# ---------------------------------------------------------------------------
+# TASK→COMP mapping helper
+# ---------------------------------------------------------------------------
+
+def _build_task_comp_mapping(entries: list[dict]) -> dict[str, set[str]]:
+    """Build TASK-NNN → {COMP-NNN, ...} mapping from computation log entries.
+
+    - For TASK-NNN entries: assume COMP-NNN with same number is the product.
+    - For COMP-NNN entries: scan body for TASK-NNN references.
+    """
+    mapping: dict[str, set[str]] = {}
+    comp_ids = {e["id"] for e in entries if e["id"].startswith("COMP-")}
+    for entry in entries:
+        eid = entry["id"]
+        if eid.startswith("TASK-"):
+            num = eid.split("-")[1]
+            comp_equiv = f"COMP-{num}"
+            if comp_equiv in comp_ids:
+                mapping.setdefault(eid, set()).add(comp_equiv)
+        elif eid.startswith("COMP-"):
+            # Scan body for TASK-NNN references
+            task_refs = re.findall(r'\bTASK-\d+\b', entry.get("body", ""))
+            for tref in task_refs:
+                mapping.setdefault(tref, set()).add(eid)
+    return mapping
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +145,8 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
                 count=1,
                 flags=re.MULTILINE,
             )
+            # Propagate prose references: WH-NNN → ER-NNN throughout state
+            state = state.replace(wh_id, er_id)
             changed = True
             violations.append(Violation(
                 check="er_promotion_gate",
@@ -246,6 +276,11 @@ def check_stale_unverified_labels(workspace: WorkspaceManager) -> list[Violation
             if ids_in_line and any(id_ in verified_ids for id_ in ids_in_line):
                 line = line.replace("[unverified]", "VERIFIED")
                 line = line.replace("[Unverified]", "VERIFIED")
+                # If any WH-NNN on this line has a promoted ER-NNN header, rename
+                for wh in [i for i in ids_in_line if i.startswith("WH-")]:
+                    promoted_er = "ER-" + wh.split("-")[1]
+                    if promoted_er in er_section_ids:
+                        line = line.replace(wh, promoted_er)
                 changed = True
                 violations.append(Violation(
                     check="stale_unverified_labels",
@@ -268,18 +303,34 @@ def check_phantom_references(workspace: WorkspaceManager) -> list[Violation]:
     state = workspace.read_file("RESEARCH_STATE.md")
     comp_log = workspace.read_file("COMPUTATION_LOG.md")
 
+    # Flatten nested bracket markers first
+    original_state = state
+    state = flatten_unverified_brackets(state)
+
     entries = _parse_comp_entries(comp_log)
     valid_ids = {e["id"] for e in entries}
 
-    ref_pattern = re.compile(r'\b((?:COMP|TASK)-\d+)\b')
+    # Expand valid_ids: accept TASK-NNN when a corresponding COMP exists
+    task_comp = _build_task_comp_mapping(entries)
+    for task_id, comp_set in task_comp.items():
+        if comp_set & valid_ids:
+            valid_ids.add(task_id)
+
+    # Match bare COMP/TASK refs but exclude those already wrapped in [ID:unverified]
+    ref_pattern = re.compile(r'(?<!\[)\b((?:COMP|TASK)-\d+)\b(?!:unverified\])')
     found_refs = set(ref_pattern.findall(state))
 
     phantoms = sorted(found_refs - valid_ids)
-    if not phantoms:
+    if not phantoms and state == original_state:
         return []
 
     for phantom in phantoms:
-        state = state.replace(phantom, f"[{phantom}:unverified]")
+        # Only replace bare references, not already-wrapped ones
+        state = re.sub(
+            r'(?<!\[)\b' + re.escape(phantom) + r'\b(?!:unverified\])',
+            f'[{phantom}:unverified]',
+            state,
+        )
         violations.append(Violation(
             check="phantom_references",
             severity=ViolationSeverity.ERROR,
@@ -288,7 +339,44 @@ def check_phantom_references(workspace: WorkspaceManager) -> list[Violation]:
             detail=phantom,
         ))
 
-    workspace.write_file("RESEARCH_STATE.md", state)
+    if state != original_state:
+        workspace.write_file("RESEARCH_STATE.md", state)
+    return violations
+
+
+def check_verified_frontmatter_backfill(workspace: WorkspaceManager) -> list[Violation]:
+    """Backfill verified_results in RESEARCH_STATE.md frontmatter from computation log."""
+    violations: list[Violation] = []
+    comp_log = workspace.read_file("COMPUTATION_LOG.md")
+    state = workspace.read_file("RESEARCH_STATE.md")
+    if not comp_log or not state:
+        return []
+
+    entries = _parse_comp_entries(comp_log)
+    verified_ids: set[str] = set()
+    for e in entries:
+        if e["verdict"] == "VERIFIED":
+            verified_ids.update(_ER_WH_ID_RE.findall(e["claim"]))
+            verified_ids.update(_ER_WH_ID_RE.findall(e.get("body", "")))
+
+    if not verified_ids:
+        return []
+
+    meta, body = parse_frontmatter(state)
+    existing = set(meta.get("verified_results", []) or [])
+    missing = sorted(verified_ids - existing)
+    if not missing:
+        return []
+
+    meta["verified_results"] = sorted(existing | verified_ids)
+    workspace.write_file("RESEARCH_STATE.md", render_frontmatter(meta, body))
+    violations.append(Violation(
+        check="verified_frontmatter_backfill",
+        severity=ViolationSeverity.WARNING,
+        message=f"Backfilled verified_results: {', '.join(missing)}",
+        file="RESEARCH_STATE.md",
+        detail=", ".join(missing),
+    ))
     return violations
 
 
@@ -326,6 +414,7 @@ _DEFAULT_CHECKS = [
     check_er_promotion_gate,
     check_phantom_labels,
     check_stale_unverified_labels,
+    check_verified_frontmatter_backfill,
     check_task_agent_routing,
     check_id_consistency,
 ]

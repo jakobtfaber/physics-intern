@@ -20,6 +20,10 @@ from sciralph.markdown import (
     count_wh_sections,
     find_er_section_ids,
     normalize_er_wh_headers,
+    flatten_unverified_brackets,
+    detect_zero_output_stalls,
+    count_withdrawn_critiques,
+    CRIT_WITHDRAWN_RE,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -266,7 +270,8 @@ def test_filter_mixed_response():
 """
     filtered, retracted = filter_self_retracted_critiques(text)
     assert "CRIT-010" in filtered
-    assert "CRIT-011" not in filtered
+    assert "CRIT-011" in filtered
+    assert "[WITHDRAWN]" in filtered
     assert len(retracted) == 1
     assert "CRIT-011" in retracted[0]
     assert "WH-003" in retracted[0]
@@ -317,7 +322,10 @@ def test_filter_all_retracted():
 - Reproduction succeeded, no flaws detected. Documenting successful verification.
 """
     filtered, retracted = filter_self_retracted_critiques(text)
-    assert filtered.strip() == ""
+    assert "CRIT-013" in filtered
+    assert "CRIT-014" in filtered
+    assert "[WITHDRAWN]" in filtered
+    assert "[UNRESOLVED]" not in filtered
     assert len(retracted) == 2
 
 
@@ -364,7 +372,8 @@ def test_filter_critique_nnn_drift_tolerance():
 - **Suggested verification:** None needed.
 """
     filtered, retracted = filter_self_retracted_critiques(text)
-    assert "CRITIQUE-015" not in filtered
+    assert "CRITIQUE-015" in filtered
+    assert "[WITHDRAWN]" in filtered
     assert len(retracted) == 1
     assert "CRITIQUE-015" in retracted[0]
 
@@ -411,6 +420,7 @@ def test_recount_critique_metadata():
     assert meta["unresolved_medium"] == 1
     assert meta["unresolved_low"] == 0
     assert meta["total_critiques"] >= 3  # CRIT-001, CRIT-002, CRIT-003
+    assert meta["withdrawn_critiques"] >= 0
 
 
 def test_recount_critique_metadata_empty():
@@ -420,6 +430,7 @@ def test_recount_critique_metadata_empty():
         "unresolved_medium": 0,
         "unresolved_low": 0,
         "total_critiques": 0,
+        "withdrawn_critiques": 0,
     }
 
 
@@ -712,3 +723,198 @@ All checks pass.
         entries = _parse_comp_entries(log)
         assert "WH-001" in entries[0]["body"]
         assert "WH-002" in entries[0]["body"]
+
+
+# ---------------------------------------------------------------------------
+# Improvement 5: WITHDRAWN critique status
+# ---------------------------------------------------------------------------
+
+
+class TestWithdrawnStatus:
+    """Tests for WITHDRAWN critique status (Improvement 5)."""
+
+    def test_filter_medium_self_retracted(self):
+        """MEDIUM with retraction signals -> WITHDRAWN."""
+        text = """\
+## CRIT-020 [MEDIUM] [UNRESOLVED]
+- **Target:** WH-005
+- **Filed:** iteration 6
+
+### Phase 1: Reproduce
+1. Steps all check out.
+
+### Phase 2: Objection
+- No flaws found in the derivation. The algebra is correct.
+- **Suggested verification:** None needed.
+"""
+        filtered, retracted = filter_self_retracted_critiques(text)
+        assert "CRIT-020" in filtered
+        assert "[WITHDRAWN]" in filtered
+        assert "[UNRESOLVED]" not in filtered
+        assert len(retracted) == 1
+        assert "CRIT-020" in retracted[0]
+
+    def test_withdrawn_not_counted_unresolved(self):
+        """WITHDRAWN critiques should not count as unresolved."""
+        text = "## CRIT-020 [MEDIUM] [WITHDRAWN]\n- **Target:** WH-005\n"
+        counts = count_unresolved_critiques(text)
+        assert counts["MEDIUM"] == 0
+
+    def test_withdrawn_counted_in_total(self):
+        """WITHDRAWN critiques should count in total_critiques."""
+        text = "## CRIT-020 [MEDIUM] [WITHDRAWN]\n- **Target:** WH-005\n"
+        from sciralph.markdown import recount_critique_metadata
+        meta = recount_critique_metadata(text)
+        assert meta["total_critiques"] == 1
+        assert meta["withdrawn_critiques"] == 1
+
+    def test_filter_medium_genuine_kept(self):
+        """MEDIUM with real objection -> NOT withdrawn."""
+        text = """\
+## CRIT-021 [MEDIUM] [UNRESOLVED]
+- **Target:** WH-006
+- **Filed:** iteration 7
+
+### Phase 1: Reproduce
+1. Follow the derivation.
+
+### Phase 2: Objection
+- **What is wrong:** Sign error in step 3 of the entropy calculation.
+- **Why it matters:** Could change the final result by a factor of -1.
+"""
+        filtered, retracted = filter_self_retracted_critiques(text)
+        assert "CRIT-021" in filtered
+        assert "[UNRESOLVED]" in filtered
+        assert "[WITHDRAWN]" not in filtered
+        assert retracted == []
+
+    def test_high_never_withdrawn(self):
+        """HIGH with retraction language -> never auto-retracted."""
+        text = """\
+## CRIT-022 [HIGH] [UNRESOLVED]
+- **Target:** WH-007
+- **Filed:** iteration 8
+
+### Phase 1: Reproduce
+1. Checked every step.
+
+### Phase 2: Objection
+- No flaws found in the algebra, BUT boundary condition wrong.
+- **Why it matters:** Invalidates the result.
+"""
+        filtered, retracted = filter_self_retracted_critiques(text)
+        assert "CRIT-022" in filtered
+        assert "[UNRESOLVED]" in filtered
+        assert retracted == []
+
+    def test_new_retraction_patterns(self):
+        """New retraction patterns are detected."""
+        cases = [
+            "No flaw found in the derivation.",
+            "No flaws identified during review.",
+            "This does not warrant filing a critique.",
+            "Not filing any critique.",
+            "No genuine objections to file.",
+            "No issues to raise against this claim.",
+        ]
+        for case in cases:
+            text = f"""\
+## CRIT-099 [LOW] [UNRESOLVED]
+- **Target:** WH-099
+- **Filed:** iteration 1
+
+### Phase 2: Objection
+- {case}
+"""
+            filtered, retracted = filter_self_retracted_critiques(text)
+            assert len(retracted) == 1, f"Pattern not detected: {case}"
+
+    def test_withdrawn_metadata_counting(self):
+        """count_withdrawn_critiques returns correct count."""
+        text = """\
+## CRIT-001 [HIGH] [UNRESOLVED]
+- Active critique.
+
+## CRIT-002 [MEDIUM] [WITHDRAWN]
+- Withdrawn critique.
+
+## CRIT-003 [LOW] [WITHDRAWN]
+- Another withdrawn critique.
+"""
+        assert count_withdrawn_critiques(text) == 2
+        counts = count_unresolved_critiques(text)
+        assert counts["HIGH"] == 1
+        assert counts["MEDIUM"] == 0
+        assert counts["LOW"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Improvement 2A: Flatten nested unverified brackets
+# ---------------------------------------------------------------------------
+
+
+class TestFlattenUnverifiedBrackets:
+    """Tests for nested bracket flattening (Improvement 2A)."""
+
+    def test_flatten_single(self):
+        text = "[COMP-001:unverified]"
+        assert flatten_unverified_brackets(text) == "[COMP-001:unverified]"
+
+    def test_flatten_double_nested(self):
+        text = "[[COMP-001:unverified]:unverified]"
+        assert flatten_unverified_brackets(text) == "[COMP-001:unverified]"
+
+    def test_flatten_triple(self):
+        text = "[[[COMP-001:unverified]:unverified]:unverified]"
+        result = flatten_unverified_brackets(text)
+        assert result == "[COMP-001:unverified]"
+
+    def test_flatten_mixed(self):
+        text = "See [[COMP-001:unverified]:unverified] and [TASK-002:unverified] for details."
+        result = flatten_unverified_brackets(text)
+        assert "[COMP-001:unverified]" in result
+        assert "[TASK-002:unverified]" in result
+        assert "[[" not in result
+
+    def test_flatten_idempotent(self):
+        text = "[COMP-001:unverified]"
+        assert flatten_unverified_brackets(flatten_unverified_brackets(text)) == text
+
+    def test_flatten_no_markers(self):
+        text = "Regular text with no markers."
+        assert flatten_unverified_brackets(text) == text
+
+
+# ---------------------------------------------------------------------------
+# Improvement 1D: Zero-output stall detection
+# ---------------------------------------------------------------------------
+
+
+class TestDetectZeroOutputStalls:
+    """Tests for zero-output stall detection (Improvement 1D)."""
+
+    def test_detect_zero_output_stalls(self):
+        """Entries with 'Agent produced no text output' are detected."""
+        log = """\
+## COMP-001: Check WH-001
+- **CLAIM**: Verify WH-001 formula
+- **VERDICT**: INCONCLUSIVE
+
+Agent produced no text output. Writing INCONCLUSIVE stub.
+"""
+        stalls = detect_zero_output_stalls(log)
+        assert len(stalls) == 1
+        assert "WH-001" in stalls[0]["claim"]
+        assert stalls[0]["entry_id"] == "COMP-001"
+
+    def test_detect_zero_output_stalls_normal(self):
+        """Normal entries are not flagged."""
+        log = """\
+## COMP-001: Check WH-001
+- **CLAIM**: Verify WH-001 formula
+- **VERDICT**: VERIFIED
+- **RESULT**:
+  All checks pass.
+"""
+        stalls = detect_zero_output_stalls(log)
+        assert stalls == []

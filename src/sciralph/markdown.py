@@ -13,6 +13,9 @@ CRIT_HEADER_RE = re.compile(r"^#{2,3} CRIT(?:IQUE)?-\d+", re.MULTILINE)
 CRIT_UNRESOLVED_RE = re.compile(
     r"#{2,3} CRIT(?:IQUE)?-\d+\s*\[(\w+)\]\s*\[UNRESOLVED\]"
 )
+CRIT_WITHDRAWN_RE = re.compile(
+    r"#{2,3} CRIT(?:IQUE)?-\d+\s*\[(\w+)\]\s*\[WITHDRAWN\]"
+)
 
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -119,6 +122,10 @@ _RETRACTION_PATTERNS = [
     re.compile(r"reproduction succeeded.*no (issues? found|flaws?|errors?)", re.IGNORECASE),
     re.compile(r"no issues? found.*none needed", re.IGNORECASE),
     re.compile(r"documenting successful verification", re.IGNORECASE),
+    re.compile(r"no flaw(s)? (found|identified|detected)", re.IGNORECASE),
+    re.compile(r"does not warrant filing", re.IGNORECASE),
+    re.compile(r"not filing", re.IGNORECASE),
+    re.compile(r"no (genuine )?(objection|critique|issue)s? to (file|raise|report)", re.IGNORECASE),
 ]
 
 _CRITIQUE_HEADER_RE = CRIT_HEADER_RE
@@ -156,14 +163,17 @@ def filter_self_retracted_critiques(response_text: str) -> tuple[str, list[str]]
         full_block = header + body
         # Extract severity from the header line (first line of body before newline)
         first_line = (header + body.split("\n")[0]).upper()
-        is_low = "[LOW]" in first_line
+        is_retractable = "[LOW]" in first_line or "[MEDIUM]" in first_line
 
-        if is_low and _is_self_retracted(body):
+        if is_retractable and _is_self_retracted(body):
             # Build summary
             crit_id = CRIT_ID_RE.search(header).group()
             target_match = re.search(r"\*\*Target:\*\*\s*(\S+)", body)
             target = target_match.group(1) if target_match else "unknown"
             retracted.append(f"{crit_id} targeting {target}: self-retracted")
+            # Mark as WITHDRAWN instead of removing
+            withdrawn_block = full_block.replace("[UNRESOLVED]", "[WITHDRAWN]")
+            kept.append(withdrawn_block)
         else:
             kept.append(full_block)
 
@@ -275,6 +285,11 @@ def extract_resolved_critique_ids(text: str) -> set[str]:
     return resolved_ids
 
 
+def count_withdrawn_critiques(text: str) -> int:
+    """Count critiques marked as WITHDRAWN."""
+    return len(CRIT_WITHDRAWN_RE.findall(text))
+
+
 def recount_critique_metadata(content: str) -> dict:
     """Recount unresolved and total critiques from CRITIQUE_LOG content.
 
@@ -283,12 +298,26 @@ def recount_critique_metadata(content: str) -> dict:
     """
     counts = count_unresolved_critiques(content)
     total = len(CRIT_HEADER_RE.findall(content))
+    withdrawn = count_withdrawn_critiques(content)
     return {
         "unresolved_high": counts["HIGH"],
         "unresolved_medium": counts["MEDIUM"],
         "unresolved_low": counts["LOW"],
         "total_critiques": total,
+        "withdrawn_critiques": withdrawn,
     }
+
+
+# --- Nested bracket flattening ---
+
+_NESTED_UNVERIFIED_RE = re.compile(
+    r'\[+\s*((?:COMP|TASK)-\d+)(?::unverified)?(?:\]:unverified)*\s*\]'
+)
+
+
+def flatten_unverified_brackets(text: str) -> str:
+    """Collapse nested [[[ID:unverified]:unverified]...] to [ID:unverified]."""
+    return _NESTED_UNVERIFIED_RE.sub(r'[\1:unverified]', text)
 
 
 # --- Computation log parsing and stall detection ---
@@ -411,6 +440,21 @@ def _normalize_claim_key(claim: str) -> str:
     # Fallback: first 80 chars, lowercased, whitespace-collapsed
     normalized = " ".join(claim.lower().split())[:80]
     return normalized
+
+
+def detect_zero_output_stalls(text: str) -> list[dict]:
+    """Find computation entries where the agent produced no text output.
+
+    Returns [{"claim": normalized_key, "entry_id": entry_id}].
+    """
+    entries = _parse_comp_entries(text)
+    stalls = []
+    for entry in entries:
+        if "Agent produced no text output" in entry.get("body", ""):
+            key = _normalize_claim_key(entry["claim"])
+            if key:
+                stalls.append({"claim": key, "entry_id": entry["id"]})
+    return stalls
 
 
 def find_prior_failures_for_claim(comp_log: str, task_body: str) -> list[str]:

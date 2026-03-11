@@ -88,3 +88,45 @@ class TestValidateCompReferences:
 
         result = ws.validate_comp_references()
         assert result == []
+
+
+class TestValidateCompRefsImprovements:
+    """Tests for validate_comp_references improvements (Improvement 2D)."""
+
+    def _make_workspace(self, tmp_path, research_state: str, comp_log: str):
+        config = Config(workspace_dir=str(tmp_path / "ws"))
+        ws = WorkspaceManager(config)
+        ws.root.mkdir(parents=True, exist_ok=True)
+        ws.write_file("RESEARCH_STATE.md", research_state)
+        ws.write_file("COMPUTATION_LOG.md", comp_log)
+        return ws
+
+    def test_validate_comp_refs_idempotent(self, tmp_path):
+        """Running validate_comp_references twice produces the same result."""
+        state = "Result backed by COMP-999."
+        ws = self._make_workspace(tmp_path, state, "")
+        ws.validate_comp_references()
+        first = ws.read_file("RESEARCH_STATE.md")
+        ws.validate_comp_references()
+        second = ws.read_file("RESEARCH_STATE.md")
+        assert first == second
+
+    def test_validate_comp_refs_task_with_comp(self, tmp_path):
+        """TASK-005 accepted when COMP-005 exists."""
+        comp_log = "## TASK-005\n\nPreamble.\n\n## COMP-005: Verification\n**CLAIM**: test\n**VERDICT**: VERIFIED\n"
+        state = "See TASK-005 for the computation result."
+        ws = self._make_workspace(tmp_path, state, comp_log)
+        result = ws.validate_comp_references()
+        assert "TASK-005" not in result
+        updated = ws.read_file("RESEARCH_STATE.md")
+        assert "[TASK-005:unverified]" not in updated
+        assert "TASK-005" in updated
+
+    def test_validate_comp_refs_flattens_nested(self, tmp_path):
+        """Nested bracket markers are flattened."""
+        state = "Result: [[COMP-001:unverified]:unverified]."
+        comp_log = "## COMP-001: Test\n**CLAIM**: test\n**VERDICT**: VERIFIED\n"
+        ws = self._make_workspace(tmp_path, state, comp_log)
+        ws.validate_comp_references()
+        updated = ws.read_file("RESEARCH_STATE.md")
+        assert "[[" not in updated

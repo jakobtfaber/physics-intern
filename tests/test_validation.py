@@ -10,6 +10,9 @@ from sciralph.validation import (
     check_phantom_references,
     check_task_agent_routing,
     check_id_consistency,
+    check_stale_unverified_labels,
+    check_verified_frontmatter_backfill,
+    _build_task_comp_mapping,
 )
 from sciralph.markdown import render_frontmatter
 
@@ -588,7 +591,8 @@ Backed by COMP-999 which doesn't exist.
 **RESULT**:
 T = hbar * kappa / (2 pi k_B). Correct.
 """
-        state = """# Established Results
+        state_meta = {"status": "in_progress", "verified_results": ["ER-001"]}
+        state_body = """# Established Results
 
 ## ER-001 Hawking Temperature
 
@@ -601,7 +605,7 @@ Backed by COMP-001.
             "Continue research.\n",
         )
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
+            "RESEARCH_STATE.md": render_frontmatter(state_meta, state_body),
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
             "CURRENT_TASK.md": task,
         })
@@ -836,3 +840,237 @@ All checks passed.
         assert len(violations) == 0, (
             "ER-001 should NOT be demoted — WH-001 is VERIFIED in the entry body"
         )
+
+
+# ---------------------------------------------------------------------------
+# Improvement 2: phantom flattening + TASK→COMP mapping
+# ---------------------------------------------------------------------------
+
+class TestBuildTaskCompMapping:
+    """Tests for _build_task_comp_mapping helper."""
+
+    def test_basic_mapping(self):
+        entries = [
+            {"id": "TASK-005", "claim": "test", "verdict": "", "result": "", "body": ""},
+            {"id": "COMP-005", "claim": "test", "verdict": "VERIFIED", "result": "", "body": "from TASK-005"},
+        ]
+        mapping = _build_task_comp_mapping(entries)
+        assert "TASK-005" in mapping
+        assert "COMP-005" in mapping["TASK-005"]
+
+    def test_no_matching_comp(self):
+        entries = [
+            {"id": "TASK-005", "claim": "test", "verdict": "", "result": "", "body": ""},
+        ]
+        mapping = _build_task_comp_mapping(entries)
+        assert mapping == {}
+
+    def test_comp_body_references_task(self):
+        entries = [
+            {"id": "COMP-010", "claim": "verify something", "verdict": "VERIFIED", "result": "", "body": "Based on TASK-003"},
+        ]
+        mapping = _build_task_comp_mapping(entries)
+        assert "TASK-003" in mapping
+        assert "COMP-010" in mapping["TASK-003"]
+
+
+class TestPhantomReferencesFlattening:
+    """Tests for phantom reference check with bracket flattening."""
+
+    def test_phantom_flattens_nested(self):
+        """Nested brackets get flattened before phantom detection."""
+        state = "Result backed by [[COMP-001:unverified]:unverified].\n"
+        meta = {"total_computations": 1}
+        body = "# Computations\n\n## COMP-001\n\n**CLAIM**: test\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter(meta, body),
+        })
+        violations = check_phantom_references(ws)
+        updated = ws.read_file("RESEARCH_STATE.md")
+        # Nested brackets should be flattened
+        assert "[[" not in updated
+        # COMP-001 is valid, so it should be kept (as [COMP-001:unverified] from flattening)
+        assert "COMP-001" in updated
+
+    def test_phantom_idempotent(self):
+        """Running phantom check twice produces the same result."""
+        state = "Result backed by COMP-999.\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": "",
+        })
+        check_phantom_references(ws)
+        first_pass = ws.read_file("RESEARCH_STATE.md")
+        check_phantom_references(ws)
+        second_pass = ws.read_file("RESEARCH_STATE.md")
+        assert first_pass == second_pass
+
+    def test_task_accepted_when_comp_exists(self):
+        """TASK-005 is accepted (not phantom) when COMP-005 exists."""
+        meta = {"total_computations": 1}
+        body = "# Computations\n\n## TASK-005\n\nPreamble.\n\n## COMP-005\n\n**CLAIM**: test\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
+        state = "See TASK-005 for the computation result.\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter(meta, body),
+        })
+        violations = check_phantom_references(ws)
+        updated = ws.read_file("RESEARCH_STATE.md")
+        # TASK-005 should NOT be marked as phantom
+        assert "[TASK-005:unverified]" not in updated
+        assert "TASK-005" in updated
+
+
+# ---------------------------------------------------------------------------
+# Improvement 4: label propagation
+# ---------------------------------------------------------------------------
+
+class TestErPromotionProsePropagation:
+    """Tests for WH→ER prose reference propagation (Improvement 4A)."""
+
+    def test_promotion_propagates_prose(self):
+        """When WH→ER promotion happens, prose references also get updated."""
+        state = """# Established Results
+
+## WH-003 Hawking Temperature
+
+T = hbar * kappa / (2 pi k_B)
+
+This result depends on WH-003 for the surface gravity calculation.
+Also see ER-003 in the synthesis section.
+"""
+        meta = {"total_computations": 1}
+        comp_body = """# Computations
+
+## COMP-001
+
+**CLAIM**: Verify WH-003 Hawking temperature
+**VERDICT**: VERIFIED
+**RESULT**:
+Correct.
+"""
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
+        })
+        violations = check_er_promotion_gate(ws)
+        updated = ws.read_file("RESEARCH_STATE.md")
+        # All WH-003 references should be ER-003 now
+        assert "WH-003" not in updated
+        assert "ER-003" in updated
+        assert "depends on ER-003" in updated
+
+    def test_promotion_updates_unverified_tags(self):
+        """Stale unverified labels get WH→ER rename when promoted ER header exists."""
+        meta = {"total_computations": 1}
+        comp_body = """# Computations
+
+## COMP-001
+
+**CLAIM**: Verify WH-001 partition function
+**VERDICT**: VERIFIED
+**RESULT**:
+OK.
+"""
+        state = """# Established Results
+
+## ER-001 Partition Function
+
+Body.
+
+Some text with WH-001 [unverified] result.
+"""
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
+        })
+        violations = check_stale_unverified_labels(ws)
+        updated = ws.read_file("RESEARCH_STATE.md")
+        # WH-001 should become ER-001 and [unverified] should become VERIFIED
+        assert "VERIFIED" in updated
+        assert "[unverified]" not in updated.lower()
+
+
+class TestVerifiedFrontmatterBackfill:
+    """Tests for verified_results frontmatter backfill (Improvement 4C)."""
+
+    def test_verified_frontmatter_backfill(self):
+        meta_comp = {"total_computations": 1}
+        comp_body = """# Computations
+
+## COMP-001
+
+**CLAIM**: Verify ER-001 and WH-002 results
+**VERDICT**: VERIFIED
+**RESULT**:
+All checks pass.
+"""
+        state_meta = {"status": "in_progress"}
+        state_body = "# Results\n\nSome findings.\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": render_frontmatter(state_meta, state_body),
+            "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
+        })
+        violations = check_verified_frontmatter_backfill(ws)
+        assert len(violations) == 1
+        from sciralph.markdown import parse_frontmatter
+        updated_meta, _ = parse_frontmatter(ws.read_file("RESEARCH_STATE.md"))
+        assert "ER-001" in updated_meta.get("verified_results", [])
+        assert "WH-002" in updated_meta.get("verified_results", [])
+
+    def test_backfill_idempotent(self):
+        meta_comp = {"total_computations": 1}
+        comp_body = """# Computations
+
+## COMP-001
+
+**CLAIM**: Verify ER-001
+**VERDICT**: VERIFIED
+**RESULT**:
+OK.
+"""
+        state_meta = {"status": "in_progress", "verified_results": ["ER-001"]}
+        state_body = "# Results\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": render_frontmatter(state_meta, state_body),
+            "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
+        })
+        violations = check_verified_frontmatter_backfill(ws)
+        assert len(violations) == 0
+
+    def test_stale_label_renames_wh_to_er(self):
+        """When promoting [unverified] to VERIFIED, WH→ER rename happens if ER header exists."""
+        meta_comp = {"total_computations": 1}
+        comp_body = """# Computations
+
+## COMP-001
+
+**CLAIM**: Verify WH-002 mean energy
+**VERDICT**: VERIFIED
+**RESULT**:
+OK.
+"""
+        state = """---
+status: in_progress
+---
+
+# Established Results
+
+## ER-002 Mean Energy
+
+E = hbar*omega*(n + 1/2)
+
+Reference: WH-002 [unverified] computation confirms.
+"""
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
+        })
+        violations = check_stale_unverified_labels(ws)
+        updated = ws.read_file("RESEARCH_STATE.md")
+        assert "VERIFIED" in updated
+        assert "[unverified]" not in updated.lower()
+        # WH-002 should be renamed to ER-002 since ER-002 header exists
+        # Check the reference line was updated
+        assert "ER-002" in updated

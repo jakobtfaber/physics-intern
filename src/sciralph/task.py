@@ -20,6 +20,17 @@ class TaskType(StrEnum):
     TERMINATE = "terminate"
 
 
+TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
+    TaskType.RESEARCH: "researcher",
+    TaskType.DERIVE: "researcher",
+    TaskType.COMPUTE: "computationalist",
+    TaskType.CRITIQUE: "deep_critic",
+    TaskType.RESOLVE: "researcher",
+    TaskType.SYNTHESIZE: "researcher",
+    TaskType.TERMINATE: "orchestrator",
+}
+
+
 @dataclass
 class Task:
     """Typed representation of a CURRENT_TASK.md task."""
@@ -62,7 +73,7 @@ class Task:
         return cls(
             task_id=meta.get("task_id", f"TASK-{effective_iter:03d}"),
             task_type=task_type,
-            assigned_to=meta.get("assigned_to", "researcher"),
+            assigned_to=meta.get("assigned_to", "researcher") or "researcher",
             priority=meta.get("priority", "medium"),
             iteration=effective_iter,
             blocking_critiques=meta.get("blocking_critiques", []),

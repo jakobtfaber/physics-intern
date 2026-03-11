@@ -460,3 +460,31 @@ total_computations: 2
 
         context = orch.build_context(_EMPTY_TASK,iteration=5)
         assert "COMPUTATION STALL" not in context
+
+
+class TestResolveNoteValidation:
+    """Tests for critique resolution text quality (Improvement 6D)."""
+
+    def test_resolve_short_note_replaced(self):
+        """Short notes (<20 chars) are replaced with structured fallback."""
+        note = OrchestratorAgent._validate_resolution_note("OK.", "CRIT-001", 5)
+        assert "iteration 5" in note
+        assert len(note) >= 20
+
+    def test_resolve_system_marker_replaced(self):
+        """Notes containing system markers are replaced."""
+        cases = [
+            "[COMP-003:unverified] was checked",
+            ">>> VIOLATION found <<<",
+            "phantom reference detected",
+            "[error] in processing",
+        ]
+        for case in cases:
+            note = OrchestratorAgent._validate_resolution_note(case, "CRIT-001", 5)
+            assert "iteration 5" in note, f"Marker not caught: {case}"
+
+    def test_resolve_clean_note_preserved(self):
+        """Clean resolution notes are preserved as-is."""
+        clean = "Derivation corrected to include missing factor of 2 in normalization."
+        note = OrchestratorAgent._validate_resolution_note(clean, "CRIT-001", 5)
+        assert note == clean

@@ -11,12 +11,13 @@ from .markdown import (
     find_prior_failures_for_claim,
     _parse_comp_entries,
     detect_computation_stalls,
+    detect_zero_output_stalls,
     _normalize_claim_key,
     count_er_sections,
     count_wh_sections,
 )
 from .metrics import MetricsTracker
-from .task import Task, TaskType
+from .task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from .validation import validate_post_integration, can_terminate, check_phantom_references, Violation, ViolationSeverity
 from .workspace import WorkspaceManager
 from .agents.orchestrator import OrchestratorAgent
@@ -47,6 +48,7 @@ class SciRalph:
         self.problem_meta = problem_meta or {}
         self._pending_violations: list = []
         self._pending_termination_blockers: list[str] = []
+        self._displaced_tasks: list[dict] = []
 
         # Initialize agents
         self.orchestrator = OrchestratorAgent(self.config, self.workspace, self.metrics)
@@ -136,8 +138,24 @@ class SciRalph:
         self._print_task(task)
         return task
 
+    def _log_displacement(self, original_task: Task, override_name: str):
+        """Record a task displacement for transparency."""
+        summary = {
+            "task_id": original_task.task_id,
+            "task_type": str(original_task.task_type),
+            "body_summary": original_task.body[:80].replace("\n", " "),
+            "override": override_name,
+            "iteration": self.iteration,
+        }
+        self._displaced_tasks.append(summary)
+        self.metrics.alert(
+            self.iteration,
+            f"task_displaced: {original_task.task_id} ({original_task.task_type}) "
+            f"displaced by {override_name}",
+        )
+
     def _build_context_prefix(self) -> str:
-        """Build prefix for orchestrator context with violations and blockers."""
+        """Build prefix for orchestrator context with violations, blockers, and displaced tasks."""
         lines = []
         if self._pending_violations:
             lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
@@ -156,6 +174,17 @@ class SciRalph:
             )
             lines.append(">>> END TERMINATION BLOCKERS <<<\n")
             self._pending_termination_blockers.clear()
+        if self._displaced_tasks:
+            lines.append(">>> DISPLACED TASKS (from previous iteration overrides) <<<")
+            lines.append("Consider re-scheduling if still needed:")
+            for d in self._displaced_tasks:
+                lines.append(
+                    f"  - {d['task_id']} ({d['task_type']}): displaced by "
+                    f"{d['override']} at iteration {d['iteration']}. "
+                    f"Summary: {d['body_summary']}"
+                )
+            lines.append(">>> END DISPLACED TASKS <<<\n")
+            self._displaced_tasks.clear()
         return "\n".join(lines)
 
     def _apply_overrides(self, task: Task) -> Task:
@@ -168,11 +197,12 @@ class SciRalph:
                 f"[yellow]Budget enforcement: {budget_remaining} iteration(s) left, "
                 f"overriding '{task.task_type}' -> 'synthesize'.[/yellow]"
             )
-            self.metrics.alert(self.iteration, f"Budget override: {task.task_type} -> synthesize")
+            self._log_displacement(task, "budget_enforcement")
             return self._make_budget_synthesize_task()
 
         # P2: Stale-loop -> force SYNTHESIZE (not break)
         if self._is_stale_loop(task):
+            self._log_displacement(task, "stale_loop")
             return self._make_budget_synthesize_task()
 
         # P3: Forced critic (overdue) — never override terminal tasks
@@ -183,6 +213,7 @@ class SciRalph:
                 f"iter {self.metrics.last_critic_iteration}, "
                 f"threshold {self.config.critic_every_n}).[/yellow]"
             )
+            self._log_displacement(task, "forced_critic")
             return self._make_forced_critic_task()
 
         # P4: REFUTED recompute
@@ -191,6 +222,7 @@ class SciRalph:
             self._pending_recompute_claim = None
             if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
                 console.print("[yellow]Forcing recompute after REFUTED verdict.[/yellow]")
+                self._log_displacement(task, "refuted_recompute")
                 return self._make_recompute_task(claim)
 
         # P5: Block dispatch to stalled claim
@@ -206,7 +238,7 @@ class SciRalph:
                         detail=claim_key,
                     )
                 )
-                self.metrics.alert(self.iteration, f"Stall block: {claim_key[:60]}")
+                self._log_displacement(task, "stall_block")
                 # Return a research task instead — let orchestrator rethink
                 return Task(
                     task_id=task.task_id,
@@ -251,6 +283,26 @@ class SciRalph:
 
     def _dispatch(self, task: Task) -> str:
         """Route task to the correct agent."""
+        # Pre-dispatch cross-validation (Improvement 6B)
+        expected_agent = TASK_TYPE_AGENT_MAP.get(task.task_type)
+        if expected_agent:
+            if not task.assigned_to or task.assigned_to not in (
+                "orchestrator", "researcher", "computationalist", "deep_critic", "compressor"
+            ):
+                self.metrics.alert(
+                    self.iteration,
+                    f"Routing fix: empty/invalid assigned_to '{task.assigned_to}' "
+                    f"for {task.task_type}, inferred '{expected_agent}'",
+                )
+                task.assigned_to = expected_agent
+            elif task.assigned_to != expected_agent:
+                self.metrics.alert(
+                    self.iteration,
+                    f"Routing conflict: assigned_to='{task.assigned_to}' "
+                    f"vs expected='{expected_agent}' for {task.task_type}; "
+                    f"using task_type for routing",
+                )
+
         tt = task.task_type
 
         if tt in (TaskType.RESEARCH, TaskType.DERIVE, TaskType.RESOLVE, TaskType.SYNTHESIZE):
@@ -350,6 +402,15 @@ class SciRalph:
         )
         if len(prior) > 1:
             addendum += f"\n\n({len(prior) - 1} earlier failure(s) in COMPUTATION_LOG.md)\n"
+        # Check for zero-output stall in prior failures
+        has_zero_output = any("Agent produced no text output" in p for p in prior)
+        if has_zero_output:
+            addendum += (
+                "\n\n**ZERO-OUTPUT STALL DETECTED:** A prior attempt produced no text at all.\n"
+                "1. Write a brief plan in text BEFORE calling any tools\n"
+                "2. Keep computations simple — verify ONE formula at a time\n"
+                "3. Write intermediate results as text between tool calls\n"
+            )
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
 
     def _check_for_refuted_verdict(self, task: Task):
@@ -370,6 +431,10 @@ class SciRalph:
         stalls = detect_computation_stalls(comp_log, threshold=2)  # lowered from 3
         for stall in stalls:
             self._stalled_claims.add(stall["claim"])
+        # A single zero-output INCONCLUSIVE counts as stalled immediately
+        zero_stalls = detect_zero_output_stalls(comp_log)
+        for zs in zero_stalls:
+            self._stalled_claims.add(zs["claim"])
 
     def _make_recompute_task(self, claim: str) -> Task:
         """Create a forced compute task to re-verify a REFUTED claim after correction."""

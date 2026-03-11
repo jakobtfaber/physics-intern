@@ -72,7 +72,8 @@ you get stuck.
 CRITICAL RULES:
 - Keep Phase 1 and Phase 2 STRICTLY separate.
 - If Phase 1 reproduction arrives at the SAME result and you find no flaw,
-  do NOT file a critique. Move on to the next claim.
+  do NOT file a critique at any severity level (including MEDIUM). Move on
+  to the next claim.
 - Do NOT critique your own Phase 1 reproduction.
 - Use ID format CRIT-NNN (not CRITIQUE-NNN).
 

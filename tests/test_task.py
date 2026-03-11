@@ -1,6 +1,6 @@
 """Tests for Task dataclass and TaskType enum."""
 
-from sciralph.task import Task, TaskType
+from sciralph.task import Task, TaskType, TASK_TYPE_AGENT_MAP
 
 
 class TestTaskType:
@@ -90,3 +90,36 @@ class TestTaskFromFrontmatter:
         assert restored.assigned_to == original.assigned_to
         assert restored.iteration == original.iteration
         assert "Review all claims." in restored.body
+
+
+class TestTaskFromFrontmatterEdgeCases:
+    """Tests for Task.from_frontmatter edge cases (Improvement 6C)."""
+
+    def test_from_frontmatter_empty_assigned_to(self):
+        """Empty string assigned_to defaults to 'researcher'."""
+        text = "---\ntask_type: compute\nassigned_to: ''\niteration: 5\n---\n\nBody."
+        task = Task.from_frontmatter(text)
+        assert task.assigned_to == "researcher"
+
+    def test_from_frontmatter_null_assigned_to(self):
+        """null/None assigned_to defaults to 'researcher'."""
+        text = "---\ntask_type: compute\nassigned_to:\niteration: 5\n---\n\nBody."
+        task = Task.from_frontmatter(text)
+        assert task.assigned_to == "researcher"
+
+
+class TestTaskTypeAgentMap:
+    """Tests for TASK_TYPE_AGENT_MAP (Improvement 6A)."""
+
+    def test_all_task_types_mapped(self):
+        for tt in TaskType:
+            assert tt in TASK_TYPE_AGENT_MAP, f"TaskType.{tt} not in TASK_TYPE_AGENT_MAP"
+
+    def test_compute_maps_to_computationalist(self):
+        assert TASK_TYPE_AGENT_MAP[TaskType.COMPUTE] == "computationalist"
+
+    def test_critique_maps_to_deep_critic(self):
+        assert TASK_TYPE_AGENT_MAP[TaskType.CRITIQUE] == "deep_critic"
+
+    def test_research_maps_to_researcher(self):
+        assert TASK_TYPE_AGENT_MAP[TaskType.RESEARCH] == "researcher"

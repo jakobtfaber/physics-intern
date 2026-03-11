@@ -430,6 +430,7 @@ class TestApplyOverrides:
             engine._stalled_claims = set()
             engine._pending_recompute_claim = pending_recompute
             engine._last_content_iteration = current_iteration
+            engine._displaced_tasks = []
         return engine, written
 
     def test_budget_override_highest_priority(self):
@@ -590,6 +591,7 @@ class TestTerminationGate:
             engine.problem_meta = {}
             engine._pending_violations = []
             engine._pending_termination_blockers = []
+            engine._displaced_tasks = []
         return engine, written
 
     def test_terminate_allowed_when_stub(self):
@@ -813,6 +815,7 @@ total_computations: 3
             engine._pending_recompute_claim = None
             engine._pending_violations = []
             engine._pending_termination_blockers = []
+            engine._displaced_tasks = []
             engine._last_content_iteration = 5
             engine.problem_meta = {}
         return engine
@@ -845,3 +848,268 @@ total_computations: 3
         )
         result = engine._apply_overrides(task)
         assert result.task_type == TaskType.COMPUTE
+
+
+class TestDisplacedTaskLogging:
+    """Tests for displaced task logging (Improvement 3)."""
+
+    def _make_engine(self, max_iterations=20, current_iteration=5,
+                     last_critic_iteration=0, critic_every_n=4,
+                     pending_recompute=None, stale_iterations=0,
+                     research_state=""):
+        """Create a SciRalph instance for displacement testing."""
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            written = {}
+
+            def capture_write(filename, content):
+                written[filename] = content
+            ws.write_file = MagicMock(side_effect=capture_write)
+            ws.read_file = MagicMock(return_value=research_state)
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config(
+                max_iterations=max_iterations,
+                critic_every_n=critic_every_n,
+            )
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.metrics.last_critic_iteration = last_critic_iteration
+            engine.iteration = current_iteration
+            engine._stale_iterations = stale_iterations
+            engine._stalled_claims = set()
+            engine._pending_recompute_claim = pending_recompute
+            engine._last_content_iteration = current_iteration
+            engine._displaced_tasks = []
+            engine._pending_violations = []
+            engine._pending_termination_blockers = []
+        return engine, written
+
+    def test_budget_override_logs_displacement(self):
+        """Budget enforcement logs the displaced task."""
+        engine, written = self._make_engine(
+            max_iterations=10, current_iteration=10,
+        )
+        task = Task(
+            task_id="TASK-010", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist", iteration=10,
+            body="Verify something important.",
+        )
+        result = engine._apply_overrides(task)
+        assert result.task_type == TaskType.SYNTHESIZE
+        assert len(engine._displaced_tasks) == 1
+        assert engine._displaced_tasks[0]["override"] == "budget_enforcement"
+        assert engine._displaced_tasks[0]["task_type"] == "compute"
+
+    def test_forced_critic_logs_displacement(self):
+        """Forced critic logs the displaced task."""
+        engine, written = self._make_engine(
+            max_iterations=20, current_iteration=8,
+            last_critic_iteration=0, critic_every_n=4,
+        )
+        task = Task(
+            task_id="TASK-008", task_type=TaskType.RESEARCH,
+            assigned_to="researcher", iteration=8,
+            body="Research something.",
+        )
+        result = engine._apply_overrides(task)
+        assert result.task_type == TaskType.CRITIQUE
+        assert len(engine._displaced_tasks) == 1
+        assert engine._displaced_tasks[0]["override"] == "forced_critic"
+
+    def test_stall_block_logs_displacement(self):
+        """Stall blocking logs the displaced task."""
+        engine, written = self._make_engine(
+            max_iterations=20, current_iteration=5,
+            last_critic_iteration=4,
+        )
+        engine._stalled_claims = {"WH-001"}
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist", iteration=5,
+            body="Verify WH-001 formula",
+        )
+        result = engine._apply_overrides(task)
+        assert result.task_type == TaskType.RESEARCH
+        assert len(engine._displaced_tasks) == 1
+        assert engine._displaced_tasks[0]["override"] == "stall_block"
+
+    def test_displacement_injected_into_context_prefix(self):
+        """Displaced tasks appear in context prefix."""
+        engine, written = self._make_engine()
+        engine._displaced_tasks = [{
+            "task_id": "TASK-004",
+            "task_type": "compute",
+            "body_summary": "Verify something",
+            "override": "forced_critic",
+            "iteration": 4,
+        }]
+        prefix = engine._build_context_prefix()
+        assert "DISPLACED TASKS" in prefix
+        assert "TASK-004" in prefix
+        assert "forced_critic" in prefix
+
+    def test_displacement_cleared_after_prefix(self):
+        """Displaced tasks list is cleared after building prefix."""
+        engine, written = self._make_engine()
+        engine._displaced_tasks = [{
+            "task_id": "TASK-004",
+            "task_type": "compute",
+            "body_summary": "Verify something",
+            "override": "forced_critic",
+            "iteration": 4,
+        }]
+        engine._build_context_prefix()
+        assert len(engine._displaced_tasks) == 0
+
+    def test_no_displacement_when_not_overridden(self):
+        """No displacement recorded when task passes through unchanged."""
+        engine, written = self._make_engine(
+            max_iterations=20, current_iteration=5,
+            last_critic_iteration=4,  # critic not overdue
+        )
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.RESEARCH,
+            assigned_to="researcher", iteration=5,
+            body="Research something.",
+        )
+        result = engine._apply_overrides(task)
+        assert result.task_type == TaskType.RESEARCH
+        assert len(engine._displaced_tasks) == 0
+
+
+class TestZeroOutputStallHandling:
+    """Tests for zero-output stall detection and enrichment (Improvement 1C-1D)."""
+
+    COMP_LOG_ZERO_OUTPUT = """\
+---
+total_computations: 1
+---
+
+# Computations
+
+## COMP-001: Check WH-001
+**CLAIM**: Verify WH-001 formula
+**VERDICT**: INCONCLUSIVE
+
+Agent produced no text output. Writing INCONCLUSIVE stub.
+"""
+
+    def _make_engine(self, comp_log=""):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            written = {}
+
+            def capture_write(filename, content):
+                written[filename] = content
+            ws.write_file = MagicMock(side_effect=capture_write)
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.metrics.last_critic_iteration = 4
+            engine.iteration = 5
+            engine._stale_iterations = 0
+            engine._stalled_claims = set()
+            engine._pending_recompute_claim = None
+            engine._pending_violations = []
+            engine._pending_termination_blockers = []
+            engine._displaced_tasks = []
+            engine._last_content_iteration = 5
+        return engine, ws, written
+
+    def test_zero_output_stall_immediately_blocks(self):
+        """A single zero-output INCONCLUSIVE should add to _stalled_claims."""
+        engine, ws, _ = self._make_engine()
+        ws.read_file = MagicMock(return_value=self.COMP_LOG_ZERO_OUTPUT)
+        engine._update_stall_tracking()
+        assert any("WH-001" in c for c in engine._stalled_claims)
+
+    def test_enrich_flags_zero_output_stall(self):
+        """Enrichment adds ZERO-OUTPUT STALL instructions when prior has no-text marker."""
+        engine, ws, written = self._make_engine()
+        zero_output_prior = (
+            "Agent produced no text output. Writing INCONCLUSIVE stub.\n"
+            "Used 100K tokens with no result."
+        )
+        ws.read_file = MagicMock(side_effect=lambda f: {
+            "COMPUTATION_LOG.md": """\
+## COMP-001: Check WH-003
+- **CLAIM**: Verify WH-003 mass limit
+- **VERDICT**: INCONCLUSIVE
+- **RESULT**:
+  Agent produced no text output. Writing INCONCLUSIVE stub.
+""",
+            "CURRENT_TASK.md": "---\ntask_type: compute\n---\n\nVerify WH-003 mass.",
+        }.get(f, ""))
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist", body="Verify WH-003 mass limit",
+        )
+        engine._enrich_compute_task_with_prior_failures(task)
+        assert "CURRENT_TASK.md" in written
+        enriched = written["CURRENT_TASK.md"]
+        assert "ZERO-OUTPUT STALL DETECTED" in enriched
+
+
+class TestDispatchRoutingValidation:
+    """Tests for dispatch cross-validation (Improvement 6B)."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 5
+            engine._last_content_iteration = 5
+            engine.researcher = MagicMock()
+            engine.computationalist = MagicMock()
+            engine.critic = MagicMock()
+        return engine
+
+    def test_dispatch_logs_routing_conflict(self):
+        """Mismatched assigned_to logs a warning but routes correctly."""
+        engine = self._make_engine()
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.COMPUTE,
+            assigned_to="researcher",  # wrong for compute
+            iteration=5, body="Verify something.",
+        )
+        result = engine._dispatch(task)
+        assert result == "computationalist"
+        engine.metrics.alert.assert_called()
+        alert_msg = engine.metrics.alert.call_args[0][1]
+        assert "Routing conflict" in alert_msg
+
+    def test_dispatch_infers_from_empty_assigned_to(self):
+        """Empty assigned_to gets inferred from task_type."""
+        engine = self._make_engine()
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.RESEARCH,
+            assigned_to="",  # empty
+            iteration=5, body="Research something.",
+        )
+        result = engine._dispatch(task)
+        assert result == "researcher"
+        engine.metrics.alert.assert_called()
+        alert_msg = engine.metrics.alert.call_args[0][1]
+        assert "Routing fix" in alert_msg

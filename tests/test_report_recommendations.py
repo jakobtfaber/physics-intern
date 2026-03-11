@@ -832,8 +832,8 @@ class TestNewConfigFields:
     """Verify new config fields are properly loaded from defaults."""
 
     def test_zero_text_bailout_default(self):
-        assert DEFAULTS["zero_text_bailout"] == 5
-        assert Config().zero_text_bailout == 5
+        assert DEFAULTS["zero_text_bailout"] == 3
+        assert Config().zero_text_bailout == 3
 
     def test_checkpoint_round_default(self):
         assert DEFAULTS["checkpoint_round"] == 2

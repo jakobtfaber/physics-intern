@@ -93,6 +93,9 @@ def run_agent_loop(
     total_input = 0
     total_output = 0
     zero_text_streak = 0
+    cumulative_text_len = 0
+    low_cumulative_bailout = False
+    halfway = max_rounds // 2
     token_alert_fired = False
     overall_start = time.time()
 
@@ -180,11 +183,17 @@ def run_agent_loop(
                          total_input, total_output)
 
             # Track consecutive zero-text rounds for early bailout
+            cumulative_text_len += len(round_text.strip())
             if len(round_text.strip()) == 0:
                 zero_text_streak += 1
             else:
                 zero_text_streak = 0
             if zero_text_streak >= config.zero_text_bailout:
+                break  # Falls through to forced final call
+
+            # Low-cumulative-text bailout at halfway point (only for longer runs)
+            if halfway >= 3 and round_num == halfway and cumulative_text_len < 100:
+                low_cumulative_bailout = True
                 break  # Falls through to forced final call
 
             # Checkpoint nudge at halfway point
@@ -201,11 +210,17 @@ def run_agent_loop(
                     }],
                 })
 
-    # Exhausted max_rounds or zero-text bailout — force one final text-only call
+    # Exhausted max_rounds or zero-text/low-cumulative bailout — force one final text-only call
     if zero_text_streak >= config.zero_text_bailout:
         reason = (
             "IMPORTANT: You were terminated early because you stopped producing "
             "text for multiple consecutive rounds. "
+        )
+    elif low_cumulative_bailout:
+        reason = (
+            "IMPORTANT: You were terminated early because you produced very little "
+            "text output across multiple rounds. You must write substantive analysis "
+            "alongside tool calls, not defer all text to the end. "
         )
     else:
         reason = (
