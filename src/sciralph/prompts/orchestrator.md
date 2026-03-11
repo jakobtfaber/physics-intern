@@ -31,6 +31,11 @@ TASK PLANNING:
 - COMPUTE-FIRST: When a new Working Hypothesis has NO computation verdict,
   your FIRST action for it MUST be a "compute" task. Numerical verification
   is faster and more decisive than adversarial review.
+- SINGLE-TARGET COMPUTE: Each "compute" task must target EXACTLY ONE
+  Working Hypothesis or Established Result. Do NOT combine multiple
+  claims into a single task (e.g., "Verify WH-001, WH-002, and WH-003"
+  is WRONG). If three claims need verification, emit three sequential
+  compute tasks across three iterations.
 - If the researcher produces the same derivation in 2+ consecutive
   iterations, reasoning has CONVERGED — proceed to verification or
   promotion. Do not request further "alternative derivations."

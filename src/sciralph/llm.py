@@ -36,6 +36,7 @@ class AgentResult:
     truncated: bool = False
     duration: float = 0.0
     stop_reason: str = "end_turn"
+    token_alert_fired: bool = False
 
 
 def call_llm(system: str, user_content: str, config: Config,
@@ -89,6 +90,8 @@ def run_agent_loop(
     all_tool_calls: list[ToolCall] = []
     total_input = 0
     total_output = 0
+    zero_text_streak = 0
+    token_alert_fired = False
     overall_start = time.time()
 
     for round_num in range(1, max_rounds + 1):
@@ -104,6 +107,8 @@ def run_agent_loop(
 
         total_input += response.usage.input_tokens
         total_output += response.usage.output_tokens
+        if total_input > config.computation_token_alert:
+            token_alert_fired = True
 
         # Audit + conversation log for this round
         round_text = _extract_text(response.content)
@@ -131,6 +136,7 @@ def run_agent_loop(
                 truncated=False,
                 duration=time.time() - overall_start,
                 stop_reason="end_turn",
+                token_alert_fired=token_alert_fired,
             )
 
         # max_tokens: truncated
@@ -144,6 +150,7 @@ def run_agent_loop(
                 truncated=True,
                 duration=time.time() - overall_start,
                 stop_reason="max_tokens",
+                token_alert_fired=token_alert_fired,
             )
 
         # tool_use: execute tools and continue
@@ -164,11 +171,42 @@ def run_agent_loop(
 
             messages.append({"role": "user", "content": tool_results})
 
-    # Exhausted max_rounds — force one final text-only call for partial output
+            # Track consecutive zero-text rounds for early bailout
+            if len(round_text.strip()) == 0:
+                zero_text_streak += 1
+            else:
+                zero_text_streak = 0
+            if zero_text_streak >= config.zero_text_bailout:
+                break  # Falls through to forced final call
+
+            # Checkpoint nudge at halfway point
+            if round_num == config.checkpoint_round:
+                messages.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "text",
+                        "text": (
+                            "CHECKPOINT: You have used half your available rounds. "
+                            "Write your COMP entry text now alongside any remaining "
+                            "tool calls. Do not defer all text to the final round."
+                        ),
+                    }],
+                })
+
+    # Exhausted max_rounds or zero-text bailout — force one final text-only call
+    if zero_text_streak >= config.zero_text_bailout:
+        reason = (
+            "IMPORTANT: You were terminated early because you stopped producing "
+            "text for multiple consecutive rounds. "
+        )
+    else:
+        reason = (
+            "IMPORTANT: You have reached the maximum number of tool-use rounds. "
+        )
     forced_system = (
         system + "\n\n"
-        "IMPORTANT: You have reached the maximum number of tool-use rounds. "
-        "You cannot call any more tools. You MUST now write your final "
+        + reason
+        + "You cannot call any more tools. You MUST now write your final "
         "COMP-NNN entry with whatever results you have so far.\n\n"
         "Format: ## COMP-NNN header, **CLAIM**, **METHOD**, **RESULT**, "
         "**VERDICT** (use INCONCLUSIVE if incomplete), **NOTES**.\n"
@@ -194,17 +232,18 @@ def run_agent_loop(
             final_text, final_response.usage.input_tokens,
             final_response.usage.output_tokens, "forced_partial", dur
         ), forced_system, user_content, agent_name, iteration,
-        round=max_rounds + 1)
+        round=round_num + 1)
 
     return AgentResult(
         text=final_text,
         tool_calls=all_tool_calls,
         total_input_tokens=total_input,
         total_output_tokens=total_output,
-        rounds=max_rounds + 1,
+        rounds=round_num + 1,
         truncated=True,
         duration=time.time() - overall_start,
         stop_reason="max_rounds_forced",
+        token_alert_fired=token_alert_fired,
     )
 
 

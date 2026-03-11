@@ -96,6 +96,13 @@ class BaseAgent(ABC):
                 f"(rounds={result.rounds}, stop={result.stop_reason})"
             )
 
+        if result.token_alert_fired:
+            self.metrics.alert(
+                iteration,
+                f"computation_token_alert on {self.name} "
+                f"(input={result.total_input_tokens})"
+            )
+
         return result
 
     def _call_with_retry(self, context: str, iteration: int) -> LLMResponse:

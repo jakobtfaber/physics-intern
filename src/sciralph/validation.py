@@ -15,6 +15,7 @@ from .markdown import (
     count_er_sections,
     find_er_section_ids,
     _ER_WH_ID_RE,
+    _WH_SECTION_RE,
 )
 
 if TYPE_CHECKING:
@@ -55,21 +56,20 @@ _VALID_AGENTS = {"orchestrator", "researcher", "computationalist", "deep_critic"
 # ---------------------------------------------------------------------------
 
 def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
-    """Demote ER-NNN sections that lack a VERIFIED computation backing."""
+    """Demote ER-NNN sections that lack a VERIFIED computation backing,
+    and promote WH-NNN headers when the body already uses ER-NNN with VERIFIED backing."""
     violations: list[Violation] = []
     state = workspace.read_file("RESEARCH_STATE.md")
     comp_log = workspace.read_file("COMPUTATION_LOG.md")
     entries = _parse_comp_entries(comp_log)
+    changed = False
 
-    # Find all ER-NNN section entries (H2 headers or **bold** line-start)
+    # --- Pass 1: Demote unverified ERs to WHs ---
     er_ids = find_er_section_ids(state)
 
     for er_id in er_ids:
         num = er_id.split("-")[1]
         wh_id = f"WH-{num}"
-        # Check if any VERIFIED entry mentions ER-NNN or WH-NNN
-        # Search both the claim line and the full body (IDs often appear
-        # on bullet lines below the claim, not on the claim line itself)
         has_verified = any(
             e["verdict"] == "VERIFIED" and (
                 er_id in e["claim"] or wh_id in e["claim"]
@@ -78,7 +78,6 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
             for e in entries
         )
         if not has_verified:
-            # Demote ER back to WH — handle both ## header and **bold** formats
             state = re.sub(
                 rf'^(#{{2,3}} |(?:\*\*)){re.escape(er_id)}',
                 rf'\g<1>{wh_id}',
@@ -86,6 +85,7 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
                 count=1,
                 flags=re.MULTILINE,
             )
+            changed = True
             violations.append(Violation(
                 check="er_promotion_gate",
                 severity=ViolationSeverity.ERROR,
@@ -94,7 +94,39 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
                 detail=er_id,
             ))
 
-    if violations:
+    # --- Pass 2: Promote WH-NNN headers when ER-NNN already in body with VERIFIED backing ---
+    wh_ids = _WH_SECTION_RE.findall(state)
+    for wh_id in wh_ids:
+        num = wh_id.split("-")[1]
+        er_id = f"ER-{num}"
+        # Only promote if ER-NNN already appears elsewhere in state (sign of intended promotion)
+        if er_id not in state:
+            continue
+        has_verified = any(
+            e["verdict"] == "VERIFIED" and (
+                er_id in e["claim"] or wh_id in e["claim"]
+                or er_id in e.get("body", "") or wh_id in e.get("body", "")
+            )
+            for e in entries
+        )
+        if has_verified:
+            state = re.sub(
+                rf'^(#{{2,3}} ){re.escape(wh_id)}',
+                rf'\g<1>{er_id}',
+                state,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            changed = True
+            violations.append(Violation(
+                check="er_promotion_gate",
+                severity=ViolationSeverity.WARNING,
+                message=f"Promoted header {wh_id} → {er_id} (VERIFIED backing found)",
+                file="RESEARCH_STATE.md",
+                detail=wh_id,
+            ))
+
+    if changed:
         workspace.write_file("RESEARCH_STATE.md", state)
 
     return violations
@@ -177,6 +209,59 @@ def check_phantom_labels(workspace: WorkspaceManager) -> list[Violation]:
     return violations
 
 
+def check_stale_unverified_labels(workspace: WorkspaceManager) -> list[Violation]:
+    """Promote [unverified] labels to VERIFIED when backed by computation."""
+    violations: list[Violation] = []
+    comp_log = workspace.read_file("COMPUTATION_LOG.md")
+    entries = _parse_comp_entries(comp_log)
+
+    # Build set of ER/WH IDs that have VERIFIED computations
+    verified_ids: set[str] = set()
+    for e in entries:
+        if e["verdict"] == "VERIFIED":
+            verified_ids.update(_ER_WH_ID_RE.findall(e["claim"]))
+            verified_ids.update(_ER_WH_ID_RE.findall(e.get("body", "")))
+
+    if not verified_ids:
+        return []
+
+    state = workspace.read_file("RESEARCH_STATE.md")
+    if not state or "[unverified]" not in state.lower():
+        return []
+
+    # Expand WH-NNN → ER-NNN for promoted hypotheses: if WH-001 is in
+    # verified_ids and ER-001 exists as a section header in state, add ER-001.
+    er_section_ids = set(find_er_section_ids(state))
+    for vid in list(verified_ids):
+        if vid.startswith("WH-"):
+            promoted_er = "ER-" + vid.split("-")[1]
+            if promoted_er in er_section_ids:
+                verified_ids.add(promoted_er)
+
+    new_lines = []
+    changed = False
+    for line in state.splitlines():
+        if "[unverified]" in line.lower():
+            ids_in_line = _ER_WH_ID_RE.findall(line)
+            if ids_in_line and any(id_ in verified_ids for id_ in ids_in_line):
+                line = line.replace("[unverified]", "VERIFIED")
+                line = line.replace("[Unverified]", "VERIFIED")
+                changed = True
+                violations.append(Violation(
+                    check="stale_unverified_labels",
+                    severity=ViolationSeverity.WARNING,
+                    message=f"Promoted [unverified] → VERIFIED for {', '.join(ids_in_line)}",
+                    file="RESEARCH_STATE.md",
+                    detail=", ".join(ids_in_line),
+                ))
+        new_lines.append(line)
+
+    if changed:
+        workspace.write_file("RESEARCH_STATE.md", "\n".join(new_lines))
+
+    return violations
+
+
 def check_phantom_references(workspace: WorkspaceManager) -> list[Violation]:
     """Replace orphaned COMP/TASK references in RESEARCH_STATE.md."""
     violations: list[Violation] = []
@@ -216,7 +301,7 @@ def check_id_consistency(workspace: WorkspaceManager) -> list[Violation]:
 
     meta, body = parse_frontmatter(comp_log)
     entries = _parse_comp_entries(comp_log)
-    actual_count = len(entries)
+    actual_count = len([e for e in entries if e["id"].startswith("COMP-")])
     recorded_count = meta.get("total_computations", 0)
 
     if actual_count != recorded_count:
@@ -240,6 +325,7 @@ _DEFAULT_CHECKS = [
     check_phantom_references,
     check_er_promotion_gate,
     check_phantom_labels,
+    check_stale_unverified_labels,
     check_task_agent_routing,
     check_id_consistency,
 ]

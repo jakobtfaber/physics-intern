@@ -17,7 +17,7 @@ from .markdown import (
 )
 from .metrics import MetricsTracker
 from .task import Task, TaskType
-from .validation import validate_post_integration, can_terminate, Violation, ViolationSeverity
+from .validation import validate_post_integration, can_terminate, check_phantom_references, Violation, ViolationSeverity
 from .workspace import WorkspaceManager
 from .agents.orchestrator import OrchestratorAgent
 from .agents.researcher import ResearcherAgent
@@ -43,6 +43,7 @@ class SciRalph:
         self._stale_iterations = 0
         self._pending_recompute_claim: str | None = None
         self._stalled_claims: set[str] = set()
+        self._last_content_iteration: int = 0
         self.problem_meta = problem_meta or {}
         self._pending_violations: list = []
         self._pending_termination_blockers: list[str] = []
@@ -91,6 +92,11 @@ class SciRalph:
             if task.task_type == TaskType.COMPUTE:
                 self._check_for_refuted_verdict(task)
                 self._update_stall_tracking()
+
+            # 6b. Post-dispatch phantom check — catch refs introduced by agents
+            post_phantoms = check_phantom_references(self.workspace)
+            if post_phantoms:
+                self._pending_violations.extend(post_phantoms)
 
             # 7. Compression, metrics, git
             self._check_compression()
@@ -250,11 +256,13 @@ class SciRalph:
         if tt in (TaskType.RESEARCH, TaskType.DERIVE, TaskType.RESOLVE, TaskType.SYNTHESIZE):
             console.print(f"[green]Researcher[/green] working on: {tt}")
             self.researcher.run(task, self.iteration)
+            self._last_content_iteration = self.iteration
             return "researcher"
 
         elif tt == TaskType.COMPUTE:
             console.print("[magenta]Computationalist[/magenta] working...")
             self.computationalist.run(task, self.iteration)
+            self._last_content_iteration = self.iteration
             return "computationalist"
 
         elif tt == TaskType.CRITIQUE:
@@ -284,7 +292,12 @@ class SciRalph:
 
     def _critic_overdue(self) -> bool:
         """Check if more than N iterations since last critic pass."""
-        return (self.iteration - self.metrics.last_critic_iteration) >= self.config.critic_every_n
+        if (self.iteration - self.metrics.last_critic_iteration) < self.config.critic_every_n:
+            return False
+        # Skip if critic already reviewed the latest content
+        if self.metrics.last_critic_iteration >= self._last_content_iteration:
+            return False
+        return True
 
     def _make_forced_critic_task(self) -> Task:
         """Create a forced critic task."""

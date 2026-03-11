@@ -429,6 +429,7 @@ class TestApplyOverrides:
             engine._stale_iterations = stale_iterations
             engine._stalled_claims = set()
             engine._pending_recompute_claim = pending_recompute
+            engine._last_content_iteration = current_iteration
         return engine, written
 
     def test_budget_override_highest_priority(self):
@@ -812,6 +813,7 @@ total_computations: 3
             engine._pending_recompute_claim = None
             engine._pending_violations = []
             engine._pending_termination_blockers = []
+            engine._last_content_iteration = 5
             engine.problem_meta = {}
         return engine
 

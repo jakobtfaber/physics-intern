@@ -501,6 +501,45 @@ OK.
         assert "frontmatter=5" in violations[0].message
         assert "actual=1" in violations[0].message
 
+    def test_task_headers_excluded_from_count(self):
+        """TASK-NNN headers in COMPUTATION_LOG should not be counted as computations."""
+        meta = {"total_computations": 0, "last_computation": "2026-03-10"}
+        body = """# Computations
+
+## TASK-002: Computation
+
+All checks resolve cleanly.
+
+## COMP-002: Verification of QHO Heat Capacity
+
+**CLAIM**: Verify heat capacity
+**VERDICT**: VERIFIED
+**RESULT**:
+OK.
+
+## TASK-003: Computation
+
+More preamble.
+
+## COMP-003: Partition Function Identity
+
+**CLAIM**: Verify partition function
+**VERDICT**: VERIFIED
+**RESULT**:
+OK.
+"""
+        ws = MockWorkspace({
+            "COMPUTATION_LOG.md": render_frontmatter(meta, body),
+        })
+        violations = check_id_consistency(ws)
+        assert len(violations) == 1
+        # Should count only COMP-002 and COMP-003, not TASK-002 and TASK-003
+        assert "actual=2" in violations[0].message
+        updated = ws.read_file("COMPUTATION_LOG.md")
+        from sciralph.markdown import parse_frontmatter
+        updated_meta, _ = parse_frontmatter(updated)
+        assert updated_meta["total_computations"] == 2
+
 
 # ---------------------------------------------------------------------------
 # validate_post_integration (pipeline)

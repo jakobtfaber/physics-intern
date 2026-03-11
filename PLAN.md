@@ -1,19 +1,22 @@
 # SciRalph — Task List
 
-## Phase 1
+## Completed: Report Recommendations (March 2026)
 
+All 9 recommendations from `reports/20260311_1248_analysis_report.md` implemented:
 
+- **P0-A** — Zero-text watchdog: bails out of tool-only loops after N consecutive zero-text rounds (`zero_text_bailout` config, default 3)
+- **P0-B** — Single-target compute: orchestrator prompt enforces one WH/ER per compute task
+- **P1-A** — Checkpoint message at round N: nudges computationalist to write text midway (`checkpoint_round` config, default 5)
+- **P1-B** — Per-computation token alert: fires `computation_token_alert` when input exceeds threshold (default 150K)
+- **P2-A** — Stale `[unverified]` label promotion: new `check_stale_unverified_labels()` in validation pipeline. Bugfix (March 2026): now expands WH→ER mapping so promoted hypotheses (WH-001 → ER-001) are matched in synthesis tables
+- **P2-B** — WH→ER header promotion: `check_er_promotion_gate()` now promotes WH headers when body uses ER-NNN with VERIFIED backing
+- **P2-C** — Fixed `total_computations` counter: only counts `## COMP-` headers, not `## TASK-` sub-entries; uses direct set instead of `max()`. Bugfix (March 2026): `check_id_consistency()` now also filters to COMP-only (was overcounting via `_parse_comp_entries` which includes TASK headers)
+- **P2-D** — Critique resolution regex: captures multi-line text up to paragraph boundary, caps at 300 chars at sentence boundary
+- **P3** — Skip redundant critic: `_critic_overdue()` returns False when critic already reviewed latest content
 
-## Phase 2: Engine Hardening — DONE (March 2026)
+Also fixed: forced final call `rounds` now uses actual round count (not `max_rounds`) for correct reporting on early bailout.
 
-Restructured engine.py's scattered ad-hoc fixes into three testable layers (258 tests, up from 172):
-
-- **Layer A** — Iteration contract rewrite (`engine.py`): every orchestrator-emitted task gets dispatched; `_apply_overrides()` consolidates all overrides (budget, stale loop, forced critic, REFUTED recompute, stall blocking) into a single priority chain; termination goes through `can_terminate()` gate
-- **Layer B** — Post-integration validation (`validation.py`): 5 check functions (phantom references, ER promotion gate, phantom labels, task-agent routing, ID consistency) run after every orchestrator pass; violations injected into next orchestrator context
-- **Layer C** — Agent loop resilience: forced text-only final call on `max_rounds` exhaustion (no more empty stubs); stall detection with threshold=2 blocks re-dispatch of stuck claims
-- Cosmetic: critique preamble strip in `critic.py`; `requires_numerical` added to all 10 problem YAMLs
-
----
+Also fixed (March 2026): post-dispatch phantom reference check in engine.py — `check_phantom_references()` now runs after agent dispatch (step 6b), catching phantom COMP/TASK references introduced by agents within the same iteration instead of waiting for the next iteration's orchestrator pass.
 
 ## Future work
 

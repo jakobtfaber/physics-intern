@@ -98,15 +98,15 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-All core functionality is implemented and working (258 tests passing). Phase 2 engine hardening complete:
+All core functionality is implemented and working (312 tests passing). Phase 2 engine hardening complete + report recommendations implemented:
 
 - **Core loop** — all five agents, main loop, orchestrator integration, consolidated override chain (`_apply_overrides`), termination gates (`can_terminate`)
-- **Validation pipeline** — 5 post-integration checks (ER promotion gate, phantom references/labels, agent routing, ID consistency), violation injection into orchestrator context
-- **Orchestrator** — sub-problem decomposition, integration duty, critique resolution, stale-iteration backstop, momentum/compute-first/stall-detection rules, context prefix for violations/blockers
-- **Computationalist** — agentic tool-use with `execute_python`, forced partial output on truncation, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE)
+- **Validation pipeline** — 6 post-integration checks (ER promotion gate, phantom references/labels, stale unverified label promotion, agent routing, ID consistency), violation injection into orchestrator context
+- **Orchestrator** — sub-problem decomposition, integration duty, critique resolution (multi-line capture), stale-iteration backstop, momentum/compute-first/single-target-compute/stall-detection rules, context prefix for violations/blockers
+- **Computationalist** — agentic tool-use with `execute_python`, forced partial output on truncation, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE), COMP-only counter
 - **Deep Critic** — two-phase format, preamble stripping, self-retraction filtering, INCONCLUSIVE severity cap
 - **Compressor** — archival + compression with forced compression at 2x threshold
-- **Tool-use infrastructure** — `run_agent_loop` with forced text-only final call on `max_rounds`, stall detection (threshold=2)
+- **Tool-use infrastructure** — `run_agent_loop` with forced text-only final call on `max_rounds` or zero-text bailout, checkpoint message at round N, per-computation token alert, stall detection (threshold=2)
 - **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
 - **Logging** — JSONL audit logging (metadata per LLM call, round field for tool-use), full conversation logs
 

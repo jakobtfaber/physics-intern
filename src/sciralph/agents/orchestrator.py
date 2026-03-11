@@ -158,11 +158,18 @@ class OrchestratorAgent(BaseAgent):
         resolution_notes = {}
         for crit_id in resolved_ids:
             note_match = re.search(
-                rf'{re.escape(crit_id)}[\s:—\-]+([^.\n]{{10,120}}[.])',
+                rf'{re.escape(crit_id)}[\s:—\-]+(.+?)(?=\n\n|\nCRIT(?:IQUE)?-\d|$)',
                 response_text,
+                re.DOTALL,
             )
             if note_match:
-                resolution_notes[crit_id] = note_match.group(1).strip()
+                note = note_match.group(1).strip()
+                # Collapse whitespace, cap at 300 chars at sentence boundary
+                note = " ".join(note.split())
+                if len(note) > 300:
+                    cut = note[:300].rfind('.')
+                    note = note[:cut + 1] if cut > 50 else note[:300] + "..."
+                resolution_notes[crit_id] = note
 
         content = self.workspace.read_file("CRITIQUE_LOG.md")
         for crit_id in sorted(resolved_ids):

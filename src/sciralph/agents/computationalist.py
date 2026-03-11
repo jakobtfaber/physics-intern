@@ -56,9 +56,7 @@ class ComputationalistAgent(BaseAgent):
         """Update COMPUTATION_LOG.md frontmatter with counts."""
         content = self.workspace.read_file("COMPUTATION_LOG.md")
         meta, body = parse_frontmatter(content)
-        comp_count = len(re.findall(r'^## COMP-', body, re.MULTILINE))
-        # Also count task-based entries
-        comp_count += len(re.findall(r'^## TASK-', body, re.MULTILINE))
-        meta["total_computations"] = max(meta.get("total_computations", 0), comp_count)
+        comp_count = len(re.findall(r'^## COMP-\d+', body, re.MULTILINE))
+        meta["total_computations"] = comp_count
         meta["last_computation"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.workspace.write_file("COMPUTATION_LOG.md", render_frontmatter(meta, body))
