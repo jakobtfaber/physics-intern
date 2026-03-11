@@ -166,6 +166,7 @@ class SciRalph:
         elif tt == TaskType.CRITIQUE:
             console.print("[red]Deep Critic[/red] reviewing...")
             response = self.critic.run(task, self.iteration)
+
             # Check for silent failure (near-empty output)
             output_tokens = (
                 response.output_tokens if hasattr(response, 'output_tokens')

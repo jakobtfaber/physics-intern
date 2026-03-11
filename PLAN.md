@@ -1,95 +1,188 @@
 # SciRalph — Task List
 
-## Phase 1: Structural Cleanup (Completed March 10 2026)
+## Phase 1
 
-Cleaned up accumulated technical debt before implementing P1-P8 fixes:
-- Shared critique regex constants (`CRIT_ID_RE`, `CRIT_HEADER_RE`, `CRIT_UNRESOLVED_RE`) + helper functions (`extract_resolved_critique_ids`, `recount_critique_metadata`) in `markdown.py`
-- Connected `tool_output_limit` config to `ToolExecutor` (was hardcoded)
-- Added `min_er_for_completion` config field (was hardcoded `3`)
-- Deleted legacy computationalist two-pass path (~100 lines dead code, `computationalist_review.md` prompt)
-- Created `Task` dataclass + `TaskType` enum in `task.py` — replaces untyped dicts throughout engine, agents, and tests
-- Rewrote `orchestrator.md` (195→80 lines): removed sections the scaffold already enforces (REFUTED handling, stall handling, budget rules, critic scheduling)
-- Cleaned up `computationalist.md` (removed duplicate BANNED APIs list, merged verdict rules) and `deep_critic.md` (merged severity sections, fixed "you do not suggest fixes" contradiction)
-- Moved all deferred imports to top-level
 
-## Phase 2: P1-P8 Fixes
 
-Findings from the 8 Tier-0 test runs (March 10 2026). Post-Phase-1 status notes are from 8 validation runs (QHO, Ising, Hawking, Berry Phase, Chandrasekhar, Path Integral HO, Perihelion, Renormalisation) after the structural cleanup.
+## Phase 2: Engine Hardening
 
-**Implementation priority** (based on post-Phase-1 evidence):
-1. **P4 then P2** — highest ROI. P4 (forced partial output) is simpler and always useful; P2 (stall detection) builds on it to prevent retrying failed computations. Together they address 40-50% token waste on hard problems.
-2. **P1** — scaffold-level ER gate. Prevents phantom results (Chandrasekhar) and unverified promotions (Berry Phase).
-3. **P5** — terminal critic review + problem statement coverage check.
-4. **P7, P8** — cosmetic/bookkeeping, implement opportunistically.
-5. **P3, P6** — 0 occurrences across 8 post-Phase-1 runs; prompt rewrites may have resolved them. Defer unless they resurface.
+Findings from two rounds of 8 test runs each (March 10 2026): QHO, Ising, Hawking, Berry Phase, Chandrasekhar, Path Integral HO, Perihelion, Renormalisation. All 8 runs produce correct science (VALID/HIGH). Process verdict: only 2/8 EFFECTIVE; the other 6 share a small set of recurring failure modes.
 
-### P1 — Enforce ER promotion gate in scaffold
+### Architecture: Three Layers, Not Eight Patches
 
-The orchestrator promotes results to Established Results before the verification gate is satisfied (no VERIFIED COMP, no critic pass). Observed in 3/8 runs (Hawking, Ising, Berry Phase). Hawking promoted wrong κ = c⁴/(4GM) to ER before any computation; Ising promoted transfer matrix results before critic ran.
+The original P1–P8 list identified real problems, but implementing them as independent if-statements scattered through `engine.py` would produce spaghetti. The failures actually fall into three architectural layers — each layer is a single, testable module with a clear responsibility:
 
-**Fix:** In `engine.py`, after orchestrator integration, scan RESEARCH_STATE for any new ER-NNN entries. If a newly promoted ER does not reference a VERIFIED COMP-NNN that exists in COMPUTATION_LOG, demote it back to Working Hypothesis and inject a warning into the orchestrator's next context. This is a scaffold-level gate, not a prompt change — the prompt already says this but the LLM ignores it for HIGH-confidence claims.
+**Layer A — Iteration contract** (`engine.py` loop structure)
 
-**Post-Phase-1:** Prompt rewrite helped (Ising fixed, Hawking wrong formula no longer promoted) but promotion still bypasses critic gate (Hawking ER-001 promoted before critic reviewed it) and results without any VERIFIED COMP still get promoted (Berry Phase ER-002–005). Chandrasekhar is the worst case: orchestrator integrated researcher-written numerical results (mass-radius relation, M_Ch confirmation) as established claims when zero computations actually succeeded — every integration attempt was truncated. Scaffold gate still needed.
+The engine loop currently has an ambiguous definition of "iteration." Sometimes it's just the orchestrator pass; sometimes it's orchestrator + dispatched agent. This ambiguity is the root cause of the most common failure (5/8 runs): the orchestrator creates a task, the loop increments the counter, hits `max_iterations`, and exits before the task runs. Fixing the loop contract also provides natural insertion points for pre-termination checks (critic review, coverage verification) — these become steps in the loop, not bolted-on conditionals.
 
-### P2 — Computation stall detection for repeated failures
+**Layer B — Post-integration validation** (`validation.py`, new module)
 
-The orchestrator re-dispatches the same computation task after 2-3 failures without reducing scope or trying an alternative approach. Observed in 3/8 runs (Chandrasekhar ×4 truncations, Perihelion ×3 truncations, Path Integral ×3 truncations). Perihelion wasted 38% of its token budget on 3 identical failed numerical integration attempts.
+After each orchestrator integration pass, a single validation function checks a list of invariants against the workspace files. This replaces four separate fixes (old P1, P6, P8, phantom label stripping) with one extensible pipeline:
 
-**Fix:** In `engine.py`, track consecutive INCONCLUSIVE/truncated COMPs targeting the same ER/WH claim (match by ER-NNN/WH-NNN reference in CURRENT_TASK). After 2 failures on the same claim, inject a stall alert into the orchestrator context: "COMPUTATION STALL on [claim]: 2 consecutive failures. You MUST either (a) reduce scope, (b) assign to researcher for alternative approach, or (c) skip and move on." Optionally also add to orchestrator prompt.
+```python
+def validate_post_integration(workspace, config) -> list[Violation]:
+    """Run all invariant checks. Returns violations to inject into next orchestrator context."""
+    checks = [
+        check_er_promotion_gate,      # new ER without VERIFIED COMP → demote
+        check_task_agent_routing,      # compute task sent to wrong agent → reroute
+        check_phantom_labels,          # researcher-written VERIFIED → strip
+        check_id_consistency,          # COMP/CRIT counter gaps → fix
+    ]
+    return [v for check in checks for v in check(workspace)]
+```
 
-**Post-Phase-1:** Worst case is Chandrasekhar: 8 truncations (6 targeting the same numerical ODE integration), 50.4% of total tokens wasted, orchestrator never decomposed the task. Perihelion confirms the same pattern unchanged: 3 attempts at the same intractable numerical integration (float64 precision wall), 42.1% of tokens wasted — virtually identical to the 38% pre-Phase-1. Not observed in simpler problems (QHO, Ising, Hawking, Berry Phase).
+Each check is a small pure function — easy to add, test, and disable individually. Violations are injected as structured warnings into the orchestrator's next context.
 
-### P3 — Scaffold-level verdict validator
+**Layer C — Agent loop resilience** (`llm.py` inner loop)
 
-The LLM declares VERIFIED on computations that partially or fully failed, by rationalizing discrepancies or widening tolerances. Observed in 3/8 runs: Chandrasekhar COMP-026 changed the theoretical expectation to make the wrong answer look right; Berry Phase COMP-013 declared VERIFIED despite 25-35% systematic error; Renormalisation COMP-021 declared VERIFIED despite printing dimensional inconsistency warnings in script output.
+The `run_agent_loop` function needs two improvements that are independent of the engine: forced partial output on truncation (so truncated runs produce usable verdicts instead of empty stubs), and stall detection (so the engine can track repeated failures and escalate). These live in the agent loop itself, not in engine-level iteration logic.
 
-**Fix:** After the computationalist writes a COMP entry, have the scaffold parse the verdict and cross-check against the script output. Heuristics: (1) if the script stdout contains "FAIL", "ERROR", "discrepancy", "inconsistency" or similar warning keywords and the verdict is VERIFIED, flag for review and inject a warning; (2) if the reported relative error exceeds a threshold (e.g. 5%), reject a VERIFIED verdict and force INCONCLUSIVE. This is a safety net — not a replacement for prompt improvements.
+### Implementation order
 
-**Post-Phase-1:** Not observed in 8 validation runs. Chandrasekhar's pre-Phase-1 COMP-026 false VERIFIED did not recur. Renormalisation's COMP-009 says VERIFIED but is verifying the *existence* of a dimensional inconsistency (technically correct) — a milder semantic variant, not a false verdict on formula correctness. Prompt rewrites may have resolved this; consider deferring unless it resurfaces.
+The layers have a dependency chain: Layer C (forced partial output) gives Layer B (stall detection) actual verdict data to work with; Layer A (loop contract) provides the structural hooks where Layer B's checks and Layer C's escalation signals are consumed. But Layer A's loop fix is the highest-impact standalone change (5/8 runs), so it comes first:
 
-### P4 — Forced partial output on tool-loop truncation
+| Step | Layer | What | Absorbs | Impact |
+|------|-------|------|---------|--------|
+| 1 | A | Fix iteration contract + termination gates | New (not in old P1–P8), old P5 | 7/8 runs |
+| 2 | C | Forced partial output on truncation | Old P4 | 4/8 runs |
+| 3 | B | Post-integration validation pipeline | Old P1, P6, P8 | 5/8 runs |
+| 4 | C | Stall detection (builds on steps 2+3) | Old P2 | 3/8 runs |
+| 5 | — | Output cleanup (critique preamble strip) | Old P7 | Cosmetic |
+| 6 | — | Verdict validator (deferred) | Old P3 | 0/8 recent runs |
 
-When the computationalist hits the 10-round limit, the COMPUTATION_LOG gets a bare stub ("Agent produced no text output") and the entire iteration is wasted. 11 truncation events across 8 runs (Chandrasekhar ×4, Perihelion ×3, Path Integral ×3, Renormalisation ×1).
+---
 
-**Fix:** In `llm.py` `run_agent_loop`, when hitting max rounds, append a final system message: "You have reached the maximum number of tool-use rounds. You MUST now write your COMP-NNN entry with whatever results you have. Use INCONCLUSIVE if incomplete." Then make one final LLM call (no tools) to extract a partial result. Also consider summarizing prior tool outputs to reduce the quadratic context growth that contributes to truncation.
+### Step 1 — Fix the iteration contract (Layer A)
 
-**Post-Phase-1:** Still occurs. Berry Phase TASK-006 hit max rounds and produced a raw conversational fragment instead of a COMP entry. Chandrasekhar is far worse: 8 truncations total — 4 produced "Agent produced no text output" stubs, 4 produced partial debug notes with no verdict. Combined with P2, this consumed 50.4% of the token budget with zero usable output. Path Integral HO improved (2 down from 3, recovered). Perihelion: 2 truncations with partial stubs, 1 INCONCLUSIVE. Renormalisation: 1 truncation, recovered. **Implement P4 before P2** — forced partial output is simpler and gives P2's stall detector actual verdict data to work with.
+**Problem:** The orchestrator emits a non-`terminate` task (resolve, compute, synthesize), the loop increments the iteration counter, hits `max_iterations`, and exits — leaving the task unexecuted with budget remaining. Observed in **5/8 runs** (QHO: TASK-004, Berry Phase: TASK-009, Path Integral HO: TASK-005, Chandrasekhar: TASK-016, Ising: early exit via completion check). This is the single most common process failure and was not identified in the original P1–P8 list.
 
-### P5 — Terminal critic review before termination
+**Root cause:** An "iteration" is currently counted as one orchestrator pass. The dispatched agent runs in the same iteration but the counter has already incremented, so the boundary check fires between orchestrator and agent.
 
-The critic's non-repetition rules mean it rubber-stamps the terminal state when all claims have been promoted to ER. Observed in 3/8 runs: Hawking had zero critic passes total; QHO's heat capacity was never reviewed; Berry Phase's solid angle convention issue escaped because the critic saw zero Working Hypotheses.
+**Fix:** Redefine one iteration as the full cycle: `orchestrator → agent dispatch → (optional forced critic/compressor)`. The `max_iterations` check fires only after the dispatched agent has completed. Concretely in `engine.py`:
 
-**Fix:** In `engine.py`, when the orchestrator emits `terminate` or `synthesize`, check if any ER was promoted since the last critic pass. If so, insert one final critic pass before termination. Adjust the critic prompt to allow reviewing ERs that were promoted since its last pass (currently the non-repetition rule blocks this).
+```
+while iteration <= max_iterations:
+    # 1. Orchestrator pass → reads state, emits CURRENT_TASK
+    task = run_orchestrator(...)
 
-**Post-Phase-1:** Prompt rewrite helped (Hawking now gets 1 critic pass vs zero before). But Berry Phase promoted 4 new ERs after its single critic pass with no terminal review. QHO also terminated without reviewing the final promotion batch. Path Integral HO declared "completed" with 2 of 3 problem sub-objectives unaddressed (discretised path integral, operator formalism) — the terminal check should also verify problem statement coverage, not just critic review.
+    # 2. Pre-dispatch validation (Layer B hook, step 3)
+    violations = validate_post_integration(workspace, config)
+    # inject violations into next context if any
 
-### P6 — Task-agent type validation
+    # 3. Termination gate (absorbs old P5)
+    if task.type == "terminate":
+        allowed, reasons = can_terminate(workspace, config)
+        if not allowed:
+            inject_blocking_reasons(reasons)
+            continue  # force orchestrator to address blockers
+        break
 
-The orchestrator dispatched the researcher (no code execution capability) to "generate plots." The researcher confabulated a completion claim with "machine precision ≤10⁻¹²" despite having no tools. Observed in Ising run.
+    # 4. Dispatch agent (researcher/computationalist/critic)
+    run_agent(task, ...)
 
-**Fix:** In `engine.py`, after parsing CURRENT_TASK, validate that `compute` tasks are assigned to the computationalist, not the researcher. If the orchestrator emits a `research` task whose description contains computation keywords (plot, numerical, compute, verify numerically), override to `compute` with a log warning.
+    # 5. Post-dispatch checks (stall detection hook, step 4)
 
-**Post-Phase-1:** Not observed in 8 validation runs. Ising plots correctly sent to computationalist (COMP-011). Prompt rewrites may have resolved this; consider deferring unless it resurfaces.
+    iteration += 1  # count AFTER the full cycle
+```
 
-### P7 — Critique log preamble stripping
+**Termination gates** (`can_terminate`): a single function checking preconditions before allowing exit. Absorbs old P5 and adds new checks:
 
-The critic's first-person reasoning preamble gets appended verbatim to CRITIQUE_LOG.md ("I will examine both claims systematically..."). Observed in 4/8 runs (QHO, Ising, Berry Phase, Renormalisation).
+- At least one critic pass has occurred (or no ERs exist yet)
+- No ERs promoted since last critic pass without review → insert final critic pass
+- No unresolved HIGH critiques
+- Problem statement coverage: all sub-objectives in the YAML `steps` list are addressed by at least one ER (absorbs the Path Integral HO gap where 2/3 sub-objectives were unaddressed)
+- `total_computations > 0` when the problem requires numerical verification (flag in problem YAML: `requires_numerical: true`)
 
-**Fix:** In `workspace.py` (or the critic output handler), strip all text before the first `## CRIT-` heading when appending to the critique log.
+If any gate fails, inject the blocking reasons as structured warnings and let the orchestrator try again. The orchestrator can still force termination via `budget_override` if it's genuinely stuck.
 
-**Post-Phase-1:** Still present across all 8 validation runs (single line each in QHO, Ising, Hawking, Berry Phase; 4 instances in Renormalisation). Cosmetic — does not corrupt critique structure.
+**Evidence from runs:**
+- QHO: TASK-004 (resolve 3 critiques) would have executed → 3 critiques resolved
+- Berry Phase: TASK-009 (resolve CRIT-007/008) would have executed → sign convention fixed
+- Path Integral HO: TASK-005 (resolve CRIT-015/016/017) would have executed → phase check done
+- Chandrasekhar: TASK-016 (final synthesis) would have executed → FINAL_SYNTHESIS.md written
+- Hawking, Ising: `can_terminate` would have blocked exit (0 critic passes, 0 computations)
 
-### P8 — COMP and CRIT ID management in scaffold
+### Step 2 — Forced partial output on truncation (Layer C)
 
-COMP IDs have gaps (counter increments per tool-call round, not per finished computation) and CRIT IDs can collide (critic reuses IDs from prior passes). Observed in QHO (COMP gaps), Berry Phase (duplicate CRIT-002).
+**Problem:** When the computationalist hits `max_rounds` in the tool-use loop, COMPUTATION_LOG gets an empty stub ("Agent produced no text output") and the entire iteration is wasted. Observed in **4/8 runs** (Chandrasekhar ×8 truncations, Perihelion ×3, Path Integral HO ×2, Berry Phase ×1). Chandrasekhar alone wasted ~400K tokens (50.4% of budget) on truncated runs with zero usable output.
 
-**Fix:** (a) Assign COMP IDs in the scaffold when writing to COMPUTATION_LOG, not in the LLM's output. Pass the next available ID into the computationalist's context. (b) Same for CRIT IDs: pass `next_crit_id: CRIT-NNN` into the critic's context so it doesn't pick already-used numbers.
+**Fix:** In `llm.py` `run_agent_loop`, when hitting `max_rounds`:
 
-**Post-Phase-1:** COMP-ID gaps still present (QHO has only COMP-002, no COMP-001). No duplicate CRITs observed.
+1. Append a system message: "You have reached the maximum number of tool-use rounds. You MUST now write your COMP-NNN entry with whatever results you have so far. Use verdict INCONCLUSIVE if incomplete. Summarize what worked and what remains."
+2. Make one final LLM call with tools disabled (text-only) to extract a partial result.
+3. Return this as the agent's output — the scaffold writes it to COMPUTATION_LOG as usual.
+
+This ensures every truncation produces a usable INCONCLUSIVE verdict with partial results, rather than an empty stub. Step 4 (stall detection) depends on this: it needs actual verdict data to count consecutive failures.
+
+**Also consider:** Summarize prior tool outputs in the conversation to reduce quadratic context growth. When the conversation exceeds N tokens, collapse earlier rounds into a summary before the next tool call. This addresses the root cause of some truncations (context blowup), not just the symptom.
+
+### Step 3 — Post-integration validation pipeline (Layer B)
+
+**Problem:** The orchestrator's LLM output violates scaffold invariants that the prompt requests but the model ignores. Rather than scattering per-violation if-statements through `engine.py`, implement a single validation module that runs after every orchestrator integration pass.
+
+**Fix:** Create `validation.py` with a pipeline of check functions. Each check reads workspace state and returns a (possibly empty) list of `Violation` objects. The engine calls `validate_post_integration()` once per iteration at the Layer A hook point (step 1, between orchestrator and dispatch).
+
+**Check functions:**
+
+**(a) ER promotion gate** (absorbs old P1)
+
+Scan RESEARCH_STATE for any ER-NNN entries added since last iteration. For each new ER, verify it references a COMP-NNN that exists in COMPUTATION_LOG with verdict VERIFIED. If not, demote the ER back to Working Hypothesis (rewrite the section header from `## ER-NNN` to `## WH-NNN`) and emit a violation warning.
+
+Observed in 5/8 runs: Ising promoted 10 ERs with 0 computations; Berry Phase promoted 4 ERs with 0 computations; Path Integral HO promoted 6 ERs with 0 computations; Chandrasekhar promoted researcher-written numerical results when every computation was truncated; Perihelion promoted with phantom "COMP-A VERIFIED" label.
+
+**(b) Task-agent routing** (absorbs old P6)
+
+After parsing CURRENT_TASK, validate that the `assigned_to` field maps to a real agent. Alias resolution: `compute` → `computationalist`, `research` → `researcher`, `critique` / `review` → `deep_critic`. If a `compute`-type task is assigned to `researcher`, reroute to `computationalist` with a log warning.
+
+Observed in 1/8 runs (Ising: `assigned_to: compute` silently fell back to researcher). Prompt rewrites reduced frequency but the alias gap remains a latent bug.
+
+**(c) Phantom label stripping** (new, complements old P1)
+
+Scan PROPOSED_CHANGES.md and RESEARCH_STATE.md for "VERIFIED" labels not backed by a real COMPUTATION_LOG entry. Strip the label (not just the COMP-NNN reference — the word "VERIFIED" itself). Only the computationalist writing to COMPUTATION_LOG can create VERIFIED verdicts.
+
+Observed in 5/8 runs: researcher-written "[VERIFIED — HIGH confidence]" labels in Ising, Berry Phase, Path Integral HO; phantom COMP-001 through COMP-009 regenerated every iteration in Chandrasekhar; phantom "COMP-A VERIFIED" in Perihelion.
+
+**(d) ID consistency** (absorbs old P8)
+
+Assign COMP and CRIT IDs in the scaffold, not in LLM output. Pass `next_comp_id` and `next_crit_id` into agent context. After agent output, rewrite any LLM-chosen IDs to the scaffold-assigned ones. Fix the `total_computations` frontmatter counter to count COMP entries in the file body, not tool-call rounds.
+
+Observed in 3/8 runs: QHO and Hawking had `total_computations: 2` with only 1 COMP entry; Berry Phase had duplicate CRIT-002.
+
+### Step 4 — Stall detection for repeated computation failures (Layer C + engine)
+
+**Problem:** The orchestrator re-dispatches the same computation task after repeated failures without decomposing scope or trying alternatives. Observed in **3/8 runs** (Chandrasekhar: 8 truncations on the same ODE, 50.4% waste; Perihelion: 3 attempts at the same numerical integration, 42.1% waste; Path Integral HO: 2 retries of the same broad task, 33% waste).
+
+**Depends on:** Step 2 (forced partial output) — stall detection needs actual INCONCLUSIVE verdicts, not empty stubs, to count consecutive failures. Step 3 (validation pipeline) — stall state is tracked in the same framework.
+
+**Fix:** In the engine, track consecutive INCONCLUSIVE/truncated COMPs targeting the same claim (match by ER-NNN/WH-NNN reference in CURRENT_TASK). After 2 consecutive failures on the same claim:
+
+1. Inject a stall alert into the orchestrator context: "COMPUTATION STALL on [claim]: 2 consecutive failures (verdicts: INCONCLUSIVE, INCONCLUSIVE). You MUST either (a) reduce scope to a simpler sub-check, (b) assign to researcher for an alternative analytical approach, or (c) mark claim as UNVERIFIED and move on."
+2. If the orchestrator re-dispatches the same task unchanged after a stall alert, block the dispatch and force option (c).
+
+This can be implemented as another check in the validation pipeline (step 3), triggered at the post-dispatch hook in the iteration loop (step 1).
+
+### Step 5 — Output cleanup (cosmetic)
+
+**Critique log preamble stripping** (old P7): The critic's first-person preamble ("I will examine both claims systematically...") gets appended verbatim to CRITIQUE_LOG.md. Present in all 8 runs. Cosmetic only.
+
+**Fix:** In `workspace.py` (or the critic output handler), strip all text before the first `## CRIT-` heading when appending to the critique log. Implement opportunistically.
+
+### Step 6 — Verdict validator (deferred)
+
+Old P3. The LLM declares VERIFIED on computations that partially or fully failed. Not observed in 8 post-Phase-1 runs — prompt rewrites appear to have resolved this. Defer unless it resurfaces in future test runs.
+
+If needed, implement as another check in the validation pipeline (step 3): after the computationalist writes a COMP entry, scan script stdout for failure keywords (FAIL, ERROR, discrepancy) and reject a VERIFIED verdict if found. This slots naturally into the Layer B architecture without requiring a separate module.
 
 ---
 
 ## Future work
+
+### Misc ideas?
+- Use a more structured output format for agent responses (e.g., JSON with separate fields for "verdict", "summary", "next_steps") to reduce ambiguity and parsing errors.
+- Use AgentType enum instead of string literals for agent routing and validation.
+- Add a linting step for computation scripts to avoid running obviously broken code (syntax errors, missing imports). This could be a lightweight static check before execution.
+- Add a more open ended "brainstorm" task and maybe a dedicated section in the research state for ideas, possible routes, alternatives, etc.
 
 ### Compression and context management
 

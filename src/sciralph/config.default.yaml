@@ -2,7 +2,7 @@
 # This is the single source of truth for all default values.
 # Do NOT hardcode defaults in Python — they are read from this file.
 
-model: claude-haiku-4-5-20251001
+model: claude-sonnet-4-6
 verify_model: claude-opus-4-6
 max_tokens: 16384
 max_iterations: 200

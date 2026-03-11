@@ -8,7 +8,7 @@ SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temp
 
 **How it works.** Five specialised LLM agents (orchestrator, researcher, computationalist, critic, compressor) take turns in a loop. No agent carries conversation history: each call starts from a fresh context and reads/writes shared Markdown files in a workspace directory. The orchestrator plans the next step, a worker agent executes it, and the cycle repeats. A layered verification stack — SymPy/NumPy computations, adversarial critique with severity tracking, and dependency-aware result promotion — acts as backpressure against errors. The workspace is version-controlled with git, so every step is recoverable.
 
-**Current status.** Core functionality is complete (172 tests passing). The system can solve known multi-step problems end-to-end, with independent post-hoc verification using a stronger model. It has been tested on problems ranging from quantum harmonic oscillator thermodynamics to casimir effect. See [PLAN.md](PLAN.md) for the Phase 2 roadmap (P1-P8 fixes from test runs) and future work.
+**Current status.** Core functionality is complete (172 tests passing). The system produces correct science (VALID/HIGH) on all 8 tested problems, but process effectiveness is only 2/8 EFFECTIVE due to recurring failure modes (premature termination, wasted computation cycles, phantom references). See [PLAN.md](PLAN.md) for the Phase 2 roadmap: a three-layer architecture (iteration contract, validation pipeline, agent loop resilience) to address these failure modes systematically.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ uv run python -m sciralph.main problems/hawking_temperature.yaml --max-iteration
 ```
 python -m sciralph.main <problem.yaml> [options]
 
-  --model MODEL           LLM model (default: claude-sonnet-4-20250514)
+  --model MODEL           LLM model (default: claude-sonnet-4-6)
   --max-iterations N      Max loop iterations (default: 200)
   --workspace-dir DIR     Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
 ```
@@ -52,7 +52,7 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 ```
 python -m sciralph.verify <workspace_dir> [options]
 
-  --model MODEL              LLM model (default: claude-opus-4-20250514)
+  --model MODEL              LLM model (default: claude-opus-4-6)
   --max-tokens N             Max output tokens (default: 16384)
   --rerun-computations       Re-run computation scripts before verification
   --timeout N                Computation timeout in seconds (default: 60)
@@ -91,7 +91,7 @@ Five agents take turns in a main loop. Each agent gets a fresh context per call 
 |-------|------|-------|--------|
 | **Orchestrator** | Plans next task, integrates proposed changes | All state files | `CURRENT_TASK.md`, `RESEARCH_STATE.md` |
 | **Researcher** | Derivations, hypotheses, conceptual reasoning | Task + research state | `PROPOSED_CHANGES.md` |
-| **Computationalist** | Symbolic/numerical verification via Python | Task + research state + computation log | `COMPUTATION_LOG.md`, code files |
+| **Computationalist** | Symbolic/numerical verification via Python | Task + research state | `COMPUTATION_LOG.md`, code files |
 | **Deep Critic** | Adversarial review — finds flaws, gaps, errors | Research state + computation log + critique log | `CRITIQUE_LOG.md` |
 | **Compressor** | Archives and shrinks files exceeding size thresholds | Target file | Compressed target file |
 
@@ -186,4 +186,5 @@ uv run python -m pytest --cov=sciralph -v
 ## Design Documents
 
 - **`DESIGN.md`** — Full system design: architecture, file formats, agent prompts, pseudocode
-- **`PLAN.md`** — Implementation plan (tool-use loop, agentic agents, future work)
+- **`PLAN.md`** — Phase 2 roadmap: three-layer architecture for engine hardening (iteration contract, validation pipeline, agent loop resilience)
+- **`CODEBASE.md`** — Developer-oriented codebase reference (architecture, data flow, known issues, planned changes)

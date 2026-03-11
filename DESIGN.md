@@ -53,7 +53,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 |---|---|---|---|---|
 | **Orchestrator** | Planning, task selection, integration of proposed changes | All files | `CURRENT_TASK.md`, `RESEARCH_STATE.md` | Every iteration |
 | **Researcher** | Derivations, hypothesis generation, conceptual reasoning | `RESEARCH_STATE.md`, `CURRENT_TASK.md`, `CRITIQUE_LOG.md` | `RESEARCH_STATE.md` (proposed changes in `PROPOSED_CHANGES.md`) | On demand |
-| **Computationalist** | Symbolic/numerical verification, code execution | `CURRENT_TASK.md`, `COMPUTATION_LOG.md`, relevant sections of `RESEARCH_STATE.md` | `COMPUTATION_LOG.md`, code files in `computations/` | On demand |
+| **Computationalist** | Symbolic/numerical verification, code execution | `CURRENT_TASK.md`, `RESEARCH_STATE.md` (prior failure context injected into task by engine) | `COMPUTATION_LOG.md`, code files in `computations/` | On demand |
 | **Deep Critic** | Adversarial review, flaw detection | `RESEARCH_STATE.md`, `COMPUTATION_LOG.md` | `CRITIQUE_LOG.md` | Forced every N iterations + on demand |
 | **Compressor** | Summarize and compress growing files | Any file above size threshold | Compressed version of that file | Triggered by size threshold |
 
