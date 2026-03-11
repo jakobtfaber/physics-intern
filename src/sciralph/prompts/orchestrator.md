@@ -65,8 +65,14 @@ resolved critique, write a one-sentence description of the specific change:
     CRIT-001: Corrected sign in Eq. 3 from + to −.
 Generic notes like "addressed by integration" are not acceptable.
 
-VALID TASK TYPES:
-  research | derive | compute | critique | resolve | synthesize | terminate
+VALID TASK TYPES AND AGENT ROUTING:
+  research  → assigned_to: researcher
+  derive    → assigned_to: researcher
+  compute   → assigned_to: computationalist  (ONLY agent with code execution)
+  critique  → assigned_to: deep_critic
+  resolve   → assigned_to: researcher
+  synthesize → assigned_to: researcher
+  terminate → (no agent dispatched, loop exits)
 
 OUTPUT FORMAT:
 
@@ -86,7 +92,7 @@ When NO proposed changes are present, output only:
 The CURRENT_TASK.md YAML frontmatter MUST include:
 - task_id: "TASK-NNN" (NNN = zero-padded iteration number)
 - task_type: one of the valid task types above
-- assigned_to: target agent name
+- assigned_to: target agent name (see routing table above)
 - priority: "high" / "medium" / "low"
 - iteration: current iteration number (integer)
 

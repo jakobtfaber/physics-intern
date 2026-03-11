@@ -258,19 +258,29 @@ def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsT
 
     # Gate 1: At least one critic pass if ERs exist
     if er_count > 0 and metrics.last_critic_iteration == 0:
-        blockers.append("No critic pass has occurred yet.")
+        blockers.append(
+            "No critic pass has occurred yet. "
+            "Emit task_type: critique to run a review before terminating."
+        )
 
     # Gate 2: No unresolved HIGH critiques
     critique_log = workspace.read_file("CRITIQUE_LOG.md")
     crit_counts = count_unresolved_critiques(critique_log)
     if crit_counts.get("HIGH", 0) > 0:
-        blockers.append(f"{crit_counts['HIGH']} unresolved HIGH critique(s).")
+        blockers.append(
+            f"{crit_counts['HIGH']} unresolved HIGH critique(s). "
+            "Emit task_type: resolve to address them."
+        )
 
     # Gate 3: At least one computation when problem requires it
     meta = problem_meta or {}
     if meta.get("requires_numerical", False):
         entries = _parse_comp_entries(comp_log)
         if len(entries) == 0:
-            blockers.append("Problem requires numerical verification but 0 computations.")
+            blockers.append(
+                "Problem requires numerical verification but COMPUTATION_LOG has 0 entries. "
+                "You MUST emit task_type: compute (assigned_to: computationalist) "
+                "to run at least one numerical verification before terminating."
+            )
 
     return (len(blockers) == 0, blockers)

@@ -17,7 +17,21 @@ Restructured engine.py's scattered ad-hoc fixes into three testable layers (258 
 
 ## Future work
 
-### Misc ideas?
+### Termination gate deadlock — forced compute override
+
+**Problem observed in QHO test run (March 2026):** The orchestrator LLM never emits `task_type: compute`, so COMPUTATION_LOG stays empty. When `requires_numerical: true`, `can_terminate()` blocks every termination attempt. Blocker messages were made actionable (now say "emit task_type: compute, assigned_to: computationalist"), but if the orchestrator still ignores this after N consecutive blocked terminations, the loop wastes iterations.
+
+**Proposed fix:** In `_apply_overrides()`, track consecutive blocked terminations via a counter (`_consecutive_termination_blocks`). After 2 consecutive blocks due to "0 computations", force a compute task (similar to forced critic):
+
+```python
+# In _apply_overrides, after P3 (forced critic):
+if self._consecutive_termination_blocks >= 2 and self._last_termination_blocker_is_compute:
+    return self._make_forced_compute_task()
+```
+
+Reset the counter when a computation succeeds. This ensures the system eventually runs the computationalist even when the orchestrator prompt doesn't naturally produce compute tasks.
+
+### Misc ideas
 - Use a more structured output format for agent responses (e.g., JSON with separate fields for "verdict", "summary", "next_steps") to reduce ambiguity and parsing errors.
 - Use AgentType enum instead of string literals for agent routing and validation.
 - Add a linting step for computation scripts to avoid running obviously broken code (syntax errors, missing imports). This could be a lightweight static check before execution.

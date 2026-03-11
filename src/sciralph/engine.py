@@ -140,10 +140,14 @@ class SciRalph:
             lines.append(">>> END VIOLATIONS <<<\n")
             self._pending_violations.clear()
         if self._pending_termination_blockers:
-            lines.append(">>> TERMINATION BLOCKED <<<")
+            lines.append(">>> TERMINATION BLOCKED — YOU CANNOT TERMINATE YET <<<")
+            lines.append("Your previous terminate request was REJECTED for these reasons:")
             for b in self._pending_termination_blockers:
                 lines.append(f"  - {b}")
-            lines.append("You must address these before terminating.")
+            lines.append(
+                "Do NOT emit task_type: terminate again until you have addressed "
+                "ALL blockers above. Emit the specific task_type indicated in each blocker."
+            )
             lines.append(">>> END TERMINATION BLOCKERS <<<\n")
             self._pending_termination_blockers.clear()
         return "\n".join(lines)
