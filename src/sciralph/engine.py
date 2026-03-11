@@ -261,7 +261,7 @@ class SciRalph:
 
         elif tt == TaskType.COMPUTE:
             console.print("[magenta]Computationalist[/magenta] working...")
-            self.computationalist.run(task, self.iteration)
+            self.computationalist.run(task, self.iteration, on_round=self._on_compute_round)
             self._last_content_iteration = self.iteration
             return "computationalist"
 
@@ -453,6 +453,20 @@ class SciRalph:
         text.append(f"[{task.task_type}] ", style="yellow")
         text.append(f"-> {task.assigned_to}", style="green")
         console.print(text)
+
+    def _on_compute_round(self, round_num, stop_reason, tool_calls, total_input, total_output):
+        """Progress callback for computationalist tool-use rounds."""
+        tokens = f"{total_input + total_output:,}tok"
+        if stop_reason == "forced_partial":
+            console.print(f"  round {round_num}: forced final call ({tokens})", style="dim magenta")
+            return
+        n_tools = len(tool_calls)
+        errors = sum(1 for tc in tool_calls if tc.is_error)
+        if errors:
+            status = f"{n_tools} tool call{'s' if n_tools != 1 else ''}, {errors} error{'s' if errors != 1 else ''}"
+        else:
+            status = f"{n_tools} tool call{'s' if n_tools != 1 else ''}"
+        console.print(f"  round {round_num}: {status} ({tokens})", style="dim magenta")
 
     def _final_report(self):
         """Flush metrics and print final summary."""

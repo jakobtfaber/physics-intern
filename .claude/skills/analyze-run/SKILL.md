@@ -9,6 +9,8 @@ Given a workspace directory (under `workspaces/` in the SciRalph project), perfo
 The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
 If the user specifies multiple runs, analyze each one with a dedicated subagent equipped with the same skill, and then synthesize a comparative report.
 
+**Tools:** This is a read-only analysis. Use only `Read`, `Glob`, and `Grep`. Do NOT use `Bash` — all data is in workspace files that can be read directly.
+
 ## Verification Report Structure
 
 The verification report (`VERIFICATION.md`) is produced by two independent LLM calls and contains two sections:

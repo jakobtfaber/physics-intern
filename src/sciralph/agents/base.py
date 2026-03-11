@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar, TYPE_CHECKING
 
 from ..config import Config
 from ..llm import AgentResult, LLMResponse, call_llm, run_agent_loop
 from ..metrics import MetricsTracker
-from ..tools import ToolExecutor
+from ..tools import ToolCall, ToolExecutor
 from ..workspace import WorkspaceManager
 
 if TYPE_CHECKING:
@@ -49,17 +50,28 @@ class BaseAgent(ABC):
         """Process the LLM response: write files, execute code, etc."""
         ...
 
-    def run(self, task: Task, iteration: int) -> LLMResponse | AgentResult:
+    def run(
+        self,
+        task: Task,
+        iteration: int,
+        on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
+    ) -> LLMResponse | AgentResult:
         """Template method: build context -> call LLM -> process response."""
         context = self.build_context(task, iteration)
         if self.tools:
-            response = self._call_with_tools(context, task, iteration)
+            response = self._call_with_tools(context, task, iteration, on_round=on_round)
         else:
             response = self._call_with_retry(context, iteration)
         self.process_response(response, task, iteration)
         return response
 
-    def _call_with_tools(self, context: str, task: Task, iteration: int) -> AgentResult:
+    def _call_with_tools(
+        self,
+        context: str,
+        task: Task,
+        iteration: int,
+        on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
+    ) -> AgentResult:
         """Run the tool-use agent loop."""
         tool_executor = ToolExecutor(
             workspace_root=self.workspace.root,
@@ -75,6 +87,7 @@ class BaseAgent(ABC):
             max_rounds=self.config.max_tool_rounds,
             agent_name=self.name,
             iteration=iteration,
+            on_round=on_round,
         )
 
         self.metrics.record_call(

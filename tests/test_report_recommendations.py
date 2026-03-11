@@ -832,12 +832,12 @@ class TestNewConfigFields:
     """Verify new config fields are properly loaded from defaults."""
 
     def test_zero_text_bailout_default(self):
-        assert DEFAULTS["zero_text_bailout"] == 3
-        assert Config().zero_text_bailout == 3
+        assert DEFAULTS["zero_text_bailout"] == 5
+        assert Config().zero_text_bailout == 5
 
     def test_checkpoint_round_default(self):
-        assert DEFAULTS["checkpoint_round"] == 5
-        assert Config().checkpoint_round == 5
+        assert DEFAULTS["checkpoint_round"] == 2
+        assert Config().checkpoint_round == 2
 
     def test_computation_token_alert_default(self):
         assert DEFAULTS["computation_token_alert"] == 150_000

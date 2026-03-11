@@ -2,6 +2,7 @@
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,6 +83,7 @@ def run_agent_loop(
     max_rounds: int = 10,
     agent_name: str = "",
     iteration: int = 0,
+    on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
 ) -> AgentResult:
     """Run a tool-use agent loop until end_turn, max_rounds, or max_tokens."""
     client = anthropic.Anthropic(api_key=config.api_key)
@@ -171,6 +173,12 @@ def run_agent_loop(
 
             messages.append({"role": "user", "content": tool_results})
 
+            # Notify caller about round progress
+            round_tool_calls = [tc for tc in all_tool_calls[-len(tool_results):]]
+            if on_round:
+                on_round(round_num, response.stop_reason, round_tool_calls,
+                         total_input, total_output)
+
             # Track consecutive zero-text rounds for early bailout
             if len(round_text.strip()) == 0:
                 zero_text_streak += 1
@@ -226,6 +234,9 @@ def run_agent_loop(
     total_input += final_response.usage.input_tokens
     total_output += final_response.usage.output_tokens
     final_text = _extract_text(final_response.content)
+
+    if on_round:
+        on_round(round_num + 1, "forced_partial", [], total_input, total_output)
 
     if config.audit_log:
         _write_audit_entry(config, LLMResponse(
