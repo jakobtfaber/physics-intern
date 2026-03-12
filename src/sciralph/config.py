@@ -49,6 +49,7 @@ class Config:
     api_retry_max: int = DEFAULTS["api_retry_max"]
     api_retry_initial_delay: float = DEFAULTS["api_retry_initial_delay"]
     api_retry_max_delay: float = DEFAULTS["api_retry_max_delay"]
+    api_timeout: float = DEFAULTS["api_timeout"]
     provider: str = ""
     workspace_dir: str = "workspaces"
     audit_log: str = ""
@@ -82,7 +83,7 @@ _YAML_CONFIG_FIELDS = frozenset({
     "max_tool_rounds", "zero_text_bailout", "checkpoint_round",
     "computation_token_alert", "tool_output_limit", "stall_threshold",
     "min_er_for_completion", "api_retry_max", "api_retry_initial_delay",
-    "api_retry_max_delay", "provider",
+    "api_retry_max_delay", "api_timeout", "provider",
 })
 
 

@@ -410,6 +410,44 @@ def test_extract_resolved_critique_prefix():
     assert "CRITIQUE-010" in ids
 
 
+def test_extract_resolved_via_yaml_mapping():
+    text = "resolved_critiques:\n  CRIT-001: verified by computation\n  CRIT-002: addressed in derivation\n"
+    ids = extract_resolved_critique_ids(text)
+    assert ids >= {"CRIT-001", "CRIT-002"}
+
+
+def test_extract_resolved_via_yaml_mapping_multiline():
+    text = (
+        "resolved_critiques:\n"
+        "  CRIT-003: |\n"
+        "    Multi-line resolution note\n"
+        "    spanning two lines\n"
+        "  CRIT-004: short note\n"
+    )
+    ids = extract_resolved_critique_ids(text)
+    assert ids >= {"CRIT-003", "CRIT-004"}
+
+
+def test_extract_resolved_via_yaml_mapping_in_frontmatter():
+    text = (
+        "---\n"
+        "problem_id: test\n"
+        "resolved_critiques:\n"
+        "  CRIT-001: verified\n"
+        "  CRIT-005: addressed\n"
+        "---\n"
+        "\n# Established Results\n"
+    )
+    ids = extract_resolved_critique_ids(text)
+    assert ids >= {"CRIT-001", "CRIT-005"}
+
+
+def test_extract_resolved_via_yaml_mapping_critique_prefix():
+    text = "resolved_critiques:\n  CRITIQUE-010: resolved via analysis\n"
+    ids = extract_resolved_critique_ids(text)
+    assert "CRITIQUE-010" in ids
+
+
 # --- Tests for recount_critique_metadata ---
 
 

@@ -374,6 +374,33 @@ last_critic_pass: "2026-03-07T14:20:00Z"
         assert counts["MEDIUM"] == 0, "CRIT-002 should be resolved via prose detection"
         assert counts["HIGH"] == 1, "CRIT-001 should still be unresolved"
 
+    def test_resolves_via_yaml_mapping(self, orchestrator, workspace):
+        """Orchestrator output with resolved_critiques mapping format resolves critiques."""
+        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_LOG)
+        workspace.write_file("RESEARCH_STATE.md",
+            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n\n# Results\n")
+
+        response_text = (
+            "=== RESEARCH_STATE.md ===\n"
+            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n"
+            "resolved_critiques:\n"
+            "  CRIT-001: verified by computation COMP-003\n"
+            "---\n\n# Established Results\n## ER-001\nDone.\n"
+            "\n=== CURRENT_TASK.md ===\n"
+            "---\ntask_id: TASK-003\ntask_type: compute\nassigned_to: computationalist\npriority: high\niteration: 3\n---\nVerify.\n"
+        )
+        response = LLMResponse(
+            text=response_text,
+            input_tokens=0, output_tokens=0, stop_reason="end_turn", duration=0.0,
+        )
+        orchestrator.process_response(response, _EMPTY_TASK, 3)
+
+        critique_log = workspace.read_file("CRITIQUE_LOG.md")
+        from sciralph.markdown import count_unresolved_critiques
+        counts = count_unresolved_critiques(critique_log)
+        assert counts["HIGH"] == 0, "CRIT-001 should be resolved via mapping format"
+        assert counts["MEDIUM"] == 1, "CRIT-002 should still be unresolved"
+
     def test_no_resolution_when_no_research_state(self, orchestrator, workspace):
         """When orchestrator only emits CURRENT_TASK, no critique resolution happens."""
         workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_LOG)

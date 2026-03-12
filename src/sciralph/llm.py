@@ -26,11 +26,14 @@ def _get_provider(config: Config) -> LLMProvider:
     """Create or retrieve a cached provider instance."""
     key = (config.provider, config.api_key)
     if key not in _provider_cache:
-        _provider_cache[key] = create_provider(config.provider, api_key=config.api_key)
+        _provider_cache[key] = create_provider(
+            config.provider, api_key=config.api_key,
+            timeout=config.api_timeout,
+        )
     return _provider_cache[key]
 
 
-_TRANSIENT_STATUS_CODES = {429, 502, 503, 504}
+_TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
 _TRANSIENT_EXC_NAMES = {"ConnectionError", "TimeoutError", "ReadTimeout",
                          "ConnectTimeout", "ConnectionResetError",
                          "RemoteDisconnected", "BrokenPipeError"}

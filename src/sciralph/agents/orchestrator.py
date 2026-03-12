@@ -166,6 +166,20 @@ class OrchestratorAgent(BaseAgent):
         """Scan orchestrator output for resolved critique IDs and update CRITIQUE_LOG.md."""
         resolved_ids = extract_resolved_critique_ids(response_text)
 
+        # Defense-in-depth: also extract from RESEARCH_STATE.md frontmatter
+        state_text = self.workspace.read_file("RESEARCH_STATE.md")
+        if state_text:
+            state_meta, _ = parse_frontmatter(state_text)
+            rc = state_meta.get("resolved_critiques")
+            if isinstance(rc, dict):
+                for key in rc:
+                    for m in CRIT_ID_RE.finditer(str(key)):
+                        resolved_ids.add(m.group())
+            elif isinstance(rc, list):
+                for item in rc:
+                    for m in CRIT_ID_RE.finditer(str(item)):
+                        resolved_ids.add(m.group())
+
         if not resolved_ids:
             return
 

@@ -15,7 +15,8 @@ _STOP_REASON_MAP = {
 class HuggingFaceProvider(LLMProvider):
     """HuggingFace Inference Providers via native InferenceClient."""
 
-    def __init__(self, api_key: str = "", hf_provider: str | None = None, **kwargs):
+    def __init__(self, api_key: str = "", hf_provider: str | None = None,
+                 timeout: float | None = None, **kwargs):
         try:
             from huggingface_hub import InferenceClient
         except ImportError:
@@ -26,6 +27,8 @@ class HuggingFaceProvider(LLMProvider):
         client_kwargs = {"token": token}
         if hf_provider:
             client_kwargs["provider"] = hf_provider
+        if timeout is not None:
+            client_kwargs["timeout"] = timeout
         self._client = InferenceClient(**client_kwargs)
 
     def call(self, model: str, max_tokens: int, system: str,

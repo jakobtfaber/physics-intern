@@ -5,6 +5,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from .config import Config
+from .llm import _is_transient
 from .markdown import (
     parse_frontmatter,
     render_frontmatter,
@@ -88,7 +89,31 @@ class SciRalph:
                 continue  # re-enter loop
 
             # 5. Dispatch to agent
-            agent_name = self._dispatch(task)
+            try:
+                agent_name = self._dispatch(task)
+            except Exception as exc:
+                if not _is_transient(exc):
+                    raise
+                self.metrics.alert(
+                    self.iteration,
+                    f"Dispatch failed (transient): {type(exc).__name__}: {exc}",
+                )
+                self._pending_violations.append(
+                    Violation(
+                        check="dispatch_failure",
+                        severity=ViolationSeverity.WARNING,
+                        message=(
+                            f"Agent dispatch failed with transient error: "
+                            f"{type(exc).__name__}: {str(exc)[:200]}"
+                        ),
+                        file="CURRENT_TASK.md",
+                    )
+                )
+                console.print(
+                    f"[yellow]Dispatch failed (transient), skipping to next "
+                    f"iteration: {exc}[/yellow]"
+                )
+                continue
 
             # 6. Post-dispatch checks
             if task.task_type == TaskType.COMPUTE:
@@ -216,6 +241,17 @@ class SciRalph:
             self._log_displacement(task, "forced_critic")
             return self._make_forced_critic_task()
 
+        # P3b: Block redundant critic (no new content since last review)
+        if (task.task_type == TaskType.CRITIQUE
+                and self.metrics.last_critic_iteration > 0
+                and self.metrics.last_critic_iteration >= self._last_content_iteration):
+            console.print(
+                "[yellow]Skipping redundant critic — no new content since "
+                f"iteration {self.metrics.last_critic_iteration} review.[/yellow]"
+            )
+            self._log_displacement(task, "redundant_critic")
+            return self._make_post_critic_synthesize_task()
+
         # P4: REFUTED recompute
         if self._pending_recompute_claim:
             claim = self._pending_recompute_claim
@@ -322,6 +358,18 @@ class SciRalph:
             response = self.critic.run(task, self.iteration)
             if hasattr(response, 'text') and 'NO_CRITIQUES_FILED' in (response.text or ''):
                 console.print("[dim]Critic: no issues found[/dim]")
+                self._pending_violations.append(
+                    Violation(
+                        check="critic_clean",
+                        severity=ViolationSeverity.WARNING,
+                        message=(
+                            "Deep critic found NO issues (NO_CRITIQUES_FILED). "
+                            "Do NOT emit another critique task — proceed to "
+                            "synthesize or terminate."
+                        ),
+                        file="CRITIQUE_LOG.md",
+                    )
+                )
             return "deep_critic"
 
         else:
@@ -366,6 +414,25 @@ class SciRalph:
             body=(
                 "# Budget-Enforced Synthesis\n\n"
                 "Iteration budget nearly exhausted. Synthesize ALL Established Results into\n"
+                "a final answer. Note unresolved items as limitations. Set status to\n"
+                "'partially_complete' if gaps remain.\n"
+            ),
+        )
+        self.workspace.write_file("CURRENT_TASK.md", task.to_markdown())
+        return task
+
+    def _make_post_critic_synthesize_task(self) -> Task:
+        """Create a synthesize task when critic found no issues and no new content exists."""
+        task = Task(
+            task_id=f"TASK-{self.iteration:03d}",
+            task_type=TaskType.SYNTHESIZE,
+            assigned_to="researcher",
+            priority="high",
+            iteration=self.iteration,
+            body=(
+                "# Synthesis After Clean Review\n\n"
+                "The deep critic found no issues on its last pass and no new research\n"
+                "content has been produced since. Synthesize ALL Established Results into\n"
                 "a final answer. Note unresolved items as limitations. Set status to\n"
                 "'partially_complete' if gaps remain.\n"
             ),

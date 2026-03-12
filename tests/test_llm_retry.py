@@ -56,11 +56,14 @@ class FakeAuthError(Exception):
 
 @pytest.mark.parametrize("exc", [
     FakeHTTPError(429),
+    FakeHTTPError(500),
     FakeHTTPError(502),
     FakeHTTPError(503),
     FakeHTTPError(504),
     FakeStatusError(429),
+    FakeStatusError(500),
     FakeStatusError(504),
+    FakeResponseStatusError(500),
     FakeResponseStatusError(502),
     FakeResponseStatusError(503),
     FakeResponseStatusError(504),

@@ -268,6 +268,15 @@ def extract_resolved_critique_ids(text: str) -> set[str]:
         for crit in CRIT_ID_RE.findall(list_match.group(1)):
             resolved_ids.add(crit)
 
+    # Pattern 1b: resolved_critiques as YAML mapping (keys are CRIT-NNN)
+    mapping_match = re.search(
+        r'resolved_critiques:\s*\n((?:[ \t]+\S[^\n]*\n?)+)',
+        text,
+    )
+    if mapping_match:
+        for crit in CRIT_ID_RE.findall(mapping_match.group(1)):
+            resolved_ids.add(crit)
+
     # Pattern 2: CRIT-NNN near resolution keywords
     for match in re.finditer(
         r'(CRIT(?:IQUE)?-\d+)\b[^.\n]{0,80}\b(?:resolved|addressed|incorporated|verified)',

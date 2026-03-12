@@ -337,6 +337,53 @@ class TestRefutedRecompute:
         assert task.task_type == TaskType.SYNTHESIZE
 
 
+class TestCriticCleanSignal:
+    """Test that NO_CRITIQUES_FILED injects a violation for the orchestrator."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 5
+            engine._pending_violations = []
+            engine.critic = MagicMock()
+        return engine
+
+    def test_no_critiques_filed_injects_violation(self):
+        """NO_CRITIQUES_FILED in critic response adds a violation for orchestrator."""
+        engine = self._make_engine()
+        response = MagicMock()
+        response.text = "NO_CRITIQUES_FILED"
+        engine.critic.run = MagicMock(return_value=response)
+
+        task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
+        engine._dispatch(task)
+
+        assert len(engine._pending_violations) == 1
+        assert engine._pending_violations[0].check == "critic_clean"
+        assert "NO issues" in engine._pending_violations[0].message
+
+    def test_normal_critique_no_violation(self):
+        """Normal critic output does NOT inject a violation."""
+        engine = self._make_engine()
+        response = MagicMock()
+        response.text = "## CRIT-001\nSome real critique here."
+        engine.critic.run = MagicMock(return_value=response)
+
+        task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
+        engine._dispatch(task)
+
+        assert len(engine._pending_violations) == 0
+
 
 class TestApplyOverrides:
     """Test the consolidated _apply_overrides method."""
@@ -474,6 +521,65 @@ class TestApplyOverrides:
         # Task type unchanged
         assert result.task_type == TaskType.COMPUTE
         assert result is task  # same object returned
+
+    def test_redundant_critic_blocked_when_no_new_content(self):
+        """P3b: Critique blocked when no new content since last critic pass."""
+        engine, written = self._make_engine(
+            max_iterations=20, current_iteration=15,
+            last_critic_iteration=14, critic_every_n=4,
+        )
+        # last_content_iteration < last_critic_iteration → redundant
+        engine._last_content_iteration = 13
+        engine._pending_violations = []
+        engine._pending_termination_blockers = []
+
+        task = Task(
+            task_id="TASK-015", task_type=TaskType.CRITIQUE,
+            assigned_to="deep_critic", iteration=15,
+        )
+        result = engine._apply_overrides(task)
+
+        assert result.task_type == TaskType.SYNTHESIZE
+        assert "Clean Review" in result.body
+        assert len(engine._displaced_tasks) == 1
+        assert engine._displaced_tasks[0]["override"] == "redundant_critic"
+
+    def test_critique_allowed_when_new_content_exists(self):
+        """P3b: Critique passes through when content was produced after last critic."""
+        engine, written = self._make_engine(
+            max_iterations=20, current_iteration=15,
+            last_critic_iteration=10, critic_every_n=4,
+        )
+        # last_content_iteration > last_critic_iteration → new content exists
+        engine._last_content_iteration = 14
+        engine._pending_violations = []
+        engine._pending_termination_blockers = []
+
+        task = Task(
+            task_id="TASK-015", task_type=TaskType.CRITIQUE,
+            assigned_to="deep_critic", iteration=15,
+        )
+        result = engine._apply_overrides(task)
+
+        assert result.task_type == TaskType.CRITIQUE
+
+    def test_first_critique_never_blocked(self):
+        """P3b: First critic pass (last_critic_iteration=0) is never blocked."""
+        engine, written = self._make_engine(
+            max_iterations=20, current_iteration=5,
+            last_critic_iteration=0, critic_every_n=4,
+        )
+        engine._last_content_iteration = 0
+        engine._pending_violations = []
+        engine._pending_termination_blockers = []
+
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.CRITIQUE,
+            assigned_to="deep_critic", iteration=5,
+        )
+        result = engine._apply_overrides(task)
+
+        assert result.task_type == TaskType.CRITIQUE
 
     def test_synthesize_never_overridden(self):
         """SYNTHESIZE tasks pass through all overrides unchanged."""
@@ -1164,3 +1270,136 @@ class TestUpdateResearchIteration:
 
         meta, _ = parse_frontmatter(written["RESEARCH_STATE.md"])
         assert meta["iteration"] == 4
+
+
+class TestDispatchFailureRecovery:
+    """Test that transient dispatch failures are caught and the loop continues."""
+
+    def _make_engine(self):
+        """Create a SciRalph instance with mocked agents for dispatch testing."""
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            ws.read_file = MagicMock(return_value="")
+            ws.write_file = MagicMock()
+            ws.file_size = MagicMock(return_value=0)
+            ws.validate_comp_references = MagicMock(return_value=[])
+            ws.git_commit = MagicMock()
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config(max_iterations=3)
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.metrics.last_critic_iteration = 0
+            engine.metrics.alerts = []
+            engine.metrics.calls = []
+            engine.metrics.total_input_tokens = 0
+            engine.metrics.total_output_tokens = 0
+            engine.iteration = 0
+            engine._stale_iterations = 0
+            engine._stalled_claims = set()
+            engine._pending_recompute_claim = None
+            engine._pending_violations = []
+            engine._pending_termination_blockers = []
+            engine._displaced_tasks = []
+            engine._last_content_iteration = 0
+            engine.problem_meta = {}
+
+            engine.orchestrator = MagicMock()
+            engine.researcher = MagicMock()
+            engine.computationalist = MagicMock()
+            engine.critic = MagicMock()
+            engine.compressor = MagicMock()
+        return engine
+
+    def test_transient_error_continues_loop(self):
+        """A transient 504 from dispatch is caught; loop continues to next iteration."""
+        engine = self._make_engine()
+        engine.config.max_iterations = 10  # enough headroom to avoid budget override
+
+        # Create a 504-like exception
+        exc_504 = Exception("Server error")
+        exc_504.status_code = 504
+
+        # Orchestrator returns a compute task each time
+        task = Task(
+            task_id="TASK-001", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist", iteration=1,
+            body="Verify something.",
+        )
+        engine.orchestrator.parse_task = MagicMock(return_value=task)
+
+        # First dispatch: transient error; second+third: succeed, then terminate
+        task_terminate = Task(
+            task_id="TASK-002", task_type=TaskType.TERMINATE,
+            assigned_to="orchestrator", iteration=2,
+        )
+        engine.orchestrator.parse_task = MagicMock(side_effect=[task, task_terminate])
+        engine.computationalist.run = MagicMock(side_effect=exc_504)
+
+        engine.run()
+
+        # Alert was logged for the failure
+        engine.metrics.alert.assert_any_call(
+            1, unittest_any_string_containing("Dispatch failed")
+        )
+        # Computationalist was called once (failed), then orchestrator terminated
+        assert engine.computationalist.run.call_count == 1
+        assert engine.iteration == 2
+
+    def test_non_transient_error_propagates(self):
+        """A non-transient error (e.g. ValueError) propagates and crashes."""
+        engine = self._make_engine()
+
+        task = Task(
+            task_id="TASK-001", task_type=TaskType.RESEARCH,
+            assigned_to="researcher", iteration=1,
+            body="Research something.",
+        )
+        engine.orchestrator.parse_task = MagicMock(return_value=task)
+        engine.researcher.run = MagicMock(side_effect=ValueError("bug in code"))
+
+        import pytest
+        with pytest.raises(ValueError, match="bug in code"):
+            engine.run()
+
+    def test_dispatch_failure_injects_violation(self):
+        """Transient dispatch failure adds a violation for the orchestrator."""
+        engine = self._make_engine()
+        engine.config.max_iterations = 10
+
+        exc_timeout = Exception("Read timed out")
+        exc_timeout.status_code = 504
+
+        task = Task(
+            task_id="TASK-001", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist", iteration=1,
+            body="Verify something.",
+        )
+        task_terminate = Task(
+            task_id="TASK-002", task_type=TaskType.TERMINATE,
+            assigned_to="orchestrator", iteration=2,
+        )
+        engine.orchestrator.parse_task = MagicMock(side_effect=[task, task_terminate])
+        engine.computationalist.run = MagicMock(side_effect=exc_timeout)
+
+        engine.run()
+
+        # Violation was consumed by _build_context_prefix on iteration 2, but
+        # we can verify it was created by checking the context_prefix set on orchestrator
+        prefix = engine.orchestrator.context_prefix
+        assert "dispatch_failure" in prefix
+
+
+def unittest_any_string_containing(substring):
+    """Helper matcher: matches any string containing the given substring."""
+    class _Matcher:
+        def __eq__(self, other):
+            return isinstance(other, str) and substring in other
+        def __repr__(self):
+            return f"<string containing {substring!r}>"
+    return _Matcher()
