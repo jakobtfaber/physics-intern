@@ -51,6 +51,8 @@ class Config:
     audit_log: str = ""
     logs_dir: str = ""
     api_key: str = ""
+    input_cost: float = 0.0   # USD per million input tokens (from models.yaml)
+    output_cost: float = 0.0  # USD per million output tokens (from models.yaml)
 
     def __post_init__(self):
         # Resolve provider from models.yaml if not explicitly set
@@ -59,6 +61,8 @@ class Config:
             if resolved:
                 self.provider = resolved["provider"]
                 self.model = resolved["model_id"]
+                self.input_cost = resolved.get("input_cost", 0.0)
+                self.output_cost = resolved.get("output_cost", 0.0)
                 if not self.api_key:
                     self.api_key = os.environ.get(resolved["env_key"], "")
             else:
@@ -95,6 +99,8 @@ def _resolve_model(model_key: str) -> dict | None:
             "provider": entry["provider"],
             "model_id": entry.get("model_id", model_key),
             "env_key": entry.get("env_key", "ANTHROPIC_API_KEY"),
+            "input_cost": float(entry.get("input_cost", 0)),
+            "output_cost": float(entry.get("output_cost", 0)),
         }
     except (OSError, yaml.YAMLError):
         return None

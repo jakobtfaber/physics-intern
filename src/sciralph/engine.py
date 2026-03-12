@@ -537,6 +537,10 @@ class SciRalph:
         console.print(f"Total LLM calls: {len(self.metrics.calls)}")
         console.print(f"Total input tokens: {self.metrics.total_input_tokens:,}")
         console.print(f"Total output tokens: {self.metrics.total_output_tokens:,}")
+        if self.config.input_cost or self.config.output_cost:
+            cost = (self.metrics.total_input_tokens * self.config.input_cost
+                    + self.metrics.total_output_tokens * self.config.output_cost) / 1_000_000
+            console.print(f"Estimated cost: ${cost:.2f}")
         console.print(f"Workspace: {self.workspace.root.resolve()}")
         if self.metrics.alerts:
             console.print(f"\n[yellow]Alerts ({len(self.metrics.alerts)}):[/yellow]")
