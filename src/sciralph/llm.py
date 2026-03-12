@@ -38,8 +38,13 @@ _TRANSIENT_EXC_NAMES = {"ConnectionError", "TimeoutError", "ReadTimeout",
 
 def _is_transient(exc: Exception) -> bool:
     """Return True if *exc* looks like a transient / retryable API error."""
-    # Check HTTP status code (works for anthropic, openai, httpx, requests, etc.)
+    # Check HTTP status code — try direct attrs first, then exc.response.status_code
+    # (httpx / huggingface_hub store the code on a nested response object)
     status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    if status is None:
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            status = getattr(resp, "status_code", None)
     if status is not None and int(status) in _TRANSIENT_STATUS_CODES:
         return True
     # Check exception type name anywhere in the MRO
@@ -278,6 +283,28 @@ def run_agent_loop(
                     }],
                 })
 
+            # CRITICAL penultimate-round instruction
+            if round_num == max_rounds - 1 and max_rounds >= 4:
+                messages.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "text",
+                        "text": (
+                            "CRITICAL: This is your LAST round with tool access. "
+                            "You MUST include your ## COMP-NNN verdict text in THIS "
+                            "response. If you only call a tool without writing text, "
+                            "your output will be recorded as INCONCLUSIVE.\n\n"
+                            "Write your verdict NOW using this format:\n"
+                            "## COMP-NNN: [description]\n"
+                            "**CLAIM:** [claim]\n"
+                            "**METHOD:** [method]\n"
+                            "**RESULT:** [results]\n"
+                            "**VERDICT:** [VERIFIED / REFUTED / INCONCLUSIVE]\n"
+                            "**NOTES:** [notes]"
+                        ),
+                    }],
+                })
+
     # Exhausted max_rounds or zero-text/low-cumulative bailout — force one final text-only call
     if zero_text_streak >= config.zero_text_bailout:
         reason = (
@@ -299,9 +326,20 @@ def run_agent_loop(
         + reason
         + "You cannot call any more tools. You MUST now write your final "
         "COMP-NNN entry with whatever results you have so far.\n\n"
-        "Format: ## COMP-NNN header, **CLAIM**, **METHOD**, **RESULT**, "
-        "**VERDICT** (use INCONCLUSIVE if incomplete), **NOTES**.\n"
-        "Summarize what you computed successfully and what remains."
+        "Use this exact format:\n\n"
+        "## COMP-NNN: [description]\n"
+        "**CLAIM:** [claim being verified]\n"
+        "**METHOD:** [approach used]\n"
+        "**RESULT:** [numerical results or observations]\n"
+        "**VERDICT:** INCONCLUSIVE\n"
+        "**NOTES:** [what was computed and what remains]\n\n"
+        "If you have no results at all, write:\n"
+        "## COMP-NNN: Incomplete verification\n"
+        "**CLAIM:** [original claim]\n"
+        "**METHOD:** Attempted numerical verification\n"
+        "**RESULT:** No conclusive results obtained within round limit.\n"
+        "**VERDICT:** INCONCLUSIVE\n"
+        "**NOTES:** Verification incomplete — ran out of tool-use rounds.\n"
     )
 
     start = time.time()

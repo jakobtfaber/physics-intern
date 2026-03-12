@@ -842,6 +842,7 @@ class TestCriticOverdue:
             engine.metrics.last_critic_iteration = last_critic_iteration
             engine.iteration = current_iteration
             engine._last_content_iteration = last_content_iteration
+            engine._consecutive_critic_underflows = 0
         return engine
 
     def test_overdue_with_new_content(self):
@@ -893,6 +894,7 @@ class TestCriticOverdue:
             engine.metrics = MagicMock()
             engine.iteration = 7
             engine._last_content_iteration = 0
+            engine._consecutive_critic_underflows = 0
             engine.researcher = MagicMock()
             engine.computationalist = MagicMock()
             engine.critic = MagicMock()

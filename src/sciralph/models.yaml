@@ -85,14 +85,14 @@ gpt-oss-120b:
 
 minimax-m2.5:
   provider: huggingface
-  model_id: MiniMaxAI/MiniMax-M2.5:fireworks-ai
+  model_id: MiniMaxAI/MiniMax-M2.5
   env_key: HF_TOKEN
   input_cost: 0.30
   output_cost: 1.20
 
 qwen-3.5-397B-A17B:
   provider: huggingface
-  model_id: Qwen/Qwen3.5-397B-A17B:together
+  model_id: Qwen/Qwen3.5-397B-A17B
   env_key: HF_TOKEN
   input_cost: 0.60
   output_cost: 3.60

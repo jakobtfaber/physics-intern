@@ -113,6 +113,8 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
                 count=1,
                 flags=re.MULTILINE,
             )
+            # Propagate prose references: ER-NNN → WH-NNN throughout state
+            state = state.replace(er_id, wh_id)
             changed = True
             violations.append(Violation(
                 check="er_promotion_gate",
@@ -156,7 +158,27 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
                 detail=wh_id,
             ))
 
+    # --- Normalize frontmatter verified_results to match current section headers ---
     if changed:
+        meta, body = parse_frontmatter(state)
+        vr_list = meta.get("verified_results")
+        if vr_list:
+            # Build mapping of current header IDs
+            current_er_ids = set(find_er_section_ids(body))
+            current_wh_ids = set(_WH_SECTION_RE.findall(body))
+            normalized = []
+            for vid in vr_list:
+                num = vid.split("-")[1]
+                er_form = f"ER-{num}"
+                wh_form = f"WH-{num}"
+                if vid.startswith("WH-") and er_form in current_er_ids:
+                    normalized.append(er_form)
+                elif vid.startswith("ER-") and er_form not in current_er_ids and wh_form in current_wh_ids:
+                    normalized.append(wh_form)
+                else:
+                    normalized.append(vid)
+            meta["verified_results"] = sorted(set(normalized))
+            state = render_frontmatter(meta, body)
         workspace.write_file("RESEARCH_STATE.md", state)
 
     return violations
@@ -362,13 +384,28 @@ def check_verified_frontmatter_backfill(workspace: WorkspaceManager) -> list[Vio
     if not verified_ids:
         return []
 
+    # Normalize verified IDs to match current section headers in state
     meta, body = parse_frontmatter(state)
+    current_er_ids = set(find_er_section_ids(body))
+    current_wh_ids = set(_WH_SECTION_RE.findall(body))
+    normalized_ids: set[str] = set()
+    for vid in verified_ids:
+        num = vid.split("-")[1]
+        er_form = f"ER-{num}"
+        wh_form = f"WH-{num}"
+        if vid.startswith("WH-") and er_form in current_er_ids:
+            normalized_ids.add(er_form)
+        elif vid.startswith("ER-") and er_form not in current_er_ids and wh_form in current_wh_ids:
+            normalized_ids.add(wh_form)
+        else:
+            normalized_ids.add(vid)
+
     existing = set(meta.get("verified_results", []) or [])
-    missing = sorted(verified_ids - existing)
+    missing = sorted(normalized_ids - existing)
     if not missing:
         return []
 
-    meta["verified_results"] = sorted(existing | verified_ids)
+    meta["verified_results"] = sorted(existing | normalized_ids)
     workspace.write_file("RESEARCH_STATE.md", render_frontmatter(meta, body))
     violations.append(Violation(
         check="verified_frontmatter_backfill",
@@ -405,6 +442,89 @@ def check_id_consistency(workspace: WorkspaceManager) -> list[Violation]:
     return violations
 
 
+def check_critique_resolution_consistency(workspace: WorkspaceManager) -> list[Violation]:
+    """Check that resolved critiques are actually consistent with current state.
+
+    For label-related critiques: flag if both WH-NNN and ER-NNN still co-exist.
+    For any resolved critique: flag if the target ID has vanished entirely.
+    Returns WARNING-level violations only (advisory for orchestrator).
+    """
+    violations: list[Violation] = []
+    critique_log = workspace.read_file("CRITIQUE_LOG.md")
+    if not critique_log:
+        return []
+
+    # Find the resolved critiques section
+    resolved_idx = critique_log.find("# Resolved Critiques")
+    if resolved_idx == -1:
+        return []
+    resolved_section = critique_log[resolved_idx:]
+
+    state = workspace.read_file("RESEARCH_STATE.md")
+    if not state:
+        return []
+
+    # Parse individual resolved critique blocks
+    _RESOLVED_CRIT_RE = re.compile(
+        r'^##\s+(CRIT(?:IQUE)?-\d+)\s.*?\[RESOLVED\]',
+        re.MULTILINE | re.IGNORECASE,
+    )
+    headers = list(_RESOLVED_CRIT_RE.finditer(resolved_section))
+    if not headers:
+        return []
+
+    _LABEL_KEYWORDS = re.compile(
+        r'label|inconsisten|rename|mislabel|header', re.IGNORECASE
+    )
+
+    for i, match in enumerate(headers):
+        crit_id = match.group(1)
+        # Extract critique body (until next header or end)
+        start = match.end()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(resolved_section)
+        body = resolved_section[start:end]
+
+        # Extract target IDs from the critique body
+        target_ids = _ER_WH_ID_RE.findall(body)
+        if not target_ids:
+            continue
+
+        is_label_critique = bool(_LABEL_KEYWORDS.search(body))
+
+        for tid in set(target_ids):
+            num = tid.split("-")[1]
+            wh_form = f"WH-{num}"
+            er_form = f"ER-{num}"
+
+            # Check if target vanished entirely
+            if tid not in state and wh_form not in state and er_form not in state:
+                violations.append(Violation(
+                    check="critique_resolution_consistency",
+                    severity=ViolationSeverity.WARNING,
+                    message=(
+                        f"Resolved {crit_id} targets {tid} which no longer "
+                        f"appears in RESEARCH_STATE.md"
+                    ),
+                    file="CRITIQUE_LOG.md",
+                    detail=f"{crit_id}:{tid}",
+                ))
+
+            # For label critiques: check WH/ER co-existence
+            if is_label_critique and wh_form in state and er_form in state:
+                violations.append(Violation(
+                    check="critique_resolution_consistency",
+                    severity=ViolationSeverity.WARNING,
+                    message=(
+                        f"Resolved {crit_id} (label critique) but {wh_form} and "
+                        f"{er_form} still co-exist in RESEARCH_STATE.md"
+                    ),
+                    file="CRITIQUE_LOG.md",
+                    detail=f"{crit_id}:{wh_form}+{er_form}",
+                ))
+
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
@@ -417,6 +537,7 @@ _DEFAULT_CHECKS = [
     check_verified_frontmatter_backfill,
     check_task_agent_routing,
     check_id_consistency,
+    check_critique_resolution_consistency,
 ]
 
 

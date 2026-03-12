@@ -12,6 +12,7 @@ from sciralph.validation import (
     check_id_consistency,
     check_stale_unverified_labels,
     check_verified_frontmatter_backfill,
+    check_critique_resolution_consistency,
     _build_task_comp_mapping,
 )
 from sciralph.markdown import render_frontmatter
@@ -926,6 +927,125 @@ class TestPhantomReferencesFlattening:
 # Improvement 4: label propagation
 # ---------------------------------------------------------------------------
 
+class TestDemotionProsePropagation:
+    """Tests for ER→WH prose reference propagation on demotion (Fix 6A)."""
+
+    def test_demotion_propagates_all_prose_references(self):
+        """When ER→WH demotion happens, prose references also get updated."""
+        state = """# Established Results
+
+## ER-001 Hawking Temperature
+
+T = hbar * kappa / (2 pi k_B)
+
+This result ER-001 depends on the surface gravity calculation.
+See ER-001 in the synthesis section.
+"""
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": "",  # no computations -> demotion
+        })
+        violations = check_er_promotion_gate(ws)
+        updated = ws.read_file("RESEARCH_STATE.md")
+        # All ER-001 references should be WH-001 now
+        assert "ER-001" not in updated
+        assert "WH-001" in updated
+        assert "This result WH-001" in updated
+
+    def test_frontmatter_verified_results_normalized_after_demotion(self):
+        """verified_results entries are renamed ER→WH after demotion."""
+        state_meta = {"status": "in_progress", "verified_results": ["ER-001"]}
+        state_body = """# Established Results
+
+## ER-001 Partition Function
+
+Z = exp(-x/2)/(1-exp(-x))
+"""
+        state = render_frontmatter(state_meta, state_body)
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": "",  # no computations -> demotion
+        })
+        violations = check_er_promotion_gate(ws)
+        updated = ws.read_file("RESEARCH_STATE.md")
+        from sciralph.markdown import parse_frontmatter as pf
+        meta, _ = pf(updated)
+        # ER-001 should be WH-001 in verified_results
+        vr = meta.get("verified_results", [])
+        assert "WH-001" in vr
+        assert "ER-001" not in vr
+
+    def test_frontmatter_verified_results_normalized_after_promotion(self):
+        """verified_results entries are renamed WH→ER after promotion."""
+        state_meta = {"status": "in_progress", "verified_results": ["WH-003"]}
+        state_body = """# Established Results
+
+## WH-003 Hawking Temperature
+
+T = hbar * kappa / (2 pi k_B)
+
+Also see ER-003 in the synthesis section.
+"""
+        meta_comp = {"total_computations": 1}
+        comp_body = """# Computations
+
+## COMP-001
+
+**CLAIM**: Verify WH-003 Hawking temperature
+**VERDICT**: VERIFIED
+**RESULT**:
+Correct.
+"""
+        state = render_frontmatter(state_meta, state_body)
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
+        })
+        violations = check_er_promotion_gate(ws)
+        updated = ws.read_file("RESEARCH_STATE.md")
+        from sciralph.markdown import parse_frontmatter as pf
+        meta, _ = pf(updated)
+        vr = meta.get("verified_results", [])
+        assert "ER-003" in vr
+        assert "WH-003" not in vr
+
+
+class TestBackfillUsesPromotedForm:
+    """Tests for backfill using current header form (Fix 6C)."""
+
+    def test_backfill_uses_promoted_er_form(self):
+        """When WH-001 was promoted to ER-001, backfill uses ER-001."""
+        meta_comp = {"total_computations": 1}
+        comp_body = """# Computations
+
+## COMP-001
+
+**CLAIM**: Verify WH-001 partition function
+**VERDICT**: VERIFIED
+**RESULT**:
+OK.
+"""
+        state_meta = {"status": "in_progress"}
+        state_body = """# Established Results
+
+## ER-001 Partition Function
+
+Body.
+"""
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": render_frontmatter(state_meta, state_body),
+            "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
+        })
+        violations = check_verified_frontmatter_backfill(ws)
+        assert len(violations) == 1
+        from sciralph.markdown import parse_frontmatter as pf
+        meta, _ = pf(ws.read_file("RESEARCH_STATE.md"))
+        vr = meta.get("verified_results", [])
+        # Should use ER-001 (promoted form) not WH-001
+        assert "ER-001" in vr
+        assert "WH-001" not in vr
+
+
 class TestErPromotionProsePropagation:
     """Tests for WH→ER prose reference propagation (Improvement 4A)."""
 
@@ -1074,3 +1194,140 @@ Reference: WH-002 [unverified] computation confirms.
         # WH-002 should be renamed to ER-002 since ER-002 header exists
         # Check the reference line was updated
         assert "ER-002" in updated
+
+
+# ---------------------------------------------------------------------------
+# Fix 5: Critique resolution consistency check
+# ---------------------------------------------------------------------------
+
+class TestCritiqueResolutionConsistency:
+    """Tests for check_critique_resolution_consistency (Fix 5)."""
+
+    def test_resolved_critique_with_consistent_labels_no_violation(self):
+        """Resolved critique where labels are consistent -> no violation."""
+        critique_log = """# Active Critiques
+
+# Resolved Critiques
+
+## CRIT-001 [HIGH] [RESOLVED]
+
+**Target:** ER-001
+The label inconsistency between WH-001 and ER-001 has been resolved.
+"""
+        state = """# Established Results
+
+## ER-001 Hawking Temperature
+
+T = hbar * kappa / (2 pi k_B)
+"""
+        ws = MockWorkspace({
+            "CRITIQUE_LOG.md": critique_log,
+            "RESEARCH_STATE.md": state,
+        })
+        violations = check_critique_resolution_consistency(ws)
+        assert len(violations) == 0
+
+    def test_resolved_label_critique_with_wh_er_coexistence(self):
+        """Resolved label critique but WH/ER co-exist -> violation."""
+        critique_log = """# Active Critiques
+
+# Resolved Critiques
+
+## CRIT-001 [HIGH] [RESOLVED]
+
+**Target:** ER-001
+Label inconsistency: header uses ER-001 but prose uses WH-001.
+"""
+        state = """# Established Results
+
+## ER-001 Hawking Temperature
+
+T = hbar * kappa / (2 pi k_B)
+
+See WH-001 for the original derivation.
+"""
+        ws = MockWorkspace({
+            "CRITIQUE_LOG.md": critique_log,
+            "RESEARCH_STATE.md": state,
+        })
+        violations = check_critique_resolution_consistency(ws)
+        assert len(violations) >= 1
+        assert any("co-exist" in v.message for v in violations)
+
+    def test_resolved_critique_target_vanished(self):
+        """Resolved critique whose target vanished entirely -> violation."""
+        critique_log = """# Active Critiques
+
+# Resolved Critiques
+
+## CRIT-002 [MEDIUM] [RESOLVED]
+
+**Target:** WH-005
+Math error in WH-005 derivation has been corrected.
+"""
+        state = """# Established Results
+
+## ER-001 Hawking Temperature
+
+Only ER-001 exists here.
+"""
+        ws = MockWorkspace({
+            "CRITIQUE_LOG.md": critique_log,
+            "RESEARCH_STATE.md": state,
+        })
+        violations = check_critique_resolution_consistency(ws)
+        assert len(violations) >= 1
+        assert any("no longer appears" in v.message for v in violations)
+
+    def test_non_label_critique_no_false_positive(self):
+        """Non-label critique (math error) does not trigger label co-existence check."""
+        critique_log = """# Active Critiques
+
+# Resolved Critiques
+
+## CRIT-003 [HIGH] [RESOLVED]
+
+**Target:** ER-001
+Mathematical sign error in the entropy derivation for ER-001.
+"""
+        # WH-001 and ER-001 both exist but critique is about math, not labels
+        state = """# Established Results
+
+## ER-001 Hawking Temperature
+
+T = hbar * kappa / (2 pi k_B)
+
+Original derivation started as WH-001.
+"""
+        ws = MockWorkspace({
+            "CRITIQUE_LOG.md": critique_log,
+            "RESEARCH_STATE.md": state,
+        })
+        violations = check_critique_resolution_consistency(ws)
+        # No label co-existence violation (math error, not label critique)
+        label_violations = [v for v in violations if "co-exist" in v.message]
+        assert len(label_violations) == 0
+
+    def test_empty_critique_log_no_violation(self):
+        """Empty critique log -> no violation."""
+        ws = MockWorkspace({
+            "CRITIQUE_LOG.md": "",
+            "RESEARCH_STATE.md": "## ER-001 Something\n",
+        })
+        violations = check_critique_resolution_consistency(ws)
+        assert len(violations) == 0
+
+    def test_no_resolved_section_no_violation(self):
+        """Critique log without resolved section -> no violation."""
+        critique_log = """# Active Critiques
+
+## CRIT-001 [HIGH] [UNRESOLVED]
+
+Something is wrong.
+"""
+        ws = MockWorkspace({
+            "CRITIQUE_LOG.md": critique_log,
+            "RESEARCH_STATE.md": "## ER-001 Something\n",
+        })
+        violations = check_critique_resolution_consistency(ws)
+        assert len(violations) == 0

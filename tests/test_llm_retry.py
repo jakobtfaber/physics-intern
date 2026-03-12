@@ -41,6 +41,13 @@ class FakeReadTimeout(Exception):
 FakeReadTimeout.__name__ = "ReadTimeout"
 
 
+class FakeResponseStatusError(Exception):
+    """Mimics httpx/huggingface_hub pattern: status on exc.response.status_code."""
+    def __init__(self, status_code):
+        self.response = MagicMock(status_code=status_code)
+        super().__init__(f"Server error '{status_code}'")
+
+
 class FakeAuthError(Exception):
     def __init__(self):
         self.status_code = 401
@@ -54,6 +61,9 @@ class FakeAuthError(Exception):
     FakeHTTPError(504),
     FakeStatusError(429),
     FakeStatusError(504),
+    FakeResponseStatusError(502),
+    FakeResponseStatusError(503),
+    FakeResponseStatusError(504),
     FakeConnectionError("connection reset"),
     FakeTimeoutError("timed out"),
     FakeReadTimeout(),
@@ -71,6 +81,8 @@ def test_is_transient_true(exc):
     FakeHTTPError(404),
     FakeHTTPError(422),
     FakeAuthError(),
+    FakeResponseStatusError(400),
+    FakeResponseStatusError(422),
     ValueError("bad input"),
     RuntimeError("something else"),
     TypeError("wrong type"),
@@ -265,3 +277,175 @@ def test_retry_with_timeout_error():
         )
 
     assert result.text == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: Penultimate-round CRITICAL message & forced final prompt
+# ---------------------------------------------------------------------------
+
+class TestPenultimateRoundMessage:
+    """Test CRITICAL message injection and forced final prompt (Fix 2)."""
+
+    def _make_tool_use_response(self, text="", stop_reason="tool_use"):
+        """Create a ProviderResponse that mimics tool_use."""
+        return ProviderResponse(
+            text=text,
+            input_tokens=100,
+            output_tokens=50,
+            stop_reason=stop_reason,
+            tool_calls=[{"id": "tc_1", "name": "execute_python",
+                         "input": {"code": "print(1)"}}],
+            raw_content=[{"type": "tool_use", "id": "tc_1",
+                          "name": "execute_python",
+                          "input": {"code": "print(1)"}}],
+        )
+
+    def _make_final_response(self, text="## COMP-001\n**VERDICT:** INCONCLUSIVE"):
+        return ProviderResponse(
+            text=text,
+            input_tokens=100,
+            output_tokens=200,
+            stop_reason="end_turn",
+        )
+
+    def test_critical_message_at_penultimate_round(self):
+        """CRITICAL message appears at round max_rounds - 1 when max_rounds >= 4."""
+        from sciralph.llm import run_agent_loop
+        from sciralph.tools import ToolExecutor, ToolCall
+
+        max_rounds = 5
+        provider = MagicMock()
+        # Rounds 1..5 return tool_use, then forced final call returns text
+        tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
+        final_response = self._make_final_response()
+
+        provider.call = MagicMock(side_effect=tool_responses + [final_response])
+        provider.format_assistant_message = MagicMock(return_value={"role": "assistant", "content": "tool"})
+        provider.build_tool_result_messages = MagicMock(return_value=[{"role": "user", "content": "result"}])
+
+        tool_executor = MagicMock(spec=ToolExecutor)
+        tool_executor.execute = MagicMock(return_value=ToolCall(
+            tool_name="execute_python", tool_input={"code": "1"},
+            output="1", is_error=False, duration=0.1,
+        ))
+
+        config = _make_config()
+        config.max_tokens = 4096
+        config.audit_log = ""
+        config.logs_dir = ""
+        config.computation_token_alert = 999999
+        config.checkpoint_round = 2
+        config.zero_text_bailout = 10
+
+        with patch("sciralph.llm._get_provider", return_value=provider):
+            result = run_agent_loop(
+                system="test", user_content="test", config=config,
+                tool_executor=tool_executor,
+                tools=[{"type": "function", "function": {"name": "execute_python"}}],
+                max_rounds=max_rounds,
+            )
+
+        # Check that CRITICAL message was injected in messages
+        all_calls = provider.call.call_args_list
+        critical_found = False
+        for call in all_calls[:-1]:  # exclude final forced call
+            msgs = call.kwargs.get("messages", []) or []
+            for msg in msgs:
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and "CRITICAL" in block.get("text", ""):
+                            critical_found = True
+                elif isinstance(content, str) and "CRITICAL" in content:
+                    critical_found = True
+        assert critical_found, "CRITICAL message should appear in messages"
+
+    def test_critical_message_not_injected_when_max_rounds_too_small(self):
+        """CRITICAL message does NOT appear when max_rounds < 4."""
+        from sciralph.llm import run_agent_loop
+        from sciralph.tools import ToolExecutor, ToolCall
+
+        max_rounds = 3
+        provider = MagicMock()
+        tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
+        final_response = self._make_final_response()
+
+        provider.call = MagicMock(side_effect=tool_responses + [final_response])
+        provider.format_assistant_message = MagicMock(return_value={"role": "assistant", "content": "tool"})
+        provider.build_tool_result_messages = MagicMock(return_value=[{"role": "user", "content": "result"}])
+
+        tool_executor = MagicMock(spec=ToolExecutor)
+        tool_executor.execute = MagicMock(return_value=ToolCall(
+            tool_name="execute_python", tool_input={"code": "1"},
+            output="1", is_error=False, duration=0.1,
+        ))
+
+        config = _make_config()
+        config.max_tokens = 4096
+        config.audit_log = ""
+        config.logs_dir = ""
+        config.computation_token_alert = 999999
+        config.checkpoint_round = 2
+        config.zero_text_bailout = 10
+
+        with patch("sciralph.llm._get_provider", return_value=provider):
+            result = run_agent_loop(
+                system="test", user_content="test", config=config,
+                tool_executor=tool_executor,
+                tools=[{"type": "function", "function": {"name": "execute_python"}}],
+                max_rounds=max_rounds,
+            )
+
+        # Check that CRITICAL message was NOT injected
+        all_calls = provider.call.call_args_list
+        for call in all_calls[:-1]:
+            msgs = call.kwargs.get("messages", []) or []
+            for msg in msgs:
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict):
+                            assert "CRITICAL" not in block.get("text", ""), \
+                                "CRITICAL should not appear when max_rounds < 4"
+
+    def test_forced_final_prompt_contains_template(self):
+        """The forced text-only system prompt contains the verdict template."""
+        from sciralph.llm import run_agent_loop
+        from sciralph.tools import ToolExecutor, ToolCall
+
+        max_rounds = 2
+        provider = MagicMock()
+        tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
+        final_response = self._make_final_response()
+
+        provider.call = MagicMock(side_effect=tool_responses + [final_response])
+        provider.format_assistant_message = MagicMock(return_value={"role": "assistant", "content": "tool"})
+        provider.build_tool_result_messages = MagicMock(return_value=[{"role": "user", "content": "result"}])
+
+        tool_executor = MagicMock(spec=ToolExecutor)
+        tool_executor.execute = MagicMock(return_value=ToolCall(
+            tool_name="execute_python", tool_input={"code": "1"},
+            output="1", is_error=False, duration=0.1,
+        ))
+
+        config = _make_config()
+        config.max_tokens = 4096
+        config.audit_log = ""
+        config.logs_dir = ""
+        config.computation_token_alert = 999999
+        config.checkpoint_round = 2
+        config.zero_text_bailout = 10
+
+        with patch("sciralph.llm._get_provider", return_value=provider):
+            run_agent_loop(
+                system="test", user_content="test", config=config,
+                tool_executor=tool_executor,
+                tools=[{"type": "function", "function": {"name": "execute_python"}}],
+                max_rounds=max_rounds,
+            )
+
+        # The last call is the forced text-only call — check its system prompt
+        final_call = provider.call.call_args_list[-1]
+        final_system = final_call.kwargs.get("system", "")
+        assert "**VERDICT:** INCONCLUSIVE" in final_system
+        assert "Incomplete verification" in final_system
