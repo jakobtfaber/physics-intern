@@ -596,8 +596,8 @@ Result: ER-001 is the Hawking temperature T = hbar*kappa/(2*pi*k_B).
         assert "## ER-001" in updated
         assert "## WH-001" not in updated
 
-    def test_wh_header_not_promoted_without_er_in_body(self):
-        """WH header stays WH when ER-NNN does not appear in body."""
+    def test_wh_header_promoted_without_er_in_body(self):
+        """WH header promoted to ER when VERIFIED backing exists, even without ER in body."""
         state = """# Working Hypotheses
 
 ## WH-001 Some Hypothesis
@@ -619,11 +619,12 @@ Just a regular WH, no ER reference.
         })
         violations = check_er_promotion_gate(ws)
 
-        # No promotion — ER-001 not in body
+        # Now promotes unconditionally with VERIFIED backing
         promotion_vs = [v for v in violations if "Promoted header" in v.message]
-        assert len(promotion_vs) == 0
+        assert len(promotion_vs) == 1
         updated = ws.read_file("RESEARCH_STATE.md")
-        assert "## WH-001" in updated
+        assert "## ER-001" in updated
+        assert "## WH-001" not in updated
 
     def test_wh_header_not_promoted_without_verified(self):
         """WH header stays WH even if ER-NNN in body but no VERIFIED computation."""
@@ -842,7 +843,7 @@ class TestCriticOverdue:
             engine.metrics.last_critic_iteration = last_critic_iteration
             engine.iteration = current_iteration
             engine._last_content_iteration = last_content_iteration
-            engine._consecutive_critic_underflows = 0
+
         return engine
 
     def test_overdue_with_new_content(self):
@@ -894,7 +895,7 @@ class TestCriticOverdue:
             engine.metrics = MagicMock()
             engine.iteration = 7
             engine._last_content_iteration = 0
-            engine._consecutive_critic_underflows = 0
+
             engine.researcher = MagicMock()
             engine.computationalist = MagicMock()
             engine.critic = MagicMock()

@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch, PropertyMock, call
 
 from sciralph.config import Config
-from sciralph.llm import LLMResponse
 from sciralph.markdown import parse_frontmatter, render_frontmatter
 from sciralph.task import Task, TaskType
 from sciralph.validation import Violation, ViolationSeverity
@@ -338,204 +337,6 @@ class TestRefutedRecompute:
         assert task.task_type == TaskType.SYNTHESIZE
 
 
-class TestCriticRetry:
-    """Test critic retry on underflow (silent failure)."""
-
-    def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config()
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.iteration = 5
-            engine.critic = MagicMock()
-        return engine
-
-    def test_critic_retry_on_low_tokens(self):
-        """Critic retried when output_tokens < 200."""
-        engine = self._make_engine()
-        low_response = LLMResponse(
-            text="OK", input_tokens=5000, output_tokens=23,
-            stop_reason="end_turn", duration=1.0,
-        )
-        normal_response = LLMResponse(
-            text="## CRIT-001\nReal critique.", input_tokens=5000,
-            output_tokens=800, stop_reason="end_turn", duration=2.0,
-        )
-        engine.critic.run = MagicMock(side_effect=[low_response, normal_response])
-
-        task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
-        result = engine._dispatch(task)
-
-        assert result == "deep_critic"
-        assert engine.critic.run.call_count == 2
-        engine.metrics.alert.assert_called_once()
-
-    def test_critic_no_retry_on_normal_tokens(self):
-        """Critic NOT retried when output_tokens >= 200."""
-        engine = self._make_engine()
-        normal_response = LLMResponse(
-            text="## CRIT-001\nReal critique.", input_tokens=5000,
-            output_tokens=800, stop_reason="end_turn", duration=2.0,
-        )
-        engine.critic.run = MagicMock(return_value=normal_response)
-
-        task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
-        result = engine._dispatch(task)
-
-        assert result == "deep_critic"
-        assert engine.critic.run.call_count == 1
-        engine.metrics.alert.assert_not_called()
-
-
-class TestCriticUnderflowSuppression:
-    """Test critic underflow counter and forced-critic suppression (Fix 1)."""
-
-    def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config(critic_every_n=4)
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.metrics.last_critic_iteration = 0
-            engine.iteration = 5
-            engine._last_content_iteration = 5
-            engine._consecutive_critic_underflows = 0
-            engine.critic = MagicMock()
-            engine.researcher = MagicMock()
-            engine.computationalist = MagicMock()
-        return engine
-
-    def test_counter_increments_on_double_underflow(self):
-        """Both initial and retry < 200 tokens -> counter increments."""
-        engine = self._make_engine()
-        low1 = LLMResponse(text="", input_tokens=5000, output_tokens=23,
-                           stop_reason="end_turn", duration=1.0)
-        low2 = LLMResponse(text="", input_tokens=5000, output_tokens=50,
-                           stop_reason="end_turn", duration=1.0)
-        engine.critic.run = MagicMock(side_effect=[low1, low2])
-
-        task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
-        engine._dispatch(task)
-
-        assert engine._consecutive_critic_underflows == 1
-
-    def test_counter_resets_on_successful_retry(self):
-        """Initial underflow but retry >= 200 tokens -> counter resets."""
-        engine = self._make_engine()
-        engine._consecutive_critic_underflows = 1  # pre-existing
-        low = LLMResponse(text="", input_tokens=5000, output_tokens=23,
-                          stop_reason="end_turn", duration=1.0)
-        good = LLMResponse(text="## CRIT-001\nReal critique.", input_tokens=5000,
-                           output_tokens=800, stop_reason="end_turn", duration=2.0)
-        engine.critic.run = MagicMock(side_effect=[low, good])
-
-        task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
-        engine._dispatch(task)
-
-        assert engine._consecutive_critic_underflows == 0
-
-    def test_counter_resets_on_normal_critic(self):
-        """Normal critic pass (>= 200 tokens) resets counter."""
-        engine = self._make_engine()
-        engine._consecutive_critic_underflows = 2
-        normal = LLMResponse(text="## CRIT-001\nOK", input_tokens=5000,
-                             output_tokens=800, stop_reason="end_turn", duration=2.0)
-        engine.critic.run = MagicMock(return_value=normal)
-
-        task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
-        engine._dispatch(task)
-
-        assert engine._consecutive_critic_underflows == 0
-
-    def test_counter_resets_on_researcher_dispatch(self):
-        """Researcher dispatch resets the counter."""
-        engine = self._make_engine()
-        engine._consecutive_critic_underflows = 2
-
-        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH, assigned_to="researcher")
-        engine._dispatch(task)
-
-        assert engine._consecutive_critic_underflows == 0
-
-    def test_counter_resets_on_computationalist_dispatch(self):
-        """Computationalist dispatch resets the counter."""
-        engine = self._make_engine()
-        engine._consecutive_critic_underflows = 2
-
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE, assigned_to="computationalist")
-        engine._dispatch(task)
-
-        assert engine._consecutive_critic_underflows == 0
-
-    def test_critic_overdue_returns_false_when_suppressed(self):
-        """_critic_overdue() returns False when counter >= 2."""
-        engine = self._make_engine()
-        engine._consecutive_critic_underflows = 2
-        # Make critic normally overdue
-        engine.metrics.last_critic_iteration = 0
-        engine.iteration = 10
-
-        assert engine._critic_overdue() is False
-
-    def test_critic_overdue_normal_when_counter_below_threshold(self):
-        """_critic_overdue() works normally when counter < 2."""
-        engine = self._make_engine()
-        engine._consecutive_critic_underflows = 1
-        engine.metrics.last_critic_iteration = 0
-        engine.iteration = 10
-
-        assert engine._critic_overdue() is True
-
-    def test_apply_overrides_skips_forced_critic_when_suppressed(self):
-        """_apply_overrides() skips forced critic when counter >= 2."""
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
-            ws.write_file = MagicMock()
-            ws.read_file = MagicMock(return_value="")
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config(max_iterations=20, critic_every_n=4)
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.metrics.last_critic_iteration = 0
-            engine.iteration = 10
-            engine._stale_iterations = 0
-            engine._stalled_claims = set()
-            engine._consecutive_critic_underflows = 0
-            engine._pending_recompute_claim = None
-            engine._last_content_iteration = 10
-            engine._displaced_tasks = []
-            engine._pending_violations = []
-            engine._pending_termination_blockers = []
-            engine._consecutive_critic_underflows = 2
-
-        task = Task(task_id="TASK-010", task_type=TaskType.RESEARCH,
-                    assigned_to="researcher", iteration=10)
-        result = engine._apply_overrides(task)
-
-        # Should NOT be overridden to critique
-        assert result.task_type == TaskType.RESEARCH
-
 
 class TestApplyOverrides:
     """Test the consolidated _apply_overrides method."""
@@ -570,7 +371,7 @@ class TestApplyOverrides:
             engine.iteration = current_iteration
             engine._stale_iterations = stale_iterations
             engine._stalled_claims = set()
-            engine._consecutive_critic_underflows = 0
+
             engine._pending_recompute_claim = pending_recompute
             engine._last_content_iteration = current_iteration
             engine._displaced_tasks = []
@@ -955,7 +756,7 @@ total_computations: 3
             engine.iteration = 5
             engine._stale_iterations = 0
             engine._stalled_claims = set()
-            engine._consecutive_critic_underflows = 0
+
             engine._pending_recompute_claim = None
             engine._pending_violations = []
             engine._pending_termination_blockers = []
@@ -1027,7 +828,7 @@ class TestDisplacedTaskLogging:
             engine.iteration = current_iteration
             engine._stale_iterations = stale_iterations
             engine._stalled_claims = set()
-            engine._consecutive_critic_underflows = 0
+
             engine._pending_recompute_claim = pending_recompute
             engine._last_content_iteration = current_iteration
             engine._displaced_tasks = []
@@ -1167,7 +968,7 @@ Agent produced no text output. Writing INCONCLUSIVE stub.
             engine.iteration = 5
             engine._stale_iterations = 0
             engine._stalled_claims = set()
-            engine._consecutive_critic_underflows = 0
+
             engine._pending_recompute_claim = None
             engine._pending_violations = []
             engine._pending_termination_blockers = []

@@ -204,6 +204,19 @@ OK.
         assert "## WH-002" in updated  # demoted
         assert "## ER-002" not in updated
 
+    def test_wh_promoted_without_er_in_prose(self):
+        """WH with VERIFIED backing is promoted even when ER-NNN doesn't appear in prose."""
+        state = "# Working Hypotheses\n\n## WH-001 Partition Function\n\nZ = 1/(2 sinh(...))\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": self._comp_log_with_verified("WH-001"),
+        })
+        violations = check_er_promotion_gate(ws)
+        updated = ws.read_file("RESEARCH_STATE.md")
+        assert "## ER-001" in updated
+        assert "## WH-001" not in updated
+        assert any("Promoted" in v.message for v in violations)
+
 
 # ---------------------------------------------------------------------------
 # check_phantom_labels

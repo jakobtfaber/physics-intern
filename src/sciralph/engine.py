@@ -43,7 +43,6 @@ class SciRalph:
         self._stale_iterations = 0
         self._pending_recompute_claim: str | None = None
         self._stalled_claims: set[str] = set()
-        self._consecutive_critic_underflows: int = 0
         self._last_content_iteration: int = 0
         self.problem_meta = problem_meta or {}
         self._pending_violations: list = []
@@ -310,49 +309,19 @@ class SciRalph:
             console.print(f"[green]Researcher[/green] working on: {tt}")
             self.researcher.run(task, self.iteration)
             self._last_content_iteration = self.iteration
-            self._consecutive_critic_underflows = 0
             return "researcher"
 
         elif tt == TaskType.COMPUTE:
             console.print("[magenta]Computationalist[/magenta] working...")
             self.computationalist.run(task, self.iteration, on_round=self._on_compute_round)
             self._last_content_iteration = self.iteration
-            self._consecutive_critic_underflows = 0
             return "computationalist"
 
         elif tt == TaskType.CRITIQUE:
             console.print("[red]Deep Critic[/red] reviewing...")
             response = self.critic.run(task, self.iteration)
-
-            # Check for silent failure (near-empty output)
-            output_tokens = (
-                response.output_tokens if hasattr(response, 'output_tokens')
-                else response.total_output_tokens
-            )
-            if output_tokens < 200:
-                self.metrics.alert(
-                    self.iteration,
-                    f"Critic underflow: {output_tokens} output tokens — retrying once"
-                )
-                console.print(
-                    f"[yellow]Critic produced only {output_tokens} tokens, retrying...[/yellow]"
-                )
-                retry_response = self.critic.run(task, self.iteration)
-                retry_tokens = (
-                    retry_response.output_tokens if hasattr(retry_response, 'output_tokens')
-                    else retry_response.total_output_tokens
-                )
-                if retry_tokens < 200:
-                    self._consecutive_critic_underflows += 1
-                    self.metrics.alert(
-                        self.iteration,
-                        f"Critic double underflow ({output_tokens}+{retry_tokens} tokens) — "
-                        f"consecutive={self._consecutive_critic_underflows}"
-                    )
-                else:
-                    self._consecutive_critic_underflows = 0
-            else:
-                self._consecutive_critic_underflows = 0
+            if hasattr(response, 'text') and 'NO_CRITIQUES_FILED' in (response.text or ''):
+                console.print("[dim]Critic: no issues found[/dim]")
             return "deep_critic"
 
         else:
@@ -362,8 +331,6 @@ class SciRalph:
 
     def _critic_overdue(self) -> bool:
         """Check if more than N iterations since last critic pass."""
-        if self._consecutive_critic_underflows >= 2:
-            return False
         if (self.iteration - self.metrics.last_critic_iteration) < self.config.critic_every_n:
             return False
         # Skip if critic already reviewed the latest content

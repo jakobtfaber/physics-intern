@@ -129,9 +129,6 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
     for wh_id in wh_ids:
         num = wh_id.split("-")[1]
         er_id = f"ER-{num}"
-        # Only promote if ER-NNN already appears elsewhere in state (sign of intended promotion)
-        if er_id not in state:
-            continue
         has_verified = any(
             e["verdict"] == "VERIFIED" and (
                 er_id in e["claim"] or wh_id in e["claim"]
