@@ -256,6 +256,84 @@ class TestCheckpointMessage:
 
 
 # ---------------------------------------------------------------------------
+# Final Warning Near End of Loop
+# ---------------------------------------------------------------------------
+
+class TestFinalWarning:
+    """Final warning injected 2 rounds before max_rounds."""
+
+    @patch("sciralph.llm._get_provider")
+    def test_final_warning_injected_near_end(self, mock_get_provider):
+        """FINAL WARNING appears in messages at round max_rounds-2."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
+        tool_response = _mock_provider_response(
+            "Working on computation...", "tool_use", 100, 50, tool_calls=tc,
+        )
+        text_response = _mock_provider_response("Done.", "end_turn", 100, 50)
+
+        # 9 tool rounds then end_turn on round 10
+        provider.call.side_effect = [tool_response] * 9 + [text_response]
+
+        config = _make_config(
+            checkpoint_round=2, max_tool_rounds=10, zero_text_bailout=20,
+        )
+        executor = _make_executor()
+        run_agent_loop(
+            system="sys", user_content="question",
+            config=config, tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
+        )
+
+        # Final warning fires after round 8 (max_rounds - 2 = 8), so round 9's
+        # call should see it in messages
+        calls = provider.call.call_args_list
+        round9_messages = calls[8].kwargs["messages"]
+        warning_found = any(
+            isinstance(msg.get("content"), list)
+            and any(
+                isinstance(c, dict) and "FINAL WARNING" in c.get("text", "")
+                for c in msg["content"]
+            )
+            for msg in round9_messages
+            if isinstance(msg, dict) and msg.get("role") == "user"
+        )
+        assert warning_found, "FINAL WARNING should be injected after round 8 (max_rounds-2)"
+
+    @patch("sciralph.llm._get_provider")
+    def test_no_final_warning_for_short_loops(self, mock_get_provider):
+        """No FINAL WARNING when max_rounds < 5."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
+        tool_response = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
+        text_response = _mock_provider_response("Done.", "end_turn", 100, 50)
+
+        # 3 tool rounds then end_turn
+        provider.call.side_effect = [tool_response] * 3 + [text_response]
+
+        config = _make_config(checkpoint_round=2, max_tool_rounds=4)
+        executor = _make_executor()
+        run_agent_loop(
+            system="sys", user_content="question",
+            config=config, tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=4,
+        )
+
+        # No FINAL WARNING should appear in any call
+        for call in provider.call.call_args_list:
+            msgs = call.kwargs.get("messages", [])
+            for msg in msgs:
+                if isinstance(msg, dict) and isinstance(msg.get("content"), list):
+                    for c in msg["content"]:
+                        if isinstance(c, dict):
+                            assert "FINAL WARNING" not in c.get("text", "")
+
+
+# ---------------------------------------------------------------------------
 # P1-B: Per-Computation Token Budget Alert
 # ---------------------------------------------------------------------------
 

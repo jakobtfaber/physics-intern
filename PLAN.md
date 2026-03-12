@@ -4,14 +4,13 @@
 
 ## IDEAS
 
-### Multi-model support
-
-- **More models** — add support for more models (GPT, Gemini, Open models via Hugging Face inference providers). Should we define a unified format for tool calls in prompts that works across providers? (e.g. JSON with "tool_name" and "args" fields)
 
 ### Agent tool use
 
 - **`read_file` tool for orchestrator/researcher/critic** — currently only the computationalist has tool access. Giving other agents a `read_file` tool would let them access reference materials and large workspace files on demand instead of stuffing everything into context.
-- 
+- Today computationalist is the only agent with tool use, so some computationalist-specific instructions (about COMP etc.) are in llm.py.
+
+
 ### Problem YAML features
 
 - **External reference files** — allow problem YAML to specify a `files:` list. Copy into `workspace/references/`. Requires `read_file` tool for agents to access them. Useful for problems that need external papers or formula sheets.
@@ -27,6 +26,7 @@
 ### Literature integration
 
 - **Librarian agent** — an agent with web search access that can verify results against known literature, find relevant papers when the system gets stuck, and check whether a "novel" result is actually already known.
+
 
 
 

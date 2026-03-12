@@ -210,9 +210,25 @@ def run_agent_loop(
                     "content": [{
                         "type": "text",
                         "text": (
-                            "CHECKPOINT: You have used half your available rounds. "
+                            "CHECKPOINT: You are running low on available rounds. "
                             "Write your COMP entry text now alongside any remaining "
                             "tool calls. Do not defer all text to the final round."
+                        ),
+                    }],
+                })
+
+            # Final warning near end of loop
+            if round_num == max_rounds - 2 and max_rounds >= 5:
+                messages.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "text",
+                        "text": (
+                            "FINAL WARNING: You have 2 rounds left before forced "
+                            "termination. Begin writing your COMP entry text NOW. "
+                            "If you need one more tool call, make it in your next "
+                            "response, but you MUST include your verdict text in "
+                            "that same response. Do not defer text to the final round."
                         ),
                     }],
                 })

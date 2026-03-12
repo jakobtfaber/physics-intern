@@ -36,6 +36,12 @@ TASK PLANNING:
   claims into a single task (e.g., "Verify WH-001, WH-002, and WH-003"
   is WRONG). If three claims need verification, emit three sequential
   compute tasks across three iterations.
+- FOCUSED SCOPE: A compute task must request at most 1-2 independent
+  checks or methods. Do NOT ask for "numerical spot-checks AND symbolic
+  verification AND series expansion AND limiting cases" in one task. The
+  computationalist has a limited round budget (~10 tool calls). One
+  focused method with clear test points is better than a sprawling
+  multi-method verification that gets cut off.
 - If the researcher produces the same derivation in 2+ consecutive
   iterations, reasoning has CONVERGED — proceed to verification or
   promotion. Do not request further "alternative derivations."
