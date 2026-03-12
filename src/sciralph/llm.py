@@ -1,4 +1,4 @@
-"""Anthropic API wrapper for SciRalph."""
+"""LLM wrapper for SciRalph — provider-agnostic via providers/ adapters."""
 
 import json
 import time
@@ -7,13 +7,23 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-import anthropic
-
 from .config import Config
+from .providers import LLMProvider, ProviderResponse, create_provider
 from .tools import ToolCall, ToolExecutor
 
 _call_seq: dict[int, int] = {}
 _round_num = round  # save builtin before parameter shadowing
+
+# Provider cache: (provider_name, api_key) -> LLMProvider
+_provider_cache: dict[tuple[str, str], LLMProvider] = {}
+
+
+def _get_provider(config: Config) -> LLMProvider:
+    """Create or retrieve a cached provider instance."""
+    key = (config.provider, config.api_key)
+    if key not in _provider_cache:
+        _provider_cache[key] = create_provider(config.provider, api_key=config.api_key)
+    return _provider_cache[key]
 
 
 @dataclass
@@ -42,11 +52,11 @@ class AgentResult:
 
 def call_llm(system: str, user_content: str, config: Config,
              agent_name: str = "", iteration: int = 0) -> LLMResponse:
-    """Call the Anthropic API. Stateless, no retry logic (caller handles that)."""
-    client = anthropic.Anthropic(api_key=config.api_key)
+    """Call the LLM. Stateless, no retry logic (caller handles that)."""
+    provider = _get_provider(config)
 
     start = time.time()
-    response = client.messages.create(
+    resp = provider.call(
         model=config.model,
         max_tokens=config.max_tokens,
         system=system,
@@ -54,13 +64,11 @@ def call_llm(system: str, user_content: str, config: Config,
     )
     duration = time.time() - start
 
-    text = response.content[0].text if response.content else ""
-
     llm_response = LLMResponse(
-        text=text,
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
-        stop_reason=response.stop_reason,
+        text=resp.text,
+        input_tokens=resp.input_tokens,
+        output_tokens=resp.output_tokens,
+        stop_reason=resp.stop_reason,
         duration=duration,
     )
 
@@ -86,7 +94,7 @@ def run_agent_loop(
     on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
 ) -> AgentResult:
     """Run a tool-use agent loop until end_turn, max_rounds, or max_tokens."""
-    client = anthropic.Anthropic(api_key=config.api_key)
+    provider = _get_provider(config)
     messages = [{"role": "user", "content": user_content}]
 
     all_tool_calls: list[ToolCall] = []
@@ -101,7 +109,7 @@ def run_agent_loop(
 
     for round_num in range(1, max_rounds + 1):
         start = time.time()
-        response = client.messages.create(
+        resp = provider.call(
             model=config.model,
             max_tokens=config.max_tokens,
             system=system,
@@ -110,18 +118,18 @@ def run_agent_loop(
         )
         duration = time.time() - start
 
-        total_input += response.usage.input_tokens
-        total_output += response.usage.output_tokens
+        total_input += resp.input_tokens
+        total_output += resp.output_tokens
         if total_input > config.computation_token_alert:
             token_alert_fired = True
 
         # Audit + conversation log for this round
-        round_text = _extract_text(response.content)
+        round_text = resp.text
         round_resp = LLMResponse(
             text=round_text,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-            stop_reason=response.stop_reason,
+            input_tokens=resp.input_tokens,
+            output_tokens=resp.output_tokens,
+            stop_reason=resp.stop_reason,
             duration=duration,
         )
         if config.audit_log:
@@ -131,7 +139,7 @@ def run_agent_loop(
                                 agent_name, iteration)
 
         # end_turn: done
-        if response.stop_reason == "end_turn":
+        if resp.stop_reason == "end_turn":
             return AgentResult(
                 text=round_text,
                 tool_calls=all_tool_calls,
@@ -145,7 +153,7 @@ def run_agent_loop(
             )
 
         # max_tokens: truncated
-        if response.stop_reason == "max_tokens":
+        if resp.stop_reason == "max_tokens":
             return AgentResult(
                 text=round_text,
                 tool_calls=all_tool_calls,
@@ -159,27 +167,26 @@ def run_agent_loop(
             )
 
         # tool_use: execute tools and continue
-        if response.stop_reason == "tool_use":
-            messages.append({"role": "assistant", "content": response.content})
+        if resp.stop_reason == "tool_use":
+            messages.append(provider.format_assistant_message(resp.raw_content))
 
             tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    tc = tool_executor.execute(block.name, block.input)
-                    all_tool_calls.append(tc)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": tc.output,
-                        "is_error": tc.is_error,
-                    })
+            for tc_info in resp.tool_calls:
+                tc = tool_executor.execute(tc_info["name"], tc_info["input"])
+                all_tool_calls.append(tc)
+                tool_results.append({
+                    "tool_call_id": tc_info["id"],
+                    "name": tc_info["name"],
+                    "output": tc.output,
+                    "is_error": tc.is_error,
+                })
 
-            messages.append({"role": "user", "content": tool_results})
+            messages.extend(provider.build_tool_result_messages(tool_results))
 
             # Notify caller about round progress
             round_tool_calls = [tc for tc in all_tool_calls[-len(tool_results):]]
             if on_round:
-                on_round(round_num, response.stop_reason, round_tool_calls,
+                on_round(round_num, resp.stop_reason, round_tool_calls,
                          total_input, total_output)
 
             # Track consecutive zero-text rounds for early bailout
@@ -237,26 +244,26 @@ def run_agent_loop(
     )
 
     start = time.time()
-    final_response = client.messages.create(
+    final_resp = provider.call(
         model=config.model,
         max_tokens=config.max_tokens,
         system=forced_system,
         messages=messages,
-        # NO tools parameter — forces text-only response
+        # No tools — forces text-only response
     )
     dur = time.time() - start
 
-    total_input += final_response.usage.input_tokens
-    total_output += final_response.usage.output_tokens
-    final_text = _extract_text(final_response.content)
+    total_input += final_resp.input_tokens
+    total_output += final_resp.output_tokens
+    final_text = final_resp.text
 
     if on_round:
         on_round(round_num + 1, "forced_partial", [], total_input, total_output)
 
     if config.audit_log:
         _write_audit_entry(config, LLMResponse(
-            final_text, final_response.usage.input_tokens,
-            final_response.usage.output_tokens, "forced_partial", dur
+            final_text, final_resp.input_tokens,
+            final_resp.output_tokens, "forced_partial", dur
         ), forced_system, user_content, agent_name, iteration,
         round=round_num + 1)
 
@@ -271,15 +278,6 @@ def run_agent_loop(
         stop_reason="max_rounds_forced",
         token_alert_fired=token_alert_fired,
     )
-
-
-def _extract_text(content_blocks) -> str:
-    """Concatenate all TextBlock.text from response content."""
-    parts = []
-    for block in content_blocks:
-        if hasattr(block, "text"):
-            parts.append(block.text)
-    return "\n".join(parts)
 
 
 def _write_audit_entry(config: Config, resp: LLMResponse,

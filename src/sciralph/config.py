@@ -46,12 +46,24 @@ class Config:
     tool_output_limit: int = DEFAULTS["tool_output_limit"]
     stall_threshold: int = DEFAULTS["stall_threshold"]
     min_er_for_completion: int = DEFAULTS["min_er_for_completion"]
+    provider: str = ""
     workspace_dir: str = "workspaces"
     audit_log: str = ""
     logs_dir: str = ""
     api_key: str = ""
 
     def __post_init__(self):
+        # Resolve provider from models.yaml if not explicitly set
+        if not self.provider:
+            resolved = _resolve_model(self.model)
+            if resolved:
+                self.provider = resolved["provider"]
+                self.model = resolved["model_id"]
+                if not self.api_key:
+                    self.api_key = os.environ.get(resolved["env_key"], "")
+            else:
+                # Default to anthropic for backward compatibility
+                self.provider = "anthropic"
         if not self.api_key:
             self.api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
@@ -62,8 +74,30 @@ _YAML_CONFIG_FIELDS = frozenset({
     "compress_threshold", "max_retries_on_max_tokens", "sympy_timeout_seconds",
     "max_tool_rounds", "zero_text_bailout", "checkpoint_round",
     "computation_token_alert", "tool_output_limit", "stall_threshold",
-    "min_er_for_completion",
+    "min_er_for_completion", "provider",
 })
+
+
+def _resolve_model(model_key: str) -> dict | None:
+    """Look up a model key in models.yaml, return {provider, model_id, env_key} or None."""
+    path = Path(__file__).parent / "models.yaml"
+    if not path.exists():
+        return None
+    try:
+        with open(path) as f:
+            registry = yaml.safe_load(f)
+        if not registry or not isinstance(registry, dict):
+            return None
+        entry = registry.get(model_key)
+        if not entry or not isinstance(entry, dict):
+            return None
+        return {
+            "provider": entry["provider"],
+            "model_id": entry.get("model_id", model_key),
+            "env_key": entry.get("env_key", "ANTHROPIC_API_KEY"),
+        }
+    except (OSError, yaml.YAMLError):
+        return None
 
 
 def load_config_yaml(path: Path) -> dict:
@@ -92,7 +126,7 @@ def build_config(args: Namespace) -> Config:
     # Layer 2: CLI args override (only non-None values)
     cli_fields = {
         "model", "max_tokens", "max_iterations", "critic_every_n",
-        "sympy_timeout_seconds", "workspace_dir",
+        "sympy_timeout_seconds", "workspace_dir", "provider",
     }
     for field_name in cli_fields:
         cli_name = field_name.replace("-", "_")

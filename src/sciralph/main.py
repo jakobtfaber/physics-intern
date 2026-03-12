@@ -35,6 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Force critic pass every N iterations")
     parser.add_argument("--sympy-timeout-seconds", type=int, default=None,
                         help="Timeout for SymPy computations in seconds")
+    parser.add_argument("--provider", type=str, default=None,
+                        help="LLM provider (anthropic, openai, google, huggingface). "
+                             "Auto-resolved from --model via models.yaml if omitted.")
     return parser
 
 

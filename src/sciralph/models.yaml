@@ -1,0 +1,48 @@
+# SciRalph model registry
+# Friendly keys map to provider + model_id + env_key
+# Use with: --model <key> (e.g., --model claude-sonnet-4.6)
+
+claude-sonnet-4-6:
+  provider: anthropic
+  model_id: claude-sonnet-4-6
+  env_key: ANTHROPIC_API_KEY
+
+claude-sonnet-4.6:
+  provider: anthropic
+  model_id: claude-sonnet-4-6
+  env_key: ANTHROPIC_API_KEY
+
+claude-opus-4-6:
+  provider: anthropic
+  model_id: claude-opus-4-6
+  env_key: ANTHROPIC_API_KEY
+
+claude-opus-4.6:
+  provider: anthropic
+  model_id: claude-opus-4-6
+  env_key: ANTHROPIC_API_KEY
+
+gpt-4o:
+  provider: openai
+  model_id: gpt-4o
+  env_key: OPENAI_API_KEY
+
+gpt-4o-mini:
+  provider: openai
+  model_id: gpt-4o-mini
+  env_key: OPENAI_API_KEY
+
+o3:
+  provider: openai
+  model_id: o3
+  env_key: OPENAI_API_KEY
+
+gemini-2.5-pro:
+  provider: google
+  model_id: gemini-2.5-pro-preview-06-05
+  env_key: GOOGLE_API_KEY
+
+gemini-2.5-flash:
+  provider: google
+  model_id: gemini-2.5-flash-preview-05-20
+  env_key: GOOGLE_API_KEY

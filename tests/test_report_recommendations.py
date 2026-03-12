@@ -6,12 +6,12 @@ redundant critic skip.
 """
 
 import re
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from sciralph.config import Config, DEFAULTS
 from sciralph.llm import AgentResult, run_agent_loop
 from sciralph.markdown import render_frontmatter
+from sciralph.providers.base import ProviderResponse
 from sciralph.task import Task, TaskType
 from sciralph.tools import ToolExecutor
 from sciralph.validation import (
@@ -39,24 +39,22 @@ class MockWorkspace:
         self._files[filename] = content
 
 
-def _mock_text_block(text: str):
-    return SimpleNamespace(type="text", text=text)
-
-
-def _mock_tool_use_block(tool_id: str, name: str, input_data: dict):
-    return SimpleNamespace(type="tool_use", id=tool_id, name=name, input=input_data)
-
-
-def _mock_response(content, stop_reason: str, input_tokens: int = 100, output_tokens: int = 50):
-    return SimpleNamespace(
-        content=content,
+def _mock_provider_response(text="", stop_reason="end_turn",
+                             input_tokens=100, output_tokens=50,
+                             tool_calls=None):
+    """Create a mock ProviderResponse."""
+    return ProviderResponse(
+        text=text,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         stop_reason=stop_reason,
-        usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens),
+        tool_calls=tool_calls,
+        raw_content=None,
     )
 
 
 def _make_config(**overrides) -> Config:
-    defaults = dict(api_key="test-key", audit_log="", logs_dir="")
+    defaults = dict(api_key="test-key", audit_log="", logs_dir="", provider="anthropic")
     defaults.update(overrides)
     return Config(**defaults)
 
@@ -68,6 +66,14 @@ def _make_executor():
     return ToolExecutor(workspace_root=root, timeout=60)
 
 
+def _mock_provider():
+    """Create a mock provider with sensible defaults for format methods."""
+    provider = MagicMock()
+    provider.format_assistant_message.return_value = {"role": "assistant", "content": "mock"}
+    provider.build_tool_result_messages.return_value = [{"role": "user", "content": []}]
+    return provider
+
+
 # ---------------------------------------------------------------------------
 # P0-A: Zero-Text Watchdog
 # ---------------------------------------------------------------------------
@@ -75,24 +81,25 @@ def _make_executor():
 class TestZeroTextWatchdog:
     """P0-A: Computationalist enters tool-only loops producing no text."""
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_bailout_at_zero_text_threshold(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_bailout_at_zero_text_threshold(self, mock_get_provider):
         """Loop breaks after zero_text_bailout consecutive zero-text rounds."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        # Tool-only response (no text blocks)
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
+        # Tool-only response (no text)
+        tool_response = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
 
         # Forced final text response
-        text_response = _mock_response(
-            [_mock_text_block("## COMP-001\n**VERDICT:** INCONCLUSIVE")],
-            "end_turn", 150, 80
+        text_response = _mock_provider_response(
+            "## COMP-001\n**VERDICT:** INCONCLUSIVE", "end_turn", 150, 80
         )
 
         # 3 zero-text rounds, then forced final
-        mock_client.messages.create.side_effect = [
+        provider.call.side_effect = [
             tool_response, tool_response, tool_response,
             text_response,
         ]
@@ -108,28 +115,25 @@ class TestZeroTextWatchdog:
         # Should have bailed out early (3 tool rounds + 1 forced = 4 total calls)
         assert result.stop_reason == "max_rounds_forced"
         assert result.rounds < 10 + 1  # Less than max_rounds + forced
-        assert mock_client.messages.create.call_count == 4
+        assert provider.call.call_count == 4
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_zero_text_streak_resets_on_text(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_zero_text_streak_resets_on_text(self, mock_get_provider):
         """Zero-text streak resets when text is produced."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
+        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
         # Round 1: tool only (zero text)
-        r1 = _mock_response([tool_block], "tool_use", 100, 50)
+        r1 = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
         # Round 2: tool + text (resets streak)
-        r2 = _mock_response(
-            [_mock_text_block("Working on it..."), tool_block],
-            "tool_use", 100, 50,
-        )
+        r2 = _mock_provider_response("Working on it...", "tool_use", 100, 50, tool_calls=tc)
         # Round 3: tool only (streak = 1 again)
-        r3 = _mock_response([tool_block], "tool_use", 100, 50)
+        r3 = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
         # Round 4: end_turn
-        r4 = _mock_response([_mock_text_block("Done.")], "end_turn", 100, 50)
+        r4 = _mock_provider_response("Done.", "end_turn", 100, 50)
 
-        mock_client.messages.create.side_effect = [r1, r2, r3, r4]
+        provider.call.side_effect = [r1, r2, r3, r4]
 
         config = _make_config(zero_text_bailout=2, max_tool_rounds=10)
         executor = _make_executor()
@@ -143,18 +147,16 @@ class TestZeroTextWatchdog:
         assert result.stop_reason == "end_turn"
         assert result.rounds == 4
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_bailout_forced_system_message(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_bailout_forced_system_message(self, mock_get_provider):
         """Forced system message mentions early termination for zero-text bailout."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
-        text_response = _mock_response(
-            [_mock_text_block("Done")], "end_turn", 100, 50
-        )
-        mock_client.messages.create.side_effect = [
+        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
+        tool_response = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
+        text_response = _mock_provider_response("Done", "end_turn", 100, 50)
+        provider.call.side_effect = [
             tool_response, tool_response,  # 2 zero-text rounds
             text_response,  # forced
         ]
@@ -168,7 +170,7 @@ class TestZeroTextWatchdog:
         )
 
         # The forced final call should mention early termination
-        calls = mock_client.messages.create.call_args_list
+        calls = provider.call.call_args_list
         last_call = calls[-1]
         forced_system = last_call.kwargs["system"]
         assert "terminated early" in forced_system
@@ -182,20 +184,18 @@ class TestZeroTextWatchdog:
 class TestCheckpointMessage:
     """P1-A: Checkpoint nudge injected at configured round."""
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_checkpoint_injected_at_round_n(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_checkpoint_injected_at_round_n(self, mock_get_provider):
         """Checkpoint message appears in messages at the configured round."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
-        text_response = _mock_response(
-            [_mock_text_block("Done.")], "end_turn", 100, 50
-        )
+        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
+        tool_response = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
+        text_response = _mock_provider_response("Done.", "end_turn", 100, 50)
 
         # 3 tool rounds then end_turn on round 4
-        mock_client.messages.create.side_effect = [
+        provider.call.side_effect = [
             tool_response, tool_response, tool_response,
             text_response,
         ]
@@ -210,7 +210,7 @@ class TestCheckpointMessage:
 
         # Inspect the messages passed to round 3 (which should include checkpoint)
         # The checkpoint is added after round 2, so round 3's call should have it
-        calls = mock_client.messages.create.call_args_list
+        calls = provider.call.call_args_list
         # Round 3 messages should contain the checkpoint
         round3_messages = calls[2].kwargs["messages"]
         checkpoint_found = any(
@@ -224,16 +224,16 @@ class TestCheckpointMessage:
         )
         assert checkpoint_found, "Checkpoint message should be injected after round 2"
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_no_checkpoint_before_round_n(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_no_checkpoint_before_round_n(self, mock_get_provider):
         """No checkpoint if loop ends before checkpoint_round."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        r1 = _mock_response([tool_block], "tool_use", 100, 50)
-        r2 = _mock_response([_mock_text_block("Done.")], "end_turn", 100, 50)
-        mock_client.messages.create.side_effect = [r1, r2]
+        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
+        r1 = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
+        r2 = _mock_provider_response("Done.", "end_turn", 100, 50)
+        provider.call.side_effect = [r1, r2]
 
         config = _make_config(checkpoint_round=5, max_tool_rounds=10)
         executor = _make_executor()
@@ -245,7 +245,7 @@ class TestCheckpointMessage:
 
         # Only 2 rounds — no checkpoint should have been injected
         assert result.rounds == 2
-        calls = mock_client.messages.create.call_args_list
+        calls = provider.call.call_args_list
         for call in calls:
             msgs = call.kwargs.get("messages", [])
             for msg in msgs:
@@ -262,18 +262,18 @@ class TestCheckpointMessage:
 class TestTokenAlert:
     """P1-B: token_alert_fired set when input tokens exceed threshold."""
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_alert_fired_above_threshold(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_alert_fired_above_threshold(self, mock_get_provider):
         """token_alert_fired=True when total_input > computation_token_alert."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
         # Single round with high token count
-        text_response = _mock_response(
-            [_mock_text_block("Done.")], "end_turn",
+        text_response = _mock_provider_response(
+            "Done.", "end_turn",
             input_tokens=200_000, output_tokens=100,
         )
-        mock_client.messages.create.return_value = text_response
+        provider.call.return_value = text_response
 
         config = _make_config(computation_token_alert=150_000)
         executor = _make_executor()
@@ -285,17 +285,17 @@ class TestTokenAlert:
 
         assert result.token_alert_fired is True
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_alert_not_fired_below_threshold(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_alert_not_fired_below_threshold(self, mock_get_provider):
         """token_alert_fired=False when total_input <= computation_token_alert."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        text_response = _mock_response(
-            [_mock_text_block("Done.")], "end_turn",
+        text_response = _mock_provider_response(
+            "Done.", "end_turn",
             input_tokens=50_000, output_tokens=100,
         )
-        mock_client.messages.create.return_value = text_response
+        provider.call.return_value = text_response
 
         config = _make_config(computation_token_alert=150_000)
         executor = _make_executor()
@@ -307,17 +307,17 @@ class TestTokenAlert:
 
         assert result.token_alert_fired is False
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_alert_accumulates_across_rounds(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_alert_accumulates_across_rounds(self, mock_get_provider):
         """Alert fires when cumulative input exceeds threshold."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "x=1"})
-        r1 = _mock_response([tool_block], "tool_use", input_tokens=80_000, output_tokens=50)
-        r2 = _mock_response([tool_block], "tool_use", input_tokens=80_000, output_tokens=50)
-        r3 = _mock_response([_mock_text_block("Done.")], "end_turn", input_tokens=80_000, output_tokens=50)
-        mock_client.messages.create.side_effect = [r1, r2, r3]
+        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "x=1"}}]
+        r1 = _mock_provider_response("", "tool_use", input_tokens=80_000, output_tokens=50, tool_calls=tc)
+        r2 = _mock_provider_response("", "tool_use", input_tokens=80_000, output_tokens=50, tool_calls=tc)
+        r3 = _mock_provider_response("Done.", "end_turn", input_tokens=80_000, output_tokens=50)
+        provider.call.side_effect = [r1, r2, r3]
 
         config = _make_config(computation_token_alert=150_000)
         executor = _make_executor()

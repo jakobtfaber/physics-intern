@@ -55,7 +55,7 @@ class TestToolsAttribute:
     def test_computationalist_has_tools(self):
         assert ComputationalistAgent.tools
         assert len(ComputationalistAgent.tools) == 1
-        assert ComputationalistAgent.tools[0]["name"] == "execute_python"
+        assert ComputationalistAgent.tools[0]["function"]["name"] == "execute_python"
 
     def test_other_agents_no_tools(self):
         from sciralph.agents.orchestrator import OrchestratorAgent

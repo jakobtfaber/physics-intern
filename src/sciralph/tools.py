@@ -27,32 +27,35 @@ class ToolExecutor:
 
     TOOL_DEFINITIONS: ClassVar[list[dict]] = [
         {
-            "name": "execute_python",
-            "description": (
-                "Execute a Python script and return its stdout/stderr. "
-                "Available packages: Python 3.12+, NumPy >= 2.0, SciPy >= 1.14, "
-                "SymPy >= 1.13, matplotlib >= 3.9, standard library.\n\n"
-                "BANNED APIs (will crash):\n"
-                "- scipy.misc.derivative -> manual finite differences\n"
-                "- numpy.trapz -> numpy.trapezoid\n"
-                "- numpy.math -> math (stdlib)\n"
-                "- scipy.integrate.simps -> scipy.integrate.simpson\n\n"
-                "The script must be self-contained. Never call plt.show() "
-                "(use plt.savefig() then plt.close()). "
-                "Timeout: scripts are killed after the configured timeout "
-                "(default 60s). If you hit a timeout, simplify your approach: "
-                "reduce grid sizes, use fewer iterations, or switch to "
-                "analytical methods."
-            ),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "The complete Python script to execute.",
-                    }
+            "type": "function",
+            "function": {
+                "name": "execute_python",
+                "description": (
+                    "Execute a Python script and return its stdout/stderr. "
+                    "Available packages: Python 3.12+, NumPy >= 2.0, SciPy >= 1.14, "
+                    "SymPy >= 1.13, matplotlib >= 3.9, standard library.\n\n"
+                    "BANNED APIs (will crash):\n"
+                    "- scipy.misc.derivative -> manual finite differences\n"
+                    "- numpy.trapz -> numpy.trapezoid\n"
+                    "- numpy.math -> math (stdlib)\n"
+                    "- scipy.integrate.simps -> scipy.integrate.simpson\n\n"
+                    "The script must be self-contained. Never call plt.show() "
+                    "(use plt.savefig() then plt.close()). "
+                    "Timeout: scripts are killed after the configured timeout "
+                    "(default 60s). If you hit a timeout, simplify your approach: "
+                    "reduce grid sizes, use fewer iterations, or switch to "
+                    "analytical methods."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "code": {
+                            "type": "string",
+                            "description": "The complete Python script to execute.",
+                        }
+                    },
+                    "required": ["code"],
                 },
-                "required": ["code"],
             },
         }
     ]

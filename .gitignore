@@ -9,3 +9,4 @@ dist/
 logs/
 .claude/settings.local.json
 .idea/
+tmp/

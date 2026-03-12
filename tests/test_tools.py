@@ -2,11 +2,11 @@
 
 import tempfile
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from sciralph.config import Config
 from sciralph.llm import AgentResult, run_agent_loop
+from sciralph.providers.base import ProviderResponse
 from sciralph.tools import ToolExecutor, ToolCall
 
 
@@ -74,9 +74,11 @@ class TestToolDefinitions:
     def test_definitions_format(self):
         defs = ToolExecutor.TOOL_DEFINITIONS
         assert len(defs) == 1
-        assert defs[0]["name"] == "execute_python"
-        assert "input_schema" in defs[0]
-        assert defs[0]["input_schema"]["required"] == ["code"]
+        assert defs[0]["type"] == "function"
+        func = defs[0]["function"]
+        assert func["name"] == "execute_python"
+        assert "parameters" in func
+        assert func["parameters"]["required"] == ["code"]
 
 
 class TestTruncation:
@@ -95,38 +97,40 @@ class TestTruncation:
 
 # --- Agent loop tests ---
 
-def _mock_text_block(text: str):
-    """Create a mock TextBlock."""
-    block = SimpleNamespace(type="text", text=text)
-    return block
-
-
-def _mock_tool_use_block(tool_id: str, name: str, input_data: dict):
-    """Create a mock ToolUseBlock."""
-    return SimpleNamespace(type="tool_use", id=tool_id, name=name, input=input_data)
-
-
-def _mock_response(content, stop_reason: str, input_tokens: int = 100, output_tokens: int = 50):
-    """Create a mock API response."""
-    return SimpleNamespace(
-        content=content,
+def _mock_provider_response(text="", stop_reason="end_turn",
+                             input_tokens=100, output_tokens=50,
+                             tool_calls=None):
+    """Create a mock ProviderResponse."""
+    return ProviderResponse(
+        text=text,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         stop_reason=stop_reason,
-        usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens),
+        tool_calls=tool_calls,
+        raw_content=None,
     )
 
 
 def _make_config() -> Config:
-    return Config(api_key="test-key", audit_log="", logs_dir="")
+    return Config(api_key="test-key", audit_log="", logs_dir="", provider="anthropic")
+
+
+def _mock_provider():
+    """Create a mock provider with sensible defaults for format methods."""
+    provider = MagicMock()
+    provider.format_assistant_message.return_value = {"role": "assistant", "content": "mock"}
+    provider.build_tool_result_messages.return_value = [{"role": "user", "content": []}]
+    return provider
 
 
 class TestAgentLoop:
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_end_turn_first_call(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_end_turn_first_call(self, mock_get_provider):
         """LLM returns text with end_turn on the first call."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
-        mock_client.messages.create.return_value = _mock_response(
-            [_mock_text_block("Final answer.")], "end_turn", 200, 100
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+        provider.call.return_value = _mock_provider_response(
+            "Final answer.", "end_turn", 200, 100
         )
 
         executor = _make_executor()
@@ -143,18 +147,20 @@ class TestAgentLoop:
         assert not result.truncated
         assert result.stop_reason == "end_turn"
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_one_tool_call_then_end(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_one_tool_call_then_end(self, mock_get_provider):
         """LLM calls a tool in round 1, then returns text in round 2."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
         # Round 1: tool_use
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(42)"})
-        round1 = _mock_response([tool_block], "tool_use", 200, 80)
+        round1 = _mock_provider_response(
+            "", "tool_use",  200, 80,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(42)"}}],
+        )
         # Round 2: end_turn
-        round2 = _mock_response([_mock_text_block("Done. VERDICT: VERIFIED")], "end_turn", 300, 100)
-        mock_client.messages.create.side_effect = [round1, round2]
+        round2 = _mock_provider_response("Done. VERDICT: VERIFIED", "end_turn", 300, 100)
+        provider.call.side_effect = [round1, round2]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -169,19 +175,20 @@ class TestAgentLoop:
         assert "VERDICT: VERIFIED" in result.text
         assert not result.truncated
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_max_rounds_exhausted(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_max_rounds_exhausted(self, mock_get_provider):
         """LLM always returns tool_use — stops at max_rounds with forced final call."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
-        text_response = _mock_response(
-            [_mock_text_block("## COMP-001\n**VERDICT:** INCONCLUSIVE")],
-            "end_turn", 150, 80
+        tool_response = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
-        mock_client.messages.create.side_effect = [
+        text_response = _mock_provider_response(
+            "## COMP-001\n**VERDICT:** INCONCLUSIVE", "end_turn", 150, 80
+        )
+        provider.call.side_effect = [
             tool_response, tool_response, tool_response,  # 3 tool-use rounds
             text_response,  # forced final call
         ]
@@ -197,19 +204,24 @@ class TestAgentLoop:
         assert result.truncated
         assert result.stop_reason == "max_rounds_forced"
         assert len(result.tool_calls) == 3
-        assert mock_client.messages.create.call_count == 4
+        assert provider.call.call_count == 4
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_token_accumulation(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_token_accumulation(self, mock_get_provider):
         """Tokens are summed across rounds."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        round1 = _mock_response([tool_block], "tool_use", 200, 80)
-        round2 = _mock_response([tool_block], "tool_use", 300, 90)
-        round3 = _mock_response([_mock_text_block("Done.")], "end_turn", 400, 100)
-        mock_client.messages.create.side_effect = [round1, round2, round3]
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        round2 = _mock_provider_response(
+            "", "tool_use", 300, 90,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        round3 = _mock_provider_response("Done.", "end_turn", 400, 100)
+        provider.call.side_effect = [round1, round2, round3]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -222,13 +234,13 @@ class TestAgentLoop:
         assert result.total_output_tokens == 270  # 80+90+100
         assert result.rounds == 3
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_max_tokens_stop(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_max_tokens_stop(self, mock_get_provider):
         """stop_reason=max_tokens in round 1 returns truncated."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
-        mock_client.messages.create.return_value = _mock_response(
-            [_mock_text_block("Partial...")], "max_tokens", 200, 16384
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+        provider.call.return_value = _mock_provider_response(
+            "Partial...", "max_tokens", 200, 16384
         )
 
         executor = _make_executor()
@@ -246,19 +258,20 @@ class TestAgentLoop:
 class TestForcedPartialOutput:
     """Test the forced text-only final call when max_rounds is exhausted."""
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_forced_call_has_no_tools_param(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_forced_call_has_no_tools_param(self, mock_get_provider):
         """Last call should NOT include tools parameter."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
-        text_response = _mock_response(
-            [_mock_text_block("## COMP-001\n**VERDICT:** INCONCLUSIVE")],
-            "end_turn", 150, 80
+        tool_response = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
-        mock_client.messages.create.side_effect = [
+        text_response = _mock_provider_response(
+            "## COMP-001\n**VERDICT:** INCONCLUSIVE", "end_turn", 150, 80
+        )
+        provider.call.side_effect = [
             tool_response, tool_response,  # 2 rounds of tool use
             text_response,  # forced final call
         ]
@@ -270,28 +283,28 @@ class TestForcedPartialOutput:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=2,
         )
 
-        # Verify the last call had no tools parameter
-        calls = mock_client.messages.create.call_args_list
+        # Verify the last call had no tools parameter (tools=None by default)
+        calls = provider.call.call_args_list
         assert len(calls) == 3
         # First two calls should have tools
-        assert "tools" in calls[0].kwargs or (len(calls[0].args) > 0)
+        assert calls[0].kwargs.get("tools") is not None
         # Last call should NOT have tools
-        last_call_kwargs = calls[2].kwargs
-        assert "tools" not in last_call_kwargs
+        assert calls[2].kwargs.get("tools") is None
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_forced_call_text_in_result(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_forced_call_text_in_result(self, mock_get_provider):
         """Result text should come from the forced final call."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
-        text_response = _mock_response(
-            [_mock_text_block("Forced partial output here")],
-            "end_turn", 150, 80
+        tool_response = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
-        mock_client.messages.create.side_effect = [tool_response, text_response]
+        text_response = _mock_provider_response(
+            "Forced partial output here", "end_turn", 150, 80
+        )
+        provider.call.side_effect = [tool_response, text_response]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -303,18 +316,18 @@ class TestForcedPartialOutput:
         assert result.text == "Forced partial output here"
         assert result.stop_reason == "max_rounds_forced"
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_token_accumulation_includes_forced(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_token_accumulation_includes_forced(self, mock_get_provider):
         """Total tokens should include the forced call."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        tool_response = _mock_response([tool_block], "tool_use", 200, 80)
-        text_response = _mock_response(
-            [_mock_text_block("Final")], "end_turn", 300, 120
+        tool_response = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
-        mock_client.messages.create.side_effect = [tool_response, text_response]
+        text_response = _mock_provider_response("Final", "end_turn", 300, 120)
+        provider.call.side_effect = [tool_response, text_response]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -327,16 +340,18 @@ class TestForcedPartialOutput:
         assert result.total_output_tokens == 200  # 80 + 120
         assert result.rounds == 2  # 1 tool round + 1 forced
 
-    @patch("sciralph.llm.anthropic.Anthropic")
-    def test_stop_reason_is_max_rounds_forced(self, mock_anthropic_cls):
+    @patch("sciralph.llm._get_provider")
+    def test_stop_reason_is_max_rounds_forced(self, mock_get_provider):
         """Stop reason should be 'max_rounds_forced'."""
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
 
-        tool_block = _mock_tool_use_block("t1", "execute_python", {"code": "print(1)"})
-        tool_response = _mock_response([tool_block], "tool_use", 100, 50)
-        text_response = _mock_response([_mock_text_block("Done")], "end_turn", 100, 50)
-        mock_client.messages.create.side_effect = [tool_response, text_response]
+        tool_response = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        text_response = _mock_provider_response("Done", "end_turn", 100, 50)
+        provider.call.side_effect = [tool_response, text_response]
 
         executor = _make_executor()
         result = run_agent_loop(

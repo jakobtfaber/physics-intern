@@ -1,6 +1,6 @@
 # SciRalph
 
-Multi-agent scaffolding system for autonomous scientific research in mathematics and theoretical physics. Uses iterative LLM calls (Anthropic Claude) with externally persisted state in Markdown files and a layered verification stack.
+Multi-agent scaffolding system for autonomous scientific research in mathematics and theoretical physics. Uses iterative LLM calls with externally persisted state in Markdown files and a layered verification stack. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer.
 
 ## Key Documents
 
@@ -15,10 +15,18 @@ src/sciralph/
   engine.py            — Main loop: orchestrate → validate → override → dispatch → compress → git
   validation.py        — Post-integration checks (ER gate, phantom labels, routing) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
-  config.py            — Config dataclass (model, thresholds, timeouts, audit_log)
-  llm.py               — Anthropic API wrapper (call_llm, run_agent_loop) with JSONL audit logging
+  config.py            — Config dataclass (model, provider, thresholds, timeouts, audit_log)
+  llm.py               — Provider-agnostic LLM wrapper (call_llm, run_agent_loop) with JSONL audit logging
+  models.yaml          — Model registry (friendly keys → provider + model_id + env_key)
   task.py              — Task dataclass + TaskType enum for typed task handling
   tools.py             — ToolExecutor + ToolCall for agentic tool-use (execute_python)
+  providers/
+    __init__.py        — create_provider() factory + re-exports
+    base.py            — LLMProvider ABC + ProviderResponse dataclass
+    anthropic.py       — Anthropic Claude adapter
+    openai.py          — OpenAI adapter
+    google.py          — Google Gemini adapter
+    huggingface.py     — HuggingFace Inference Providers adapter
   workspace.py         — File I/O + git operations on workspace/
   markdown.py          — YAML frontmatter parsing, section extraction, critique helpers
   sandbox.py           — Python script execution with timeout
@@ -41,7 +49,8 @@ run_and_verify.sh      — Run a problem then verify results in one command
 ## Tech Stack
 
 - Python 3.12+, `uv` for dependency management
-- `anthropic` SDK, `rich` for console, `pyyaml`, `sympy`, `numpy`, `scipy`, `matplotlib`
+- `anthropic` SDK (required), optional: `openai`, `google-genai`, `huggingface-hub`
+- `rich` for console, `pyyaml`, `sympy`, `numpy`, `scipy`, `matplotlib`
 - Tests: `pytest` (run with `uv run python -m pytest -v`, need `--extra dev`)
 
 ## Architecture
@@ -63,6 +72,9 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 ## Conventions
 
 - `call_llm` is a stateless function for one-shot agents; `run_agent_loop` handles tool-use agents
+- Both use `_get_provider(config)` which creates/caches an `LLMProvider` instance based on `config.provider`
+- Provider adapters in `providers/` handle API-specific concerns: tool format transformation, message format, stop reason normalization
+- Tool definitions use OpenAI canonical format (`type: "function"`, `function: {name, description, parameters}`); Anthropic adapter transforms to `input_schema` format
 - `AgentResult` (tool-use) is distinct from `LLMResponse` (one-shot) — accumulates tokens across rounds
 - Tasks are typed via `Task` dataclass (in `task.py`) with `TaskType` enum — no untyped dicts
 - Agent prompts are static `.md` files loaded at runtime — no templating
@@ -85,8 +97,12 @@ uv sync --extra dev
 # Tests
 uv run python -m pytest -v
 
-# Run (requires ANTHROPIC_API_KEY in .env or env var)
+# Run with Anthropic (default, requires ANTHROPIC_API_KEY)
 uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --max-iterations 5
+
+# Run with a different provider (auto-resolved from models.yaml)
+uv sync --extra openai
+uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --model gpt-4o --max-iterations 5
 
 # Verify a completed workspace (uses Claude Opus by default)
 uv run python -m sciralph.verify workspaces/<run_dir>/ --write-report
@@ -110,5 +126,7 @@ All core functionality is implemented and working (365 tests passing). Phase 2 e
 - **Tool-use infrastructure** — `run_agent_loop` with forced text-only final call on `max_rounds` or zero-text bailout, checkpoint message at round N, per-computation token alert, stall detection (threshold=2)
 - **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
 - **Logging** — JSONL audit logging (metadata per LLM call, round field for tool-use), full conversation logs
+
+- **Multi-provider support** — `providers/` abstraction layer with Anthropic, OpenAI, Google Gemini, HuggingFace adapters; `models.yaml` registry; `--model`/`--provider` CLI flags; `verify.py` stays Anthropic-only
 
 Next steps: `read_file` tool for orchestrator/researcher/critic (see PLAN.md future work)

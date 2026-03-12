@@ -16,6 +16,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-cov"]
+openai = ["openai>=1.0"]
+google = ["google-genai>=1.0"]
+huggingface = ["huggingface-hub>=0.25"]
+all-providers = ["openai>=1.0", "google-genai>=1.0", "huggingface-hub>=0.25"]
 
 [build-system]
 requires = ["hatchling"]
