@@ -20,3 +20,6 @@ computation_token_alert: 150000
 tool_output_limit: 10000
 stall_threshold: 2
 min_er_for_completion: 3
+api_retry_max: 3
+api_retry_initial_delay: 2.0
+api_retry_max_delay: 30.0

@@ -7,9 +7,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from rich.console import Console
+
 from .config import Config
 from .providers import LLMProvider, ProviderResponse, create_provider
 from .tools import ToolCall, ToolExecutor
+
+console = Console()
 
 _call_seq: dict[int, int] = {}
 _round_num = round  # save builtin before parameter shadowing
@@ -24,6 +28,45 @@ def _get_provider(config: Config) -> LLMProvider:
     if key not in _provider_cache:
         _provider_cache[key] = create_provider(config.provider, api_key=config.api_key)
     return _provider_cache[key]
+
+
+_TRANSIENT_STATUS_CODES = {429, 502, 503, 504}
+_TRANSIENT_EXC_NAMES = {"ConnectionError", "TimeoutError", "ReadTimeout",
+                         "ConnectTimeout", "ConnectionResetError",
+                         "RemoteDisconnected", "BrokenPipeError"}
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Return True if *exc* looks like a transient / retryable API error."""
+    # Check HTTP status code (works for anthropic, openai, httpx, requests, etc.)
+    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    if status is not None and int(status) in _TRANSIENT_STATUS_CODES:
+        return True
+    # Check exception type name anywhere in the MRO
+    for cls in type(exc).__mro__:
+        if cls.__name__ in _TRANSIENT_EXC_NAMES:
+            return True
+    return False
+
+
+def _call_provider_with_retry(provider: LLMProvider, config: Config,
+                               **call_kwargs) -> ProviderResponse:
+    """Retry provider.call() on transient errors with exponential backoff."""
+    delay = config.api_retry_initial_delay
+    for attempt in range(config.api_retry_max + 1):
+        try:
+            return provider.call(**call_kwargs)
+        except Exception as exc:
+            if not _is_transient(exc) or attempt == config.api_retry_max:
+                raise
+            console.print(
+                f"[yellow]Transient API error (attempt {attempt + 1}/"
+                f"{config.api_retry_max}): {exc}[/yellow]"
+            )
+            time.sleep(min(delay, config.api_retry_max_delay))
+            delay *= 2
+    # Unreachable — the loop always returns or raises
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 @dataclass
@@ -52,11 +95,12 @@ class AgentResult:
 
 def call_llm(system: str, user_content: str, config: Config,
              agent_name: str = "", iteration: int = 0) -> LLMResponse:
-    """Call the LLM. Stateless, no retry logic (caller handles that)."""
+    """Call the LLM with retry on transient errors."""
     provider = _get_provider(config)
 
     start = time.time()
-    resp = provider.call(
+    resp = _call_provider_with_retry(
+        provider, config,
         model=config.model,
         max_tokens=config.max_tokens,
         system=system,
@@ -109,7 +153,8 @@ def run_agent_loop(
 
     for round_num in range(1, max_rounds + 1):
         start = time.time()
-        resp = provider.call(
+        resp = _call_provider_with_retry(
+            provider, config,
             model=config.model,
             max_tokens=config.max_tokens,
             system=system,
@@ -260,7 +305,8 @@ def run_agent_loop(
     )
 
     start = time.time()
-    final_resp = provider.call(
+    final_resp = _call_provider_with_retry(
+        provider, config,
         model=config.model,
         max_tokens=config.max_tokens,
         system=forced_system,
