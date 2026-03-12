@@ -36,8 +36,17 @@ _TRANSIENT_EXC_NAMES = {"ConnectionError", "TimeoutError", "ReadTimeout",
                          "RemoteDisconnected", "BrokenPipeError"}
 
 
+def _is_tool_call_failure(exc: Exception) -> bool:
+    """Return True if *exc* is a tool-call generation failure (model emitted invalid JSON)."""
+    msg = str(exc)
+    return "tool_use_failed" in msg or "Failed to parse tool call arguments" in msg
+
+
 def _is_transient(exc: Exception) -> bool:
     """Return True if *exc* looks like a transient / retryable API error."""
+    # Tool-call generation failures are stochastic — retry may produce valid JSON
+    if _is_tool_call_failure(exc):
+        return True
     # Check HTTP status code — try direct attrs first, then exc.response.status_code
     # (httpx / huggingface_hub store the code on a nested response object)
     status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
@@ -156,16 +165,28 @@ def run_agent_loop(
     token_alert_fired = False
     overall_start = time.time()
 
+    tool_call_failure = False
     for round_num in range(1, max_rounds + 1):
         start = time.time()
-        resp = _call_provider_with_retry(
-            provider, config,
-            model=config.model,
-            max_tokens=config.max_tokens,
-            system=system,
-            messages=messages,
-            tools=tools,
-        )
+        try:
+            resp = _call_provider_with_retry(
+                provider, config,
+                model=config.model,
+                max_tokens=config.max_tokens,
+                system=system,
+                messages=messages,
+                tools=tools,
+            )
+        except Exception as exc:
+            if _is_tool_call_failure(exc):
+                console.print(
+                    f"[yellow]Tool-call generation failed after retries "
+                    f"(round {round_num}): {exc} — falling back to "
+                    f"text-only response[/yellow]"
+                )
+                tool_call_failure = True
+                break
+            raise
         duration = time.time() - start
 
         total_input += resp.input_tokens
@@ -305,8 +326,13 @@ def run_agent_loop(
                     }],
                 })
 
-    # Exhausted max_rounds or zero-text/low-cumulative bailout — force one final text-only call
-    if zero_text_streak >= config.zero_text_bailout:
+    # Exhausted max_rounds or zero-text/low-cumulative/tool-failure bailout — force one final text-only call
+    if tool_call_failure:
+        reason = (
+            "IMPORTANT: The tool-calling interface is unavailable due to a "
+            "provider error. You cannot call any tools. "
+        )
+    elif zero_text_streak >= config.zero_text_bailout:
         reason = (
             "IMPORTANT: You were terminated early because you stopped producing "
             "text for multiple consecutive rounds. "

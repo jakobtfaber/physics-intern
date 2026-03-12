@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from sciralph.config import Config
-from sciralph.llm import _is_transient, _call_provider_with_retry
+from sciralph.llm import _is_transient, _is_tool_call_failure, _call_provider_with_retry
 from sciralph.providers.base import ProviderResponse
 
 
@@ -89,6 +89,33 @@ def test_is_transient_true(exc):
 ])
 def test_is_transient_false(exc):
     assert _is_transient(exc) is False
+
+
+# ---------------------------------------------------------------------------
+# _is_tool_call_failure
+# ---------------------------------------------------------------------------
+
+class FakeToolCallFailure(Exception):
+    """Mimics HuggingFace BadRequestError with tool_use_failed code."""
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "BadRequestError: tool_use_failed - "
+            "Failed to parse tool call arguments as valid JSON"
+        )
+
+
+def test_is_tool_call_failure_true():
+    assert _is_tool_call_failure(FakeToolCallFailure()) is True
+
+
+def test_is_tool_call_failure_false_on_regular_400():
+    assert _is_tool_call_failure(FakeHTTPError(400)) is False
+
+
+def test_is_transient_true_for_tool_call_failure():
+    """_is_transient returns True for tool_use_failed errors (stochastic retry)."""
+    assert _is_transient(FakeToolCallFailure()) is True
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +434,55 @@ class TestPenultimateRoundMessage:
                         if isinstance(block, dict):
                             assert "CRITICAL" not in block.get("text", ""), \
                                 "CRITICAL should not appear when max_rounds < 4"
+
+    def test_tool_call_failure_graceful_degradation(self):
+        """run_agent_loop degrades to forced text-only call on tool_use_failed error."""
+        from sciralph.llm import run_agent_loop
+        from sciralph.tools import ToolExecutor, ToolCall
+
+        max_rounds = 5
+        provider = MagicMock()
+
+        # Provider raises tool_use_failed on the very first round (after retries)
+        tool_fail_exc = Exception(
+            "BadRequestError: tool_use_failed - Failed to parse tool call arguments"
+        )
+        tool_fail_exc.status_code = 400
+        final_response = self._make_final_response(
+            "## COMP-001: Fallback\n**VERDICT:** INCONCLUSIVE"
+        )
+        # First call raises, second call (forced text-only) succeeds
+        provider.call = MagicMock(side_effect=[tool_fail_exc, final_response])
+        provider.format_assistant_message = MagicMock(
+            return_value={"role": "assistant", "content": "tool"}
+        )
+        provider.build_tool_result_messages = MagicMock(
+            return_value=[{"role": "user", "content": "result"}]
+        )
+
+        tool_executor = MagicMock(spec=ToolExecutor)
+        config = _make_config(api_retry_max=0)  # no retries — fail immediately
+        config.max_tokens = 4096
+        config.audit_log = ""
+        config.logs_dir = ""
+        config.computation_token_alert = 999999
+        config.checkpoint_round = 2
+        config.zero_text_bailout = 10
+
+        with patch("sciralph.llm._get_provider", return_value=provider), \
+             patch("sciralph.llm.time.sleep"):
+            result = run_agent_loop(
+                system="test", user_content="test", config=config,
+                tool_executor=tool_executor,
+                tools=[{"type": "function", "function": {"name": "execute_python"}}],
+                max_rounds=max_rounds,
+            )
+
+        assert result.stop_reason == "max_rounds_forced"
+        assert "COMP-001" in result.text
+        # The forced text-only call should NOT include tools
+        final_call = provider.call.call_args_list[-1]
+        assert "tools" not in final_call.kwargs
 
     def test_forced_final_prompt_contains_template(self):
         """The forced text-only system prompt contains the verdict template."""
