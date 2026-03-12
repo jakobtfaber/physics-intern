@@ -1,0 +1,15 @@
+problem: |
+  Derive the exact critical temperature of the 2D Ising model on a
+  square lattice with nearest-neighbour coupling J, using the transfer
+  matrix method. The expected result is sinh(2*J/(k_B*T_c)) = 1,
+  giving k_B*T_c/J = 2/ln(1 + sqrt(2)) ~ 2.269. Construct the row-to-row
+  transfer matrix, reduce its diagonalisation to a free-fermion problem
+  (via Jordan-Wigner or Clifford algebra methods), and identify the
+  critical point as the vanishing of the fermion mass gap. Derive the
+  exact free energy per spin in zero external field:
+  -beta*f = ln(2) + (1/(2*pi^2)) * int_0^pi int_0^pi
+  ln[cosh^2(2*beta*J) - sinh(2*beta*J)*(cos(q1) + cos(q2))] dq1 dq2.
+  Verify the critical temperature and the logarithmic singularity of
+  the specific heat numerically.
+
+requires_numerical: true

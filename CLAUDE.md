@@ -5,8 +5,7 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 ## Key Documents
 
 - `README.md` — User-facing overview, architecture diagram, quick start
-- `DESIGN.md` — Full system design (architecture, file formats, agent prompts, pseudocode)
-- `PLAN.md` — Implementation plan (Phase 1 done, Phase 2 engine hardening done, future work)
+- `PLAN.md` — Future work ideas and roadmap
 
 ## Project Structure
 
@@ -32,8 +31,10 @@ src/sciralph/
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
-tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, computationalist, verify, workspace, task, engine, validation)
-problems/              — YAML problem definitions
+tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, computationalist, verify, workspace, task, engine, validation, report_recommendations, conversation_log, config)
+problems/
+  tier1/               — 10 core problem definitions
+  tier2/               — 12 advanced problem definitions
 run_and_verify.sh      — Run a problem then verify results in one command
 ```
 
@@ -85,24 +86,24 @@ uv sync --extra dev
 uv run python -m pytest -v
 
 # Run (requires ANTHROPIC_API_KEY in .env or env var)
-uv run python -m sciralph.main problems/hawking_temperature.yaml --max-iterations 5
+uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --max-iterations 5
 
 # Verify a completed workspace (uses Claude Opus by default)
 uv run python -m sciralph.verify workspaces/<run_dir>/ --write-report
 uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --write-report
 
 # Run + verify in one command
-./run_and_verify.sh problems/hawking_temperature.yaml --max-iterations 10
-./run_and_verify.sh problems/qho_thermodynamics.yaml -- --rerun-computations
+./run_and_verify.sh problems/tier1/hawking_temperature.yaml --max-iterations 10
+./run_and_verify.sh problems/tier1/qho_thermodynamics.yaml -- --rerun-computations
 ```
 
 ## Current Status
 
-All core functionality is implemented and working (312 tests passing). Phase 2 engine hardening complete + report recommendations implemented:
+All core functionality is implemented and working (365 tests passing). Phase 2 engine hardening complete + report recommendations implemented:
 
 - **Core loop** — all five agents, main loop, orchestrator integration, consolidated override chain (`_apply_overrides`), termination gates (`can_terminate`)
-- **Validation pipeline** — 6 post-integration checks (ER promotion gate, phantom references/labels, stale unverified label promotion, agent routing, ID consistency), violation injection into orchestrator context
-- **Orchestrator** — sub-problem decomposition, integration duty, critique resolution (multi-line capture), stale-iteration backstop, momentum/compute-first/single-target-compute/stall-detection rules, context prefix for violations/blockers
+- **Validation pipeline** — 7 post-integration checks (phantom references, ER promotion gate, phantom labels, stale unverified label promotion, verified frontmatter backfill, agent routing, ID consistency), violation injection into orchestrator context
+- **Orchestrator** — sub-problem decomposition, integration duty, critique resolution (multi-line capture), stale-iteration backstop, momentum/compute-first/single-target-compute/stall-detection rules, inline synthesis (writes `## Synthesis` directly into RESEARCH_STATE.md then emits terminate), context prefix for violations/blockers
 - **Computationalist** — agentic tool-use with `execute_python`, forced partial output on truncation, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE), COMP-only counter
 - **Deep Critic** — two-phase format, preamble stripping, self-retraction filtering, INCONCLUSIVE severity cap
 - **Compressor** — archival + compression with forced compression at 2x threshold

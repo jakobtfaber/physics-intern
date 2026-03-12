@@ -1,0 +1,14 @@
+problem: |
+  Derive the full differential scattering cross section for the
+  Aharonov-Bohm effect: a charged particle scattering off an infinite
+  solenoid carrying magnetic flux Phi. Using partial wave analysis in
+  the presence of the vector potential (with B=0 outside the solenoid),
+  show that the scattering amplitude depends on the fractional part of
+  the flux parameter alpha = e*Phi/(2*pi*hbar*c). Derive the exact
+  Aharonov-Bohm cross section:
+  d sigma/d theta = (1/(2*pi*k)) * sin^2(pi*alpha) / sin^2(theta/2).
+  Discuss the forward scattering singularity and its physical origin.
+  Verify the partial wave expansion numerically by summing a finite
+  number of partial waves and comparing with the closed-form result.
+
+requires_numerical: true

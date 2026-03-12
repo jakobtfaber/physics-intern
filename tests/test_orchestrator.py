@@ -147,6 +147,8 @@ class TestCompletionAnalysis:
         result = orchestrator._completion_analysis()
         assert result is not None
         assert "COMPLETION CHECK" in result
+        assert "terminate" in result
+        assert "synthesize" not in result
 
     def test_not_triggered_with_wh(self, orchestrator, workspace):
         state = "---\nstatus: in_progress\n---\n\n## ER-001\nA\n## ER-002\nB\n## ER-003\nC\n## WH-001\nPending\n"
@@ -227,6 +229,8 @@ class TestBudgetAwareTermination:
         assert result is not None
         assert "COMPLETION CHECK" in result
         assert "BUDGET" not in result
+        assert "terminate" in result
+        assert "synthesize" not in result
 
     def test_no_budget_banner_without_established_results(self, workspace):
         """Budget banner requires at least 1 ER (nothing to synthesize otherwise)."""

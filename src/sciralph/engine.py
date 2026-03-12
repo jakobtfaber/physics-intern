@@ -57,7 +57,7 @@ class SciRalph:
         self.compressor = CompressorAgent(self.config, self.workspace, self.metrics)
 
     def run(self):
-        """Main loop per DESIGN.md section 5.1."""
+        """Main loop: orchestrate → validate → override → dispatch → compress → git."""
         console.print(Panel("SciRalph Research System", style="bold blue"))
 
         while self.iteration < self.config.max_iterations:

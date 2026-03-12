@@ -1,0 +1,15 @@
+problem: |
+  Compute the ground-state potential energy curve E(R) for the hydrogen
+  molecule ion H2+ as a function of internuclear distance R, using two
+  approaches. First, use the LCAO-MO (linear combination of atomic
+  orbitals) variational method with 1s orbitals centred on each proton:
+  compute the overlap integral S(R), the Coulomb integral J(R), and the
+  exchange integral K(R) analytically, and obtain the bonding (sigma_g)
+  and antibonding (sigma_u) energy curves. Second, exploit the exact
+  separability of H2+ in prolate spheroidal coordinates (xi, eta, phi)
+  to obtain the numerically exact energy curve. Compare the two methods.
+  The expected equilibrium bond length is R_eq ~ 2.0 a_0 (exact: 1.997 a_0)
+  and dissociation energy D_e ~ 2.79 eV (exact: 2.791 eV). Verify
+  both the LCAO integrals and the exact separation numerically.
+
+requires_numerical: true

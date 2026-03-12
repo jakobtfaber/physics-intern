@@ -1,6 +1,6 @@
 # SciRalph — Codebase Reference
 
-> **Purpose of this document:** A developer-oriented map of the codebase as it exists today (March 2026). Written to serve as a reference for understanding the system before implementing the Phase 2 architectural changes described in [PLAN.md](PLAN.md).
+> **Purpose of this document:** A developer-oriented map of the codebase as it exists today (March 2026). Phase 2 engine hardening is complete — this document reflects the current system state.
 
 ## Table of Contents
 
@@ -47,6 +47,12 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
      │  orchestrator  researcher  computationalist  │
      │  critic        compressor                    │
      └─────────────────────────────────────────────┘
+
+     ┌─────────────────────────────────────────────┐
+     │              validation.py                   │
+     │  Post-integration checks (Layer B)           │
+     │  Termination gates (can_terminate)            │
+     └─────────────────────────────────────────────┘
 ```
 
 ### Key design decisions
@@ -60,24 +66,25 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `main.py` | 70 | CLI entry point, arg parsing, workspace naming |
-| `engine.py` | 355 | `SciRalph` class: main loop, dispatch, termination, overrides |
-| `config.py` | 97 | `Config` dataclass, 3-tier config builder |
-| `task.py` | 71 | `Task` dataclass, `TaskType` enum, YAML serialization |
-| `llm.py` | 256 | `call_llm` (one-shot), `run_agent_loop` (tool-use), logging |
+| `main.py` | 76 | CLI entry point, arg parsing, workspace naming |
+| `engine.py` | 544 | `SciRalph` class: main loop, dispatch, overrides, termination gates |
+| `validation.py` | 474 | Post-integration checks (7 checks), `can_terminate()` gates, `Violation` dataclass |
+| `config.py` | 103 | `Config` dataclass, 3-tier config builder |
+| `task.py` | 82 | `Task` dataclass, `TaskType` enum, YAML serialization |
+| `llm.py` | 351 | `call_llm` (one-shot), `run_agent_loop` (tool-use), logging |
 | `tools.py` | 126 | `ToolExecutor`, `ToolCall`, `execute_python` tool schema |
-| `workspace.py` | 184 | File I/O, git ops, phantom reference validation |
-| `markdown.py` | 411 | Frontmatter parsing, critique lifecycle, stall detection |
+| `workspace.py` | 201 | File I/O, git ops, phantom reference validation |
+| `markdown.py` | 493 | Frontmatter parsing, critique lifecycle, stall detection |
 | `sandbox.py` | 49 | `subprocess.run` wrapper with timeout |
 | `metrics.py` | 110 | `MetricsTracker`, `METRICS.md` rendering |
 | `verify.py` | 760 | Independent verification script (science + process audit) |
-| `agents/base.py` | 138 | `BaseAgent` ABC, template method, retry logic |
-| `agents/orchestrator.py` | 192 | Planning, integration, critique resolution |
+| `agents/base.py` | 158 | `BaseAgent` ABC, template method, retry logic |
+| `agents/orchestrator.py` | 226 | Planning, integration, critique resolution, inline synthesis |
 | `agents/researcher.py` | 40 | Derivations, writes `PROPOSED_CHANGES.md` |
-| `agents/computationalist.py` | 64 | Agentic tool-use, verdict writing |
-| `agents/critic.py` | 70 | Adversarial review, self-retraction filter |
+| `agents/computationalist.py` | 71 | Agentic tool-use, verdict writing |
+| `agents/critic.py` | 79 | Adversarial review, self-retraction filter |
 | `agents/compressor.py` | 27 | File size management |
-| **Total** | **~3,020** | |
+| **Total** | **~3,970** | |
 
 ---
 
@@ -91,31 +98,37 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 ┌─── Iteration N ──────────────────────────────────────────────────────┐
 │                                                                      │
 │  1. ORCHESTRATOR PASS                                                │
-│     └─ Reads all state → emits CURRENT_TASK.md                       │
-│        (+ integrates PROPOSED_CHANGES.md into RESEARCH_STATE.md)     │
+│     └─ context_prefix with violations/blockers/displaced tasks       │
+│     └─ Reads all state → integrates PROPOSED_CHANGES.md              │
+│     └─ Emits CURRENT_TASK.md                                         │
 │                                                                      │
-│  2. PHANTOM REFERENCE VALIDATION                                     │
-│     └─ Strips hallucinated COMP-NNN/TASK-NNN refs from RESEARCH_STATE│
+│  2. POST-INTEGRATION VALIDATION (Layer B)                            │
+│     └─ validate_post_integration(): 7 checks                        │
+│     └─ Violations queued for next orchestrator pass                  │
 │                                                                      │
-│  3. TASK OVERRIDES (in priority order)                               │
-│     a. Pending recompute after REFUTED verdict → force COMPUTE       │
-│     b. Budget enforcement (≤1 iter left) → force SYNTHESIZE          │
-│     c. Forced critic (overdue by N iterations) → force CRITIQUE      │
+│  3. _apply_overrides() — consolidated priority chain                 │
+│     P1. Budget enforcement (≤1 iter left) → synthesize               │
+│     P2. Stale-loop backstop (≥2 stale iters) → synthesize            │
+│     P3. Forced critic (overdue) → critique                           │
+│     P4. REFUTED recompute → compute                                  │
+│     P5. Stall block (stalled claim) → research                       │
+│     P6. Enrichment (prior failure context, additive)                 │
 │                                                                      │
-│  4. TERMINATION CHECK                                                │
-│     └─ TERMINATE → break                                             │
-│     └─ Stale-loop backstop (2 consecutive iters with ≥3 ERs, 0 WHs) │
+│  4. TERMINATION GATE                                                 │
+│     └─ TERMINATE → can_terminate() gate                              │
+│        └─ Allowed → break                                            │
+│        └─ Blocked → continue (blockers shown next pass)              │
 │                                                                      │
 │  5. DISPATCH to researcher / computationalist / critic               │
-│     └─ Prior failure enrichment for COMPUTE tasks                    │
-│     └─ Critic underflow retry (< 200 output tokens)                  │
+│                                                                      │
+│  6. POST-DISPATCH CHECKS                                             │
 │     └─ REFUTED verdict detection after COMPUTE                       │
+│     └─ Stall tracking update                                         │
+│     └─ Phantom reference check on agent output                       │
 │                                                                      │
-│  6. COMPRESSION CHECK (per file, at 1.5x / 2x threshold)            │
+│  7. COMPRESSION + METRICS + GIT COMMIT                               │
 │                                                                      │
-│  7. METRICS + GIT COMMIT                                             │
-│                                                                      │
-│  8. POST-DISPATCH TERMINATION CHECK                                  │
+│  8. STATUS FIELD SAFETY NET                                          │
 │     └─ Reads status from RESEARCH_STATE frontmatter                  │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
@@ -123,32 +136,37 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 
 ### Task override ordering
 
-Multiple mechanisms can override the orchestrator's chosen task within a single iteration. They execute in this order:
+All overrides are consolidated in `_apply_overrides()` with explicit priority:
 
-1. **Pending recompute** — if previous iteration's computation returned REFUTED
-2. **Budget enforcement** — if ≤ 1 iteration remaining, hard override to SYNTHESIZE
-3. **Forced critic** — if > `critic_every_n` iterations since last critic pass
+| Priority | Override | Condition | Result |
+|----------|----------|-----------|--------|
+| P1 | Budget enforcement | ≤ 1 iteration remaining | → synthesize |
+| P2 | Stale-loop backstop | ≥ 2 consecutive stale iters (ER ≥ min, WH = 0) | → synthesize |
+| P3 | Forced critic | > `critic_every_n` since last critic | → critique |
+| P4 | REFUTED recompute | Previous computation returned REFUTED | → compute |
+| P5 | Stall block | COMPUTE task targets a stalled claim | → research |
+| P6 | Enrichment | COMPUTE task with prior failures on same claim | Mutates task body (additive) |
 
-If both (1) and (2) apply, budget wins (runs later). The forced critic check runs after both but respects already-terminal task types.
+Higher priority wins. Displaced tasks are logged and shown to orchestrator on next pass via `context_prefix`.
 
 ### Termination paths
 
-There are five distinct ways the loop can end:
-
 | Path | Where | Condition |
 |------|-------|-----------|
-| Explicit terminate | Step 4 | Orchestrator emits `task_type: terminate` |
-| Stale-loop backstop | Step 4 | ≥ 2 consecutive non-synthesize iters with ER ≥ 3 and WH = 0 |
-| Status check | Step 8 | Any agent wrote `status: completed/abandoned/partially_complete` |
-| Budget exhaustion | Step 3b | Forces SYNTHESIZE; next iteration's status check catches completion |
+| Explicit terminate | Step 4 | Orchestrator emits `terminate` → `can_terminate()` gate passes |
+| Stale-loop backstop | Step 3 (P2) | Forces synthesize → next pass terminates |
+| Status field | Step 8 | Agent wrote `status: completed/abandoned/partially_complete` |
+| Budget exhaustion | Step 3 (P1) | Forces synthesize → next pass terminates |
 | Max iterations | Loop condition | `self.iteration >= self.config.max_iterations` |
+
+The `can_terminate()` gate requires: at least one ER, a critic pass has occurred, no unresolved HIGH critiques, and numerical verification when `requires_numerical: true` in problem YAML. If blocked, blockers are fed back to orchestrator.
 
 ### Dispatch routing
 
 | TaskType | Agent | Notes |
 |----------|-------|-------|
-| `research`, `derive`, `resolve`, `synthesize` | Researcher | All go to the same agent |
-| `compute` | Computationalist | Post-dispatch: check for REFUTED verdict |
+| `research`, `derive`, `resolve`, `synthesize` | Researcher | Synthesize rarely dispatched; orchestrator typically writes synthesis inline |
+| `compute` | Computationalist | Post-dispatch: REFUTED detection + stall tracking |
 | `critique` | Critic | Post-dispatch: underflow retry if < 200 tokens |
 | Unknown | Researcher | Fallback |
 
@@ -188,8 +206,9 @@ The `tools` class attribute is the **single switch** between one-shot and agenti
 **Role:** Planning only. Reads all state, emits `CURRENT_TASK.md`, and integrates `PROPOSED_CHANGES.md` into `RESEARCH_STATE.md`.
 
 **Context (largest in the system):**
-- Completion analysis banner (if ER count sufficient, or budget ≤ 3)
-- Computation stall warnings (≥ 3 consecutive non-VERIFIED on same claim)
+- `context_prefix` from engine — violations, termination blockers, displaced tasks
+- Completion analysis banner (if ER count sufficient, or budget ≤ 3) — includes inline synthesis instruction
+- Computation stall warnings (≥ threshold consecutive non-VERIFIED on same claim)
 - Full `RESEARCH_STATE.md`, `CRITIQUE_LOG.md`, tail of `COMPUTATION_LOG.md`, `METRICS.md`
 - `PROPOSED_CHANGES.md` (when present)
 
@@ -198,7 +217,8 @@ The `tools` class attribute is the **single switch** between one-shot and agenti
 **Key behaviors:**
 - `_enforce_problem_statement` — regex-replaces the Problem Statement section after every state integration to prevent LLM paraphrasing
 - `_resolve_critiques` — scans its own output for resolved critique IDs via three regex patterns (YAML list, forward prose, reverse prose), then physically moves critique blocks from Active to Resolved
-- `_completion_analysis` — injects completion/budget-pressure banners into context
+- `_completion_analysis` — injects completion/budget-pressure/inline-synthesis banners into context
+- **Inline synthesis** — when all problem steps are established, the orchestrator writes a `## Synthesis` section directly into RESEARCH_STATE.md and emits `terminate` (bypassing the separate synthesize → researcher path)
 - `detect_computation_stalls` — groups COMPUTATION_LOG entries by claim, reports streaks of ≥ 3 non-VERIFIED
 
 **Prompt rules (key):** COMPUTE-FIRST (new hypotheses get verification before critique); converged derivation → move to verification; stall loops → escalate or downgrade; LOW critiques don't block promotion.
@@ -382,7 +402,7 @@ A hypothesis advances through this lifecycle:
 3. **Computation** — computationalist runs verification → VERIFIED / REFUTED / INCONCLUSIVE
 4. **Critique** — critic reviews, files objections
 5. **Established Result (ER-NNN)** — orchestrator promotes when: (a) ≥ 1 VERIFIED computation, (b) no unresolved HIGH critiques, (c) all dependencies are themselves ERs
-6. **FINAL_SYNTHESIS.md** — researcher synthesizes all ERs into the final answer
+6. **Inline synthesis** — orchestrator writes `## Synthesis` section directly into RESEARCH_STATE.md, then emits `terminate`
 
 ---
 
@@ -406,6 +426,10 @@ A hypothesis advances through this lifecycle:
 | `sympy_timeout_seconds` | 60 | Sandbox per-script timeout |
 | `max_tool_rounds` | 10 | Computationalist tool loop depth |
 | `tool_output_limit` | 10000 | Chars per tool output before truncation |
+| `zero_text_bailout` | 3 | Consecutive zero-text rounds before tool-use bailout |
+| `checkpoint_round` | 2 | Tool-use round that triggers a checkpoint nudge |
+| `computation_token_alert` | 150000 | Cumulative input tokens before firing alert |
+| `stall_threshold` | 2 | Repeat failures on same claim before stall block |
 | `min_er_for_completion` | 3 | ERs needed before stale-loop backstop fires |
 | `compress_threshold` | RS: 50K, CL: 30K, CompL: 40K | File size thresholds (chars) |
 
@@ -429,20 +453,22 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 
 ## 8. Testing
 
-**172 tests** across 12 test files (~3,020 lines). Run with `uv run python -m pytest -v`.
+**365 tests** across 14 test files (~6,312 lines). Run with `uv run python -m pytest -v`.
 
 | Test file | Lines | What it covers |
 |-----------|------:|----------------|
-| `test_markdown.py` | 542 | Frontmatter, sections, critique lifecycle, stall detection, comp parsing |
+| `test_engine.py` | 1144 | Main loop, overrides, termination gates, compression, budget, stalls, status |
+| `test_validation.py` | 1076 | All 7 post-integration checks, can_terminate gates, violation types |
+| `test_markdown.py` | 920 | Frontmatter, sections, critique lifecycle, stall detection, comp parsing |
+| `test_report_recommendations.py` | 850 | Report generation, recommendation analysis |
 | `test_verify.py` | 582 | Workspace loading, verdict parsing, prompts, process audit, report patching |
-| `test_orchestrator.py` | 462 | Response splitting, integration, completion analysis, budget, stalls, critiques |
-| `test_engine.py` | 394 | Compression, budget enforcement, refuted recompute, critic retry, status |
+| `test_orchestrator.py` | 488 | Response splitting, integration, completion analysis, budget, stalls, critiques, inline synthesis |
+| `test_tools.py` | 349 | ToolExecutor, run_agent_loop, truncation, token accumulation |
 | `test_config.py` | 224 | Defaults, YAML/CLI override, merge priority |
-| `test_tools.py` | 236 | ToolExecutor, run_agent_loop, truncation, token accumulation |
-| `test_computationalist.py` | 142 | Soft-check pattern, tools attribute, process_response, INCONCLUSIVE fallback |
+| `test_computationalist.py` | 166 | Soft-check pattern, tools attribute, process_response, INCONCLUSIVE fallback |
+| `test_workspace.py` | 132 | init structure, validate_comp_references |
+| `test_task.py` | 125 | TaskType enum, to_markdown, from_frontmatter, round-trip |
 | `test_metrics.py` | 110 | CallRecord, critic tracking, alerts, Markdown rendering |
-| `test_task.py` | 92 | TaskType enum, to_markdown, from_frontmatter, round-trip |
-| `test_workspace.py` | 90 | init structure, validate_comp_references |
 | `test_conversation_log.py` | 80 | File naming, sections, sequence counter |
 | `test_sandbox.py` | 66 | Script execution, timeout, MPLBACKEND |
 
@@ -452,7 +478,6 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 - `call_llm` one-shot path (only `run_agent_loop` is tested)
 - BaseAgent retry logic directly
 - Researcher, critic, compressor `process_response` methods
-- Full `engine.py` `run()` loop (only individual methods tested via mocks)
 - Workspace git operations
 - End-to-end `main.py` run path
 
@@ -460,51 +485,17 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 
 ## 9. Known Issues & Ad-hoc Fixes
 
-This section catalogs the workarounds and structural problems in the current codebase. Many of these are exactly what PLAN.md's three-layer architecture aims to resolve.
+This section catalogs remaining structural issues. Phase 2 resolved the most impactful ones (iteration contract, scattered overrides, phantom references, stall detection enforcement, budget coordination).
 
-### The iteration contract problem (PLAN.md Step 1)
+### Resolved in Phase 2
 
-**The most impactful issue.** Observed in 5/8 test runs. The problem has two facets:
+- **Iteration contract problem** — stale backstop no longer breaks before dispatch; it forces synthesize via `_apply_overrides()` P2. Budget accounting uses `budget_remaining = max_iterations - iteration` after override chain.
+- **Scattered engine overrides** — consolidated into `_apply_overrides()` with explicit P1-P6 priority (see §2).
+- **Phantom reference validation** — now part of the validation pipeline (`check_phantom_references()` in `validation.py`), runs both post-integration and post-dispatch.
+- **Computation stall detection** — now enforced at engine level via `_update_stall_tracking()` + P5 stall blocking in `_apply_overrides()`, in addition to orchestrator context injection.
+- **Dual-layer budget enforcement** — coordinated: orchestrator soft banner at ≤ 3 iterations (`_completion_analysis`), engine hard override at ≤ 1 iteration (P1 in `_apply_overrides`). Displaced tasks are logged and fed back to orchestrator.
 
-**1. Stale backstop exits before dispatch.** The stale-loop backstop (`_stale_iterations >= 2`) fires between the orchestrator pass and `_dispatch()`. When the orchestrator emits a non-synthesize/non-terminate task (e.g. COMPUTE or RESOLVE) but the stale backstop triggers (ER ≥ 3, WH = 0 for 2 consecutive iterations), the loop `break`s and the task never executes:
-
-```python
-# engine.py — current structure (simplified)
-while self.iteration < self.config.max_iterations:
-    self.iteration += 1
-    task = orchestrator.run(...)       # orchestrator emits task
-
-    if task.task_type == TaskType.TERMINATE:
-        break                          # ← exits before dispatch (by design)
-
-    # Stale backstop
-    if er_count >= 3 and wh_count == 0:
-        self._stale_iterations += 1
-        if self._stale_iterations >= 2:
-            break                      # ← exits before dispatch (BUG)
-
-    self._dispatch(task)               # task only runs if we get here
-```
-
-**2. Budget accounting is off by one.** The counter increments at the top of the loop, so `budget_remaining = max_iterations - self.iteration` is calculated after the increment. The orchestrator's multi-step plans get cut short because the budget appears one iteration shorter than it actually is, and budget enforcement (`budget_remaining <= 1 → force SYNTHESIZE`) fires one iteration too early.
-
-### Scattered engine overrides
-
-The engine has accumulated multiple independent override mechanisms that interact in non-obvious ways:
-
-| Override | Location in loop | Can override | Overridden by |
-|----------|-----------------|--------------|---------------|
-| Pending recompute | After orchestrator | Orchestrator's task | Budget enforcement |
-| Budget enforcement | After recompute | Any non-terminal task | Nothing |
-| Prior failure enrichment | After budget | Modifies COMPUTE tasks | N/A (additive) |
-| Forced critic | After enrichment | Any non-CRITIQUE task | Nothing |
-| Stale-loop backstop | Step 4 | Forces termination | N/A |
-
-These are independent if-statements with implicit priority via execution order. There is no unified validation layer — each check was added to solve a specific observed failure.
-
-### Phantom reference validation
-
-`workspace.validate_comp_references()` modifies `RESEARCH_STATE.md` in-place, replacing hallucinated `COMP-NNN` references with `[COMP-NNN:unverified]`. This is irreversible within a run and uses regex replacement that could theoretically match valid references in prose context.
+### Still Present
 
 ### Compression 1.5x vs 2x are identical
 
@@ -514,7 +505,7 @@ In `_check_compression()`, the 1.5x and 2x threshold branches execute identical 
 
 When the critic produces < 200 output tokens, the engine retries once. Both the original and retry responses are processed (both append to CRITIQUE_LOG), so a retry can produce duplicate entries if the first run generated some content.
 
-### `_should_terminate` uses string matching
+### `_check_status_field` uses string matching
 
 ```python
 if f'status: "{status}"' in state or f"status: {status}" in state:
@@ -534,104 +525,61 @@ The `or` treats `0` as falsy. A task explicitly written with `iteration: 0` sile
 
 Uses a DOTALL lookahead `(?=\n# )` to find the next top-level heading. If Problem Statement is the last section (no following `# ` heading), the regex won't match and the problem statement won't be enforced.
 
-### Dual-layer budget enforcement
-
-Budget pressure exists at two layers with different thresholds and no shared logic:
-
-1. **Orchestrator soft banner** (`orchestrator.py`, `_completion_analysis`) — when ≤ 3 iterations remain, injects a `BUDGET SYNTHESIS REQUIRED` prompt banner nudging the LLM to emit `task_type: synthesize`. This is advisory — the LLM can ignore it.
-2. **Engine hard override** (`engine.py`, main loop) — when ≤ 1 iteration remains, forcibly replaces the orchestrator's chosen task with a SYNTHESIZE task. This is unconditional.
-
-The two mechanisms were added independently. There is no shared threshold constant or unified budget-awareness interface — the orchestrator doesn't know about the engine's hard cutoff, and the engine doesn't know about the orchestrator's soft banner.
-
-### Computation stall detection is context-injected
-
-`detect_computation_stalls()` in `markdown.py` groups COMPUTATION_LOG entries by claim and finds streaks of ≥ 3 consecutive non-VERIFIED verdicts. The orchestrator calls this in `build_context()` and injects warning banners into its own prompt. However, this is purely advisory — the orchestrator LLM may ignore the stall warning. There is no engine-level enforcement (no hard override to skip or downgrade a stalled claim). The stall detection also lives entirely in the orchestrator's context builder rather than in a shared validation layer.
-
 ### Context accumulation in `run_agent_loop`
 
 The `messages` list in `run_agent_loop` grows unboundedly across rounds. Large tool outputs can push past the model's context limit with no trimming mechanism. The `max_tool_rounds` limit is the only guard.
 
 ---
 
-## 10. Planned Architecture (PLAN.md)
+## 10. Implemented Architecture (Phase 2)
 
-PLAN.md proposes restructuring the ad-hoc fixes into three architectural layers. This section summarizes the plan and maps it to current code.
+Phase 2 restructured the ad-hoc fixes into three architectural layers, all now implemented.
 
-### The three layers
+### Layer A — Iteration contract (`engine.py`)
 
-**Layer A — Iteration contract** (`engine.py` loop structure)
+One iteration is the full cycle: `orchestrator → validate → overrides → terminate gate → dispatch → post-dispatch → commit`. The `max_iterations` check fires only after the dispatched agent has completed. `can_terminate()` in `validation.py` replaces scattered termination checks with a single gate:
 
-Redefine one iteration as the full cycle: `orchestrator → dispatch → post-dispatch checks`. The `max_iterations` check fires only after the dispatched agent has completed. This addresses the most common failure mode (5/8 runs). A `can_terminate()` function replaces the scattered termination checks with a single gate:
-
+- At least one ER exists
 - At least one critic pass has occurred
-- No ERs promoted since last critic without review
 - No unresolved HIGH critiques
-- Problem coverage: all sub-objectives addressed
-- Computation count > 0 when numerics are required
+- Numerical verification required when `requires_numerical: true` in problem YAML
 
-**Currently:** Termination logic is split across `_should_terminate()` (status string matching), the stale-loop backstop (ER/WH counting), the TERMINATE task type check, and budget enforcement. These are independent mechanisms with no shared interface.
+Termination blockers are fed back to the orchestrator via `context_prefix`, which also carries validation violations and displaced task records.
 
-**Layer B — Post-integration validation** (`validation.py`, new module)
+### Layer B — Post-integration validation (`validation.py`)
 
-A single validation pipeline that runs after every orchestrator integration pass:
+`validate_post_integration()` runs 7 checks after every orchestrator pass:
 
 ```python
-def validate_post_integration(workspace, config) -> list[Violation]:
-    checks = [
-        check_er_promotion_gate,      # new ER without VERIFIED COMP → demote
-        check_task_agent_routing,      # compute task to wrong agent → reroute
-        check_phantom_labels,          # researcher-written VERIFIED → strip
-        check_id_consistency,          # COMP/CRIT counter gaps → fix
-    ]
-    return [v for check in checks for v in check(workspace)]
+checks = [
+    check_phantom_references,           # hallucinated COMP-NNN/TASK-NNN refs
+    check_er_promotion_gate,            # new ER without VERIFIED COMP → demote
+    check_phantom_labels,               # researcher-written VERIFIED → strip
+    check_stale_unverified_labels,      # unverified labels stale for 6+ iterations
+    check_verified_frontmatter_backfill,# verified_by in frontmatter matches log
+    check_task_agent_routing,           # compute task to wrong agent → reroute
+    check_id_consistency,               # COMP/CRIT counter gaps → fix
+]
 ```
 
-**Currently:** These concerns are handled by: `validate_comp_references()` in workspace.py (phantom stripping), the orchestrator prompt (promotion criteria), implicit dispatch routing in `_dispatch()` (agent routing), and frontmatter counter updates scattered across agent `process_response` methods. There is no unified validation interface.
+Each check returns `list[Violation]`. Violations are queued and injected into the orchestrator's context on the next pass.
 
-**Layer C — Agent loop resilience** (`llm.py` inner loop)
+### Layer C — Agent loop resilience (`llm.py`)
 
-Two improvements to `run_agent_loop`:
-1. **Forced partial output on truncation** — when hitting `max_rounds`, make one final text-only LLM call to extract a partial INCONCLUSIVE verdict instead of empty output
-2. **Stall detection** — track repeated failures and escalate after 2 consecutive INCONCLUSIVE verdicts on the same claim
-
-**Currently:** Truncated runs produce `"Agent produced no text output"` stubs (handled by computationalist's fallback INCONCLUSIVE entry). Stall detection exists only at the orchestrator level via `detect_computation_stalls()` with threshold 3 — there is no stall tracking in the engine itself, only context injection into the orchestrator's prompt.
-
-### Implementation order and dependencies
-
-| Step | Layer | What | Absorbs current code | Impact |
-|------|-------|------|---------------------|--------|
-| 1 | A | Iteration contract + termination gates | Scattered termination checks, stale backstop | 7/8 runs |
-| 2 | C | Forced partial output on truncation | INCONCLUSIVE fallback in computationalist | 4/8 runs |
-| 3 | B | Post-integration validation pipeline | `validate_comp_references`, phantom handling | 5/8 runs |
-| 4 | C | Stall detection (builds on 2+3) | `detect_computation_stalls` context injection | 3/8 runs |
-| 5 | — | Critique preamble stripping | N/A (cosmetic) | Cosmetic |
-| 6 | — | Verdict validator (deferred) | Not currently implemented | 0/8 runs |
-
-### Key benefits of the three-layer approach
-
-1. **Testability.** Each layer is a single module with a clear interface. `can_terminate()` and `validate_post_integration()` are pure functions that take workspace state and return structured results — easy to unit test with fixture files.
-
-2. **Replaces implicit priority ordering.** Currently, engine overrides interact via execution order. The layered architecture makes the contract explicit: Layer B checks run at a defined hook point, Layer A gates run at the iteration boundary, Layer C improvements live inside the agent loop.
-
-3. **Extensibility.** Adding a new invariant check means adding one function to the Layer B pipeline. Currently it means adding another if-statement to `engine.py` and reasoning about its interaction with every other override.
-
-4. **Consolidation.** The plan absorbs 6 current mechanisms (phantom validation, stale backstop, stall detection context injection, INCONCLUSIVE fallback, termination string matching, budget enforcement) into 3 modules with unified interfaces.
+- **Forced text-only final call** on `max_rounds` exhaustion — extracts partial verdict instead of empty output; `stop_reason="max_rounds_forced"`
+- **Zero-text bailout** — `zero_text_bailout` (default 3) consecutive rounds with no text trigger early exit
+- **Low cumulative text bailout** — exits at halfway point if total text is very low
+- **Checkpoint message** — injected at `checkpoint_round` (default 2) to nudge the agent to produce output
+- **Token alert** — fires when cumulative input tokens exceed `computation_token_alert` threshold
+- **Engine-level stall tracking** — `_update_stall_tracking()` tracks repeated failures per claim; P5 in `_apply_overrides()` blocks dispatch to stalled claims
 
 ---
 
 ## 11. Documentation Status
 
-### README.md
-- Updated March 2026: model names, agent reads columns, current status, design doc links
+All documentation was synced with the codebase in March 2026.
 
-### DESIGN.md
-- `read_file` tool for orchestrator/researcher/critic is listed as planned — confirmed not implemented
-- External reference files (`files:` YAML key) is planned — not implemented
-- Main loop pseudocode (§5.1) shows the current iteration contract (the one PLAN.md proposes fixing)
-- Computationalist "Reads" column updated to reflect that prior failure context is injected by the engine, not read directly
-- Otherwise structurally accurate
-
-### Problem YAML format
-- PLAN.md Step 1 mentions a planned `requires_numerical: true` flag for termination gate enforcement — not implemented in any problem file
-- DESIGN.md mentions a planned `files:` key for external references — not implemented
-- Currently all problems use only the `problem:` key
+- `requires_numerical: true/false` is implemented in all 22 problem YAML files and consumed by `can_terminate()` gate
+- `read_file` tool for orchestrator/researcher/critic remains planned (not implemented)
+- External reference files (`files:` YAML key) remains planned (not implemented)
+- Problems organized into `problems/tier1/` (10 core) and `problems/tier2/` (12 advanced)

@@ -56,8 +56,9 @@ class OrchestratorAgent(BaseAgent):
                 f"{wh_count} Working Hypotheses remaining, "
                 f"{high} HIGH / {medium} MEDIUM unresolved critiques. "
                 "ALL PROBLEM STEPS APPEAR TO BE ESTABLISHED. "
-                "You SHOULD emit task_type: synthesize or task_type: terminate "
-                "unless you can identify a specific gap. <<<"
+                "Write a brief '## Synthesis' section at the end of "
+                "RESEARCH_STATE.md summarizing the key results and their "
+                "connections, then emit task_type: terminate. <<<"
             )
 
         # Budget-aware: force synthesis when ≤3 iterations remain

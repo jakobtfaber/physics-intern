@@ -8,7 +8,7 @@ SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temp
 
 **How it works.** Five specialised LLM agents (orchestrator, researcher, computationalist, critic, compressor) take turns in a loop. No agent carries conversation history: each call starts from a fresh context and reads/writes shared Markdown files in a workspace directory. The orchestrator plans the next step, a worker agent executes it, and the cycle repeats. A layered verification stack — SymPy/NumPy computations, adversarial critique with severity tracking, and dependency-aware result promotion — acts as backpressure against errors. The workspace is version-controlled with git, so every step is recoverable.
 
-**Current status.** Core functionality is complete with Phase 2 engine hardening done (258 tests passing). The system produces correct science (VALID/HIGH) on all tested problems. Phase 2 addressed recurring process failures (premature termination, wasted computation cycles, phantom references) via three layers: iteration contract rewrite with termination gates, post-integration validation pipeline, and agent loop resilience (forced partial output, stall detection).
+**Current status.** Core functionality is complete with Phase 2 engine hardening done (365 tests passing). The system produces correct science (VALID/HIGH) on all tested problems. Phase 2 addressed recurring process failures (premature termination, wasted computation cycles, phantom references) via three layers: iteration contract rewrite with termination gates, post-integration validation pipeline, and agent loop resilience (forced partial output, stall detection).
 
 ## Quick Start
 
@@ -20,7 +20,7 @@ uv sync --extra dev
 uv run python -m pytest -v
 
 # Run a research problem (requires api key in .env or env var)
-uv run python -m sciralph.main problems/hawking_temperature.yaml --max-iterations 10
+uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --max-iterations 10
 ```
 
 ### CLI Options
@@ -45,8 +45,8 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --write-report
 uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --write-report
 
 # Run + verify in one command
-./run_and_verify.sh problems/hawking_temperature.yaml --max-iterations 10
-./run_and_verify.sh problems/qho_thermodynamics.yaml -- --rerun-computations
+./run_and_verify.sh problems/tier1/hawking_temperature.yaml --max-iterations 10
+./run_and_verify.sh problems/tier1/qho_thermodynamics.yaml -- --rerun-computations
 ```
 
 ```
@@ -76,8 +76,8 @@ Five agents take turns in a main loop. Each agent gets a fresh context per call 
 │  └──────────────┘    │  compute             │   │
 │         ▲            │  critique            │   │
 │         │            │  compress            │   │
-│         │            │  synthesize          │   │
-│  ┌──────┴───────┐    │  terminate           │   │
+│         │            │  terminate           │   │
+│  ┌──────┴───────┐    │                      │   │
 │  │ Workspace     │<───└──────────────────────┘   │
 │  │ (Markdown     │                               │
 │  │  files + git) │                               │
@@ -145,13 +145,15 @@ src/sciralph/
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
 tests/                 — pytest tests (engine, validation, markdown, tools, orchestrator, computationalist, verify, workspace, ...)
-problems/              — YAML problem definitions
+problems/
+  tier1/               — 10 core problems
+  tier2/               — 12 advanced problems
 run_and_verify.sh      — Run a problem then verify results in one command
 ```
 
 ## Problem Definitions
 
-Problems are defined in YAML files under `problems/`:
+Problems are defined in YAML files under `problems/tier1/` and `problems/tier2/`:
 
 ```yaml
 problem: |
@@ -161,7 +163,7 @@ problem: |
 requires_numerical: true  # enforced by termination gate
 ```
 
-Available problems:
+**Tier 1** — core problems (`problems/tier1/`):
 - `hawking_temperature.yaml` — Hawking temperature from Euclidean path integral
 - `qho_thermodynamics.yaml` — Quantum harmonic oscillator thermodynamics
 - `ising_1d_transfer_matrix.yaml` — 1D Ising model via transfer matrix method
@@ -172,6 +174,20 @@ Available problems:
 - `chandrasekhar_limit.yaml` — Chandrasekhar mass limit via Lane-Emden equation
 - `path_integral_harmonic_oscillator.yaml` — Exact path integral for the harmonic oscillator
 - `renormalisation_phi4.yaml` — One-loop renormalisation of scalar φ⁴ theory
+
+**Tier 2** — advanced problems (`problems/tier2/`):
+- `aharonov_bohm_scattering.yaml` — Aharonov-Bohm differential scattering cross section
+- `bremsstrahlung.yaml` — Classical bremsstrahlung spectral energy distribution
+- `dirac_coulomb.yaml` — Exact Dirac equation in Coulomb potential
+- `h2_plus_molecule.yaml` — H₂⁺ ground-state potential energy curve
+- `ising_2d_onsager.yaml` — Exact critical temperature of 2D Ising model (Onsager)
+- `lamb_shift.yaml` — Leading-order Lamb shift for hydrogen
+- `schwinger_pair_production.yaml` — Schwinger pair production rate
+- `stark_effect_parabolic.yaml` — Hydrogen Stark effect in parabolic coordinates
+- `thomas_fermi.yaml` — Thomas-Fermi model of the atom
+- `tov_buchdahl.yaml` — TOV equation and Buchdahl bound
+- `unruh_effect.yaml` — Unruh effect for uniformly accelerated observer
+- `wkb_quartic_oscillator.yaml` — WKB approximation for pure quartic oscillator
 
 ## Development
 
@@ -188,6 +204,5 @@ uv run python -m pytest --cov=sciralph -v
 
 ## Design Documents
 
-- **`DESIGN.md`** — Full system design: architecture, file formats, agent prompts, pseudocode
-- **`PLAN.md`** — Implementation history (Phase 1 cleanup, Phase 2 engine hardening — both done) and future work
+- **`PLAN.md`** — Future work ideas and roadmap
 - **`CODEBASE.md`** — Developer-oriented codebase reference (architecture, data flow, known issues, planned changes)

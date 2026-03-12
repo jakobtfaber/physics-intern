@@ -1,0 +1,17 @@
+problem: |
+  Derive the Schwinger pair production rate for electron-positron pairs
+  created from the vacuum by a constant, uniform electric field E. The
+  expected result is:
+  Gamma/V = (e*E)^2/(4*pi^3*hbar^2*c) * sum_{n=1}^{infty} (1/n^2)
+    * exp(-n*pi*m_e^2*c^3/(e*E*hbar)).
+  Derive this using either (a) the worldline instanton method (computing
+  the imaginary part of the Euclidean effective action for a charged
+  scalar/spinor field) or (b) the WKB tunnelling picture in the Dirac
+  sea framework. Show that the dominant contribution (n=1) gives
+  Gamma/V ~ (e*E)^2/(4*pi^3) * exp(-pi*m_e^2*c^3/(e*E*hbar)).
+  Compute the critical field strength E_c = m_e^2*c^3/(e*hbar) ~
+  1.3 * 10^18 V/m. Discuss why the effect is non-perturbative in the
+  coupling (essential singularity in 1/E). Verify the numerical value
+  of the critical field and evaluate the rate for various field strengths.
+
+requires_numerical: true

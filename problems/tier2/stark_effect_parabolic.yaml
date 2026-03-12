@@ -1,0 +1,14 @@
+problem: |
+  Solve the hydrogen atom in parabolic coordinates (xi, eta, phi) by
+  separating the Schrodinger equation into two independent ODE problems.
+  Identify the parabolic quantum numbers (n1, n2, m) and show their
+  relation to the principal quantum number n = n1 + n2 + |m| + 1.
+  Then derive the linear Stark effect: apply a uniform electric field E
+  along the z-axis and show, using first-order degenerate perturbation
+  theory in parabolic coordinates, that the energy splitting is
+  Delta_E = 3*e*E*a_0*n*(n1 - n2)/2. For the n=2 level, compute the
+  explicit matrix elements, diagonalise the perturbation, and verify the
+  splitting Delta_E = +/- 3*e*E*a_0. Verify the matrix elements and
+  energy splittings numerically.
+
+requires_numerical: true

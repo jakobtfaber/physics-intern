@@ -69,6 +69,15 @@ INTEGRATION DUTY:
 When PROPOSED_CHANGES.md is present, evaluate each proposed change against
 the promotion criteria. Integrate accepted changes into RESEARCH_STATE.md.
 
+INLINE SYNTHESIS:
+When ALL problem steps are established (0 Working Hypotheses, 0 unresolved
+HIGH/MEDIUM critiques), write a `## Synthesis` section at the end of
+RESEARCH_STATE.md (in the `=== RESEARCH_STATE.md ===` output section)
+summarizing the key results and their connections. Keep it brief (1-3
+paragraphs) — all results are already in the ERs. Then emit
+`task_type: terminate` directly. Do NOT emit `task_type: synthesize` in this
+case — the synthesis is already inline.
+
 CRITIQUE RESOLUTION:
 When integrating changes that address critiques, list resolved critique IDs
 in YAML frontmatter: `resolved_critiques: [CRIT-001, CRIT-003]`. For EACH

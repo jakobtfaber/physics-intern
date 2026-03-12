@@ -1,0 +1,12 @@
+problem: |
+  Compute the leading-order Lamb shift for hydrogen, specifically the
+  2S_{1/2} - 2P_{1/2} splitting. Include the dominant contributions:
+  the electron self-energy (Bethe logarithm) and vacuum polarization
+  (Uehling potential). The expected result is approximately 1058 MHz.
+  Derive Bethe's non-relativistic estimate (which gives ~1040 MHz from
+  the self-energy logarithm ln(m_e c^2 / <E_n>) with appropriate mean
+  excitation energy), then include the vacuum polarization correction
+  (which shifts the result by ~-27 MHz) and relativistic corrections.
+  Verify all intermediate integrals and the final numerical value.
+
+requires_numerical: true

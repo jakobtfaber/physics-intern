@@ -1,0 +1,13 @@
+problem: |
+  Derive the Tolman-Oppenheimer-Volkoff (TOV) equation for hydrostatic
+  equilibrium in general relativity, starting from Einstein's field
+  equations for a static, spherically symmetric perfect fluid. Then solve
+  the TOV equation exactly for a star of uniform energy density. From this
+  interior Schwarzschild solution, derive Buchdahl's bound: 2GM/(Rc^2) < 8/9,
+  by requiring that the central pressure remains finite. Show that the
+  interior metric matches the exterior Schwarzschild metric at the stellar
+  surface. Numerically integrate the TOV equation for the uniform-density
+  case and verify that the central pressure diverges as the compactness
+  approaches the Buchdahl limit.
+
+requires_numerical: true

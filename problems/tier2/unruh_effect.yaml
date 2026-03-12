@@ -1,0 +1,13 @@
+problem: |
+  Derive the Unruh effect: show that a uniformly accelerated observer
+  (with proper acceleration a) in the Minkowski vacuum of a massless
+  scalar field perceives a thermal bath at temperature
+  T_U = hbar*a / (2*pi*c*k_B). Proceed by constructing Rindler
+  coordinates, computing the Wightman function G^+(x,x') of the
+  Minkowski vacuum evaluated along the accelerated worldline, and
+  showing that the detector response function is thermal. Verify the
+  KMS (Kubo-Martin-Schwinger) condition: G^+(tau - i*hbar/(k_B*T)) =
+  G^-(tau), which is the hallmark of a thermal state. Discuss the
+  relationship to the Hawking effect via the equivalence principle.
+
+requires_numerical: false

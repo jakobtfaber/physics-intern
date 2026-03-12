@@ -1,0 +1,15 @@
+problem: |
+  Solve the Dirac equation exactly for an electron in a Coulomb potential
+  V(r) = -Z*e^2/r. Separate the equation using the standard angular
+  decomposition into radial Dirac equations for the large and small
+  components. Solve the resulting coupled first-order system using a
+  power series method (analogous to the non-relativistic hydrogen atom),
+  and derive the exact Sommerfeld fine-structure formula:
+  E_{n,j} = m_e*c^2 * [1 + (Z*alpha / (n - (j+1/2) + sqrt((j+1/2)^2
+  - Z^2*alpha^2)))^2]^{-1/2}.
+  Expand to order (Z*alpha)^4 and show that the O(alpha^2) term
+  reproduces the standard perturbative fine-structure result from tier 1.
+  Identify the O(alpha^4) corrections. Compute numerical energy levels
+  for hydrogen (Z=1) for n=1,2,3 and compare with the perturbative values.
+
+requires_numerical: true

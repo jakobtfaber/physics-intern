@@ -1,0 +1,17 @@
+problem: |
+  Derive the classical bremsstrahlung spectral energy distribution for
+  an electron scattered by a Coulomb field (nucleus of charge Ze).
+  Parametrise the hyperbolic orbit, compute the acceleration as a function
+  of time, and evaluate the Fourier transform of the dipole moment to
+  obtain the radiated spectral energy per unit frequency dW/d(omega).
+  Show that in the soft-photon limit (omega -> 0), the spectrum is flat,
+  and derive the Kramers result:
+  dW/d(omega) = (16*pi/(3*sqrt(3))) * (e^2/c) * (Z*e^2/(m*v^2*c))^2
+  for hbar*omega < (1/2)*m*v^2. Compute the classical Gaunt factor
+  g_ff(omega, v) as the ratio of the exact classical result to the
+  Kramers formula, and verify that g_ff -> 1 for small omega.
+  Integrate over a thermal velocity distribution to obtain the total
+  thermal bremsstrahlung emissivity. Verify all results numerically,
+  including numerical Fourier transforms of the orbit.
+
+requires_numerical: true

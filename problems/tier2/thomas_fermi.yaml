@@ -1,0 +1,17 @@
+problem: |
+  Derive the Thomas-Fermi model of the atom. Starting from the
+  semiclassical local density approximation for a degenerate electron
+  gas in a self-consistent potential, derive the Thomas-Fermi equation:
+  d^2 chi/dx^2 = chi^{3/2} / sqrt(x),
+  where chi(x) is the universal Thomas-Fermi screening function with
+  boundary conditions chi(0) = 1 and chi(infinity) = 0, and x = r/b
+  with b = (1/2) * (3*pi/4)^{2/3} * a_0 * Z^{-1/3}. Solve this ODE
+  numerically and verify the initial slope chi'(0) = -1.5880710 (the
+  Baker constant). Derive the total binding energy of a Thomas-Fermi
+  atom: E_TF = -0.7687 * (e^2/a_0) * Z^{7/3}. Verify the Z^{7/3}
+  scaling from dimensional analysis. Compute the electron density
+  profile and compare with Hartree-Fock results for specific atoms
+  (e.g., Fe, Z=26). Discuss limitations of the model (no shell
+  structure, incorrect behaviour near the nucleus and at large r).
+
+requires_numerical: true
