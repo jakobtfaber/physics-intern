@@ -29,6 +29,7 @@ def _get_provider(config: Config) -> LLMProvider:
         _provider_cache[key] = create_provider(
             config.provider, api_key=config.api_key,
             timeout=config.api_timeout,
+            **config.reasoning,
         )
     return _provider_cache[key]
 

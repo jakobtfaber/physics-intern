@@ -57,6 +57,7 @@ class Config:
     api_key: str = ""
     input_cost: float = 0.0   # USD per million input tokens (from models.yaml)
     output_cost: float = 0.0  # USD per million output tokens (from models.yaml)
+    reasoning: dict = field(default_factory=dict)  # provider-specific reasoning params
 
     def __post_init__(self):
         # Resolve provider from models.yaml if not explicitly set
@@ -67,6 +68,7 @@ class Config:
                 self.model = resolved["model_id"]
                 self.input_cost = resolved.get("input_cost", 0.0)
                 self.output_cost = resolved.get("output_cost", 0.0)
+                self.reasoning = resolved.get("reasoning", {})
                 if not self.api_key:
                     self.api_key = os.environ.get(resolved["env_key"], "")
             else:
@@ -100,12 +102,17 @@ def _resolve_model(model_key: str) -> dict | None:
         entry = registry.get(model_key)
         if not entry or not isinstance(entry, dict):
             return None
+        reasoning = {}
+        for key in ("reasoning_budget", "reasoning_effort", "thinking_level"):
+            if key in entry:
+                reasoning[key] = entry[key]
         return {
             "provider": entry["provider"],
             "model_id": entry.get("model_id", model_key),
             "env_key": entry.get("env_key", "ANTHROPIC_API_KEY"),
             "input_cost": float(entry.get("input_cost", 0)),
             "output_cost": float(entry.get("output_cost", 0)),
+            "reasoning": reasoning,
         }
     except (OSError, yaml.YAMLError):
         return None

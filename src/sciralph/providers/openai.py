@@ -14,7 +14,7 @@ _STOP_REASON_MAP = {
 class OpenAIProvider(LLMProvider):
     """OpenAI API provider."""
 
-    def __init__(self, api_key: str = "", **kwargs):
+    def __init__(self, api_key: str = "", reasoning_effort: str = "", **kwargs):
         try:
             from openai import OpenAI
         except ImportError:
@@ -22,6 +22,7 @@ class OpenAIProvider(LLMProvider):
                 "openai package required. Install with: uv sync --extra openai"
             )
         self._client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY", ""))
+        self._reasoning_effort = reasoning_effort
 
     def call(self, model: str, max_tokens: int, system: str,
              messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
@@ -35,6 +36,9 @@ class OpenAIProvider(LLMProvider):
         )
         if tools:
             kwargs["tools"] = tools  # Already in OpenAI canonical format
+        elif self._reasoning_effort:
+            # reasoning_effort is incompatible with tools on /v1/chat/completions
+            kwargs["reasoning_effort"] = self._reasoning_effort
 
         response = self._client.chat.completions.create(**kwargs)
 

@@ -8,21 +8,52 @@ from .base import LLMProvider, ProviderResponse
 class AnthropicProvider(LLMProvider):
     """Anthropic Claude API provider."""
 
-    def __init__(self, api_key: str = "", **kwargs):
+    def __init__(self, api_key: str = "", reasoning_budget: int = 0,
+                 timeout: float = 120.0, **kwargs):
         self._client = anthropic.Anthropic(api_key=api_key)
+        self._reasoning_budget = reasoning_budget
+        self._timeout = timeout
+
+    # Opus 4.6 requires adaptive thinking (no budget_tokens);
+    # other models use manual thinking with budget_tokens.
+    _ADAPTIVE_ONLY_MODELS = {"claude-opus-4-6"}
 
     def call(self, model: str, max_tokens: int, system: str,
              messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
-        kwargs = dict(
-            model=model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
-        )
+        if self._reasoning_budget > 0:
+            # Anthropic requires max_tokens > budget_tokens when thinking is enabled
+            effective_max = max(max_tokens, self._reasoning_budget + 1024)
+            if model in self._ADAPTIVE_ONLY_MODELS:
+                thinking = {"type": "adaptive"}
+            else:
+                thinking = {"type": "enabled", "budget_tokens": self._reasoning_budget}
+            kwargs = dict(
+                model=model,
+                max_tokens=effective_max,
+                system=system,
+                messages=messages,
+                thinking=thinking,
+                temperature=1.0,  # Required by Anthropic when thinking is enabled
+            )
+        else:
+            kwargs = dict(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=messages,
+            )
         if tools:
             kwargs["tools"] = self._transform_tools(tools)
 
-        response = self._client.messages.create(**kwargs)
+        # When thinking is enabled, allow up to 10 minutes per call;
+        # otherwise use the configured timeout (default 120s).
+        timeout = max(self._timeout, 600.0) if self._reasoning_budget > 0 else self._timeout
+        # Explicit timeout bypasses the SDK's nonstreaming timeout check
+        # which rejects large max_tokens (e.g. when thinking is enabled)
+        response = self._client.messages.create(
+            **kwargs,
+            timeout=timeout,
+        )
 
         # Extract text
         text_parts = []

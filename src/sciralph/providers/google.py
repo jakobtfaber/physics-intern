@@ -8,7 +8,7 @@ from .base import LLMProvider, ProviderResponse
 class GoogleProvider(LLMProvider):
     """Google Gemini API provider via google-genai."""
 
-    def __init__(self, api_key: str = "", **kwargs):
+    def __init__(self, api_key: str = "", thinking_level: str = "", **kwargs):
         try:
             from google import genai
         except ImportError:
@@ -19,6 +19,7 @@ class GoogleProvider(LLMProvider):
         self._client = genai.Client(
             api_key=api_key or os.environ.get("GOOGLE_API_KEY", "")
         )
+        self._thinking_level = thinking_level
 
     def call(self, model: str, max_tokens: int, system: str,
              messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
@@ -67,11 +68,16 @@ class GoogleProvider(LLMProvider):
                 ))
             gemini_tools = [genai.types.Tool(function_declarations=declarations)]
 
-        config = genai.types.GenerateContentConfig(
+        config_kwargs = dict(
             system_instruction=system,
             max_output_tokens=max_tokens,
             tools=gemini_tools,
         )
+        if self._thinking_level:
+            config_kwargs["thinking_config"] = genai.types.ThinkingConfig(
+                thinking_level=self._thinking_level
+            )
+        config = genai.types.GenerateContentConfig(**config_kwargs)
 
         response = self._client.models.generate_content(
             model=model,
@@ -83,7 +89,7 @@ class GoogleProvider(LLMProvider):
         text_parts = []
         tool_calls = None
 
-        if response.candidates and response.candidates[0].content:
+        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
             for part in response.candidates[0].content.parts:
                 if part.text:
                     text_parts.append(part.text)
