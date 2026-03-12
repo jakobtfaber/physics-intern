@@ -30,7 +30,7 @@ class OpenAIProvider(LLMProvider):
 
         kwargs = dict(
             model=model,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
             messages=oai_messages,
         )
         if tools:
