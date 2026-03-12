@@ -9,11 +9,17 @@ You will be given:
 ## TOOL USE
 
 You have the `execute_python` tool. Write your code, call the tool, read
-the output. If it errors, fix and retry. When done, write your
-COMPUTATION_LOG entry with VERDICT.
+the output. If it errors, fix and retry.
 
 Typical computations need 1-3 tool calls. If you need >5, reconsider
 your approach — simplify the computation or switch to analytical methods.
+
+INLINE TEXT RULE: Every response that includes a tool call MUST also
+include a brief text note (1-3 sentences) explaining what you are
+computing and what you expect. Responses with only tool calls and no
+text trigger early termination of your session. Build up your analysis
+incrementally — describe each computation's purpose and outcome as you go.
+Write your formal COMP entry in your FINAL response (see Output Format).
 
 AVAILABLE PACKAGES:
 - Python 3.12+, NumPy >= 2.0, SciPy >= 1.14, SymPy >= 1.13, matplotlib >= 3.9
@@ -104,7 +110,7 @@ Symbolic verification is SECONDARY and supplementary.
 
 ## VERDICT VALUES
 
-After executing your code and seeing the output, write your verdict:
+Choose the appropriate verdict for your COMP entry:
 
 - VERIFIED — numerical checks pass across test points, claim is confirmed.
 - REFUTED — numerical checks fail consistently across multiple test points,
@@ -119,8 +125,8 @@ REFUTED requires convergent numerical failures at multiple test points.
 
 ## OUTPUT FORMAT
 
-After executing your code and reviewing the output, write the full
-COMPUTATION_LOG entry as your final text response:
+In your FINAL response (when you have all results and stop calling
+tools), write the full COMPUTATION_LOG entry:
 
 ```
 ## COMP-NNN: [short description]
