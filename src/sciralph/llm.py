@@ -43,9 +43,17 @@ _TRANSIENT_EXC_NAMES = {"ConnectionError", "TimeoutError", "ReadTimeout",
 
 
 def _is_tool_call_failure(exc: Exception) -> bool:
-    """Return True if *exc* is a tool-call generation failure (model emitted invalid JSON)."""
-    msg = str(exc)
-    return "tool_use_failed" in msg or "Failed to parse tool call arguments" in msg
+    """Return True if *exc* is a tool-call generation failure.
+
+    Covers both JSON parse failures and OSS models ignoring tool_choice=none.
+    """
+    msg = str(exc).lower()
+    return any(p in msg for p in (
+        "tool_use_failed",
+        "failed to parse tool call arguments",
+        "output_parse_failed",      # HF backend can't parse non-tool output
+        "tool choice",              # "Tool choice is none, but model called a tool"
+    ))
 
 
 _PROVIDER_SIDE_400_PATTERNS = {
@@ -395,17 +403,27 @@ def run_agent_loop(
                 if config.workspace_dir:
                     log_scaffold_event(config.workspace_dir, iteration, 2,
                                        "text_checkpoint", f"streak={zero_text_streak}")
-                cp_text, cp_in, cp_out = _make_text_checkpoint_call(
-                    provider, config, system, messages,
-                    round_num, iteration, agent_name,
-                )
-                total_input += cp_in
-                total_output += cp_out
-                if cp_text:
-                    zero_text_streak = 0
-                    cumulative_text_len += len(cp_text)
-                    messages.append({"role": "assistant", "content": cp_text})
-                    messages.append({"role": "user", "content": "Good. Continue with your tool calls."})
+                try:
+                    cp_text, cp_in, cp_out = _make_text_checkpoint_call(
+                        provider, config, system, messages,
+                        round_num, iteration, agent_name,
+                    )
+                    total_input += cp_in
+                    total_output += cp_out
+                    if cp_text:
+                        zero_text_streak = 0
+                        cumulative_text_len += len(cp_text)
+                        messages.append({"role": "assistant", "content": cp_text})
+                        messages.append({"role": "user", "content": "Good. Continue with your tool calls."})
+                except Exception as exc:
+                    console.print(
+                        f"[yellow]Text checkpoint failed (round {round_num}): "
+                        f"{type(exc).__name__}: {exc} — continuing[/yellow]"
+                    )
+                    if config.workspace_dir:
+                        log_scaffold_event(config.workspace_dir, iteration, 2,
+                                           "text_checkpoint_failed",
+                                           f"round={round_num}, {type(exc).__name__}")
 
             if zero_text_streak >= config.zero_text_bailout:
                 if config.workspace_dir:
@@ -517,41 +535,58 @@ def run_agent_loop(
         "**NOTES:** Verification incomplete — ran out of tool-use rounds.\n"
     )
 
-    start = time.time()
-    final_resp = _call_provider_with_retry(
-        provider, config,
-        workspace_dir=config.workspace_dir,
-        iteration=iteration,
-        model=config.model,
-        max_tokens=config.max_tokens,
-        system=forced_system,
-        messages=messages,
-        # No tools — forces text-only response
-    )
-    dur = time.time() - start
-
-    total_input += final_resp.input_tokens
-    total_output += final_resp.output_tokens
-    final_text = final_resp.text.strip()
-
-    if not final_text:
-        # Forced call produced nothing — retry once with minimal prompt
-        if config.workspace_dir:
-            log_scaffold_event(config.workspace_dir, iteration, 2,
-                               "forced_call_retry", "empty forced final call")
-        retry_resp = _call_provider_with_retry(
+    final_text = ""
+    final_in = final_out = 0
+    final_dur = 0.0
+    try:
+        start = time.time()
+        final_resp = _call_provider_with_retry(
             provider, config,
             workspace_dir=config.workspace_dir,
             iteration=iteration,
             model=config.model,
             max_tokens=config.max_tokens,
             system=forced_system,
-            messages=messages + [{"role": "assistant", "content": ""},
-                                 {"role": "user", "content": "Write ONLY a COMP entry with VERDICT: INCONCLUSIVE. Nothing else."}],
+            messages=messages,
+            # No tools — forces text-only response
         )
-        final_text = retry_resp.text.strip()
-        total_input += retry_resp.input_tokens
-        total_output += retry_resp.output_tokens
+        final_dur = time.time() - start
+        final_in = final_resp.input_tokens
+        final_out = final_resp.output_tokens
+        total_input += final_in
+        total_output += final_out
+        final_text = final_resp.text.strip()
+    except Exception as exc:
+        console.print(
+            f"[yellow]Forced final call failed: {type(exc).__name__}: {exc} "
+            f"— synthesizing from tool history[/yellow]"
+        )
+        if config.workspace_dir:
+            log_scaffold_event(config.workspace_dir, iteration, 2,
+                               "forced_final_call_failed",
+                               f"{type(exc).__name__}: {str(exc)[:200]}")
+
+    if not final_text:
+        # Forced call produced nothing or failed — retry once with minimal prompt
+        if config.workspace_dir:
+            log_scaffold_event(config.workspace_dir, iteration, 2,
+                               "forced_call_retry", "empty forced final call")
+        try:
+            retry_resp = _call_provider_with_retry(
+                provider, config,
+                workspace_dir=config.workspace_dir,
+                iteration=iteration,
+                model=config.model,
+                max_tokens=config.max_tokens,
+                system=forced_system,
+                messages=messages + [{"role": "assistant", "content": ""},
+                                     {"role": "user", "content": "Write ONLY a COMP entry with VERDICT: INCONCLUSIVE. Nothing else."}],
+            )
+            final_text = retry_resp.text.strip()
+            total_input += retry_resp.input_tokens
+            total_output += retry_resp.output_tokens
+        except Exception:
+            final_text = ""
 
         if not final_text:
             # Still nothing — synthesize from tool history so the entry exists
@@ -566,8 +601,7 @@ def run_agent_loop(
 
     if config.audit_log:
         _write_audit_entry(config, LLMResponse(
-            final_text, final_resp.input_tokens,
-            final_resp.output_tokens, "forced_partial", dur
+            final_text, final_in, final_out, "forced_partial", final_dur
         ), forced_system, user_content, agent_name, iteration,
         round=round_num + 1)
 

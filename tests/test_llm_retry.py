@@ -121,6 +121,44 @@ def test_is_transient_true_for_tool_call_failure():
     assert _is_transient(FakeToolCallFailure()) is True
 
 
+class FakeOutputParseError(Exception):
+    """Mimics HF 'output_parse_failed' when model ignores tool_choice=none."""
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "BadRequestError: output_parse_failed - "
+            "Parsing failed. The model generated output that could not be parsed."
+        )
+
+
+class FakeToolChoiceError(Exception):
+    """Mimics HF 'Tool choice is none, but model called a tool'."""
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "BadRequestError: tool_use_failed - "
+            "Tool choice is none, but model called a tool"
+        )
+
+
+@pytest.mark.parametrize("exc", [
+    FakeOutputParseError(),
+    FakeToolChoiceError(),
+])
+def test_is_tool_call_failure_oss_model_patterns(exc):
+    """OSS model tool-choice violations are recognized as tool-call failures."""
+    assert _is_tool_call_failure(exc) is True
+
+
+@pytest.mark.parametrize("exc", [
+    FakeOutputParseError(),
+    FakeToolChoiceError(),
+])
+def test_is_transient_true_for_oss_model_errors(exc):
+    """OSS model tool-choice errors are transient (retryable)."""
+    assert _is_transient(exc) is True
+
+
 # ---------------------------------------------------------------------------
 # _call_provider_with_retry
 # ---------------------------------------------------------------------------
@@ -439,6 +477,101 @@ class TestPenultimateRoundMessage:
                             assert "CRITICAL" not in block.get("text", ""), \
                                 "CRITICAL should not appear when max_rounds < 4"
 
+    def test_forced_final_call_failure_falls_back_to_synthesis(self):
+        """When the forced final call raises, synthesis from tool history is used."""
+        from sciralph.llm import run_agent_loop
+        from sciralph.tools import ToolExecutor, ToolCall
+
+        max_rounds = 3
+        provider = MagicMock()
+        # Rounds 1..3 return tool_use, forced final call + retry both raise
+        tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
+        forced_exc = Exception("output_parse_failed - model gibberish")
+        forced_exc.status_code = 400
+
+        provider.call = MagicMock(side_effect=tool_responses + [forced_exc, forced_exc])
+        provider.format_assistant_message = MagicMock(return_value={"role": "assistant", "content": "tool"})
+        provider.build_tool_result_messages = MagicMock(return_value=[{"role": "user", "content": "result"}])
+
+        tool_executor = MagicMock(spec=ToolExecutor)
+        tool_executor.execute = MagicMock(return_value=ToolCall(
+            tool_name="execute_python", tool_input={"code": "print(42)"},
+            output="42", is_error=False, duration=0.1,
+        ))
+
+        config = _make_config(api_retry_max=0)
+        config.max_tokens = 4096
+        config.audit_log = ""
+        config.logs_dir = ""
+        config.computation_token_alert = 999999
+        config.checkpoint_round = 2
+        config.zero_text_bailout = 10
+
+        with patch("sciralph.llm._get_provider", return_value=provider):
+            result = run_agent_loop(
+                system="test", user_content="test", config=config,
+                tool_executor=tool_executor,
+                tools=[{"type": "function", "function": {"name": "execute_python"}}],
+                max_rounds=max_rounds,
+            )
+
+        # Should have synthesized from tool history instead of crashing
+        assert result.stop_reason == "max_rounds_forced"
+        assert "COMP-000" in result.text
+        assert "INCONCLUSIVE" in result.text
+
+    def test_text_checkpoint_failure_continues_loop(self):
+        """When _make_text_checkpoint_call raises, the agent loop continues."""
+        from sciralph.llm import run_agent_loop
+        from sciralph.tools import ToolExecutor, ToolCall
+
+        max_rounds = 5
+        provider = MagicMock()
+        # Rounds 1..5 return tool_use with no text (to trigger checkpoint),
+        # then forced final call succeeds
+        tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
+        final_response = self._make_final_response()
+
+        call_count = 0
+        def side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            # The checkpoint call has no tools kwarg
+            if "tools" not in kwargs and call_count <= max_rounds:
+                raise Exception("output_parse_failed")
+            if call_count <= max_rounds:
+                return tool_responses[call_count - 1]
+            return final_response
+
+        provider.call = MagicMock(side_effect=side_effect)
+        provider.format_assistant_message = MagicMock(return_value={"role": "assistant", "content": "tool"})
+        provider.build_tool_result_messages = MagicMock(return_value=[{"role": "user", "content": "result"}])
+
+        tool_executor = MagicMock(spec=ToolExecutor)
+        tool_executor.execute = MagicMock(return_value=ToolCall(
+            tool_name="execute_python", tool_input={"code": "1"},
+            output="1", is_error=False, duration=0.1,
+        ))
+
+        config = _make_config(api_retry_max=0, text_checkpoint_interval=2)
+        config.max_tokens = 4096
+        config.audit_log = ""
+        config.logs_dir = ""
+        config.computation_token_alert = 999999
+        config.checkpoint_round = 2
+        config.zero_text_bailout = 10
+
+        with patch("sciralph.llm._get_provider", return_value=provider):
+            result = run_agent_loop(
+                system="test", user_content="test", config=config,
+                tool_executor=tool_executor,
+                tools=[{"type": "function", "function": {"name": "execute_python"}}],
+                max_rounds=max_rounds,
+            )
+
+        # Should complete without crashing
+        assert result.text
+
     def test_tool_call_failure_graceful_degradation(self):
         """run_agent_loop degrades to forced text-only call on tool_use_failed error."""
         from sciralph.llm import run_agent_loop
@@ -529,3 +662,54 @@ class TestPenultimateRoundMessage:
         final_system = final_call.kwargs.get("system", "")
         assert "**VERDICT:** INCONCLUSIVE" in final_system
         assert "Incomplete verification" in final_system
+
+
+# ---------------------------------------------------------------------------
+# HuggingFace _strip_tool_messages
+# ---------------------------------------------------------------------------
+
+class TestStripToolMessages:
+    """Unit tests for HuggingFaceProvider._strip_tool_messages."""
+
+    def test_removes_tool_role_messages(self):
+        from sciralph.providers.huggingface import HuggingFaceProvider
+        msgs = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "I'll call a tool",
+             "tool_calls": [{"id": "tc1", "type": "function",
+                             "function": {"name": "f", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "tc1", "content": "result"},
+            {"role": "user", "content": "continue"},
+        ]
+        result = HuggingFaceProvider._strip_tool_messages(msgs)
+        roles = [m["role"] for m in result]
+        assert "tool" not in roles
+        assert len(result) == 3
+
+    def test_strips_tool_calls_key_from_assistant(self):
+        from sciralph.providers.huggingface import HuggingFaceProvider
+        msgs = [
+            {"role": "assistant", "content": "thinking",
+             "tool_calls": [{"id": "tc1"}]},
+        ]
+        result = HuggingFaceProvider._strip_tool_messages(msgs)
+        assert "tool_calls" not in result[0]
+        assert result[0]["content"] == "thinking"
+
+    def test_empty_content_gets_placeholder(self):
+        from sciralph.providers.huggingface import HuggingFaceProvider
+        msgs = [
+            {"role": "assistant", "content": None,
+             "tool_calls": [{"id": "tc1"}]},
+        ]
+        result = HuggingFaceProvider._strip_tool_messages(msgs)
+        assert result[0]["content"] == "[prior tool interaction omitted]"
+
+    def test_passthrough_when_no_tools(self):
+        from sciralph.providers.huggingface import HuggingFaceProvider
+        msgs = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ]
+        result = HuggingFaceProvider._strip_tool_messages(msgs)
+        assert result == msgs

@@ -15,6 +15,26 @@ _STOP_REASON_MAP = {
 class HuggingFaceProvider(LLMProvider):
     """HuggingFace Inference Providers via native InferenceClient."""
 
+    @staticmethod
+    def _strip_tool_messages(messages: list[dict]) -> list[dict]:
+        """Remove tool-call artifacts from messages for text-only calls.
+
+        OSS models served via HF Inference Providers may generate tool calls
+        even when tools are not provided, if the conversation history contains
+        tool-call messages.  Stripping these prevents output_parse_failed and
+        'Tool choice is none, but model called a tool' errors.
+        """
+        cleaned = []
+        for msg in messages:
+            if msg.get("role") == "tool":
+                continue
+            if "tool_calls" in msg:
+                msg = {k: v for k, v in msg.items() if k != "tool_calls"}
+                if not msg.get("content"):
+                    msg["content"] = "[prior tool interaction omitted]"
+            cleaned.append(msg)
+        return cleaned
+
     def __init__(self, api_key: str = "", hf_provider: str | None = None,
                  timeout: float | None = None, **kwargs):
         try:
@@ -43,6 +63,9 @@ class HuggingFaceProvider(LLMProvider):
         )
         if tools:
             kwargs["tools"] = tools  # Already in OpenAI canonical format
+        else:
+            # Strip tool-call history so OSS models don't hallucinate tool calls
+            kwargs["messages"] = self._strip_tool_messages(hf_messages)
 
         response = self._client.chat.completions.create(**kwargs)
 
