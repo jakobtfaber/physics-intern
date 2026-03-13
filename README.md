@@ -6,9 +6,9 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 
 SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
 
-**How it works.** Five specialised LLM agents (orchestrator, researcher, computationalist, critic, compressor) take turns in a loop. No agent carries conversation history: each call starts from a fresh context and reads/writes shared Markdown files in a workspace directory. The orchestrator plans the next step, a worker agent executes it, and the cycle repeats. A layered verification stack — SymPy/NumPy computations, adversarial critique with severity tracking, and dependency-aware result promotion — acts as backpressure against errors. The workspace is version-controlled with git, so every step is recoverable.
+**How it works.** Five specialised LLM agents (orchestrator, researcher, computationalist, critic, compressor) take turns in a loop. No agent carries conversation history: each call starts from a fresh context and reads/writes shared Markdown files in a workspace directory. The orchestrator plans the next step, a worker agent executes it, and the cycle repeats. A layered verification stack — SymPy/NumPy computations, adversarial critique with severity tracking, and dependency-aware result promotion — acts as backpressure against errors. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
 
-**Current status.** Core functionality is complete with Phase 2 engine hardening done (365 tests passing). The system produces correct science (VALID/HIGH) on all tested problems. Phase 2 addressed recurring process failures (premature termination, wasted computation cycles, phantom references) via three layers: iteration contract rewrite with termination gates, post-integration validation pipeline, and agent loop resilience (forced partial output, stall detection).
+**Current status.** Core functionality is complete (444 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 10 layers) compensates for predictable LLM failures: premature result promotion, hallucinated IDs, malformed YAML, ignored instructions, empty outputs, and premature termination. See `CODEBASE.md` §7 for the full catalog.
 
 ## Quick Start
 
@@ -19,8 +19,12 @@ uv sync --extra dev
 # Run tests
 uv run python -m pytest -v
 
-# Run a research problem (requires api key in .env or env var)
+# Run a research problem (requires ANTHROPIC_API_KEY in .env or env var)
 uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --max-iterations 10
+
+# Run with a different provider (auto-resolved from models.yaml)
+uv sync --extra openai
+uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --model gpt-4o --max-iterations 10
 ```
 
 ### CLI Options
@@ -28,7 +32,8 @@ uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --max-ite
 ```
 python -m sciralph.main <problem.yaml> [options]
 
-  --model MODEL           LLM model (default: claude-sonnet-4-6)
+  --model MODEL           LLM model key (default: claude-sonnet-4-6, resolved via models.yaml)
+  --provider PROVIDER     Force provider (anthropic/openai/google/huggingface)
   --max-iterations N      Max loop iterations (default: 200)
   --workspace-dir DIR     Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
 ```
@@ -103,7 +108,7 @@ Results go through layered verification before being promoted to "Established":
 2. **Adversarial critique** — Deep Critic reviews with no unresolved HIGH critiques
 3. **Dependency tracking** — All prerequisite results must themselves be Established
 
-The orchestrator enforces these promotion criteria and forces periodic critic passes every N iterations. A post-integration validation pipeline (`validation.py`) checks invariants after every orchestrator pass — demoting unverified ERs, stripping phantom labels, fixing agent routing. Termination goes through gates requiring critic review, no unresolved HIGH critiques, and numerical verification when required by the problem.
+The orchestrator enforces these promotion criteria and forces periodic critic passes every N iterations. A post-integration validation pipeline (`validation.py`) runs 8 checks after every orchestrator pass — demoting unverified ERs, promoting verified WHs, stripping phantom labels, fixing agent routing, ensuring critique resolutions were actually applied. Termination goes through gates requiring critic review, no unresolved HIGH critiques, and numerical verification when required by the problem. See `CODEBASE.md` §7 for the full LLM failure compensation catalog.
 
 ### Workspace Files
 
@@ -130,7 +135,7 @@ src/sciralph/
   validation.py        — Post-integration checks (ER gate, phantom labels, routing) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
   config.py            — Config dataclass (model, thresholds, timeouts, audit log)
-  llm.py               — Anthropic API wrapper (call_llm, run_agent_loop) with audit logging
+  llm.py               — Provider-agnostic LLM wrapper (call_llm, run_agent_loop) with retry + audit logging
   task.py              — Task dataclass + TaskType enum for typed task handling
   workspace.py         — File I/O + git operations on workspace/
   markdown.py          — YAML frontmatter parsing, section extraction, critique counting
@@ -144,6 +149,13 @@ src/sciralph/
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
+  providers/
+    base.py            — LLMProvider ABC + ProviderResponse dataclass
+    anthropic.py       — Anthropic Claude adapter
+    openai.py          — OpenAI adapter
+    google.py          — Google Gemini adapter
+    huggingface.py     — HuggingFace Inference Providers adapter
+  models.yaml          — Model registry (friendly keys → provider + model_id + env_key + cost)
 tests/                 — pytest tests (engine, validation, markdown, tools, orchestrator, computationalist, verify, workspace, ...)
 problems/
   tier1/               — 10 core problems

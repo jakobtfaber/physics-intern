@@ -5,6 +5,7 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 ## Key Documents
 
 - `README.md` — User-facing overview, architecture diagram, quick start
+- `CODEBASE.md` — Developer-oriented codebase reference (architecture, data flow, LLM failure compensation catalog, known issues)
 - `PLAN.md` — Future work ideas and roadmap
 
 ## Project Structure
@@ -39,7 +40,7 @@ src/sciralph/
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
-tests/                 — pytest tests (markdown, sandbox, metrics, orchestrator, computationalist, verify, workspace, task, engine, validation, report_recommendations, conversation_log, config)
+tests/                 — pytest tests (engine, validation, markdown, llm_retry, report_recommendations, verify, orchestrator, tools, config, computationalist, workspace, provider_smoke, task, metrics, conversation_log, sandbox)
 problems/
   tier1/               — 10 core problem definitions
   tier2/               — 12 advanced problem definitions
@@ -63,7 +64,7 @@ Five agents (orchestrator, researcher, computationalist, deep critic, compressor
 - **Deep Critic** appends critiques to CRITIQUE_LOG.md
 - **Compressor** archives + shrinks files exceeding size thresholds
 
-The orchestrator integrates proposed changes on its next pass. After each orchestrator pass, `validation.py` runs invariant checks (ER promotion gate, phantom labels/references, agent routing, ID consistency). Termination via `TERMINATE` goes through `can_terminate()` gates (critic pass required, no unresolved HIGH critiques, numerical verification required when `requires_numerical: true` in problem YAML). The engine's `_apply_overrides()` consolidates all pre-dispatch overrides (budget, stale loop, forced critic, REFUTED recompute, stall blocking) in explicit priority order. Audit logging (JSONL) records metadata for every LLM call.
+The orchestrator integrates proposed changes on its next pass. After each orchestrator pass, `validation.py` runs 8 invariant checks (ER promotion gate with bidirectional WH↔ER correction, phantom labels/references, agent routing, ID consistency, critique resolution consistency, verified frontmatter backfill). Termination via `TERMINATE` goes through `can_terminate()` gates (critic pass required, no unresolved HIGH critiques, numerical verification required when `requires_numerical: true` in problem YAML). The engine's `_apply_overrides()` consolidates all pre-dispatch overrides (budget, stale loop, forced critic, redundant critic suppression, REFUTED recompute, stall blocking, prior-failure enrichment) in explicit P1–P6 priority order. All LLM calls go through `_call_provider_with_retry()` with exponential-backoff retry on transient errors and tool-call JSON failures. Audit logging (JSONL) records metadata + cost for every LLM call.
 
 ### Valid Task Types
 
@@ -83,10 +84,13 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 - BaseAgent `tools` class attribute: non-empty → agentic loop, empty → one-shot `call_llm`
 - Critique regex constants (`CRIT_ID_RE`, `CRIT_HEADER_RE`, `CRIT_UNRESOLVED_RE`) and helpers (`extract_resolved_critique_ids`, `recount_critique_metadata`) are in `markdown.py`
 - Critique ID format: `CRIT-NNN` (regex also accepts `CRITIQUE-NNN` for LLM drift tolerance)
-- Engine overrides live in `_apply_overrides()` with explicit priority: budget > stale loop > forced critic > REFUTED recompute > stall blocking > enrichment
-- Post-integration checks are pure functions in `validation.py` returning `list[Violation]`; violations inject into orchestrator context via `context_prefix`
-- `run_agent_loop` forces a text-only final call on `max_rounds` exhaustion (no more empty stubs); `stop_reason="max_rounds_forced"`
+- Engine overrides live in `_apply_overrides()` with explicit priority: P1 budget > P2 stale loop > P3 forced critic > P3b redundant critic suppression > P4 REFUTED recompute > P5 stall blocking > P6 enrichment
+- Post-integration checks are pure functions in `validation.py` returning `list[Violation]`; 8 checks total including critique resolution consistency; violations inject into orchestrator context via `context_prefix`
+- `run_agent_loop` forces a text-only final call on `max_rounds` exhaustion (no more empty stubs); `stop_reason="max_rounds_forced"`; two-round escalating warnings at `max_rounds-2` and `max_rounds-1`
+- `_call_provider_with_retry()` wraps every provider call with exponential-backoff retry (configurable via `api_retry_max`, `api_retry_initial_delay`, `api_retry_max_delay`); tool-call JSON failures are retryable
+- Iteration counter is scaffolding-maintained (`_update_research_iteration()`), not LLM-dependent
 - Problem YAMLs may include `requires_numerical: true/false` — consumed by `can_terminate()` gate
+- See `CODEBASE.md` §7 for the complete LLM failure compensation catalog (50+ mechanisms across 10 layers)
 
 ## Running
 
@@ -115,18 +119,17 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-All core functionality is implemented and working (365 tests passing). Phase 2 engine hardening complete + report recommendations implemented:
+All core functionality is implemented and working (444 tests passing):
 
-- **Core loop** — all five agents, main loop, orchestrator integration, consolidated override chain (`_apply_overrides`), termination gates (`can_terminate`)
-- **Validation pipeline** — 7 post-integration checks (phantom references, ER promotion gate, phantom labels, stale unverified label promotion, verified frontmatter backfill, agent routing, ID consistency), violation injection into orchestrator context
-- **Orchestrator** — sub-problem decomposition, integration duty, critique resolution (multi-line capture), stale-iteration backstop, momentum/compute-first/single-target-compute/stall-detection rules, inline synthesis (writes `## Synthesis` directly into RESEARCH_STATE.md then emits terminate), context prefix for violations/blockers
-- **Computationalist** — agentic tool-use with `execute_python`, forced partial output on truncation, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE), COMP-only counter
-- **Deep Critic** — two-phase format, preamble stripping, self-retraction filtering, INCONCLUSIVE severity cap
-- **Compressor** — archival + compression with forced compression at 2x threshold
-- **Tool-use infrastructure** — `run_agent_loop` with forced text-only final call on `max_rounds` or zero-text bailout, checkpoint message at round N, per-computation token alert, stall detection (threshold=2)
+- **Core loop** — all five agents, main loop, orchestrator integration, consolidated override chain (`_apply_overrides` P1–P6 + P3b), termination gates (`can_terminate`)
+- **Validation pipeline** — 8 post-integration checks (phantom references, ER promotion gate with bidirectional WH↔ER, phantom labels, stale unverified label promotion, verified frontmatter backfill, agent routing, ID consistency, critique resolution consistency), violation injection into orchestrator context
+- **LLM failure compensation** — 50+ mechanisms across 10 layers compensating for predictable LLM failures (see `CODEBASE.md` §7)
+- **Multi-provider support** — `providers/` abstraction layer with Anthropic, OpenAI, Google Gemini, HuggingFace adapters; `models.yaml` registry with cost tracking; `--model`/`--provider` CLI flags; `verify.py` stays Anthropic-only
+- **API resilience** — exponential-backoff retry on transient errors + tool-call JSON failures (`_call_provider_with_retry`); dispatch-level error catch; scaffolding-maintained iteration counter
+- **Orchestrator** — sub-problem decomposition, integration duty, critique resolution (4-pattern extraction), stale-iteration backstop, inline synthesis, context prefix for violations/blockers
+- **Computationalist** — agentic tool-use with `execute_python`, forced partial output on truncation, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE), two-round escalating warnings
+- **Deep Critic** — two-phase format, preamble stripping, self-retraction filtering, INCONCLUSIVE severity cap, NO_CRITIQUES_FILED handling
 - **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
-- **Logging** — JSONL audit logging (metadata per LLM call, round field for tool-use), full conversation logs
-
-- **Multi-provider support** — `providers/` abstraction layer with Anthropic, OpenAI, Google Gemini, HuggingFace adapters; `models.yaml` registry; `--model`/`--provider` CLI flags; `verify.py` stays Anthropic-only
+- **Logging** — JSONL audit logging (metadata + cost per LLM call, round field for tool-use), full conversation logs
 
 Next steps: `read_file` tool for orchestrator/researcher/critic (see PLAN.md future work)
