@@ -1,0 +1,55 @@
+problem: |
+  In quantum error correction, you encode quantum states into logical states made of many
+  qubits in order to improve their resilience to errors. In quantum error detection, you do
+  the same but can only detect the presence of errors and not correct them. In this problem,
+  we will consider a single [[4,2,2]] quantum error detection code, which encodes two logical
+  qubits into four physical qubits, and investigate how robust logical quantum operations in
+  this code are to quantum errors.
+
+  Our convention is that the four physical qubits in the [[4,2,2]] code are labelled 0,1,2,3.
+  The two logical qubits are labelled A and B. The stabilizers are XXXX and ZZZZ, where X and
+  Z are Pauli matrices. The logical X and Z operators on the two qubits are X_A = XIXI,
+  X_B = XXII, Z_A = ZZII, Z_B = ZIZI, up to multiplication by stabilizers.
+
+  We will consider different state preparation circuits consisting of controlled-NOT CNOT_{ij}
+  gates, where CNOT_{ij} has control qubit i and target qubit j. As a simple model of quantum
+  errors in hardware, we will suppose that each CNOT_{ij} gate in the circuit has a two-qubit
+  depolarizing error channel following it that produces one of the 15 non-identity two-qubit
+  Paulis with equal probability p/15. The probability p indicates the probability of an error
+  in a single two-qubit gate. We will assess the logical infidelity of certain state
+  preparation protocols as a function of the physical infidelity p.
+
+  Subproblem 1:
+
+  Suppose that we wish to prepare a logical two-qubit GHZ state (|00>_{AB} + |11>_{AB})/sqrt(2)
+  in the [[4,2,2]] code. To do so, we use the following state preparation circuit:
+
+    (CNOT_{03}) (H_0) (CNOT_{21}) (H_2)
+
+  Note that this equation is written in matrix multiplication order, while the quantum
+  operations in the circuit occur in the reverse order (from right-to-left in the above
+  equation). H is a single-qubit Hadamard gate.
+
+  What is the physical state fidelity of the final physical 4-qubit state at the end of the
+  circuit as a function of the two-qubit gate error rate p?
+
+  Answer: F_physical = (1 - 12/15 * p)^2
+
+  Subproblem 2:
+
+  Suppose that we wish to prepare a logical two-qubit GHZ state (|00>_{AB} + |11>_{AB})/sqrt(2)
+  in the [[4,2,2]] code. To do so, we use the following state preparation circuit:
+
+    (CNOT_{03}) (H_0) (CNOT_{21}) (H_2)
+
+  Note that this equation is written in matrix multiplication order, while the quantum
+  operations in the circuit occur in the reverse order (from right-to-left in the above
+  equation). H is a single-qubit Hadamard gate.
+
+  What is the logical state fidelity of the final 2-qubit logical state at the end of the
+  circuit as a function of two-qubit gate error rate p, assuming the state is post-selected on
+  all detectable errors in the code?
+
+requires_numerical: true
+
+answer: "1 - (16/25*p**2 - 128/125*p**3 + 2048/3375*p**4 - 32768/253125*p**5) / (1 - 68/15*p + 704/75*p**2 - 32768/3375*p**3 + 253952/50625*p**4 - 262144/253125*p**5)"
