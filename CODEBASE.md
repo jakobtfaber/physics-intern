@@ -115,7 +115,7 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │     └─ _update_research_iteration(): write iteration: N to frontmatter│
 │                                                                      │
 │  2. ORCHESTRATOR PASS                                                │
-│     └─ context_prefix with violations/blockers/displaced tasks       │
+│     └─ context_prefix: violations/blockers/displaced tasks/agent failures│
 │     └─ Reads all state → integrates PROPOSED_CHANGES.md              │
 │     └─ Emits CURRENT_TASK.md                                         │
 │                                                                      │
@@ -139,6 +139,7 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │                                                                      │
 │  6. DISPATCH to researcher / computationalist / critic               │
 │     └─ Wrapped in try/except for transient API errors                │
+│     └─ _record_agent_failures(): capture max_tokens/max_rounds/etc.  │
 │                                                                      │
 │  7. POST-DISPATCH CHECKS                                             │
 │     └─ Verdict tracking with failure counter after COMPUTE           │
@@ -232,7 +233,7 @@ The `tools` class attribute is the **single switch** between one-shot and agenti
 **Role:** Planning only. Reads all state, emits `CURRENT_TASK.md`, and integrates `PROPOSED_CHANGES.md` into `RESEARCH_STATE.md`.
 
 **Context (largest in the system):**
-- `context_prefix` from engine — violations, termination blockers, displaced tasks
+- `context_prefix` from engine — violations, termination blockers, displaced tasks, agent failures
 - Completion analysis banner (if ER count sufficient, or budget ≤ 3) — includes inline synthesis instruction
 - Computation stall warnings (≥ threshold consecutive non-VERIFIED on same claim)
 - Full `RESEARCH_STATE.md`, `CRITIQUE_LOG.md`, tail of `COMPUTATION_LOG.md`, `METRICS.md`
@@ -618,6 +619,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | NO_CRITIQUES_FILED handling | `_dispatch()` | Detects `NO_CRITIQUES_FILED` in critic response → files `critic_clean` violation telling orchestrator to proceed to synthesize | Empty critic looping indefinitely |
 | Displaced-task transparency | `_log_displacement()` + `_build_context_prefix()` | Logs every overridden task and feeds the list to the orchestrator's next context: "Consider re-scheduling if still needed" | Orchestrator unaware that its planned task was overridden |
 | Dispatch-level verdict tracking | `_track_compute_verdict()` | Counts consecutive non-VERIFIED verdicts per claim; below `stall_recompute_limit` sets `_pending_recompute_claim`, at/above limit escalates to `_stalled_claims` with violation | Infinite recompute loops on persistently failing claims |
+| Agent failure routing | `_record_agent_failures()` + `_build_context_prefix()` | Records max_tokens truncation, max_rounds exhaustion, and non-VERIFIED compute verdicts; shows "AGENT FAILURES" banner to orchestrator on next pass | Orchestrator re-issuing identical failing tasks without awareness of prior failures |
 | Violations/blockers as context prefix | `_build_context_prefix()` | All pending violations and termination blockers serialised into orchestrator's next user message with explicit "Do NOT emit terminate again" instruction | Orchestrator ignoring validation failures |
 | Forced compression at 2x threshold | `_check_compression()` | Force-compresses files exceeding 2× threshold | Runaway file growth crashing context window |
 

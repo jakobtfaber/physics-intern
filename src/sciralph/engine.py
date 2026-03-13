@@ -50,6 +50,7 @@ class SciRalph:
         self._pending_violations: list = []
         self._pending_termination_blockers: list[str] = []
         self._displaced_tasks: list[dict] = []
+        self._agent_failures: list[dict] = []
 
         # Initialize agents
         self.orchestrator = OrchestratorAgent(self.config, self.workspace, self.metrics)
@@ -93,7 +94,7 @@ class SciRalph:
 
             # 5. Dispatch to agent
             try:
-                agent_name = self._dispatch(task)
+                agent_name, agent_result = self._dispatch(task)
             except Exception as exc:
                 if not _is_transient(exc):
                     raise
@@ -119,6 +120,9 @@ class SciRalph:
                 log_scaffold_event(self.workspace.root, self.iteration, 6, "dispatch_failure",
                                    f"{type(exc).__name__}: {str(exc)[:200]}")
                 continue
+
+            # 5b. Record agent failure signals for orchestrator context
+            self._record_agent_failures(task, agent_name, agent_result)
 
             # 6. Post-dispatch checks
             if task.task_type == TaskType.COMPUTE:
@@ -186,6 +190,36 @@ class SciRalph:
             f"displaced by {override_name}",
         )
 
+    def _record_agent_failures(self, task: Task, agent_name: str, result):
+        """Inspect agent result for failure signals and record for orchestrator context."""
+        from .llm import AgentResult
+
+        stop = getattr(result, "stop_reason", None)
+
+        # max_tokens truncation (one-shot or agentic)
+        if stop == "max_tokens":
+            self._agent_failures.append({
+                "task_id": task.task_id, "agent": agent_name,
+                "event": "max_tokens_truncation",
+                "detail": "Task too large — consider decomposing into subtasks.",
+                "iteration": self.iteration,
+            })
+            log_scaffold_event(self.workspace.root, self.iteration, 6,
+                               "agent_failure_max_tokens",
+                               f"task={task.task_id}, agent={agent_name}")
+
+        # max_rounds exhaustion (agentic only)
+        if stop == "max_rounds_forced" and isinstance(result, AgentResult):
+            self._agent_failures.append({
+                "task_id": task.task_id, "agent": agent_name,
+                "event": "max_rounds_exhaustion",
+                "detail": f"Exhausted {result.rounds} tool-use rounds without completing.",
+                "iteration": self.iteration,
+            })
+            log_scaffold_event(self.workspace.root, self.iteration, 6,
+                               "agent_failure_max_rounds",
+                               f"task={task.task_id}, agent={agent_name}, rounds={result.rounds}")
+
     def _build_context_prefix(self) -> str:
         """Build prefix for orchestrator context with violations, blockers, and displaced tasks."""
         lines = []
@@ -246,6 +280,12 @@ class SciRalph:
                 )
             lines.append(">>> END DISPLACED TASKS <<<\n")
             self._displaced_tasks.clear()
+        if self._agent_failures:
+            lines.append(">>> AGENT FAILURES (previous iteration) <<<")
+            for f in self._agent_failures:
+                lines.append(f"  - {f['task_id']} ({f['agent']}): {f['event']}. {f['detail']}")
+            lines.append(">>> END AGENT FAILURES <<<\n")
+            self._agent_failures.clear()
         return "\n".join(lines)
 
     def _apply_overrides(self, task: Task) -> Task:
@@ -372,8 +412,10 @@ class SciRalph:
             self._stale_iterations = 0
         return False
 
-    def _dispatch(self, task: Task) -> str:
-        """Route task to the correct agent."""
+    def _dispatch(self, task: Task) -> tuple[str, "LLMResponse | AgentResult"]:
+        """Route task to the correct agent. Returns (agent_name, result)."""
+        from .llm import AgentResult, LLMResponse  # noqa: F811
+
         # Pre-dispatch cross-validation (Improvement 6B)
         expected_agent = TASK_TYPE_AGENT_MAP.get(task.task_type)
         if expected_agent:
@@ -402,15 +444,15 @@ class SciRalph:
 
         if tt in (TaskType.RESEARCH, TaskType.DERIVE, TaskType.RESOLVE, TaskType.SYNTHESIZE):
             console.print(f"[green]Researcher[/green] working on: {tt}")
-            self.researcher.run(task, self.iteration)
+            result = self.researcher.run(task, self.iteration)
             self._last_content_iteration = self.iteration
-            return "researcher"
+            return "researcher", result
 
         elif tt == TaskType.COMPUTE:
             console.print("[magenta]Computationalist[/magenta] working...")
-            self.computationalist.run(task, self.iteration, on_round=self._on_compute_round)
+            result = self.computationalist.run(task, self.iteration, on_round=self._on_compute_round)
             self._last_content_iteration = self.iteration
-            return "computationalist"
+            return "computationalist", result
 
         elif tt == TaskType.CRITIQUE:
             console.print("[red]Deep Critic[/red] reviewing...")
@@ -430,12 +472,12 @@ class SciRalph:
                         file="CRITIQUE_LOG.md",
                     )
                 )
-            return "deep_critic"
+            return "deep_critic", response
 
         else:
             console.print(f"[yellow]Unknown task type '{tt}', defaulting to researcher[/yellow]")
-            self.researcher.run(task, self.iteration)
-            return "researcher"
+            result = self.researcher.run(task, self.iteration)
+            return "researcher", result
 
     def _critic_overdue(self) -> bool:
         """Check if more than N iterations since last critic pass."""
@@ -554,6 +596,12 @@ class SciRalph:
         if count < self.config.stall_recompute_limit:
             # Allow auto-recompute (existing P4 behavior, now gated)
             self._pending_recompute_claim = claim
+            self._agent_failures.append({
+                "task_id": task.task_id, "agent": "computationalist",
+                "event": f"{verdict.lower()}_verdict",
+                "detail": f"Attempt {count}/{self.config.stall_recompute_limit}. Will force recompute next iteration.",
+                "iteration": self.iteration,
+            })
             self.metrics.alert(
                 self.iteration,
                 f"{verdict} verdict (attempt {count}/{self.config.stall_recompute_limit}) "

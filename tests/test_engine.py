@@ -274,6 +274,7 @@ class TestRefutedRecompute:
             engine._claim_failure_count = {}
             engine._stalled_claims = set()
             engine._pending_violations = []
+            engine._agent_failures = []
         return engine, ws, written
 
     def test_refuted_sets_pending_recompute(self):
@@ -388,6 +389,7 @@ class TestComputeVerdictTracking:
             engine._claim_failure_count = {}
             engine._stalled_claims = set()
             engine._pending_violations = []
+            engine._agent_failures = []
         return engine, ws, written
 
     def test_first_refuted_allows_recompute(self):
@@ -605,6 +607,7 @@ class TestApplyOverrides:
             engine._pending_recompute_claim = pending_recompute
             engine._last_content_iteration = current_iteration
             engine._displaced_tasks = []
+            engine._agent_failures = []
         return engine, written
 
     def test_budget_override_highest_priority(self):
@@ -848,6 +851,7 @@ class TestTerminationGate:
             engine._pending_violations = []
             engine._pending_termination_blockers = []
             engine._displaced_tasks = []
+            engine._agent_failures = []
         return engine, written
 
     def test_terminate_allowed_when_stub(self):
@@ -1075,6 +1079,7 @@ total_computations: 3
             engine._pending_violations = []
             engine._pending_termination_blockers = []
             engine._displaced_tasks = []
+            engine._agent_failures = []
             engine._last_content_iteration = 5
             engine.problem_meta = {}
         return engine
@@ -1147,6 +1152,7 @@ class TestDisplacedTaskLogging:
             engine._pending_recompute_claim = pending_recompute
             engine._last_content_iteration = current_iteration
             engine._displaced_tasks = []
+            engine._agent_failures = []
             engine._pending_violations = []
             engine._pending_termination_blockers = []
         return engine, written
@@ -1289,6 +1295,7 @@ Agent produced no text output. Writing INCONCLUSIVE stub.
             engine._pending_violations = []
             engine._pending_termination_blockers = []
             engine._displaced_tasks = []
+            engine._agent_failures = []
             engine._last_content_iteration = 5
         return engine, ws, written
 
@@ -1386,8 +1393,8 @@ class TestDispatchRoutingValidation:
             assigned_to="researcher",  # wrong for compute
             iteration=5, body="Verify something.",
         )
-        result = engine._dispatch(task)
-        assert result == "computationalist"
+        agent_name, _ = engine._dispatch(task)
+        assert agent_name == "computationalist"
         engine.metrics.alert.assert_called()
         alert_msg = engine.metrics.alert.call_args[0][1]
         assert "Routing conflict" in alert_msg
@@ -1400,8 +1407,8 @@ class TestDispatchRoutingValidation:
             assigned_to="",  # empty
             iteration=5, body="Research something.",
         )
-        result = engine._dispatch(task)
-        assert result == "researcher"
+        agent_name, _ = engine._dispatch(task)
+        assert agent_name == "researcher"
         engine.metrics.alert.assert_called()
         alert_msg = engine.metrics.alert.call_args[0][1]
         assert "Routing fix" in alert_msg
@@ -1516,7 +1523,9 @@ class TestDispatchFailureRecovery:
             engine._pending_violations = []
             engine._pending_termination_blockers = []
             engine._displaced_tasks = []
+            engine._agent_failures = []
             engine._last_content_iteration = 0
+            engine._claim_failure_count = {}
             engine.problem_meta = {}
 
             engine.orchestrator = MagicMock()
@@ -1603,6 +1612,195 @@ class TestDispatchFailureRecovery:
         # we can verify it was created by checking the context_prefix set on orchestrator
         prefix = engine.orchestrator.context_prefix
         assert "dispatch_failure" in prefix
+
+
+class TestAgentFailureRouting:
+    """Test _record_agent_failures and its integration with _build_context_prefix."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 5
+            engine._pending_violations = []
+            engine._pending_termination_blockers = []
+            engine._displaced_tasks = []
+            engine._agent_failures = []
+        return engine
+
+    def test_max_tokens_recorded(self):
+        """max_tokens stop_reason records a truncation failure."""
+        engine = self._make_engine()
+        result = MagicMock()
+        result.stop_reason = "max_tokens"
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH, assigned_to="researcher")
+
+        engine._record_agent_failures(task, "researcher", result)
+
+        assert len(engine._agent_failures) == 1
+        assert engine._agent_failures[0]["event"] == "max_tokens_truncation"
+        assert engine._agent_failures[0]["task_id"] == "TASK-005"
+        assert engine._agent_failures[0]["agent"] == "researcher"
+
+    def test_max_rounds_forced_recorded(self):
+        """max_rounds_forced stop_reason records an exhaustion failure."""
+        from sciralph.llm import AgentResult
+        engine = self._make_engine()
+        result = AgentResult(text="partial", rounds=10, stop_reason="max_rounds_forced")
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE, assigned_to="computationalist")
+
+        engine._record_agent_failures(task, "computationalist", result)
+
+        assert len(engine._agent_failures) == 1
+        assert engine._agent_failures[0]["event"] == "max_rounds_exhaustion"
+        assert "10 tool-use rounds" in engine._agent_failures[0]["detail"]
+
+    def test_normal_end_turn_not_recorded(self):
+        """Normal end_turn does NOT record a failure."""
+        engine = self._make_engine()
+        result = MagicMock()
+        result.stop_reason = "end_turn"
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH, assigned_to="researcher")
+
+        engine._record_agent_failures(task, "researcher", result)
+
+        assert len(engine._agent_failures) == 0
+
+    def test_context_prefix_includes_agent_failures(self):
+        """Agent failures appear in context prefix banner."""
+        engine = self._make_engine()
+        engine._agent_failures = [{
+            "task_id": "TASK-004",
+            "agent": "researcher",
+            "event": "max_tokens_truncation",
+            "detail": "Task too large — consider decomposing into subtasks.",
+            "iteration": 4,
+        }]
+        prefix = engine._build_context_prefix()
+
+        assert "AGENT FAILURES" in prefix
+        assert "TASK-004" in prefix
+        assert "max_tokens_truncation" in prefix
+
+    def test_context_prefix_clears_agent_failures(self):
+        """Agent failures are cleared after building context prefix."""
+        engine = self._make_engine()
+        engine._agent_failures = [{
+            "task_id": "TASK-004",
+            "agent": "researcher",
+            "event": "max_tokens_truncation",
+            "detail": "Task too large.",
+            "iteration": 4,
+        }]
+        engine._build_context_prefix()
+        assert len(engine._agent_failures) == 0
+
+    def test_compute_verdict_appends_to_agent_failures(self):
+        """REFUTED verdict below stall limit appends to _agent_failures."""
+        comp_log = (
+            "## COMP-001: Check WH-001\n"
+            "**CLAIM**: Verify formula X = Y\n"
+            "**VERDICT**: REFUTED\n"
+            "**NOTES**: Numerical checks fail.\n"
+        )
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            ws.read_file = MagicMock(return_value=comp_log)
+            ws.write_file = MagicMock()
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config(stall_recompute_limit=3)
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 5
+            engine._pending_recompute_claim = None
+            engine._claim_failure_count = {}
+            engine._stalled_claims = set()
+            engine._pending_violations = []
+            engine._agent_failures = []
+
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        assert len(engine._agent_failures) == 1
+        assert engine._agent_failures[0]["event"] == "refuted_verdict"
+        assert "Attempt 1/3" in engine._agent_failures[0]["detail"]
+
+    def test_compute_verdict_stall_no_agent_failure(self):
+        """At stall escalation (count >= limit), no _agent_failures entry (violation used instead)."""
+        comp_log = (
+            "## COMP-001: Check WH-001\n"
+            "**CLAIM**: Verify formula X = Y\n"
+            "**VERDICT**: INCONCLUSIVE\n"
+            "**NOTES**: Could not determine.\n"
+        )
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            ws.read_file = MagicMock(return_value=comp_log)
+            ws.write_file = MagicMock()
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config(stall_recompute_limit=2)
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 5
+            engine._pending_recompute_claim = None
+            engine._claim_failure_count = {"verify formula x = y": 1}  # already at limit-1
+            engine._stalled_claims = set()
+            engine._pending_violations = []
+            engine._agent_failures = []
+
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        # Stall escalation uses violations, not _agent_failures
+        assert len(engine._agent_failures) == 0
+        assert len(engine._pending_violations) == 1
+        assert engine._pending_violations[0].check == "computation_stall"
+
+    def test_context_prefix_ordering(self):
+        """Agent failures appear after displaced tasks in context prefix."""
+        engine = self._make_engine()
+        engine._displaced_tasks = [{
+            "task_id": "TASK-003",
+            "task_type": "compute",
+            "body_summary": "Verify something",
+            "override": "forced_critic",
+            "iteration": 4,
+        }]
+        engine._agent_failures = [{
+            "task_id": "TASK-003",
+            "agent": "computationalist",
+            "event": "max_rounds_exhaustion",
+            "detail": "Exhausted 10 tool-use rounds without completing.",
+            "iteration": 4,
+        }]
+        prefix = engine._build_context_prefix()
+
+        displaced_pos = prefix.index("DISPLACED TASKS")
+        failures_pos = prefix.index("AGENT FAILURES")
+        assert displaced_pos < failures_pos
 
 
 def unittest_any_string_containing(substring):

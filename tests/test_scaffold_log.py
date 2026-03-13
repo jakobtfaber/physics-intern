@@ -103,6 +103,7 @@ class TestBudgetOverrideLogs:
             engine._claim_failure_count = {}
             engine._pending_violations = []
             engine._displaced_tasks = []
+            engine._agent_failures = []
 
             task = Task(
                 task_id="TASK-010", task_type=TaskType.COMPUTE,
