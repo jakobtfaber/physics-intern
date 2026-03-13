@@ -95,4 +95,4 @@ echo ""
 # --- Phase 2: Verification ---
 echo "--- Phase 2a: Science verification (Claude Opus) ---"
 echo "--- Phase 2b: Process audit (Claude Opus) ---"
-uv run python -m sciralph.verify "$workspace_dir" --write-report ${verify_args[@]+"${verify_args[@]}"}
+uv run python -m sciralph.verify "$workspace_dir" --write-report --problem "$problem_file" ${verify_args[@]+"${verify_args[@]}"}

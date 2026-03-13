@@ -269,6 +269,23 @@ def test_build_prompt_with_rerun_results(tmp_path):
     assert "FAILED" in user_content
 
 
+def test_build_prompt_with_known_answer(tmp_path):
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+
+    _, user_content = build_verification_prompt(contents, known_answer="0.7687")
+    assert "Known Answer" in user_content
+    assert "0.7687" in user_content
+
+
+def test_build_prompt_without_known_answer(tmp_path):
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+
+    _, user_content = build_verification_prompt(contents, known_answer=None)
+    assert "Known Answer" not in user_content
+
+
 def test_terminated_cleanly_detection(tmp_path):
     """Frontmatter parsing correctly detects termination."""
     # Terminated

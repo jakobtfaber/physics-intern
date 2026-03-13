@@ -16,6 +16,7 @@ from rich.table import Table
 import time
 
 import anthropic
+import yaml
 
 from .config import Config, DEFAULTS
 from .llm import LLMResponse  # noqa: F401 — reuse dataclass, call via streaming
@@ -223,11 +224,18 @@ def rerun_computations(workspace_dir: str, timeout: int = 60) -> list[RerunResul
 def build_verification_prompt(
     contents: WorkspaceContents,
     rerun_results: list[RerunResult] | None = None,
+    known_answer: str | None = None,
 ) -> tuple[str, str]:
     """Assemble the system prompt and user content for the verifier LLM call."""
     system = (PROMPTS_DIR / "verifier.md").read_text()
 
     sections = []
+
+    # Known answer (from problem YAML, if provided)
+    if known_answer:
+        sections.append(f"## Known Answer\n\nThe expected answer for this problem is: **{known_answer}**\n\n"
+                        "Use this to check whether the research arrived at the correct numerical value or expression. "
+                        "A matching answer with a flawed derivation is still PARTIALLY_VALID.\n")
 
     # Termination status
     if contents.terminated_cleanly:
@@ -677,6 +685,8 @@ def build_verify_parser() -> "argparse.ArgumentParser":
                         help="Run process audit (default: on when --write-report)")
     parser.add_argument("--no-process-audit", action="store_true",
                         help="Disable process audit")
+    parser.add_argument("--problem", type=str, default=None,
+                        help="Path to problem YAML file (passes known answer to verifier)")
     return parser
 
 
@@ -726,9 +736,23 @@ def main():
             status = "TIMEOUT" if ex.timed_out else ("OK" if ex.returncode == 0 else "FAIL")
             console.print(f"  {name}: {status}")
 
+    # Load known answer from problem YAML (if provided)
+    known_answer = None
+    if args.problem:
+        problem_path = Path(args.problem)
+        if problem_path.exists():
+            with open(problem_path) as f:
+                problem_def = yaml.safe_load(f)
+            known_answer = problem_def.get("answer")
+            if known_answer is not None:
+                known_answer = str(known_answer)
+                console.print(f"[bold]Known answer:[/] {known_answer}")
+        else:
+            console.print(f"[yellow]Warning: problem file not found: {args.problem}[/]")
+
     # Build prompt and call LLM (science verification)
     config = Config(model=model, max_tokens=max_tokens, workspace_dir=workspace_dir)
-    system, user_content = build_verification_prompt(contents, rerun_results)
+    system, user_content = build_verification_prompt(contents, rerun_results, known_answer=known_answer)
 
     console.print(f"\n[bold]Phase 2a: Science verification ({model}, streaming)...[/]")
     response = _call_llm_streaming(system, user_content, config)

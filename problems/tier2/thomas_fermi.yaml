@@ -6,3 +6,5 @@ problem: |
   compute the numerical constant c up to 4 significant digits.
 
 requires_numerical: true
+
+answer: 0.7687
