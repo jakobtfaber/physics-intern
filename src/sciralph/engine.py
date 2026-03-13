@@ -43,6 +43,7 @@ class SciRalph:
         self.iteration = 0
         self._stale_iterations = 0
         self._pending_recompute_claim: str | None = None
+        self._pending_recompute_verdict: str | None = None
         self._stalled_claims: set[str] = set()
         self._claim_failure_count: dict[str, int] = {}
         self._last_content_iteration: int = 0
@@ -353,6 +354,7 @@ class SciRalph:
                     pending_key = _normalize_claim_key(self._pending_recompute_claim)
                     if pending_key == claim_key:
                         self._pending_recompute_claim = None
+                        self._pending_recompute_verdict = None
                 self._log_displacement(task, "stall_block")
                 log_scaffold_event(self.workspace.root, self.iteration, 5, "p5_stall_block",
                                    f"claim={claim_key[:80]}")
@@ -371,16 +373,22 @@ class SciRalph:
                     ),
                 )
 
-        # P4: REFUTED recompute
+        # P4: REFUTED/INCONCLUSIVE recompute
         if self._pending_recompute_claim:
             claim = self._pending_recompute_claim
+            verdict = self._pending_recompute_verdict or "REFUTED"
             self._pending_recompute_claim = None
+            self._pending_recompute_verdict = None
             if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-                console.print("[yellow]Forcing recompute after REFUTED verdict.[/yellow]")
+                console.print(f"[yellow]Forcing recompute after {verdict} verdict.[/yellow]")
                 self._log_displacement(task, "refuted_recompute")
                 log_scaffold_event(self.workspace.root, self.iteration, 5, "p4_refuted_recompute",
+                                   f"claim={claim[:80]}, verdict={verdict}")
+                recompute_task = self._make_recompute_task(claim, verdict)
+                self._enrich_compute_task_with_prior_failures(recompute_task)
+                log_scaffold_event(self.workspace.root, self.iteration, 5, "p4_recompute_enriched",
                                    f"claim={claim[:80]}")
-                return self._make_recompute_task(claim)
+                return recompute_task
             else:
                 log_scaffold_event(self.workspace.root, self.iteration, 5, "p4_refuted_suppressed",
                                    f"claim={claim[:80]}, task={task.task_type.value}")
@@ -596,6 +604,7 @@ class SciRalph:
         if count < self.config.stall_recompute_limit:
             # Allow auto-recompute (existing P4 behavior, now gated)
             self._pending_recompute_claim = claim
+            self._pending_recompute_verdict = verdict
             self._agent_failures.append({
                 "task_id": task.task_id, "agent": "computationalist",
                 "event": f"{verdict.lower()}_verdict",
@@ -644,8 +653,8 @@ class SciRalph:
         for stall in stalls:
             self._stalled_claims.add(stall["claim"])
 
-    def _make_recompute_task(self, claim: str) -> Task:
-        """Create a forced compute task to re-verify a REFUTED claim after correction."""
+    def _make_recompute_task(self, claim: str, verdict: str = "REFUTED") -> Task:
+        """Create a forced compute task to re-verify a claim after a non-VERIFIED verdict."""
         task = Task(
             task_id=f"TASK-{self.iteration:03d}",
             task_type=TaskType.COMPUTE,
@@ -653,8 +662,9 @@ class SciRalph:
             priority="high",
             iteration=self.iteration,
             body=(
-                "# Re-verification After REFUTED Verdict\n\n"
-                "The previous computation REFUTED the following claim. The orchestrator has\n"
+                f"# Re-verification After {verdict} Verdict\n\n"
+                f"The previous computation returned {verdict} for the following claim. "
+                "The orchestrator has\n"
                 "integrated corrections. Verify the CORRECTED version now appears in\n"
                 "RESEARCH_STATE.md and compute a fresh verification.\n\n"
                 f"**Claim to re-verify:** {claim[:500]}\n"

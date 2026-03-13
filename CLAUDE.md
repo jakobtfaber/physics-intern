@@ -84,8 +84,8 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 - BaseAgent `tools` class attribute: non-empty → agentic loop, empty → one-shot `call_llm`
 - Critique regex constants (`CRIT_ID_RE`, `CRIT_HEADER_RE`, `CRIT_UNRESOLVED_RE`) and helpers (`extract_resolved_critique_ids`, `recount_critique_metadata`) are in `markdown.py`
 - Critique ID format: `CRIT-NNN` (regex also accepts `CRITIQUE-NNN` for LLM drift tolerance)
-- Engine overrides live in `_apply_overrides()` with explicit priority: P1 budget > P2 stale loop > P3 forced critic > P3b redundant critic suppression > P5 stall blocking > P4 REFUTED recompute > P6 enrichment
-- `_track_compute_verdict()` maintains per-claim failure counters (`_claim_failure_count`); escalates to `_stalled_claims` at `config.stall_recompute_limit` (default 2); below stall limit also appends to `_agent_failures` for orchestrator awareness
+- Engine overrides live in `_apply_overrides()` with explicit priority: P1 budget > P2 stale loop > P3 forced critic > P3b redundant critic suppression > P5 stall blocking > P4 REFUTED/INCONCLUSIVE recompute (applies P6 enrichment before returning) > P6 enrichment
+- `_track_compute_verdict()` maintains per-claim failure counters (`_claim_failure_count`); escalates to `_stalled_claims` at `config.stall_recompute_limit` (default 2); below stall limit sets `_pending_recompute_claim` and `_pending_recompute_verdict` (actual verdict string) and appends to `_agent_failures` for orchestrator awareness
 - `_dispatch()` returns `(agent_name, result)` tuple; `_record_agent_failures()` inspects the result for `max_tokens`, `max_rounds_forced` stop reasons and appends to `_agent_failures`
 - `_build_context_prefix()` emits 4 banner sections (consumed once then cleared): violations → blockers → displaced tasks → agent failures
 - Post-integration checks are pure functions in `validation.py` returning `list[Violation]`; 8 checks total including critique resolution consistency; violations inject into orchestrator context via `context_prefix`

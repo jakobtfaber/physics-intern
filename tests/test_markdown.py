@@ -14,6 +14,7 @@ from sciralph.markdown import (
     extract_resolved_critique_ids,
     recount_critique_metadata,
     _parse_comp_entries,
+    _format_failure_excerpt,
     detect_computation_stalls,
     find_prior_failures_for_claim,
     count_er_sections,
@@ -956,3 +957,87 @@ Agent produced no text output. Writing INCONCLUSIVE stub.
 """
         stalls = detect_zero_output_stalls(log)
         assert stalls == []
+
+
+class TestMethodNotesExtraction:
+    """Tests for METHOD/NOTES extraction in _parse_comp_entries and failure excerpts."""
+
+    COMP_LOG_WITH_METHOD_NOTES = """\
+## COMP-001: Check WH-001
+**CLAIM**: Verify WH-001 ground state energy
+**METHOD**:
+Used numerical integration with x0=1e-6 grid spacing.
+Scipy quad integration over [0, 10].
+**VERDICT**: REFUTED
+**RESULT**:
+Got E_0 = 0.48, expected 0.50. 4% discrepancy.
+**NOTES**:
+The x0=1e-6 starting point may introduce boundary effects.
+Consider larger integration domain.
+"""
+
+    def test_parse_comp_entries_extracts_method_and_notes(self):
+        """_parse_comp_entries populates method and notes fields."""
+        entries = _parse_comp_entries(self.COMP_LOG_WITH_METHOD_NOTES)
+        assert len(entries) == 1
+        entry = entries[0]
+        assert "numerical integration" in entry["method"]
+        assert "x0=1e-6" in entry["method"]
+        assert "boundary effects" in entry["notes"]
+        assert entry["verdict"] == "REFUTED"
+        assert "E_0 = 0.48" in entry["result"]
+
+    def test_find_prior_failures_includes_method(self):
+        """find_prior_failures_for_claim returns excerpts containing METHOD text."""
+        results = find_prior_failures_for_claim(
+            self.COMP_LOG_WITH_METHOD_NOTES,
+            "Verify WH-001 ground state energy"
+        )
+        assert len(results) == 1
+        assert "numerical integration" in results[0]
+        assert "Method" in results[0] or "method" in results[0].lower()
+
+    def test_find_prior_failures_includes_notes(self):
+        """find_prior_failures_for_claim returns excerpts containing NOTES text."""
+        results = find_prior_failures_for_claim(
+            self.COMP_LOG_WITH_METHOD_NOTES,
+            "Verify WH-001 ground state energy"
+        )
+        assert len(results) == 1
+        assert "boundary effects" in results[0]
+
+    def test_find_prior_failures_no_result_block(self):
+        """Entries with METHOD but empty RESULT still produce excerpts."""
+        log = """\
+## COMP-001: Check WH-002
+**CLAIM**: Verify WH-002 partition function
+**METHOD**:
+Taylor expansion to 50 terms at beta=0.1.
+**VERDICT**: INCONCLUSIVE
+"""
+        results = find_prior_failures_for_claim(log, "Verify WH-002 partition function")
+        assert len(results) == 1
+        assert "Taylor expansion" in results[0]
+        assert "INCONCLUSIVE" in results[0]
+
+    def test_format_failure_excerpt_all_fields(self):
+        """_format_failure_excerpt combines all available fields."""
+        entry = {
+            "verdict": "REFUTED",
+            "method": "Direct numerical integration",
+            "result": "Got 0.48 instead of 0.50",
+            "notes": "Grid too coarse",
+        }
+        excerpt = _format_failure_excerpt(entry)
+        assert "REFUTED" in excerpt
+        assert "Direct numerical integration" in excerpt
+        assert "Got 0.48" in excerpt
+        assert "Grid too coarse" in excerpt
+
+    def test_format_failure_excerpt_partial_fields(self):
+        """_format_failure_excerpt works with only some fields populated."""
+        entry = {"verdict": "INCONCLUSIVE", "method": "", "result": "Failed", "notes": ""}
+        excerpt = _format_failure_excerpt(entry)
+        assert "INCONCLUSIVE" in excerpt
+        assert "Failed" in excerpt
+        assert "Method" not in excerpt  # empty method not included

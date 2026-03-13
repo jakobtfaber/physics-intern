@@ -395,11 +395,27 @@ def _parse_comp_entries(text: str) -> list[dict]:
         )
         result = result_match.group(1).strip() if result_match else ""
 
+        # Extract METHOD block
+        method_match = re.search(
+            r"\*\*(?:METHOD|Method)\*?\*?:?\s*\n(.*?)(?=\n\*\*[A-Z]|\n## |\Z)",
+            body, re.DOTALL | re.IGNORECASE,
+        )
+        method = method_match.group(1).strip() if method_match else ""
+
+        # Extract NOTES block
+        notes_match = re.search(
+            r"\*\*(?:NOTES?|Notes?)\*?\*?:?\s*\n(.*?)(?=\n\*\*[A-Z]|\n## |\Z)",
+            body, re.DOTALL | re.IGNORECASE,
+        )
+        notes = notes_match.group(1).strip() if notes_match else ""
+
         entries.append({
             "id": entry_id,
             "claim": claim,
             "verdict": verdict,
             "result": result,
+            "method": method,
+            "notes": notes,
             "body": body,
         })
     return entries
@@ -466,12 +482,26 @@ def detect_zero_output_stalls(text: str) -> list[dict]:
     return stalls
 
 
+def _format_failure_excerpt(entry: dict) -> str:
+    """Combine METHOD + RESULT + NOTES + VERDICT into a formatted failure excerpt."""
+    parts = []
+    if entry.get("verdict"):
+        parts.append(f"**Verdict:** {entry['verdict']}")
+    if entry.get("method"):
+        parts.append(f"**Method:** {entry['method']}")
+    if entry.get("result"):
+        parts.append(f"**Result:** {entry['result']}")
+    if entry.get("notes"):
+        parts.append(f"**Notes:** {entry['notes']}")
+    return "\n".join(parts)
+
+
 def find_prior_failures_for_claim(comp_log: str, task_body: str) -> list[str]:
-    """Find RESULT blocks from prior non-VERIFIED computations matching the claim in task_body.
+    """Find failure excerpts from prior non-VERIFIED computations matching the claim in task_body.
 
     Matching: extract ER/WH IDs from task_body; match against claim lines in COMP entries.
     Falls back to first-80-char normalized prefix matching.
-    Returns RESULT blocks, most recent first. Uses _parse_comp_entries().
+    Returns formatted excerpts (METHOD + RESULT + NOTES + VERDICT), most recent first.
     """
     entries = _parse_comp_entries(comp_log)
     task_key = _normalize_claim_key(task_body)
@@ -488,14 +518,18 @@ def find_prior_failures_for_claim(comp_log: str, task_body: str) -> list[str]:
         entry_key = _normalize_claim_key(entry["claim"])
         entry_ids = set(_ER_WH_ID_RE.findall(entry["claim"]))
 
+        matched = False
         # Match by ER/WH IDs (if both have them and they overlap)
         if task_ids and entry_ids and task_ids & entry_ids:
-            if entry["result"]:
-                results.append(entry["result"])
+            matched = True
         elif not task_ids and not entry_ids and entry_key == task_key:
             # Fallback: prefix matching (only when neither has IDs)
-            if entry["result"]:
-                results.append(entry["result"])
+            matched = True
+
+        if matched:
+            excerpt = _format_failure_excerpt(entry)
+            if excerpt:
+                results.append(excerpt)
 
     # Most recent first (entries are in document order, so reverse)
     results.reverse()

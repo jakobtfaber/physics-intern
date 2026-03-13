@@ -271,6 +271,7 @@ class TestRefutedRecompute:
             engine.metrics = MagicMock()
             engine.iteration = 3
             engine._pending_recompute_claim = None
+            engine._pending_recompute_verdict = None
             engine._claim_failure_count = {}
             engine._stalled_claims = set()
             engine._pending_violations = []
@@ -386,6 +387,7 @@ class TestComputeVerdictTracking:
             engine.metrics = MagicMock()
             engine.iteration = 3
             engine._pending_recompute_claim = None
+            engine._pending_recompute_verdict = None
             engine._claim_failure_count = {}
             engine._stalled_claims = set()
             engine._pending_violations = []
@@ -574,8 +576,8 @@ class TestApplyOverrides:
 
     def _make_engine(self, max_iterations=20, current_iteration=5,
                      last_critic_iteration=0, critic_every_n=4,
-                     pending_recompute=None, stale_iterations=0,
-                     research_state=""):
+                     pending_recompute=None, pending_recompute_verdict=None,
+                     stale_iterations=0, research_state=""):
         """Create a SciRalph instance with mocked workspace for override testing."""
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
@@ -605,6 +607,7 @@ class TestApplyOverrides:
             engine._claim_failure_count = {}
 
             engine._pending_recompute_claim = pending_recompute
+            engine._pending_recompute_verdict = pending_recompute_verdict
             engine._last_content_iteration = current_iteration
             engine._displaced_tasks = []
             engine._agent_failures = []
@@ -847,6 +850,7 @@ class TestTerminationGate:
             engine.iteration = 5
             engine._stale_iterations = 0
             engine._pending_recompute_claim = None
+            engine._pending_recompute_verdict = None
             engine.problem_meta = {}
             engine._pending_violations = []
             engine._pending_termination_blockers = []
@@ -1076,6 +1080,7 @@ total_computations: 3
             engine._claim_failure_count = {}
 
             engine._pending_recompute_claim = None
+            engine._pending_recompute_verdict = None
             engine._pending_violations = []
             engine._pending_termination_blockers = []
             engine._displaced_tasks = []
@@ -1150,6 +1155,7 @@ class TestDisplacedTaskLogging:
             engine._claim_failure_count = {}
 
             engine._pending_recompute_claim = pending_recompute
+            engine._pending_recompute_verdict = None
             engine._last_content_iteration = current_iteration
             engine._displaced_tasks = []
             engine._agent_failures = []
@@ -1292,6 +1298,7 @@ Agent produced no text output. Writing INCONCLUSIVE stub.
             engine._claim_failure_count = {}
 
             engine._pending_recompute_claim = None
+            engine._pending_recompute_verdict = None
             engine._pending_violations = []
             engine._pending_termination_blockers = []
             engine._displaced_tasks = []
@@ -1520,6 +1527,7 @@ class TestDispatchFailureRecovery:
             engine._stale_iterations = 0
             engine._stalled_claims = set()
             engine._pending_recompute_claim = None
+            engine._pending_recompute_verdict = None
             engine._pending_violations = []
             engine._pending_termination_blockers = []
             engine._displaced_tasks = []
@@ -1728,6 +1736,7 @@ class TestAgentFailureRouting:
             engine.metrics = MagicMock()
             engine.iteration = 5
             engine._pending_recompute_claim = None
+            engine._pending_recompute_verdict = None
             engine._claim_failure_count = {}
             engine._stalled_claims = set()
             engine._pending_violations = []
@@ -1765,6 +1774,7 @@ class TestAgentFailureRouting:
             engine.metrics = MagicMock()
             engine.iteration = 5
             engine._pending_recompute_claim = None
+            engine._pending_recompute_verdict = None
             engine._claim_failure_count = {"verify formula x = y": 1}  # already at limit-1
             engine._stalled_claims = set()
             engine._pending_violations = []
@@ -1801,6 +1811,128 @@ class TestAgentFailureRouting:
         displaced_pos = prefix.index("DISPLACED TASKS")
         failures_pos = prefix.index("AGENT FAILURES")
         assert displaced_pos < failures_pos
+
+
+class TestP4RecomputeEnrichment:
+    """Test P4 recompute wiring through P6 enrichment and verdict flow."""
+
+    COMP_LOG_WITH_METHOD = """\
+## COMP-001: Check WH-001
+**CLAIM**: Verify WH-001 formula X = Y
+**METHOD**:
+Used numerical integration with x0=1e-6.
+**VERDICT**: REFUTED
+**RESULT**:
+Got 0.48 instead of 0.50.
+**NOTES**:
+Grid too coarse at boundary.
+"""
+
+    def _make_engine(self, comp_log="", pending_recompute=None,
+                     pending_verdict=None):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            written = {}
+
+            def capture_write(filename, content):
+                written[filename] = content
+            ws.write_file = MagicMock(side_effect=capture_write)
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.metrics.last_critic_iteration = 4
+            engine.iteration = 5
+            engine._stale_iterations = 0
+            engine._stalled_claims = set()
+            engine._claim_failure_count = {}
+            engine._pending_recompute_claim = pending_recompute
+            engine._pending_recompute_verdict = pending_verdict
+            engine._last_content_iteration = 5
+            engine._displaced_tasks = []
+            engine._agent_failures = []
+        return engine, ws, written
+
+    def test_p4_recompute_gets_enrichment(self):
+        """P4 recompute task includes 'Prior Computation Failure Context' from P6."""
+        engine, ws, written = self._make_engine(
+            pending_recompute="Verify WH-001 formula X = Y",
+            pending_verdict="REFUTED",
+        )
+        # read_file returns comp log for enrichment, then task text for enrichment write
+        ws.read_file = MagicMock(side_effect=lambda f: {
+            "COMPUTATION_LOG.md": self.COMP_LOG_WITH_METHOD,
+            "CURRENT_TASK.md": written.get("CURRENT_TASK.md", ""),
+        }.get(f, ""))
+
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.RESEARCH,
+            assigned_to="researcher", iteration=5,
+        )
+        result = engine._apply_overrides(task)
+
+        assert result.task_type == TaskType.COMPUTE
+        # The CURRENT_TASK.md should have been written twice: once by _make_recompute_task,
+        # then again by _enrich with addendum
+        assert ws.write_file.call_count >= 2
+        # Check that enrichment content was written
+        final_content = written["CURRENT_TASK.md"]
+        assert "Prior Computation Failure Context" in final_content
+
+    def test_make_recompute_task_inconclusive_verdict(self):
+        """_make_recompute_task uses the actual verdict string."""
+        engine, _, written = self._make_engine()
+
+        task = engine._make_recompute_task("Test claim", verdict="INCONCLUSIVE")
+
+        assert "Re-verification After INCONCLUSIVE Verdict" in task.body
+        assert "returned INCONCLUSIVE" in task.body
+        assert "REFUTED" not in task.body
+        assert "CURRENT_TASK.md" in written
+        assert "INCONCLUSIVE" in written["CURRENT_TASK.md"]
+
+    def test_inconclusive_sets_verdict_field(self):
+        """_track_compute_verdict stores verdict in _pending_recompute_verdict."""
+        comp_log = """\
+## COMP-001: Check WH-001
+**CLAIM**: Verify formula X = Y
+**VERDICT**: INCONCLUSIVE
+"""
+        engine, ws, _ = self._make_engine()
+        ws.read_file = MagicMock(return_value=comp_log)
+
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        assert engine._pending_recompute_claim is not None
+        assert engine._pending_recompute_verdict == "INCONCLUSIVE"
+
+    def test_p4_recompute_with_inconclusive_verdict(self):
+        """End-to-end: INCONCLUSIVE verdict flows through _apply_overrides to recompute task."""
+        engine, ws, written = self._make_engine(
+            pending_recompute="Verify WH-001 formula X = Y",
+            pending_verdict="INCONCLUSIVE",
+        )
+        ws.read_file = MagicMock(return_value="")  # empty comp log, no enrichment
+
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.RESEARCH,
+            assigned_to="researcher", iteration=5,
+        )
+        result = engine._apply_overrides(task)
+
+        assert result.task_type == TaskType.COMPUTE
+        assert "INCONCLUSIVE" in result.body
+        assert "REFUTED" not in result.body
+        assert engine._pending_recompute_claim is None
+        assert engine._pending_recompute_verdict is None
 
 
 def unittest_any_string_containing(substring):

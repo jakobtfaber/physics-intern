@@ -99,6 +99,7 @@ class TestBudgetOverrideLogs:
             engine.iteration = 10
             engine._stale_iterations = 0
             engine._pending_recompute_claim = None
+            engine._pending_recompute_verdict = None
             engine._stalled_claims = set()
             engine._claim_failure_count = {}
             engine._pending_violations = []
