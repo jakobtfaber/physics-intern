@@ -26,6 +26,9 @@ The verification report (`VERIFICATION.md`) is produced by two independent LLM c
    - Process events (EVENT-NNN with SUCCESS / FAILURE / MIXED tags)
    - Recommendations for future runs
 
+The scaffolding log SCAFFOLDING_LOG.jsonl logs all the events and decisions where the scaffolding had to intervene. 
+It should help you diagnose the root cause of any process issues flagged in the verification report, especially those tagged as FAILURE or MIXED.
+
 ## Procedure
 
 ### Step 1: Read the verification report `VERIFICATION.md` in the workspace folder
@@ -37,7 +40,8 @@ The verification report (`VERIFICATION.md`) is produced by two independent LLM c
 
 ### Step 2: Investigate
 
-   - If an issue raised lacks sufficient explanations to understand what went wrong and what could be fixed, trace it back through the workspace files to find the root cause and make it explicit.
+   - If an issue raised lacks sufficient explanations to understand what went wrong and what could be fixed, trace it back
+   - Look at the scaffolding events in the scaffolding log, and through the workspace files to find the root cause and make it explicit.
    - Key failure to look for : empty/truncated outputs, computational failures, repeating the same task multiple times, tool loops that are cut off by max rounds or max tokens, and any event tagged as FAILURE or MIXED in the process audit.
 
 ### Step 3: Synthesize

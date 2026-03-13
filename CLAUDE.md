@@ -28,7 +28,7 @@ src/sciralph/
     openai.py          — OpenAI adapter
     google.py          — Google Gemini adapter
     huggingface.py     — HuggingFace Inference Providers adapter
-  workspace.py         — File I/O + git operations on workspace/
+  workspace.py         — File I/O + git operations on workspace/ + log_scaffold_event()
   markdown.py          — YAML frontmatter parsing, section extraction, critique helpers
   sandbox.py           — Python script execution with timeout
   metrics.py           — MetricsTracker (token counts, tool calls, alerts, Markdown rendering)
@@ -40,7 +40,7 @@ src/sciralph/
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
-tests/                 — pytest tests (engine, validation, markdown, llm_retry, report_recommendations, verify, orchestrator, tools, config, computationalist, workspace, provider_smoke, task, metrics, conversation_log, sandbox)
+tests/                 — pytest tests (engine, validation, markdown, llm_retry, report_recommendations, verify, orchestrator, tools, config, computationalist, workspace, provider_smoke, task, metrics, conversation_log, sandbox, scaffold_log)
 problems/
   tier1/               — 10 core problem definitions
   tier2/               — 12 advanced problem definitions
@@ -56,7 +56,7 @@ run_and_verify.sh      — Run a problem then verify results in one command
 
 ## Architecture
 
-Five agents (orchestrator, researcher, computationalist, deep critic, compressor) take turns in a main loop. Each agent gets a fresh context per call. All state lives in Markdown files with YAML frontmatter under `workspaces/<run>/` (each run gets a timestamped subdirectory like `workspaces/20260307_142530_hawking_temperature/`; override with `--workspace-dir`).
+Five agents (orchestrator, researcher, computationalist, deep critic, compressor) take turns in a main loop. Each agent gets a fresh context per call. All state lives in Markdown files with YAML frontmatter under `workspaces/<run>/` (each run gets a timestamped subdirectory like `workspaces/20260313_142530_hawking_temperature_claude-sonnet-4-6/`; override with `--workspace-dir`).
 
 - **Orchestrator** reads all state, integrates proposed changes into RESEARCH_STATE.md, emits CURRENT_TASK.md
 - **Researcher** writes PROPOSED_CHANGES.md (never modifies RESEARCH_STATE directly)
@@ -119,7 +119,7 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-All core functionality is implemented and working (444 tests passing):
+All core functionality is implemented and working (450 tests passing):
 
 - **Core loop** — all five agents, main loop, orchestrator integration, consolidated override chain (`_apply_overrides` P1–P6 + P3b), termination gates (`can_terminate`)
 - **Validation pipeline** — 8 post-integration checks (phantom references, ER promotion gate with bidirectional WH↔ER, phantom labels, stale unverified label promotion, verified frontmatter backfill, agent routing, ID consistency, critique resolution consistency), violation injection into orchestrator context
@@ -131,5 +131,6 @@ All core functionality is implemented and working (444 tests passing):
 - **Deep Critic** — two-phase format, preamble stripping, self-retraction filtering, INCONCLUSIVE severity cap, NO_CRITIQUES_FILED handling
 - **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
 - **Logging** — JSONL audit logging (metadata + cost per LLM call, round field for tool-use), full conversation logs
+- **Scaffolding log** — `SCAFFOLDING_LOG.jsonl` instrumentation across layers 1–9; every compensation mechanism emits structured events via `log_scaffold_event()` for profiling which mechanisms actually fire per model
 
 Next steps: `read_file` tool for orchestrator/researcher/critic (see PLAN.md future work)

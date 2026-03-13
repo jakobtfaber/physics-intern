@@ -73,23 +73,23 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `main.py` | 79 | CLI entry point, arg parsing, workspace naming |
-| `engine.py` | 612 | `SciRalph` class: main loop, dispatch, overrides, compression |
-| `validation.py` | 592 | Post-integration checks (8 checks), `can_terminate()` gates, `Violation` dataclass |
+| `main.py` | 91 | CLI entry point, arg parsing, workspace naming (includes model label in dir name) |
+| `engine.py` | 670 | `SciRalph` class: main loop, dispatch, overrides, compression, scaffolding log events |
+| `validation.py` | 597 | Post-integration checks (8 checks), `can_terminate()` gates, `Violation` dataclass |
 | `config.py` | 155 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
 | `task.py` | 82 | `Task` dataclass, `TaskType` enum, YAML serialization |
-| `llm.py` | 479 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging |
+| `llm.py` | 526 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, scaffolding log events |
 | `tools.py` | 129 | `ToolExecutor`, `ToolCall`, `execute_python` tool schema |
-| `workspace.py` | 201 | File I/O, git ops, phantom reference validation |
+| `workspace.py` | 224 | File I/O, git ops, phantom reference validation, `log_scaffold_event()` |
 | `markdown.py` | 502 | Frontmatter parsing, critique lifecycle, stall detection, comp parsing |
 | `sandbox.py` | 49 | `subprocess.run` wrapper with timeout |
 | `metrics.py` | 110 | `MetricsTracker`, `METRICS.md` rendering |
 | `verify.py` | 760 | Independent verification script (science + process audit) |
 | `agents/base.py` | 158 | `BaseAgent` ABC, template method, retry logic |
-| `agents/orchestrator.py` | 240 | Planning, integration, critique resolution, inline synthesis |
+| `agents/orchestrator.py` | 252 | Planning, integration, critique resolution, inline synthesis, scaffolding log events |
 | `agents/researcher.py` | 40 | Derivations, writes `PROPOSED_CHANGES.md` |
-| `agents/computationalist.py` | 71 | Agentic tool-use, verdict writing |
-| `agents/critic.py` | 79 | Adversarial review, self-retraction filter |
+| `agents/computationalist.py` | 75 | Agentic tool-use, verdict writing, scaffolding log events |
+| `agents/critic.py` | 84 | Adversarial review, self-retraction filter, scaffolding log events |
 | `agents/compressor.py` | 27 | File size management |
 | `providers/__init__.py` | 24 | `create_provider()` factory + re-exports |
 | `providers/base.py` | 42 | `LLMProvider` ABC + `ProviderResponse` dataclass |
@@ -98,7 +98,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `providers/google.py` | 148 | Google Gemini adapter |
 | `providers/huggingface.py` | 108 | HuggingFace Inference Providers adapter |
 | `models.yaml` | 101 | Model registry (friendly keys → provider, model_id, env_key, cost) |
-| **Total** | **~4,897** | |
+| **Total** | **~5,044** | |
 
 ---
 
@@ -150,6 +150,10 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │                                                                      │
 │  9. STATUS FIELD SAFETY NET                                          │
 │     └─ Reads status from RESEARCH_STATE frontmatter                  │
+│                                                                      │
+│  ── SCAFFOLDING LOG (cross-cutting) ──────────────────────────────── │
+│     Steps 1–9 emit events to SCAFFOLDING_LOG.jsonl whenever a        │
+│     compensation mechanism fires (see §7).                           │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -376,6 +380,7 @@ All file I/O goes through `WorkspaceManager`. Agents never touch the filesystem 
 - `archive_file` — timestamped copy to `archive/` before compression
 - `validate_comp_references()` — scans RESEARCH_STATE for `COMP-NNN`/`TASK-NNN` refs, cross-checks against COMPUTATION_LOG entries, replaces orphaned refs with `[COMP-NNN:unverified]`
 - `git_commit(message)` — `git add -A` + `git commit --allow-empty` every iteration
+- `log_scaffold_event(workspace_dir, iteration, layer, event, detail)` — free function; appends one JSONL line to `SCAFFOLDING_LOG.jsonl` (see §7). Never raises (bare `except OSError: pass`). Called from engine, agents, validation, and llm modules
 
 ### Markdown parsing (`markdown.py`)
 
@@ -421,7 +426,8 @@ workspaces/<run>/
   COMPUTATION_LOG.md     ← Computationalist appends; grows over the run
   CRITIQUE_LOG.md        ← Critic appends; scaffold manages Active/Resolved sections
   METRICS.md             ← Engine writes every iteration
-  AUDIT_LOG.jsonl        ← Append-only LLM call metadata
+  AUDIT_LOG.jsonl        ← Append-only LLM call metadata (per-LLM-call tokens, cost)
+  SCAFFOLDING_LOG.jsonl  ← Append-only scaffolding intervention events (see §7)
   computations/          ← Python scripts from tool execution (tool_exec_NNN.py)
   archive/               ← Pre-compression file copies
   logs/                  ← Full conversation logs (iter{NNN}_{agent}_{seq}.md)
@@ -495,6 +501,47 @@ Compression tiers: alert at 1x, compress at 1.5x, force-compress at 2x (though 1
 ## 7. LLM Failure Compensation
 
 This section catalogues every mechanism that compensates for LLM misbehaviour at the scaffolding level. LLMs routinely fail in specific, predictable ways — promoting unverified results, hallucinating IDs, emitting malformed YAML, ignoring instructions, failing to terminate. The scaffolding corrects these failures across ten layers.
+
+### Scaffolding log (instrumentation)
+
+Every mechanism in layers 1–10 emits a structured event to `SCAFFOLDING_LOG.jsonl` via `log_scaffold_event()` (defined in `workspace.py`). Each entry is a single JSON line:
+
+```json
+{"ts": "2026-03-13T14:22:01+00:00", "iter": 5, "layer": 4, "event": "er_demotion", "detail": "ER-003 → WH-003 (no VERIFIED backing)"}
+```
+
+Fields: `ts` (UTC ISO-8601), `iter` (scaffolding iteration), `layer` (§7 layer number 1–10), `event` (mechanism key), `detail` (free-text context). The function never raises — failures are silently swallowed (`except OSError: pass`).
+
+**Event keys by layer:**
+
+| Layer | Event keys |
+|-------|-----------|
+| 1 | `api_retry` |
+| 2 | `tool_call_failure_fallback`, `zero_text_bailout`, `low_text_bailout`, `forced_final_call` |
+| 3 | `tool_timeout`, `tool_output_truncation` |
+| 4 | All `Violation.check` values from validation checks (e.g. `er_promotion_gate`, `phantom_references`, `phantom_labels`, `stale_unverified_labels`, `verified_frontmatter_backfill`, `task_agent_routing`, `id_consistency`, `critique_resolution_consistency`) |
+| 5 | `p1_budget_override`, `p2_stale_loop_override`, `p3_forced_critic`, `p3b_redundant_critic_suppressed`, `p4_refuted_recompute`, `p4_refuted_suppressed`, `p5_stall_block`, `p6_enrichment` |
+| 6 | `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit` |
+| 7 | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened` |
+| 8 | `preamble_stripped`, `critique_self_retracted` |
+| 9 | `empty_response_stub`, `header_injected` |
+| 10 | (YAML parse fallback fires inside `markdown.py` which does not currently have workspace context — not yet instrumented) |
+
+**Quick analysis:**
+
+```bash
+# Count events per mechanism across a run
+jq -r '.event' workspaces/<run>/SCAFFOLDING_LOG.jsonl | sort | uniq -c | sort -rn
+
+# Count events per layer
+jq -r '.layer' workspaces/<run>/SCAFFOLDING_LOG.jsonl | sort | uniq -c | sort -rn
+
+# Filter to a specific layer
+jq 'select(.layer == 4)' workspaces/<run>/SCAFFOLDING_LOG.jsonl
+
+# Timeline of overrides
+jq 'select(.layer == 5) | "\(.iter) \(.event) \(.detail)"' workspaces/<run>/SCAFFOLDING_LOG.jsonl
+```
 
 ### Layer 1 — Transport / API retry (`llm.py`)
 
@@ -631,7 +678,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 
 ## 9. Testing
 
-**444 tests** across 16 test files (~7,657 lines). Run with `uv run python -m pytest -v`.
+**450 tests** across 17 test files (~7,777 lines). Run with `uv run python -m pytest -v`.
 
 | Test file | Lines | What it covers |
 |-----------|------:|----------------|
@@ -651,6 +698,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 | `test_metrics.py` | 110 | CallRecord, critic tracking, alerts, Markdown rendering |
 | `test_conversation_log.py` | 80 | File naming, sections, sequence counter |
 | `test_sandbox.py` | 66 | Script execution, timeout, MPLBACKEND |
+| `test_scaffold_log.py` | 120 | `log_scaffold_event` JSONL output, validation integration, budget override integration |
 
 **Testing approach:** pytest with `tmp_path` fixtures. All LLM calls are mocked (no real API calls). `SimpleNamespace` objects mock SDK responses. Fixture Markdown files for complex document parsing.
 
@@ -704,6 +752,8 @@ All documentation was synced with the codebase in March 2026.
 - 8 post-integration validation checks (up from 7; added critique resolution consistency)
 - Scaffolding-maintained iteration counter (no longer LLM-dependent)
 - `verify.py` remains Anthropic-only
+- Scaffolding log (`SCAFFOLDING_LOG.jsonl`) instrumentation implemented across layers 1–9 (layer 10 partial — `markdown.py` parse fallback not yet instrumented due to lacking workspace context)
+- Workspace directory names now include model label (e.g. `20260313_142530_hawking_temperature_claude-sonnet-4-6`)
 - `read_file` tool for orchestrator/researcher/critic remains planned (not implemented)
 - External reference files (`files:` YAML key) remains planned (not implemented)
 - Problems organized into `problems/tier1/` (10 core) and `problems/tier2/` (12 advanced)
