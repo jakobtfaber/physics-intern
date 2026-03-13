@@ -8,7 +8,8 @@ from .base import LLMProvider, ProviderResponse
 class GoogleProvider(LLMProvider):
     """Google Gemini API provider via google-genai."""
 
-    def __init__(self, api_key: str = "", thinking_level: str = "", **kwargs):
+    def __init__(self, api_key: str = "", thinking_level: str = "",
+                 timeout: float = 600.0, **kwargs):
         try:
             from google import genai
         except ImportError:
@@ -17,7 +18,8 @@ class GoogleProvider(LLMProvider):
             )
         self._genai = genai
         self._client = genai.Client(
-            api_key=api_key or os.environ.get("GOOGLE_API_KEY", "")
+            api_key=api_key or os.environ.get("GOOGLE_API_KEY", ""),
+            http_options=genai.types.HttpOptions(timeout=int(timeout * 1000)),
         )
         self._thinking_level = thinking_level
 

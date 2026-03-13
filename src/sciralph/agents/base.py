@@ -144,11 +144,11 @@ class BaseAgent(ABC):
 
             if attempt < self.config.max_retries_on_max_tokens:
                 self.metrics.record_retry()
-                # Truncate context for retry: keep first 20% and last 60%
+                # Truncate context for retry: keep head and tail fractions
                 lines = context.splitlines()
                 if len(lines) > 20:
-                    cut = len(lines) // 5
-                    keep_end = int(len(lines) * 0.6)
+                    cut = int(len(lines) * self.config.retry_context_head_fraction)
+                    keep_end = int(len(lines) * self.config.retry_context_tail_fraction)
                     context = "\n".join(
                         lines[:cut]
                         + ["", "[... context truncated for retry ...]", ""]

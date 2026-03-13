@@ -23,4 +23,37 @@ min_er_for_completion: 3
 api_retry_max: 3
 api_retry_initial_delay: 2.0
 api_retry_max_delay: 30.0
-api_timeout: 120.0
+api_timeout: 600.0
+
+# --- Compression ---
+# Multipliers relative to compress_threshold for triggering compression:
+# soft = advisory compression, hard = forced compression
+compress_soft_multiplier: 1.5
+compress_hard_multiplier: 2.0
+
+# --- Budget & synthesis ---
+# Iterations remaining before orchestrator injects BUDGET SYNTHESIS banner
+budget_synthesis_margin: 3
+# Iterations remaining before engine P1 override forces synthesize
+budget_override_margin: 1
+
+# --- Orchestrator context ---
+# Number of COMPUTATION_LOG tail entries fed to orchestrator context
+orchestrator_comp_log_tail: 5
+
+# --- Agentic loop bailout ---
+# Cumulative text (chars) below which agentic loop bails out at the halfway point
+low_text_bailout_chars: 100
+
+# --- Max-tokens retry truncation ---
+# Fractions of context lines kept on retry: head (first N%) and tail (last N%)
+retry_context_head_fraction: 0.2
+retry_context_tail_fraction: 0.6
+
+# --- Prior failure enrichment ---
+# Max chars of prior failure excerpt pasted into compute task body
+prior_failure_excerpt_chars: 3000
+
+# --- Extended thinking ---
+# Token headroom above reasoning_budget when computing effective max_tokens
+thinking_token_headroom: 1024

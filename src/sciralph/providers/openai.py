@@ -14,14 +14,18 @@ _STOP_REASON_MAP = {
 class OpenAIProvider(LLMProvider):
     """OpenAI API provider."""
 
-    def __init__(self, api_key: str = "", reasoning_effort: str = "", **kwargs):
+    def __init__(self, api_key: str = "", reasoning_effort: str = "",
+                 timeout: float = 600.0, **kwargs):
         try:
             from openai import OpenAI
         except ImportError:
             raise ImportError(
                 "openai package required. Install with: uv sync --extra openai"
             )
-        self._client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY", ""))
+        self._client = OpenAI(
+            api_key=api_key or os.environ.get("OPENAI_API_KEY", ""),
+            timeout=timeout,
+        )
         self._reasoning_effort = reasoning_effort
 
     def call(self, model: str, max_tokens: int, system: str,

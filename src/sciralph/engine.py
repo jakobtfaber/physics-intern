@@ -251,7 +251,7 @@ class SciRalph:
         """Consolidated pre-dispatch override chain (explicit priority order)."""
         # P1: Budget enforcement (highest priority)
         budget_remaining = self.config.max_iterations - self.iteration
-        if budget_remaining <= 1 and task.task_type not in (
+        if budget_remaining <= self.config.budget_override_margin and task.task_type not in (
                 TaskType.SYNTHESIZE, TaskType.TERMINATE):
             console.print(
                 f"[yellow]Budget enforcement: {budget_remaining} iteration(s) left, "
@@ -508,7 +508,7 @@ class SciRalph:
             f"**{len(prior)} prior failure(s) on this claim.** "
             "Diagnose the ROOT CAUSE before writing new code.\n\n"
             "### Most Recent Failed Result\n\n"
-            + prior[0][:3000]
+            + prior[0][:self.config.prior_failure_excerpt_chars]
         )
         if len(prior) > 1:
             addendum += f"\n\n({len(prior) - 1} earlier failure(s) in COMPUTATION_LOG.md)\n"
@@ -570,7 +570,7 @@ class SciRalph:
                     self.iteration,
                     f"{filename} size ({size}) exceeds threshold ({threshold})."
                 )
-                if size > threshold * 2:
+                if size > threshold * self.config.compress_hard_multiplier:
                     console.print(f"[yellow]Force-compressing {filename}[/yellow]")
                     compress_task = Task(
                         task_id=f"COMPRESS-{self.iteration:03d}",
@@ -580,7 +580,7 @@ class SciRalph:
                         target_file=filename,
                     )
                     self.compressor.run(compress_task, self.iteration)
-                elif size > threshold * 1.5:
+                elif size > threshold * self.config.compress_soft_multiplier:
                     console.print(f"[yellow]Compressing {filename}[/yellow]")
                     compress_task = Task(
                         task_id=f"COMPRESS-{self.iteration:03d}",

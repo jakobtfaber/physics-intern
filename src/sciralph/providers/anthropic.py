@@ -9,10 +9,12 @@ class AnthropicProvider(LLMProvider):
     """Anthropic Claude API provider."""
 
     def __init__(self, api_key: str = "", reasoning_budget: int = 0,
-                 timeout: float = 120.0, **kwargs):
+                 timeout: float = 600.0,
+                 thinking_token_headroom: int = 1024, **kwargs):
         self._client = anthropic.Anthropic(api_key=api_key)
         self._reasoning_budget = reasoning_budget
         self._timeout = timeout
+        self._thinking_token_headroom = thinking_token_headroom
 
     # Opus 4.6 requires adaptive thinking (no budget_tokens);
     # other models use manual thinking with budget_tokens.
@@ -22,7 +24,7 @@ class AnthropicProvider(LLMProvider):
              messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
         if self._reasoning_budget > 0:
             # Anthropic requires max_tokens > budget_tokens when thinking is enabled
-            effective_max = max(max_tokens, self._reasoning_budget + 1024)
+            effective_max = max(max_tokens, self._reasoning_budget + self._thinking_token_headroom)
             if model in self._ADAPTIVE_ONLY_MODELS:
                 thinking = {"type": "adaptive"}
             else:
@@ -45,14 +47,11 @@ class AnthropicProvider(LLMProvider):
         if tools:
             kwargs["tools"] = self._transform_tools(tools)
 
-        # When thinking is enabled, allow up to 10 minutes per call;
-        # otherwise use the configured timeout (default 120s).
-        timeout = max(self._timeout, 600.0) if self._reasoning_budget > 0 else self._timeout
         # Explicit timeout bypasses the SDK's nonstreaming timeout check
         # which rejects large max_tokens (e.g. when thinking is enabled)
         response = self._client.messages.create(
             **kwargs,
-            timeout=timeout,
+            timeout=self._timeout,
         )
 
         # Extract text

@@ -30,6 +30,7 @@ def _get_provider(config: Config) -> LLMProvider:
         _provider_cache[key] = create_provider(
             config.provider, api_key=config.api_key,
             timeout=config.api_timeout,
+            thinking_token_headroom=config.thinking_token_headroom,
             **config.reasoning,
         )
     return _provider_cache[key]
@@ -241,8 +242,14 @@ def run_agent_loop(
         _write_conversation_log(config, round_resp, system, user_content,
                                 agent_name, iteration)
 
-        # end_turn: done
+        # end_turn: done (unless empty text after tool calls — fall through to forced final call)
         if resp.stop_reason == "end_turn":
+            if not round_text.strip() and all_tool_calls:
+                # Model ended turn with no text after tool calls — force a text-only final call
+                if config.workspace_dir:
+                    log_scaffold_event(config.workspace_dir, iteration, 2,
+                                       "empty_end_turn_fallthrough", f"rounds={round_num}")
+                break  # fall through to forced final call
             return AgentResult(
                 text=round_text,
                 tool_calls=all_tool_calls,
@@ -314,7 +321,7 @@ def run_agent_loop(
                 break  # Falls through to forced final call
 
             # Low-cumulative-text bailout at halfway point (only for longer runs)
-            if halfway >= 3 and round_num == halfway and cumulative_text_len < 100:
+            if halfway >= 3 and round_num == halfway and cumulative_text_len < config.low_text_bailout_chars:
                 low_cumulative_bailout = True
                 if config.workspace_dir:
                     log_scaffold_event(config.workspace_dir, iteration, 2, "low_text_bailout",
@@ -432,7 +439,38 @@ def run_agent_loop(
 
     total_input += final_resp.input_tokens
     total_output += final_resp.output_tokens
-    final_text = final_resp.text
+    final_text = final_resp.text.strip()
+
+    if not final_text:
+        # Forced call produced nothing — retry once with minimal prompt
+        if config.workspace_dir:
+            log_scaffold_event(config.workspace_dir, iteration, 2,
+                               "forced_call_retry", "empty forced final call")
+        retry_resp = _call_provider_with_retry(
+            provider, config,
+            workspace_dir=config.workspace_dir,
+            iteration=iteration,
+            model=config.model,
+            max_tokens=config.max_tokens,
+            system=forced_system,
+            messages=messages + [{"role": "assistant", "content": ""},
+                                 {"role": "user", "content": "Write ONLY a COMP entry with VERDICT: INCONCLUSIVE. Nothing else."}],
+        )
+        final_text = retry_resp.text.strip()
+        total_input += retry_resp.input_tokens
+        total_output += retry_resp.output_tokens
+
+        if not final_text:
+            # Still nothing — write a stub ourselves so the entry exists
+            final_text = (
+                "## COMP-000: Incomplete verification\n"
+                "**CLAIM:** (unable to extract)\n"
+                "**METHOD:** Agent produced no text output\n"
+                "**RESULT:** No results obtained\n"
+                "**VERDICT:** INCONCLUSIVE\n"
+                "**NOTES:** Agent completed tool calls but failed to produce "
+                "written output after forced retry.\n"
+            )
 
     if on_round:
         on_round(round_num + 1, "forced_partial", [], total_input, total_output)

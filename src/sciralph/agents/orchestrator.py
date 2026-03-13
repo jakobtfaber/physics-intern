@@ -64,7 +64,7 @@ class OrchestratorAgent(BaseAgent):
 
         # Budget-aware: force synthesis when ≤3 iterations remain
         budget_remaining = self.config.max_iterations - iteration
-        if budget_remaining <= 3 and er_count >= 1:
+        if budget_remaining <= self.config.budget_synthesis_margin and er_count >= 1:
             return (
                 f">>> BUDGET SYNTHESIS REQUIRED: Only {budget_remaining} "
                 f"iteration(s) remaining (iteration {iteration} of "
@@ -120,8 +120,8 @@ class OrchestratorAgent(BaseAgent):
             state,
             "\n## CRITIQUE_LOG.md\n",
             self.workspace.read_file("CRITIQUE_LOG.md"),
-            "\n## COMPUTATION_LOG.md (last 5 entries)\n",
-            self.workspace.read_file_tail("COMPUTATION_LOG.md", n_entries=5),
+            f"\n## COMPUTATION_LOG.md (last {self.config.orchestrator_comp_log_tail} entries)\n",
+            self.workspace.read_file_tail("COMPUTATION_LOG.md", n_entries=self.config.orchestrator_comp_log_tail),
             "\n## METRICS.md (summary)\n",
             self.workspace.read_file("METRICS.md"),
         ])

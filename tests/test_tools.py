@@ -362,3 +362,129 @@ class TestForcedPartialOutput:
 
         assert result.stop_reason == "max_rounds_forced"
         assert result.truncated is True
+
+
+class TestEmptyTextFallthrough:
+    """Test Gap A: end_turn with empty text falls through to forced final call."""
+
+    @patch("sciralph.llm._get_provider")
+    def test_empty_end_turn_falls_through_to_forced_call(self, mock_get_provider):
+        """end_turn with empty text after tool calls triggers forced final call."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: tool_use with code execution
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(42)"}}],
+        )
+        # Round 2: end_turn but empty text (the Gemini gap)
+        round2 = _mock_provider_response("", "end_turn", 150, 0)
+        # Round 3: forced final call produces text
+        round3 = _mock_provider_response(
+            "## COMP-001: Result\n**VERDICT:** INCONCLUSIVE", "end_turn", 300, 100
+        )
+        provider.call.side_effect = [round1, round2, round3]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+        )
+
+        assert "COMP-001" in result.text
+        assert result.stop_reason == "max_rounds_forced"
+        assert provider.call.call_count == 3  # tool_use + end_turn + forced
+
+    @patch("sciralph.llm._get_provider")
+    def test_empty_end_turn_with_text_returns_normally(self, mock_get_provider):
+        """end_turn with actual text should return normally (no fallthrough)."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: tool_use
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        # Round 2: end_turn with real text
+        round2 = _mock_provider_response("## COMP-001\n**VERDICT:** VERIFIED", "end_turn", 300, 100)
+        provider.call.side_effect = [round1, round2]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+        )
+
+        assert result.stop_reason == "end_turn"
+        assert "VERIFIED" in result.text
+        assert provider.call.call_count == 2  # no forced call
+
+
+class TestForcedCallRetry:
+    """Test Gap B: forced final call produces empty text."""
+
+    @patch("sciralph.llm._get_provider")
+    def test_forced_call_retry_on_empty(self, mock_get_provider):
+        """Empty forced final call triggers one retry; retry text is used."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        tool_response = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        # Forced final call: empty text
+        empty_response = _mock_provider_response("", "end_turn", 150, 0)
+        # Retry: produces text
+        retry_response = _mock_provider_response(
+            "## COMP-001: Retry result\n**VERDICT:** INCONCLUSIVE", "end_turn", 200, 80
+        )
+        provider.call.side_effect = [tool_response, empty_response, retry_response]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
+        )
+
+        assert "COMP-001" in result.text
+        assert "Retry result" in result.text
+        assert result.stop_reason == "max_rounds_forced"
+        # 1 tool round + 1 forced (empty) + 1 retry = 3 calls
+        assert provider.call.call_count == 3
+        # Tokens from retry are accumulated
+        assert result.total_input_tokens == 100 + 150 + 200
+        assert result.total_output_tokens == 50 + 0 + 80
+
+    @patch("sciralph.llm._get_provider")
+    def test_forced_call_stub_on_double_empty(self, mock_get_provider):
+        """Both forced call and retry return empty — engine-generated stub is used."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        tool_response = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        # Both forced final call and retry: empty text
+        empty1 = _mock_provider_response("", "end_turn", 150, 0)
+        empty2 = _mock_provider_response("   ", "end_turn", 120, 0)
+        provider.call.side_effect = [tool_response, empty1, empty2]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
+        )
+
+        assert "COMP-000: Incomplete verification" in result.text
+        assert "**VERDICT:** INCONCLUSIVE" in result.text
+        assert "failed to produce written output" in result.text
+        assert result.stop_reason == "max_rounds_forced"
+        assert provider.call.call_count == 3

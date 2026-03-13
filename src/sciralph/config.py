@@ -50,6 +50,16 @@ class Config:
     api_retry_initial_delay: float = DEFAULTS["api_retry_initial_delay"]
     api_retry_max_delay: float = DEFAULTS["api_retry_max_delay"]
     api_timeout: float = DEFAULTS["api_timeout"]
+    compress_soft_multiplier: float = DEFAULTS["compress_soft_multiplier"]
+    compress_hard_multiplier: float = DEFAULTS["compress_hard_multiplier"]
+    budget_synthesis_margin: int = DEFAULTS["budget_synthesis_margin"]
+    budget_override_margin: int = DEFAULTS["budget_override_margin"]
+    orchestrator_comp_log_tail: int = DEFAULTS["orchestrator_comp_log_tail"]
+    low_text_bailout_chars: int = DEFAULTS["low_text_bailout_chars"]
+    retry_context_head_fraction: float = DEFAULTS["retry_context_head_fraction"]
+    retry_context_tail_fraction: float = DEFAULTS["retry_context_tail_fraction"]
+    prior_failure_excerpt_chars: int = DEFAULTS["prior_failure_excerpt_chars"]
+    thinking_token_headroom: int = DEFAULTS["thinking_token_headroom"]
     provider: str = ""
     workspace_dir: str = "workspaces"
     audit_log: str = ""
@@ -85,7 +95,13 @@ _YAML_CONFIG_FIELDS = frozenset({
     "max_tool_rounds", "zero_text_bailout", "checkpoint_round",
     "computation_token_alert", "tool_output_limit", "stall_threshold",
     "min_er_for_completion", "api_retry_max", "api_retry_initial_delay",
-    "api_retry_max_delay", "api_timeout", "provider",
+    "api_retry_max_delay", "api_timeout",
+    "compress_soft_multiplier", "compress_hard_multiplier",
+    "budget_synthesis_margin", "budget_override_margin",
+    "orchestrator_comp_log_tail", "low_text_bailout_chars",
+    "retry_context_head_fraction", "retry_context_tail_fraction",
+    "prior_failure_excerpt_chars", "thinking_token_headroom",
+    "provider",
 })
 
 
