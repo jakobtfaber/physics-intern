@@ -29,6 +29,9 @@ class TestDefaults:
     def test_defaults_verify_model_is_string(self):
         assert isinstance(DEFAULTS["verify_model"], str) and DEFAULTS["verify_model"]
 
+    def test_stall_recompute_limit_default(self):
+        assert Config().stall_recompute_limit == 2
+
 
 # ---------------------------------------------------------------------------
 # load_config_yaml

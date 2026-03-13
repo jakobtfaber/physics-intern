@@ -45,6 +45,7 @@ class Config:
     computation_token_alert: int = DEFAULTS["computation_token_alert"]
     tool_output_limit: int = DEFAULTS["tool_output_limit"]
     stall_threshold: int = DEFAULTS["stall_threshold"]
+    stall_recompute_limit: int = DEFAULTS["stall_recompute_limit"]
     min_er_for_completion: int = DEFAULTS["min_er_for_completion"]
     api_retry_max: int = DEFAULTS["api_retry_max"]
     api_retry_initial_delay: float = DEFAULTS["api_retry_initial_delay"]
@@ -93,7 +94,7 @@ _YAML_CONFIG_FIELDS = frozenset({
     "model", "verify_model", "max_tokens", "max_iterations", "critic_every_n",
     "compress_threshold", "max_retries_on_max_tokens", "sympy_timeout_seconds",
     "max_tool_rounds", "zero_text_bailout", "checkpoint_round",
-    "computation_token_alert", "tool_output_limit", "stall_threshold",
+    "computation_token_alert", "tool_output_limit", "stall_threshold", "stall_recompute_limit",
     "min_er_for_completion", "api_retry_max", "api_retry_initial_delay",
     "api_retry_max_delay", "api_timeout",
     "compress_soft_multiplier", "compress_hard_multiplier",

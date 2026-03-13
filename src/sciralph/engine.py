@@ -44,6 +44,7 @@ class SciRalph:
         self._stale_iterations = 0
         self._pending_recompute_claim: str | None = None
         self._stalled_claims: set[str] = set()
+        self._claim_failure_count: dict[str, int] = {}
         self._last_content_iteration: int = 0
         self.problem_meta = problem_meta or {}
         self._pending_violations: list = []
@@ -121,7 +122,7 @@ class SciRalph:
 
             # 6. Post-dispatch checks
             if task.task_type == TaskType.COMPUTE:
-                self._check_for_refuted_verdict(task)
+                self._track_compute_verdict(task)
                 self._update_stall_tracking()
 
             # 6b. Post-dispatch phantom check — catch refs introduced by agents
@@ -294,21 +295,7 @@ class SciRalph:
             log_scaffold_event(self.workspace.root, self.iteration, 5, "p3b_redundant_critic_suppressed", "")
             return self._make_post_critic_synthesize_task()
 
-        # P4: REFUTED recompute
-        if self._pending_recompute_claim:
-            claim = self._pending_recompute_claim
-            self._pending_recompute_claim = None
-            if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-                console.print("[yellow]Forcing recompute after REFUTED verdict.[/yellow]")
-                self._log_displacement(task, "refuted_recompute")
-                log_scaffold_event(self.workspace.root, self.iteration, 5, "p4_refuted_recompute",
-                                   f"claim={claim[:80]}")
-                return self._make_recompute_task(claim)
-            else:
-                log_scaffold_event(self.workspace.root, self.iteration, 5, "p4_refuted_suppressed",
-                                   f"claim={claim[:80]}, task={task.task_type.value}")
-
-        # P5: Block dispatch to stalled claim
+        # P5: Block dispatch to stalled claim (checked before P4 as defense-in-depth)
         if task.task_type == TaskType.COMPUTE:
             claim_key = _normalize_claim_key(task.body)
             if claim_key in self._stalled_claims:
@@ -321,6 +308,11 @@ class SciRalph:
                         detail=claim_key,
                     )
                 )
+                # Defense-in-depth: clear pending recompute if it targets the same claim
+                if self._pending_recompute_claim:
+                    pending_key = _normalize_claim_key(self._pending_recompute_claim)
+                    if pending_key == claim_key:
+                        self._pending_recompute_claim = None
                 self._log_displacement(task, "stall_block")
                 log_scaffold_event(self.workspace.root, self.iteration, 5, "p5_stall_block",
                                    f"claim={claim_key[:80]}")
@@ -338,6 +330,20 @@ class SciRalph:
                         "or analytical approach.\n"
                     ),
                 )
+
+        # P4: REFUTED recompute
+        if self._pending_recompute_claim:
+            claim = self._pending_recompute_claim
+            self._pending_recompute_claim = None
+            if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
+                console.print("[yellow]Forcing recompute after REFUTED verdict.[/yellow]")
+                self._log_displacement(task, "refuted_recompute")
+                log_scaffold_event(self.workspace.root, self.iteration, 5, "p4_refuted_recompute",
+                                   f"claim={claim[:80]}")
+                return self._make_recompute_task(claim)
+            else:
+                log_scaffold_event(self.workspace.root, self.iteration, 5, "p4_refuted_suppressed",
+                                   f"claim={claim[:80]}, task={task.task_type.value}")
 
         # P6: Enrichment (non-overriding, mutates task body)
         if task.task_type == TaskType.COMPUTE:
@@ -523,17 +529,65 @@ class SciRalph:
             )
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
 
-    def _check_for_refuted_verdict(self, task: Task):
-        """After computationalist runs, check if latest verdict is REFUTED."""
+    def _track_compute_verdict(self, task: Task):
+        """After computationalist runs, track verdict and manage recompute/stall."""
         comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
         entries = _parse_comp_entries(comp_log)
-        if entries and entries[-1]["verdict"] == "REFUTED":
-            claim = entries[-1].get("claim", task.body)
+        if not entries:
+            return
+
+        last = entries[-1]
+        verdict = last["verdict"]
+        claim = last.get("claim", task.body)
+        key = _normalize_claim_key(claim)
+        if not key:
+            return
+
+        if verdict == "VERIFIED":
+            self._claim_failure_count.pop(key, None)
+            return
+
+        # REFUTED, INCONCLUSIVE, or any non-VERIFIED
+        count = self._claim_failure_count.get(key, 0) + 1
+        self._claim_failure_count[key] = count
+
+        if count < self.config.stall_recompute_limit:
+            # Allow auto-recompute (existing P4 behavior, now gated)
             self._pending_recompute_claim = claim
             self.metrics.alert(
                 self.iteration,
-                "REFUTED verdict detected — will force recompute next iteration"
+                f"{verdict} verdict (attempt {count}/{self.config.stall_recompute_limit}) "
+                f"— will force recompute next iteration"
             )
+            log_scaffold_event(self.workspace.root, self.iteration, 6,
+                               "compute_verdict_failed",
+                               f"claim={key[:80]}, verdict={verdict}, "
+                               f"attempt={count}/{self.config.stall_recompute_limit}")
+        else:
+            # Escalate: block further recomputes, inform orchestrator
+            self._stalled_claims.add(key)
+            self._pending_violations.append(
+                Violation(
+                    check="computation_stall",
+                    severity=ViolationSeverity.WARNING,
+                    message=(
+                        f"Claim '{key[:80]}' has failed verification {count} times. "
+                        "Do NOT schedule another computation on this claim. Either "
+                        "(a) route to researcher for an analytical alternative, "
+                        "(b) try a fundamentally different computational method, "
+                        "or (c) accept provisionally and move on."
+                    ),
+                    file="COMPUTATION_LOG.md",
+                    detail=key,
+                )
+            )
+            self.metrics.alert(
+                self.iteration,
+                f"{verdict} verdict (attempt {count}) — claim escalated to stall"
+            )
+            log_scaffold_event(self.workspace.root, self.iteration, 6,
+                               "compute_verdict_stall_escalation",
+                               f"claim={key[:80]}, verdict={verdict}, count={count}")
 
     def _update_stall_tracking(self):
         """Update stall tracking after compute dispatch."""

@@ -84,7 +84,8 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 - BaseAgent `tools` class attribute: non-empty → agentic loop, empty → one-shot `call_llm`
 - Critique regex constants (`CRIT_ID_RE`, `CRIT_HEADER_RE`, `CRIT_UNRESOLVED_RE`) and helpers (`extract_resolved_critique_ids`, `recount_critique_metadata`) are in `markdown.py`
 - Critique ID format: `CRIT-NNN` (regex also accepts `CRITIQUE-NNN` for LLM drift tolerance)
-- Engine overrides live in `_apply_overrides()` with explicit priority: P1 budget > P2 stale loop > P3 forced critic > P3b redundant critic suppression > P4 REFUTED recompute > P5 stall blocking > P6 enrichment
+- Engine overrides live in `_apply_overrides()` with explicit priority: P1 budget > P2 stale loop > P3 forced critic > P3b redundant critic suppression > P5 stall blocking > P4 REFUTED recompute > P6 enrichment
+- `_track_compute_verdict()` maintains per-claim failure counters (`_claim_failure_count`); escalates to `_stalled_claims` at `config.stall_recompute_limit` (default 2)
 - Post-integration checks are pure functions in `validation.py` returning `list[Violation]`; 8 checks total including critique resolution consistency; violations inject into orchestrator context via `context_prefix`
 - `run_agent_loop` forces a text-only final call on `max_rounds` exhaustion (no more empty stubs); `stop_reason="max_rounds_forced"`; two-round escalating warnings at `max_rounds-2` and `max_rounds-1`
 - `_call_provider_with_retry()` wraps every provider call with exponential-backoff retry (configurable via `api_retry_max`, `api_retry_initial_delay`, `api_retry_max_delay`); tool-call JSON failures are retryable

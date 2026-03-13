@@ -271,6 +271,9 @@ class TestRefutedRecompute:
             engine.metrics = MagicMock()
             engine.iteration = 3
             engine._pending_recompute_claim = None
+            engine._claim_failure_count = {}
+            engine._stalled_claims = set()
+            engine._pending_violations = []
         return engine, ws, written
 
     def test_refuted_sets_pending_recompute(self):
@@ -280,7 +283,7 @@ class TestRefutedRecompute:
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
-        engine._check_for_refuted_verdict(task)
+        engine._track_compute_verdict(task)
 
         assert engine._pending_recompute_claim is not None
         assert "formula X = Y" in engine._pending_recompute_claim
@@ -292,7 +295,7 @@ class TestRefutedRecompute:
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
-        engine._check_for_refuted_verdict(task)
+        engine._track_compute_verdict(task)
 
         assert engine._pending_recompute_claim is None
 
@@ -335,6 +338,185 @@ class TestRefutedRecompute:
             task = engine._make_recompute_task(claim)
 
         assert task.task_type == TaskType.SYNTHESIZE
+
+
+class TestComputeVerdictTracking:
+    """Test dispatch-level verdict tracking with failure counter."""
+
+    COMP_LOG_REFUTED = """\
+## COMP-001: Check WH-001
+**CLAIM**: Verify formula X = Y
+**VERDICT**: REFUTED
+**NOTES**: Numerical checks fail consistently.
+"""
+
+    COMP_LOG_INCONCLUSIVE = """\
+## COMP-001: Check WH-001
+**CLAIM**: Verify formula X = Y
+**VERDICT**: INCONCLUSIVE
+**NOTES**: Could not determine.
+"""
+
+    COMP_LOG_VERIFIED = """\
+## COMP-001: Check WH-001
+**CLAIM**: Verify formula X = Y
+**VERDICT**: VERIFIED
+**NOTES**: All checks pass.
+"""
+
+    def _make_engine(self, comp_log="", stall_recompute_limit=2):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            written = {}
+
+            def capture_write(filename, content):
+                written[filename] = content
+            ws.write_file = MagicMock(side_effect=capture_write)
+            ws.read_file = MagicMock(return_value=comp_log)
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config(stall_recompute_limit=stall_recompute_limit)
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 3
+            engine._pending_recompute_claim = None
+            engine._claim_failure_count = {}
+            engine._stalled_claims = set()
+            engine._pending_violations = []
+        return engine, ws, written
+
+    def test_first_refuted_allows_recompute(self):
+        """First REFUTED sets _pending_recompute_claim (count=1 < limit=2)."""
+        engine, ws, _ = self._make_engine(self.COMP_LOG_REFUTED)
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        assert engine._pending_recompute_claim is not None
+        assert any(v == 1 for v in engine._claim_failure_count.values())
+
+    def test_first_inconclusive_allows_recompute(self):
+        """INCONCLUSIVE also counted and triggers recompute."""
+        engine, ws, _ = self._make_engine(self.COMP_LOG_INCONCLUSIVE)
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        assert engine._pending_recompute_claim is not None
+        # Counter should be 1
+        assert any(v == 1 for v in engine._claim_failure_count.values())
+
+    def test_second_failure_escalates_to_stall(self):
+        """Pre-set count=1, second failure adds to _stalled_claims, no _pending_recompute_claim."""
+        engine, ws, _ = self._make_engine(self.COMP_LOG_REFUTED)
+        # Pre-set count to 1 for the claim key
+        from sciralph.markdown import _normalize_claim_key
+        key = _normalize_claim_key("Verify formula X = Y")
+        engine._claim_failure_count[key] = 1
+
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        assert engine._pending_recompute_claim is None
+        assert key in engine._stalled_claims
+        assert engine._claim_failure_count[key] == 2
+
+    def test_verified_resets_counter(self):
+        """VERIFIED clears the failure counter for that claim."""
+        engine, ws, _ = self._make_engine(self.COMP_LOG_VERIFIED)
+        from sciralph.markdown import _normalize_claim_key
+        key = _normalize_claim_key("Verify formula X = Y")
+        engine._claim_failure_count[key] = 1
+
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        assert key not in engine._claim_failure_count
+        assert engine._pending_recompute_claim is None
+
+    def test_verified_does_not_unstall(self):
+        """VERIFIED resets counter but does NOT remove from _stalled_claims."""
+        engine, ws, _ = self._make_engine(self.COMP_LOG_VERIFIED)
+        from sciralph.markdown import _normalize_claim_key
+        key = _normalize_claim_key("Verify formula X = Y")
+        engine._claim_failure_count[key] = 2
+        engine._stalled_claims.add(key)
+
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        assert key not in engine._claim_failure_count
+        assert key in engine._stalled_claims  # stays stalled
+
+    def test_different_claims_tracked_independently(self):
+        """Two different WH IDs have separate counters."""
+        comp_log_wh002 = """\
+## COMP-001: Check WH-002
+**CLAIM**: Verify WH-002 temperature
+**VERDICT**: REFUTED
+**NOTES**: Wrong.
+"""
+        engine, ws, _ = self._make_engine(comp_log_wh002)
+        from sciralph.markdown import _normalize_claim_key
+        key1 = _normalize_claim_key("Verify WH-001 formula")
+        engine._claim_failure_count[key1] = 1  # pre-existing failure on WH-001
+
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify WH-002 temperature")
+        engine._track_compute_verdict(task)
+
+        # WH-001 counter unchanged
+        assert engine._claim_failure_count[key1] == 1
+        # WH-002 has its own counter
+        key2 = _normalize_claim_key("Verify WH-002 temperature")
+        assert engine._claim_failure_count.get(key2, 0) == 1
+
+    def test_stall_escalation_injects_violation(self):
+        """Stall escalation adds Violation with check='computation_stall'."""
+        engine, ws, _ = self._make_engine(self.COMP_LOG_REFUTED)
+        from sciralph.markdown import _normalize_claim_key
+        key = _normalize_claim_key("Verify formula X = Y")
+        engine._claim_failure_count[key] = 1  # next will be 2 == limit
+
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        assert len(engine._pending_violations) == 1
+        assert engine._pending_violations[0].check == "computation_stall"
+        assert "failed verification" in engine._pending_violations[0].message
+
+    def test_limit_of_1_escalates_immediately(self):
+        """With stall_recompute_limit=1, first failure escalates."""
+        engine, ws, _ = self._make_engine(self.COMP_LOG_REFUTED, stall_recompute_limit=1)
+
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        assert engine._pending_recompute_claim is None
+        assert len(engine._stalled_claims) > 0
+        assert len(engine._pending_violations) == 1
+
+    def test_empty_comp_log_noop(self):
+        """No entries, nothing happens."""
+        engine, ws, _ = self._make_engine("")
+
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify formula X = Y")
+        engine._track_compute_verdict(task)
+
+        assert engine._pending_recompute_claim is None
+        assert len(engine._claim_failure_count) == 0
+        assert len(engine._stalled_claims) == 0
 
 
 class TestCriticCleanSignal:
@@ -418,6 +600,7 @@ class TestApplyOverrides:
             engine.iteration = current_iteration
             engine._stale_iterations = stale_iterations
             engine._stalled_claims = set()
+            engine._claim_failure_count = {}
 
             engine._pending_recompute_claim = pending_recompute
             engine._last_content_iteration = current_iteration
@@ -610,6 +793,29 @@ class TestApplyOverrides:
         result = engine._apply_overrides(task)
 
         assert result.task_type == TaskType.TERMINATE
+
+    def test_p5_blocks_p4_when_both_triggered(self):
+        """P5 stall block fires before P4 recompute and clears the pending recompute."""
+        engine, written = self._make_engine(
+            max_iterations=20, current_iteration=5,
+            last_critic_iteration=4,  # critic not overdue
+            pending_recompute="Verify WH-001 formula",
+        )
+        from sciralph.markdown import _normalize_claim_key
+        key = _normalize_claim_key("Verify WH-001 formula")
+        engine._stalled_claims = {key}
+        engine._pending_violations = []
+
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist", iteration=5,
+            body="Verify WH-001 formula",
+        )
+        result = engine._apply_overrides(task)
+
+        assert result.task_type == TaskType.RESEARCH
+        assert "Alternative Approach" in result.body
+        assert engine._pending_recompute_claim is None  # cleared by P5
 
 
 class TestTerminationGate:
@@ -863,6 +1069,7 @@ total_computations: 3
             engine.iteration = 5
             engine._stale_iterations = 0
             engine._stalled_claims = set()
+            engine._claim_failure_count = {}
 
             engine._pending_recompute_claim = None
             engine._pending_violations = []
@@ -935,6 +1142,7 @@ class TestDisplacedTaskLogging:
             engine.iteration = current_iteration
             engine._stale_iterations = stale_iterations
             engine._stalled_claims = set()
+            engine._claim_failure_count = {}
 
             engine._pending_recompute_claim = pending_recompute
             engine._last_content_iteration = current_iteration
@@ -1075,6 +1283,7 @@ Agent produced no text output. Writing INCONCLUSIVE stub.
             engine.iteration = 5
             engine._stale_iterations = 0
             engine._stalled_claims = set()
+            engine._claim_failure_count = {}
 
             engine._pending_recompute_claim = None
             engine._pending_violations = []

@@ -19,6 +19,8 @@ checkpoint_round: 2
 computation_token_alert: 150000
 tool_output_limit: 10000
 stall_threshold: 2
+# Max consecutive non-VERIFIED verdicts on same claim before P4 recompute is blocked
+stall_recompute_limit: 2
 min_er_for_completion: 3
 api_retry_max: 3
 api_retry_initial_delay: 2.0

@@ -128,8 +128,8 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │     P2. Stale-loop backstop (≥2 stale iters) → synthesize            │
 │     P3. Forced critic (overdue) → critique                           │
 │     P3b. Redundant critic suppression → synthesize                   │
-│     P4. REFUTED recompute → compute                                  │
 │     P5. Stall block (stalled claim) → research                       │
+│     P4. REFUTED recompute (gated by failure counter) → compute       │
 │     P6. Enrichment (prior failure context, additive)                 │
 │                                                                      │
 │  5. TERMINATION GATE                                                 │
@@ -141,7 +141,7 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │     └─ Wrapped in try/except for transient API errors                │
 │                                                                      │
 │  7. POST-DISPATCH CHECKS                                             │
-│     └─ REFUTED verdict detection after COMPUTE                       │
+│     └─ Verdict tracking with failure counter after COMPUTE           │
 │     └─ Stall tracking update                                         │
 │     └─ Phantom reference check on agent output                       │
 │     └─ NO_CRITIQUES_FILED detection after CRITIQUE                   │
@@ -168,11 +168,12 @@ All overrides are consolidated in `_apply_overrides()` with explicit priority:
 | P2 | Stale-loop backstop | ≥ 2 consecutive stale iters (ER ≥ min, WH = 0) | → synthesize |
 | P3 | Forced critic | > `critic_every_n` since last critic AND new content since last critic | → critique |
 | P3b | Redundant critic suppression | Scheduled critique but no new content since last critic | → synthesize |
-| P4 | REFUTED recompute | Previous computation returned REFUTED | → compute |
 | P5 | Stall block | COMPUTE task targets a stalled claim (≥ threshold consecutive failures) | → research |
+| P4 | REFUTED recompute | Previous REFUTED/INCONCLUSIVE verdict, count < `stall_recompute_limit` | → compute |
 | P6 | Enrichment | COMPUTE task with prior failures on same claim | Mutates task body (additive) |
 
 Higher priority wins. Displaced tasks are logged and shown to orchestrator on next pass via `context_prefix`.
+P5 is checked before P4 so stalled claims cannot be force-recomputed.
 
 ### Termination paths
 
@@ -487,6 +488,7 @@ A hypothesis advances through this lifecycle:
 | `checkpoint_round` | 2 | Tool-use round that triggers a checkpoint nudge |
 | `computation_token_alert` | 150000 | Cumulative input tokens before firing alert |
 | `stall_threshold` | 2 | Repeat failures on same claim before stall block |
+| `stall_recompute_limit` | 2 | Max consecutive non-VERIFIED verdicts before P4 recompute blocked |
 | `min_er_for_completion` | 3 | ERs needed before stale-loop backstop fires |
 | `compress_threshold` | RS: 50K, CL: 30K, CompL: 40K | File size thresholds (chars) |
 | `api_retry_max` | 3 | Max retry attempts on transient API errors |
@@ -521,7 +523,7 @@ Fields: `ts` (UTC ISO-8601), `iter` (scaffolding iteration), `layer` (§7 layer 
 | 3 | `tool_timeout`, `tool_output_truncation` |
 | 4 | All `Violation.check` values from validation checks (e.g. `er_promotion_gate`, `phantom_references`, `phantom_labels`, `stale_unverified_labels`, `verified_frontmatter_backfill`, `task_agent_routing`, `id_consistency`, `critique_resolution_consistency`) |
 | 5 | `p1_budget_override`, `p2_stale_loop_override`, `p3_forced_critic`, `p3b_redundant_critic_suppressed`, `p4_refuted_recompute`, `p4_refuted_suppressed`, `p5_stall_block`, `p6_enrichment` |
-| 6 | `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit` |
+| 6 | `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `compute_verdict_stall_escalation` |
 | 7 | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened` |
 | 8 | `preamble_stripped`, `critique_self_retracted` |
 | 9 | `empty_response_stub`, `header_injected` |
@@ -599,8 +601,8 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | Stale-loop backstop | P2 | ≥ 2 stale iters (ER ≥ min, WH = 0) | Force synthesize | Loop continuing after problem is solved |
 | Forced critic | P3 | Overdue AND new content exists | Force critique | Orchestrator skipping critic indefinitely |
 | Redundant critic suppression | P3b | Critique scheduled but no new content | Force synthesize | Infinite critic-no-critique loop |
-| REFUTED recompute | P4 | Previous REFUTED verdict | Force compute on refuted claim | Orchestrator ignoring a REFUTED result |
 | Stall blocking | P5 | Compute targets claim with ≥ threshold failures | Force research with alternative-approach request | Infinite retries on same broken claim |
+| REFUTED recompute | P4 | Previous REFUTED/INCONCLUSIVE verdict, count < `stall_recompute_limit` | Force compute on refuted claim | Orchestrator ignoring a REFUTED result |
 | Prior-failure enrichment | P6 | Compute task with prior failures on same claim | Append last failure's RESULT block to task body; zero-output stall gets special "ZERO-OUTPUT STALL DETECTED" warning | Model repeating identical failing code |
 
 ### Layer 6 — Engine-level guards (`engine.py`)
@@ -615,6 +617,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | Post-dispatch phantom check | `run()` | Runs `check_phantom_references()` after every agent dispatch | Phantoms introduced by non-orchestrator agents |
 | NO_CRITIQUES_FILED handling | `_dispatch()` | Detects `NO_CRITIQUES_FILED` in critic response → files `critic_clean` violation telling orchestrator to proceed to synthesize | Empty critic looping indefinitely |
 | Displaced-task transparency | `_log_displacement()` + `_build_context_prefix()` | Logs every overridden task and feeds the list to the orchestrator's next context: "Consider re-scheduling if still needed" | Orchestrator unaware that its planned task was overridden |
+| Dispatch-level verdict tracking | `_track_compute_verdict()` | Counts consecutive non-VERIFIED verdicts per claim; below `stall_recompute_limit` sets `_pending_recompute_claim`, at/above limit escalates to `_stalled_claims` with violation | Infinite recompute loops on persistently failing claims |
 | Violations/blockers as context prefix | `_build_context_prefix()` | All pending violations and termination blockers serialised into orchestrator's next user message with explicit "Do NOT emit terminate again" instruction | Orchestrator ignoring validation failures |
 | Forced compression at 2x threshold | `_check_compression()` | Force-compresses files exceeding 2× threshold | Runaway file growth crashing context window |
 
