@@ -1,5 +1,6 @@
 """Workspace manager for SciRalph file I/O and git operations."""
 
+import json
 import re
 import shutil
 import subprocess
@@ -199,3 +200,25 @@ Not yet fully verified. Subject to critique.
                         capture_output=True, check=False)
         subprocess.run(["git", "commit", "-m", message, "--allow-empty"],
                         cwd=str(self.root), capture_output=True, check=False)
+
+
+def log_scaffold_event(
+    workspace_dir: str | Path,
+    iteration: int,
+    layer: int,
+    event: str,
+    detail: str = "",
+) -> None:
+    """Append one event to SCAFFOLDING_LOG.jsonl. Never raises."""
+    try:
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "iter": iteration,
+            "layer": layer,
+            "event": event,
+            "detail": detail,
+        }
+        with open(Path(workspace_dir) / "SCAFFOLDING_LOG.jsonl", "a") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass

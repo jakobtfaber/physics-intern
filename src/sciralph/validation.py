@@ -18,6 +18,7 @@ from .markdown import (
     _ER_WH_ID_RE,
     _WH_SECTION_RE,
 )
+from .workspace import log_scaffold_event
 
 if TYPE_CHECKING:
     from .config import Config
@@ -538,11 +539,15 @@ _DEFAULT_CHECKS = [
 ]
 
 
-def validate_post_integration(workspace: WorkspaceManager, config: Config | None = None) -> list[Violation]:
+def validate_post_integration(workspace: WorkspaceManager, config: Config | None = None, iteration: int = 0) -> list[Violation]:
     """Run all post-integration invariant checks. Returns violations to inject into next orchestrator context."""
     violations: list[Violation] = []
     for check in _DEFAULT_CHECKS:
-        violations.extend(check(workspace))
+        check_violations = check(workspace)
+        if check_violations and hasattr(workspace, 'root') and workspace.root:
+            for v in check_violations:
+                log_scaffold_event(workspace.root, iteration, 4, v.check, v.message)
+        violations.extend(check_violations)
     return violations
 
 

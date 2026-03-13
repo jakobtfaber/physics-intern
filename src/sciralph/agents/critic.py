@@ -15,6 +15,7 @@ from ..markdown import (
     recount_critique_metadata,
 )
 from .base import BaseAgent
+from ..workspace import log_scaffold_event
 
 if TYPE_CHECKING:
     from ..task import Task
@@ -45,6 +46,8 @@ class CriticAgent(BaseAgent):
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
         """Insert new critiques into Active section and update frontmatter counts."""
         stripped = self._strip_preamble(response.text)
+        if stripped != response.text:
+            log_scaffold_event(self.workspace.root, iteration, 8, "preamble_stripped", "")
         filtered_text, retracted = filter_self_retracted_critiques(stripped)
 
         if filtered_text.strip():
@@ -53,6 +56,8 @@ class CriticAgent(BaseAgent):
             self.workspace.write_file("CRITIQUE_LOG.md", content)
 
         if retracted:
+            log_scaffold_event(self.workspace.root, iteration, 8, "critique_self_retracted",
+                               f"count={len(retracted)}")
             self._log_retractions(retracted, iteration)
 
         self._update_critique_metadata()

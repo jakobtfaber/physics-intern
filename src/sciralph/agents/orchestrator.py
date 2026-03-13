@@ -21,6 +21,7 @@ from ..markdown import (
 )
 from ..task import Task, TaskType
 from .base import BaseAgent
+from ..workspace import log_scaffold_event
 
 DELIM_RESEARCH = "=== RESEARCH_STATE.md ==="
 DELIM_TASK = "=== CURRENT_TASK.md ==="
@@ -89,7 +90,10 @@ class OrchestratorAgent(BaseAgent):
             parts.append(f"{banner}\n")
         state = self.workspace.read_file("RESEARCH_STATE.md")
         # Clean phantom markers to prevent LLM from copying bracketed form
+        before = state
         state = flatten_unverified_brackets(state)
+        if state != before:
+            log_scaffold_event(self.workspace.root, iteration, 10, "bracket_flattened", "")
         state = re.sub(r'\[((COMP|TASK)-\d+):unverified\]', r'\1 (unverified)', state)
         if iteration >= 3 and "To be populated by the orchestrator" in state:
             parts.append(
@@ -130,8 +134,14 @@ class OrchestratorAgent(BaseAgent):
         """Write CURRENT_TASK.md (and optionally RESEARCH_STATE.md) from orchestrator output."""
         research_state, task_text = _split_response(response.text)
         if research_state is not None:
+            before = research_state
             research_state = self._enforce_problem_statement(research_state)
+            if research_state != before:
+                log_scaffold_event(self.workspace.root, iteration, 7, "problem_statement_enforced", "")
+            before = research_state
             research_state = normalize_er_wh_headers(research_state)
+            if research_state != before:
+                log_scaffold_event(self.workspace.root, iteration, 7, "header_normalized", "")
             self.workspace.write_file("RESEARCH_STATE.md", research_state)
             self.workspace.delete_file("PROPOSED_CHANGES.md")
             # Resolve critiques mentioned in the orchestrator's output
@@ -208,6 +218,8 @@ class OrchestratorAgent(BaseAgent):
             )
             note = self._validate_resolution_note(note, crit_id, iteration)
             content = resolve_critique(content, crit_id, note)
+            log_scaffold_event(self.workspace.root, iteration, 7, "critique_resolved",
+                               f"crit_id={crit_id}")
 
         # Update frontmatter counts
         meta, body = parse_frontmatter(content)

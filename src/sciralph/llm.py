@@ -12,6 +12,7 @@ from rich.console import Console
 from .config import Config
 from .providers import LLMProvider, ProviderResponse, create_provider
 from .tools import ToolCall, ToolExecutor
+from .workspace import log_scaffold_event
 
 console = Console()
 
@@ -68,6 +69,8 @@ def _is_transient(exc: Exception) -> bool:
 
 
 def _call_provider_with_retry(provider: LLMProvider, config: Config,
+                               workspace_dir: str | Path = "",
+                               iteration: int = 0,
                                **call_kwargs) -> ProviderResponse:
     """Retry provider.call() on transient errors with exponential backoff."""
     delay = config.api_retry_initial_delay
@@ -81,6 +84,9 @@ def _call_provider_with_retry(provider: LLMProvider, config: Config,
                 f"[yellow]Transient API error (attempt {attempt + 1}/"
                 f"{config.api_retry_max}): {exc}[/yellow]"
             )
+            if workspace_dir:
+                log_scaffold_event(workspace_dir, iteration, 1, "api_retry",
+                                   f"attempt={attempt + 1}/{config.api_retry_max}, {type(exc).__name__}")
             time.sleep(min(delay, config.api_retry_max_delay))
             delay *= 2
     # Unreachable — the loop always returns or raises
@@ -119,6 +125,8 @@ def call_llm(system: str, user_content: str, config: Config,
     start = time.time()
     resp = _call_provider_with_retry(
         provider, config,
+        workspace_dir=config.workspace_dir,
+        iteration=iteration,
         model=config.model,
         max_tokens=config.max_tokens,
         system=system,
@@ -175,6 +183,8 @@ def run_agent_loop(
         try:
             resp = _call_provider_with_retry(
                 provider, config,
+                workspace_dir=config.workspace_dir,
+                iteration=iteration,
                 model=config.model,
                 max_tokens=config.max_tokens,
                 system=system,
@@ -189,6 +199,9 @@ def run_agent_loop(
                     f"text-only response[/yellow]"
                 )
                 tool_call_failure = True
+                if config.workspace_dir:
+                    log_scaffold_event(config.workspace_dir, iteration, 2, "tool_call_failure_fallback",
+                                       f"round={round_num}")
                 break
             raise
         duration = time.time() - start
@@ -258,6 +271,15 @@ def run_agent_loop(
 
             messages.extend(provider.build_tool_result_messages(tool_results))
 
+            if config.workspace_dir:
+                for tc in all_tool_calls[-len(tool_results):]:
+                    if tc.output.startswith("TIMEOUT:"):
+                        log_scaffold_event(config.workspace_dir, iteration, 3, "tool_timeout",
+                                           f"round={round_num}")
+                    elif "[... truncated" in tc.output or "[...truncated" in tc.output:
+                        log_scaffold_event(config.workspace_dir, iteration, 3, "tool_output_truncation",
+                                           f"round={round_num}")
+
             # Notify caller about round progress
             round_tool_calls = [tc for tc in all_tool_calls[-len(tool_results):]]
             if on_round:
@@ -271,11 +293,17 @@ def run_agent_loop(
             else:
                 zero_text_streak = 0
             if zero_text_streak >= config.zero_text_bailout:
+                if config.workspace_dir:
+                    log_scaffold_event(config.workspace_dir, iteration, 2, "zero_text_bailout",
+                                       f"streak={zero_text_streak}")
                 break  # Falls through to forced final call
 
             # Low-cumulative-text bailout at halfway point (only for longer runs)
             if halfway >= 3 and round_num == halfway and cumulative_text_len < 100:
                 low_cumulative_bailout = True
+                if config.workspace_dir:
+                    log_scaffold_event(config.workspace_dir, iteration, 2, "low_text_bailout",
+                                       f"chars={cumulative_text_len}")
                 break  # Falls through to forced final call
 
             # Checkpoint nudge at halfway point
@@ -351,6 +379,17 @@ def run_agent_loop(
         reason = (
             "IMPORTANT: You have reached the maximum number of tool-use rounds. "
         )
+    if config.workspace_dir:
+        if tool_call_failure:
+            _reason = "tool_call_failure"
+        elif zero_text_streak >= config.zero_text_bailout:
+            _reason = "zero_text"
+        elif low_cumulative_bailout:
+            _reason = "low_cumulative"
+        else:
+            _reason = "max_rounds"
+        log_scaffold_event(config.workspace_dir, iteration, 2, "forced_final_call", _reason)
+
     forced_system = (
         system + "\n\n"
         + reason
@@ -375,6 +414,8 @@ def run_agent_loop(
     start = time.time()
     final_resp = _call_provider_with_retry(
         provider, config,
+        workspace_dir=config.workspace_dir,
+        iteration=iteration,
         model=config.model,
         max_tokens=config.max_tokens,
         system=forced_system,

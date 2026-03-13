@@ -794,6 +794,7 @@ class TestCheckStatusField:
             engine = SciRalph.__new__(SciRalph)
             engine.config = Config()
             engine.workspace = ws
+            engine.iteration = 0
         return engine
 
     def test_completed_status(self):
