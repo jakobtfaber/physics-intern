@@ -47,6 +47,13 @@ def _is_tool_call_failure(exc: Exception) -> bool:
     return "tool_use_failed" in msg or "Failed to parse tool call arguments" in msg
 
 
+_PROVIDER_SIDE_400_PATTERNS = {
+    "post processor",       # HuggingFace "gpt oss post processor" internal error
+    "internal error",
+    "backend error",
+}
+
+
 def _is_transient(exc: Exception) -> bool:
     """Return True if *exc* looks like a transient / retryable API error."""
     # Tool-call generation failures are stochastic — retry may produce valid JSON
@@ -59,8 +66,16 @@ def _is_transient(exc: Exception) -> bool:
         resp = getattr(exc, "response", None)
         if resp is not None:
             status = getattr(resp, "status_code", None)
-    if status is not None and int(status) in _TRANSIENT_STATUS_CODES:
-        return True
+    if status is not None:
+        status = int(status)
+        if status in _TRANSIENT_STATUS_CODES:
+            return True
+        # Some providers return 400 for server-side processing failures —
+        # treat as transient when the message matches known patterns
+        if status == 400:
+            msg_lower = str(exc).lower()
+            if any(p in msg_lower for p in _PROVIDER_SIDE_400_PATTERNS):
+                return True
     # Check exception type name anywhere in the MRO
     for cls in type(exc).__mro__:
         if cls.__name__ in _TRANSIENT_EXC_NAMES:
@@ -310,52 +325,43 @@ def run_agent_loop(
             if round_num == config.checkpoint_round:
                 messages.append({
                     "role": "user",
-                    "content": [{
-                        "type": "text",
-                        "text": (
-                            "CHECKPOINT: You are running low on available rounds. "
-                            "Write your COMP entry text now alongside any remaining "
-                            "tool calls. Do not defer all text to the final round."
-                        ),
-                    }],
+                    "content": (
+                        "CHECKPOINT: You are running low on available rounds. "
+                        "Write your COMP entry text now alongside any remaining "
+                        "tool calls. Do not defer all text to the final round."
+                    ),
                 })
 
             # Final warning near end of loop
             if round_num == max_rounds - 2 and max_rounds >= 5:
                 messages.append({
                     "role": "user",
-                    "content": [{
-                        "type": "text",
-                        "text": (
-                            "FINAL WARNING: You have 2 rounds left before forced "
-                            "termination. Begin writing your COMP entry text NOW. "
-                            "If you need one more tool call, make it in your next "
-                            "response, but you MUST include your verdict text in "
-                            "that same response. Do not defer text to the final round."
-                        ),
-                    }],
+                    "content": (
+                        "FINAL WARNING: You have 2 rounds left before forced "
+                        "termination. Begin writing your COMP entry text NOW. "
+                        "If you need one more tool call, make it in your next "
+                        "response, but you MUST include your verdict text in "
+                        "that same response. Do not defer text to the final round."
+                    ),
                 })
 
             # CRITICAL penultimate-round instruction
             if round_num == max_rounds - 1 and max_rounds >= 4:
                 messages.append({
                     "role": "user",
-                    "content": [{
-                        "type": "text",
-                        "text": (
-                            "CRITICAL: This is your LAST round with tool access. "
-                            "You MUST include your ## COMP-NNN verdict text in THIS "
-                            "response. If you only call a tool without writing text, "
-                            "your output will be recorded as INCONCLUSIVE.\n\n"
-                            "Write your verdict NOW using this format:\n"
-                            "## COMP-NNN: [description]\n"
-                            "**CLAIM:** [claim]\n"
-                            "**METHOD:** [method]\n"
-                            "**RESULT:** [results]\n"
-                            "**VERDICT:** [VERIFIED / REFUTED / INCONCLUSIVE]\n"
-                            "**NOTES:** [notes]"
-                        ),
-                    }],
+                    "content": (
+                        "CRITICAL: This is your LAST round with tool access. "
+                        "You MUST include your ## COMP-NNN verdict text in THIS "
+                        "response. If you only call a tool without writing text, "
+                        "your output will be recorded as INCONCLUSIVE.\n\n"
+                        "Write your verdict NOW using this format:\n"
+                        "## COMP-NNN: [description]\n"
+                        "**CLAIM:** [claim]\n"
+                        "**METHOD:** [method]\n"
+                        "**RESULT:** [results]\n"
+                        "**VERDICT:** [VERIFIED / REFUTED / INCONCLUSIVE]\n"
+                        "**NOTES:** [notes]"
+                    ),
                 })
 
     # Exhausted max_rounds or zero-text/low-cumulative/tool-failure bailout — force one final text-only call

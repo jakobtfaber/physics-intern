@@ -10,7 +10,7 @@ load_dotenv()
 
 import yaml
 
-from .config import Config, build_config
+from .config import Config, DEFAULTS, build_config
 from .engine import SciRalph
 
 
@@ -58,10 +58,22 @@ def main():
     # Build config (3-tier merge)
     config = build_config(args)
 
+    # Friendly model key for workspace dir: CLI > config YAML > default
+    # (config.model is already resolved to provider model_id, so reconstruct the key)
+    if args.model:
+        model_label = args.model
+    elif getattr(args, "config", None) is not None:
+        with open(args.config) as f:
+            cfg_yaml = yaml.safe_load(f) or {}
+        model_label = cfg_yaml.get("model", DEFAULTS["model"])
+    else:
+        model_label = DEFAULTS["model"]
+
     # Generate timestamped workspace directory if not explicitly set
     if args.workspace_dir is None:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        run_name = f"{timestamp}_{args.problem.stem}"
+        safe_model = model_label.replace("/", "-").replace(":", "-")
+        run_name = f"{timestamp}_{args.problem.stem}_{safe_model}"
         config.workspace_dir = str(Path("workspaces") / run_name)
 
     # Build problem metadata for termination gates

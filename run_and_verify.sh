@@ -44,7 +44,23 @@ fi
 # Determine workspace dir (same logic as main.py)
 timestamp=$(date -u +"%Y%m%d_%H%M%S")
 stem=$(basename "$problem_file" .yaml)
-workspace_dir="workspaces/${timestamp}_${stem}"
+
+# Extract model name from run_args (--model flag), falling back to config default
+model_label=""
+for i in "${!run_args[@]}"; do
+    if [ "${run_args[$i]}" = "--model" ]; then
+        model_label="${run_args[$((i + 1))]}"
+        break
+    fi
+done
+if [ -z "$model_label" ]; then
+    # Read default from config.default.yaml
+    model_label=$(python3 -c "import yaml; print(yaml.safe_load(open('src/sciralph/config.default.yaml'))['model'])" 2>/dev/null || echo "unknown")
+fi
+# Sanitise for filesystem
+safe_model=$(echo "$model_label" | tr '/: ' '--_')
+
+workspace_dir="workspaces/${timestamp}_${stem}_${safe_model}"
 
 # Check if a --workspace-dir was passed in run_args
 for i in "${!run_args[@]}"; do

@@ -214,11 +214,7 @@ class TestCheckpointMessage:
         # Round 3 messages should contain the checkpoint
         round3_messages = calls[2].kwargs["messages"]
         checkpoint_found = any(
-            isinstance(msg.get("content"), list)
-            and any(
-                isinstance(c, dict) and "CHECKPOINT" in c.get("text", "")
-                for c in msg["content"]
-            )
+            isinstance(msg.get("content"), str) and "CHECKPOINT" in msg["content"]
             for msg in round3_messages
             if isinstance(msg, dict) and msg.get("role") == "user"
         )
@@ -249,10 +245,8 @@ class TestCheckpointMessage:
         for call in calls:
             msgs = call.kwargs.get("messages", [])
             for msg in msgs:
-                if isinstance(msg, dict) and isinstance(msg.get("content"), list):
-                    for c in msg["content"]:
-                        if isinstance(c, dict):
-                            assert "CHECKPOINT" not in c.get("text", "")
+                if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                    assert "CHECKPOINT" not in msg["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -292,11 +286,7 @@ class TestFinalWarning:
         calls = provider.call.call_args_list
         round9_messages = calls[8].kwargs["messages"]
         warning_found = any(
-            isinstance(msg.get("content"), list)
-            and any(
-                isinstance(c, dict) and "FINAL WARNING" in c.get("text", "")
-                for c in msg["content"]
-            )
+            isinstance(msg.get("content"), str) and "FINAL WARNING" in msg["content"]
             for msg in round9_messages
             if isinstance(msg, dict) and msg.get("role") == "user"
         )
@@ -327,10 +317,8 @@ class TestFinalWarning:
         for call in provider.call.call_args_list:
             msgs = call.kwargs.get("messages", [])
             for msg in msgs:
-                if isinstance(msg, dict) and isinstance(msg.get("content"), list):
-                    for c in msg["content"]:
-                        if isinstance(c, dict):
-                            assert "FINAL WARNING" not in c.get("text", "")
+                if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                    assert "FINAL WARNING" not in msg["content"]
 
 
 # ---------------------------------------------------------------------------

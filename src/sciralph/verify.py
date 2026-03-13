@@ -665,8 +665,8 @@ def build_verify_parser() -> "argparse.ArgumentParser":
                         help="Path to workspace directory")
     parser.add_argument("--model", type=str, default=DEFAULTS["verify_model"],
                         help=f"LLM model (default: {DEFAULTS['verify_model']})")
-    parser.add_argument("--max-tokens", type=int, default=16384,
-                        help="Max output tokens (default: 16384)")
+    parser.add_argument("--max-tokens", type=int, default=DEFAULTS["max_tokens"],
+                        help=f"Max output tokens (default: {DEFAULTS['max_tokens']})")
     parser.add_argument("--timeout", type=int, default=60,
                         help="Computation timeout in seconds (default: 60)")
     parser.add_argument("--rerun-computations", action="store_true",

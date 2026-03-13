@@ -197,7 +197,7 @@ class TestVerifyParser:
         args = parser.parse_args(["workspaces/run1"])
         assert args.workspace_dir == "workspaces/run1"
         assert args.model == DEFAULTS["verify_model"]
-        assert args.max_tokens == 16384
+        assert args.max_tokens == DEFAULTS["max_tokens"]
         assert args.timeout == 60
         assert args.rerun_computations is False
         assert args.write_report is False

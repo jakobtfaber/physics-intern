@@ -189,10 +189,39 @@ class SciRalph:
         """Build prefix for orchestrator context with violations, blockers, and displaced tasks."""
         lines = []
         if self._pending_violations:
-            lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
+            # Separate ER-demotion violations from other violations
+            demoted_wh_ids = []
+            other_violations = []
             for v in self._pending_violations:
-                lines.append(f"  [{v.severity}] {v.check}: {v.message}")
-            lines.append(">>> END VIOLATIONS <<<\n")
+                if v.check == "er_promotion_gate" and v.severity == "error":
+                    # Extract "WH-NNN" from message like "ER-001 ... demoted to WH-001"
+                    parts = v.message.split("demoted to ")
+                    wh_id = parts[1].strip() if len(parts) == 2 else v.detail
+                    demoted_wh_ids.append(wh_id)
+                else:
+                    other_violations.append(v)
+            # Emit dedicated banner for unverified claims requiring computation
+            if demoted_wh_ids:
+                lines.append(">>> UNVERIFIED CLAIMS REQUIRING COMPUTATION <<<")
+                lines.append(
+                    "The following claims were demoted from ER to WH because "
+                    "they have NO VERIFIED computation in COMPUTATION_LOG:"
+                )
+                for wh_id in demoted_wh_ids:
+                    lines.append(f"  - {wh_id}")
+                lines.append("")
+                lines.append(
+                    "ACTION REQUIRED: Schedule COMPUTE tasks for these claims. "
+                    "Do NOT re-promote them to ER — the scaffolding will demote "
+                    "them again. Only a VERIFIED computation can establish an ER."
+                )
+                lines.append(">>> END UNVERIFIED CLAIMS <<<\n")
+            # Emit remaining violations normally
+            if other_violations:
+                lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
+                for v in other_violations:
+                    lines.append(f"  [{v.severity}] {v.check}: {v.message}")
+                lines.append(">>> END VIOLATIONS <<<\n")
             self._pending_violations.clear()
         if self._pending_termination_blockers:
             lines.append(">>> TERMINATION BLOCKED — YOU CANNOT TERMINATE YET <<<")
