@@ -23,9 +23,9 @@ stall_threshold: 2
 # Max consecutive non-VERIFIED verdicts on same claim before P4 recompute is blocked
 stall_recompute_limit: 2
 min_er_for_completion: 3
-api_retry_max: 3
-api_retry_initial_delay: 2.0
-api_retry_max_delay: 30.0
+api_retry_max: 10
+api_retry_initial_delay: 10.0
+api_retry_max_delay: 60.0
 api_timeout: 600.0
 
 # --- Compression ---

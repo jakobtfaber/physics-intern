@@ -10,84 +10,18 @@ Items are ordered by priority. Each entry describes the problem, the evidence ac
 
 ## P0-1: Dispatch-level stall tracking for repeated computation failures
 
-**Problem:** When a computation returns INCONCLUSIVE or REFUTED, the orchestrator re-dispatches the same task. The computationalist retries with the same or nearly identical numerical approach, fails again, and the cycle repeats indefinitely. This is the single largest source of token waste across both analysis rounds.
-
-**Evidence:**
-- Round 1: 5/6 models affected (GPT, DeepSeek, Kimi, GLM + detection failures in GPT/DeepSeek)
-- Round 2: 8/9 models affected. DeepSeek-v3.2 spent 22 consecutive iterations (iter 25-46) retrying identical shooting methods on the Baker constant, consuming 900K+ tokens with zero new verified results. gpt-oss-120b repeated the same algebraic verification approach in COMP-002 and COMP-006. minimax-m2.5 ran 3 near-identical Baker constant attempts.
-- Models that self-recovered (gemini-3.1-pro, kimi-k2.5) did so via LLM initiative (pivoting to BVP methods), not scaffolding intervention.
-
-**Root cause:** Stall detection depends on LLM-generated text (COMP entry claim lines, task wording) rather than engine-controlled data. The stale-loop backstop doesn't trigger because task descriptions change slightly between iterations. The `p4_refuted_recompute` override fires unconditionally with no retry counter, and has higher priority than `p5_stall_block`, so it supersedes stall detection even when it fires.
-
-**Recommended fix:**
-
-1. **Dispatch-level ledger** keyed on `task.target_claim` (or a normalized version). The engine already knows the target claim at dispatch time and the verdict at completion. Track `(claim, agent, verdict)` tuples directly. After N consecutive INCONCLUSIVE/REFUTED verdicts on the same claim (suggest N=2), trigger an escalation:
-   - Inject into orchestrator `context_prefix`: "Claim X has failed verification N times with approaches [list]. You MUST either (a) assign a fundamentally different computational method, (b) route to the researcher for an analytical alternative, or (c) mark as provisionally accepted and move to other objectives."
-   - Block `p4_refuted_recompute` from firing on this claim.
-
-2. **Add recompute counter to `_check_for_refuted_verdict()`**: if the last 2+ COMP entries on the same claim are REFUTED/INCONCLUSIVE, don't set `_pending_recompute_claim`.
-
-3. **Swap P4 and P5 priority** in `_apply_overrides` so that `p5_stall_block` can override `p4_refuted_recompute` when both fire on the same claim.
-
-**Files:** `engine.py` (`_apply_overrides`, `_check_for_refuted_verdict`), new dispatch ledger data structure.
-
+DONE
 ---
 
 ## P0-2: Route failure context to orchestrator via `context_prefix`
 
-**Problem:** The orchestrator is stateless with respect to agent failures. It doesn't know that:
-- A researcher was truncated on a task (max_tokens)
-- A computationalist failed N times on a claim
-- A HIGH critique is unresolved
-- The engine's override chain displaced its planned task
-- A computation was truncated by max_rounds
-
-This causes it to re-issue the same failing task, ignore critical issues, and miss opportunities to adapt its strategy.
-
-**Evidence:**
-- Round 1: Identified as meta-cluster cutting across Clusters 1-3 (all 6 models)
-- Round 2: Confirmed across all 9 models. Orchestrators kept re-dispatching identical computations (8/9 models). P3 forced_critic displaced tasks in 7/9 models without the orchestrator knowing.
-
-**Root cause:** The `context_prefix` mechanism exists and works well for validation violations, but failure signals from agent dispatch are not routed through it.
-
-**Recommended fix:**
-
-Generalize the existing violation-injection pattern. After any of these events, append a structured block to the orchestrator's `context_prefix` on the next iteration:
-
-```
->>> AGENT FAILURES <<<
-- TASK-NNN (compute, claim WH-002): INCONCLUSIVE (attempt 2/2). Shooting method failed both times. Consider alternative verification strategy.
-- TASK-MMM (research): max_tokens truncation. Task too large — decompose into subtasks.
-- TASK-PPP (derive): displaced by forced_critic override. Re-schedule if still needed.
->>> END AGENT FAILURES <<<
-```
-
-This subsumes the previous report's R2 (max_tokens signal), R5 (general failure routing), and R6 (stalled-claims context) into a single unified mechanism. The engine already has all the information needed; it just needs to format and inject it.
-
-**Files:** `engine.py` (`_build_context_prefix` or equivalent), needs to collect failure events from the current and recent iterations.
+DONE
 
 ---
 
 ## P0-3: Guarantee text output from agentic loops
 
-**Problem:** The computationalist executes tool calls successfully but produces no final text output. The COMP entry is never written. Three surface mechanisms, same outcome: (1) model sends `end_turn` with 0 output tokens, (2) `max_rounds_forced` fires while model is still issuing tool calls, (3) `zero_text_bailout` fires but model still produces nothing.
-
-**Evidence:**
-- Round 1: 3/6 models affected (Gemini, DeepSeek, Kimi) with three distinct failure modes
-- Round 2: 7/9 models triggered zero_text_bailout or forced_final_call. DeepSeek-v3.2 hit 37 zero_text_bailout events and 30 forced_final_call events. gpt-oss-120b: 3 each. minimax-m2.5: 2 each. kimi-k2.5: 1 zero_text + 3 forced_final_call.
-- The existing `forced_final_call` mechanism was added since round 1 but is insufficient: the forced call itself often produces empty or low-quality output.
-
-**Root cause:** `run_agent_loop` doesn't guarantee text output before loop exit. The forced_final_call is a single retry attempt that doesn't change the prompt strategy — it just asks the same model to produce text, and weaker models often can't.
-
-**Recommended fix:**
-
-1. **Unified exit guard in `run_agent_loop`:** Before returning from the loop for any reason, check if accumulated text meets a minimum threshold (e.g., >50 chars). If not, force a text-only call with `tool_choice="none"` and an explicit instruction: "Summarize your computation results and write your COMP entry now. Do not make any more tool calls."
-
-2. **Interleaved text checkpoints:** Every N consecutive tool-only rounds (suggest N=3), insert a mandatory `tool_choice="none"` call asking the model to write intermediate findings. This prevents the model from burning through all rounds on tool calls without ever producing text. This is especially important for models that need more rounds (DeepSeek).
-
-3. **If the forced text call still produces nothing**, synthesize a minimal COMP entry from the tool call history (input/output pairs) and mark it as `INCONCLUSIVE (no agent text)`. This ensures the computation is at least recorded rather than silently lost.
-
-**Files:** `llm.py` (`run_agent_loop`), possibly `agents/computationalist.py` for the synthesis fallback.
+DONE
 
 ---
 

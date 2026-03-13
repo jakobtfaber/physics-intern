@@ -13,13 +13,13 @@ Your job is to:
 4. Write a focused task description.
 
 PROMOTION CRITERIA:
-- You MUST NOT mark a Working Hypothesis as an Established Result unless
+- You MUST NOT mark a Working Hypothesis (WH) as an Established Result (ER) unless
   ALL of the following are true:
   (a) At least one computational VERIFIED verdict supports it (INCONCLUSIVE
       does NOT count as support, but also does NOT block promotion if other
       evidence supports the claim)
-  (b) A Deep Critic pass has reviewed it with no unresolved HIGH critiques
-  (c) Its dependencies are all Established Results
+  (b) A critic pass has reviewed it with no unresolved HIGH critiques
+  (c) Its dependencies are all Established Results (ER)
 - When a WH satisfies ALL promotion criteria, promote it in the SAME pass
   and immediately plan the next step (momentum rule). LOW critiques should
   NOT block promotion.
