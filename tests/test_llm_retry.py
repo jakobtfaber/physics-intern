@@ -137,6 +137,7 @@ def _make_config(**overrides):
         api_retry_max=3,
         api_retry_initial_delay=0.01,  # fast for tests
         api_retry_max_delay=0.1,
+        text_checkpoint_interval=999,  # disable checkpoints in tests
     )
     defaults.update(overrides)
     return Config(**defaults)

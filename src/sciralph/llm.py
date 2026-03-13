@@ -168,6 +168,80 @@ def call_llm(system: str, user_content: str, config: Config,
     return llm_response
 
 
+def _make_text_checkpoint_call(
+    provider: LLMProvider, config: Config, system: str,
+    messages: list[dict], round_num: int, iteration: int,
+    agent_name: str = "",
+) -> tuple[str, int, int]:
+    """Force a text-only checkpoint call mid-loop to extract intermediate findings.
+
+    Returns (text, input_tokens, output_tokens).
+    """
+    checkpoint_system = (
+        system + "\n\n"
+        "TEXT CHECKPOINT: You have been executing tools without writing any text. "
+        "Pause and write a brief summary of your intermediate findings so far — "
+        "what you have computed, what the results show, and what remains. "
+        "You will be able to continue using tools afterward."
+    )
+    start = time.time()
+    resp = _call_provider_with_retry(
+        provider, config,
+        workspace_dir=config.workspace_dir,
+        iteration=iteration,
+        model=config.model,
+        max_tokens=config.max_tokens,
+        system=checkpoint_system,
+        messages=messages,
+        # No tools — forces text-only
+    )
+    dur = time.time() - start
+
+    text = resp.text.strip()
+
+    if config.audit_log:
+        _write_audit_entry(config, LLMResponse(
+            text, resp.input_tokens, resp.output_tokens,
+            "text_checkpoint", dur,
+        ), checkpoint_system, "", agent_name, iteration, round=round_num)
+
+    return text, resp.input_tokens, resp.output_tokens
+
+
+def _synthesize_from_tool_history(all_tool_calls: list[ToolCall]) -> str:
+    """Build a COMP entry from tool execution history when the model produced no text."""
+    successful = [tc for tc in all_tool_calls if not tc.is_error]
+    errored = [tc for tc in all_tool_calls if tc.is_error]
+
+    if successful:
+        last = successful[-1]
+        code_excerpt = (last.tool_input.get("code", "") if isinstance(last.tool_input, dict)
+                        else "")[:500]
+        output_excerpt = last.output[:500]
+        method = f"Executed {len(successful)} script(s); last code:\n```python\n{code_excerpt}\n```"
+        result = f"Last output:\n```\n{output_excerpt}\n```"
+        if errored:
+            result += f"\n({len(errored)} execution(s) errored)"
+    elif errored:
+        last_err = errored[-1]
+        err_excerpt = last_err.output[:500]
+        method = f"Attempted {len(errored)} script(s), all errored"
+        result = f"Last error:\n```\n{err_excerpt}\n```"
+    else:
+        method = "Agent produced no tool output"
+        result = "No results obtained"
+
+    return (
+        "## COMP-000: Incomplete verification\n"
+        f"**CLAIM:** (unable to extract)\n"
+        f"**METHOD:** {method}\n"
+        f"**RESULT:** {result}\n"
+        "**VERDICT:** INCONCLUSIVE\n"
+        "**NOTES:** Agent completed tool calls but failed to produce "
+        "written output after forced retry.\n"
+    )
+
+
 def run_agent_loop(
     system: str,
     user_content: str,
@@ -314,6 +388,25 @@ def run_agent_loop(
                 zero_text_streak += 1
             else:
                 zero_text_streak = 0
+            # Interleaved text checkpoint: force text output before bailout fires
+            if (zero_text_streak > 0
+                    and zero_text_streak % config.text_checkpoint_interval == 0
+                    and zero_text_streak < config.zero_text_bailout):
+                if config.workspace_dir:
+                    log_scaffold_event(config.workspace_dir, iteration, 2,
+                                       "text_checkpoint", f"streak={zero_text_streak}")
+                cp_text, cp_in, cp_out = _make_text_checkpoint_call(
+                    provider, config, system, messages,
+                    round_num, iteration, agent_name,
+                )
+                total_input += cp_in
+                total_output += cp_out
+                if cp_text:
+                    zero_text_streak = 0
+                    cumulative_text_len += len(cp_text)
+                    messages.append({"role": "assistant", "content": cp_text})
+                    messages.append({"role": "user", "content": "Good. Continue with your tool calls."})
+
             if zero_text_streak >= config.zero_text_bailout:
                 if config.workspace_dir:
                     log_scaffold_event(config.workspace_dir, iteration, 2, "zero_text_bailout",
@@ -461,16 +554,12 @@ def run_agent_loop(
         total_output += retry_resp.output_tokens
 
         if not final_text:
-            # Still nothing — write a stub ourselves so the entry exists
-            final_text = (
-                "## COMP-000: Incomplete verification\n"
-                "**CLAIM:** (unable to extract)\n"
-                "**METHOD:** Agent produced no text output\n"
-                "**RESULT:** No results obtained\n"
-                "**VERDICT:** INCONCLUSIVE\n"
-                "**NOTES:** Agent completed tool calls but failed to produce "
-                "written output after forced retry.\n"
-            )
+            # Still nothing — synthesize from tool history so the entry exists
+            if config.workspace_dir:
+                log_scaffold_event(config.workspace_dir, iteration, 2,
+                                   "tool_history_synthesis",
+                                   f"tool_calls={len(all_tool_calls)}")
+            final_text = _synthesize_from_tool_history(all_tool_calls)
 
     if on_round:
         on_round(round_num + 1, "forced_partial", [], total_input, total_output)

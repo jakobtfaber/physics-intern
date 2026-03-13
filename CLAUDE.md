@@ -89,7 +89,7 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 - `_dispatch()` returns `(agent_name, result)` tuple; `_record_agent_failures()` inspects the result for `max_tokens`, `max_rounds_forced` stop reasons and appends to `_agent_failures`
 - `_build_context_prefix()` emits 4 banner sections (consumed once then cleared): violations → blockers → displaced tasks → agent failures
 - Post-integration checks are pure functions in `validation.py` returning `list[Violation]`; 8 checks total including critique resolution consistency; violations inject into orchestrator context via `context_prefix`
-- `run_agent_loop` forces a text-only final call on `max_rounds` exhaustion (no more empty stubs); `stop_reason="max_rounds_forced"`; two-round escalating warnings at `max_rounds-2` and `max_rounds-1`
+- `run_agent_loop` forces a text-only final call on `max_rounds` exhaustion (no more empty stubs); `stop_reason="max_rounds_forced"`; two-round escalating warnings at `max_rounds-2` and `max_rounds-1`; interleaved text checkpoints via `_make_text_checkpoint_call()` fire at `text_checkpoint_interval` (default 2) consecutive zero-text rounds to recover text before bailout; `_synthesize_from_tool_history()` replaces the hardcoded stub with actual tool output excerpts when both forced call and retry produce empty text
 - `_call_provider_with_retry()` wraps every provider call with exponential-backoff retry (configurable via `api_retry_max`, `api_retry_initial_delay`, `api_retry_max_delay`); tool-call JSON failures are retryable
 - Iteration counter is scaffolding-maintained (`_update_research_iteration()`), not LLM-dependent
 - Problem YAMLs may include `requires_numerical: true/false` — consumed by `can_terminate()` gate

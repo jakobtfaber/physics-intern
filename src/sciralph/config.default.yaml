@@ -15,6 +15,7 @@ max_retries_on_max_tokens: 2
 sympy_timeout_seconds: 60
 max_tool_rounds: 10
 zero_text_bailout: 3
+text_checkpoint_interval: 2
 checkpoint_round: 2
 computation_token_alert: 150000
 tool_output_limit: 10000

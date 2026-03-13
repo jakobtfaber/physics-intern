@@ -41,6 +41,7 @@ class Config:
     sympy_timeout_seconds: int = DEFAULTS["sympy_timeout_seconds"]
     max_tool_rounds: int = DEFAULTS["max_tool_rounds"]
     zero_text_bailout: int = DEFAULTS["zero_text_bailout"]
+    text_checkpoint_interval: int = DEFAULTS["text_checkpoint_interval"]
     checkpoint_round: int = DEFAULTS["checkpoint_round"]
     computation_token_alert: int = DEFAULTS["computation_token_alert"]
     tool_output_limit: int = DEFAULTS["tool_output_limit"]
@@ -93,7 +94,7 @@ class Config:
 _YAML_CONFIG_FIELDS = frozenset({
     "model", "verify_model", "max_tokens", "max_iterations", "critic_every_n",
     "compress_threshold", "max_retries_on_max_tokens", "sympy_timeout_seconds",
-    "max_tool_rounds", "zero_text_bailout", "checkpoint_round",
+    "max_tool_rounds", "zero_text_bailout", "text_checkpoint_interval", "checkpoint_round",
     "computation_token_alert", "tool_output_limit", "stall_threshold", "stall_recompute_limit",
     "min_er_for_completion", "api_retry_max", "api_retry_initial_delay",
     "api_retry_max_delay", "api_timeout",

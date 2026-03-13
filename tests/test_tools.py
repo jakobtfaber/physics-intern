@@ -111,8 +111,11 @@ def _mock_provider_response(text="", stop_reason="end_turn",
     )
 
 
-def _make_config() -> Config:
-    return Config(api_key="test-key", audit_log="", logs_dir="", provider="anthropic")
+def _make_config(**overrides) -> Config:
+    defaults = dict(api_key="test-key", audit_log="", logs_dir="", provider="anthropic",
+                    text_checkpoint_interval=999)  # disable checkpoints by default in tests
+    defaults.update(overrides)
+    return Config(**defaults)
 
 
 def _mock_provider():
@@ -485,6 +488,230 @@ class TestForcedCallRetry:
 
         assert "COMP-000: Incomplete verification" in result.text
         assert "**VERDICT:** INCONCLUSIVE" in result.text
-        assert "failed to produce written output" in result.text
         assert result.stop_reason == "max_rounds_forced"
         assert provider.call.call_count == 3
+
+
+class TestInterleavedTextCheckpoint:
+    """Test interleaved text checkpoints that fire before zero_text_bailout."""
+
+    @patch("sciralph.llm._get_provider")
+    def test_checkpoint_fires_at_interval(self, mock_get_provider):
+        """Checkpoint fires after text_checkpoint_interval consecutive zero-text rounds."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        tool_resp = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        # Checkpoint call returns text
+        checkpoint_resp = _mock_provider_response("Intermediate: result is 42", "end_turn", 80, 40)
+        # Round 3 continues with tool use then produces text
+        final_resp = _mock_provider_response("## COMP-001\n**VERDICT:** VERIFIED", "end_turn", 200, 100)
+        provider.call.side_effect = [
+            tool_resp,    # round 1: tool, no text → streak=1
+            tool_resp,    # round 2: tool, no text → streak=2 → checkpoint fires
+            checkpoint_resp,  # checkpoint call → streak resets to 0
+            final_resp,   # round 3: end_turn with text
+        ]
+
+        config = _make_config()
+        config.text_checkpoint_interval = 2
+        config.zero_text_bailout = 3
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="q",
+            config=config, tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+        )
+
+        assert "VERIFIED" in result.text
+        assert result.stop_reason == "end_turn"
+        # Checkpoint tokens are accumulated
+        assert result.total_input_tokens == 100 + 100 + 80 + 200
+        assert result.total_output_tokens == 50 + 50 + 40 + 100
+
+    @patch("sciralph.llm._get_provider")
+    def test_checkpoint_failure_allows_bailout(self, mock_get_provider):
+        """If checkpoint produces no text, streak stays → bailout fires next round."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        tool_resp = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        # Checkpoint returns empty text
+        empty_checkpoint = _mock_provider_response("", "end_turn", 80, 0)
+        # Forced final call
+        forced_resp = _mock_provider_response("## COMP-001\n**VERDICT:** INCONCLUSIVE", "end_turn", 200, 100)
+        provider.call.side_effect = [
+            tool_resp,         # round 1: streak=1
+            tool_resp,         # round 2: streak=2 → checkpoint fires
+            empty_checkpoint,  # checkpoint: no text → streak stays 2
+            tool_resp,         # round 3: streak=3 → bailout
+            forced_resp,       # forced final call
+        ]
+
+        config = _make_config()
+        config.text_checkpoint_interval = 2
+        config.zero_text_bailout = 3
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="q",
+            config=config, tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
+        )
+
+        assert result.stop_reason == "max_rounds_forced"
+        assert "INCONCLUSIVE" in result.text
+
+    @patch("sciralph.llm._get_provider")
+    def test_no_checkpoint_when_text_present(self, mock_get_provider):
+        """No checkpoint fires when model produces text in every round."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        text_tool_resp = _mock_provider_response(
+            "working on it...", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        final_resp = _mock_provider_response("## COMP-001\n**VERDICT:** VERIFIED", "end_turn", 200, 100)
+        provider.call.side_effect = [text_tool_resp, text_tool_resp, final_resp]
+
+        config = _make_config()
+        config.text_checkpoint_interval = 2
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="q",
+            config=config, tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+        )
+
+        assert result.stop_reason == "end_turn"
+        # Only 3 calls (no checkpoint call)
+        assert provider.call.call_count == 3
+
+    @patch("sciralph.llm._get_provider")
+    def test_checkpoint_tokens_accumulated(self, mock_get_provider):
+        """Checkpoint call tokens are included in totals."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        tool_resp = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        checkpoint_resp = _mock_provider_response("mid-result", "end_turn", 120, 60)
+        final_resp = _mock_provider_response("Done", "end_turn", 200, 100)
+        provider.call.side_effect = [tool_resp, tool_resp, checkpoint_resp, final_resp]
+
+        config = _make_config()
+        config.text_checkpoint_interval = 2
+        config.zero_text_bailout = 3
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="q",
+            config=config, tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+        )
+
+        assert result.total_input_tokens == 100 + 100 + 120 + 200
+        assert result.total_output_tokens == 50 + 50 + 60 + 100
+
+    @patch("sciralph.llm._get_provider")
+    def test_checkpoint_does_not_fire_at_bailout_threshold(self, mock_get_provider):
+        """Checkpoint should not fire when streak equals zero_text_bailout."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        tool_resp = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        forced_resp = _mock_provider_response("## COMP-001\n**VERDICT:** INCONCLUSIVE", "end_turn", 200, 100)
+
+        # With interval=3 and bailout=3, checkpoint should NOT fire at streak=3
+        # because the guard requires streak < bailout
+        provider.call.side_effect = [tool_resp, tool_resp, tool_resp, forced_resp]
+
+        config = _make_config()
+        config.text_checkpoint_interval = 3
+        config.zero_text_bailout = 3
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="q",
+            config=config, tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
+        )
+
+        assert result.stop_reason == "max_rounds_forced"
+        # 3 tool rounds + 1 forced = 4 (no checkpoint call)
+        assert provider.call.call_count == 4
+
+
+class TestToolHistorySynthesis:
+    """Test _synthesize_from_tool_history helper."""
+
+    def test_successful_calls(self):
+        from sciralph.llm import _synthesize_from_tool_history
+        tc = ToolCall(
+            tool_name="execute_python",
+            tool_input={"code": "print(42)"},
+            output="42",
+            is_error=False,
+            duration=0.1,
+        )
+        result = _synthesize_from_tool_history([tc])
+        assert "COMP-000" in result
+        assert "INCONCLUSIVE" in result
+        assert "print(42)" in result
+        assert "42" in result
+
+    def test_errored_calls(self):
+        from sciralph.llm import _synthesize_from_tool_history
+        tc = ToolCall(
+            tool_name="execute_python",
+            tool_input={"code": "1/0"},
+            output="ZeroDivisionError: division by zero",
+            is_error=True,
+            duration=0.1,
+        )
+        result = _synthesize_from_tool_history([tc])
+        assert "COMP-000" in result
+        assert "all errored" in result
+        assert "ZeroDivisionError" in result
+
+    def test_empty_calls(self):
+        from sciralph.llm import _synthesize_from_tool_history
+        result = _synthesize_from_tool_history([])
+        assert "COMP-000" in result
+        assert "no tool output" in result.lower()
+
+    @patch("sciralph.llm._get_provider")
+    def test_synthesis_replaces_old_stub(self, mock_get_provider):
+        """Double-empty forced call now uses tool-history synthesis."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        tool_response = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python",
+                         "input": {"code": "import numpy; print(numpy.pi)"}}],
+        )
+        empty1 = _mock_provider_response("", "end_turn", 150, 0)
+        empty2 = _mock_provider_response("", "end_turn", 120, 0)
+        provider.call.side_effect = [tool_response, empty1, empty2]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="q",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
+        )
+
+        assert "COMP-000" in result.text
+        assert "INCONCLUSIVE" in result.text
+        # Should contain actual code from tool history
+        assert "numpy" in result.text

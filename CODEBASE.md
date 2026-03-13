@@ -564,6 +564,8 @@ These mechanisms prevent the computationalist from wasting rounds or producing e
 | Low-cumulative-text bailout | < 100 chars total text at halfway point (and halfway ≥ 3) | Break loop → forced final call |
 | Checkpoint message | At `checkpoint_round` (default 2) | Inject user-turn message: "CHECKPOINT: Write your COMP entry text now" |
 | Two-round escalating warning | At `max_rounds - 2`: warning; at `max_rounds - 1`: CRITICAL with exact format template | Inject user-turn messages with escalating urgency and an INCONCLUSIVE fallback template |
+| Interleaved text checkpoint | `text_checkpoint_interval` consecutive zero-text rounds (default 2, must be < `zero_text_bailout`) | Text-only LLM call via `_make_text_checkpoint_call()`; on success resets streak and injects assistant+user messages to resume tool use |
+| Tool history synthesis | Both forced final call and retry produce empty text | `_synthesize_from_tool_history()` builds COMP-000 entry from actual tool execution history (code + output excerpts) |
 | Forced text-only final call | Loop exits for any reason (max rounds, bailout, tool-call failure) | Final LLM call with `tools` omitted, strongly-worded system prompt with full COMP-NNN format, stop_reason set to `max_rounds_forced` |
 
 ### Layer 3 — Tool execution guards (`tools.py`, `sandbox.py`)
