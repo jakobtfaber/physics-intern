@@ -224,7 +224,7 @@ The `run()` template method:
 
 The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Currently only the computationalist sets `tools = ToolExecutor.TOOL_DEFINITIONS`.
 
-**Retry on truncation:** `_call_with_retry` retries up to `max_retries_on_max_tokens` times when `stop_reason == "max_tokens"`. On retry, it truncates the context (keeps first 20% + last 60%) to reduce prompt size.
+**No retry on truncation:** `_call_with_retry` returns immediately when `stop_reason == "max_tokens"` (no retries). The engine's `_record_agent_failures()` detects the truncation and injects a CAPACITY EXCEEDED banner into the orchestrator's next context via `_build_context_prefix()`, prompting task decomposition.
 
 ### Agent-by-agent summary
 
@@ -481,7 +481,6 @@ A hypothesis advances through this lifecycle:
 | `max_tokens` | 16384 | Per-call output cap |
 | `max_iterations` | 200 | Loop hard ceiling |
 | `critic_every_n` | 4 | Forced critic interval |
-| `max_retries_on_max_tokens` | 2 | BaseAgent retry count |
 | `sympy_timeout_seconds` | 60 | Sandbox per-script timeout |
 | `max_tool_rounds` | 10 | Computationalist tool loop depth |
 | `tool_output_limit` | 10000 | Chars per tool output before truncation |

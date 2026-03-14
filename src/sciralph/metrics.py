@@ -32,7 +32,6 @@ class MetricsTracker:
         self.total_answer_tokens: int = 0
         self.max_tokens_reached_count: int = 0
         self.total_tool_calls: int = 0
-        self.retries: int = 0
 
     def record_call(self, iteration: int, agent: str, input_tokens: int,
                     output_tokens: int, duration: float, max_tokens_hit: bool,
@@ -55,9 +54,6 @@ class MetricsTracker:
         if agent == "deep_critic":
             self.last_critic_iteration = iteration
 
-    def record_retry(self):
-        self.retries += 1
-
     def alert(self, iteration: int, message: str):
         self.alerts.append({"iteration": iteration, "message": message})
 
@@ -73,7 +69,6 @@ class MetricsTracker:
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
             "max_tokens_reached_count": self.max_tokens_reached_count,
-            "retries": self.retries,
         }
         if self.total_reasoning_tokens > 0:
             meta["total_reasoning_tokens"] = self.total_reasoning_tokens

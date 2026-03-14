@@ -11,7 +11,6 @@ compress_threshold:
   RESEARCH_STATE.md: 50000
   CRITIQUE_LOG.md: 30000
   COMPUTATION_LOG.md: 40000
-max_retries_on_max_tokens: 2
 sympy_timeout_seconds: 60
 max_tool_rounds: 10
 zero_text_bailout: 3
@@ -47,11 +46,6 @@ orchestrator_comp_log_tail: 5
 # --- Agentic loop bailout ---
 # Cumulative text (chars) below which agentic loop bails out at the halfway point
 low_text_bailout_chars: 100
-
-# --- Max-tokens retry truncation ---
-# Fractions of context lines kept on retry: head (first N%) and tail (last N%)
-retry_context_head_fraction: 0.2
-retry_context_tail_fraction: 0.6
 
 # --- Prior failure enrichment ---
 # Max chars of prior failure excerpt pasted into compute task body

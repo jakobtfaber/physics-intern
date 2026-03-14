@@ -11,7 +11,7 @@ from ..config import Config
 from ..llm import AgentResult, LLMResponse, call_llm, run_agent_loop
 from ..metrics import MetricsTracker
 from ..tools import ToolCall, ToolExecutor
-from ..workspace import WorkspaceManager
+from ..workspace import WorkspaceManager, log_scaffold_event
 
 if TYPE_CHECKING:
     from ..task import Task
@@ -121,42 +121,39 @@ class BaseAgent(ABC):
         return result
 
     def _call_with_retry(self, context: str, iteration: int) -> LLMResponse:
-        """Call LLM with retry on max_tokens."""
-        for attempt in range(self.config.max_retries_on_max_tokens + 1):
-            response = call_llm(self.system_prompt, context, self.config,
-                               agent_name=self.name, iteration=iteration)
+        """Call LLM once. On max_tokens, return immediately (no retry).
 
-            self.metrics.record_call(
-                iteration=iteration,
-                agent=self.name,
-                input_tokens=response.input_tokens,
-                output_tokens=response.output_tokens,
-                duration=response.duration,
-                max_tokens_hit=(response.stop_reason == "max_tokens"),
-                reasoning_tokens=response.reasoning_tokens,
-                answer_tokens=response.answer_tokens,
-            )
+        The engine's _record_agent_failures() detects stop_reason='max_tokens'
+        and injects a CAPACITY EXCEEDED banner into the orchestrator's next
+        context, prompting task decomposition.
+        """
+        response = call_llm(self.system_prompt, context, self.config,
+                           agent_name=self.name, iteration=iteration)
 
-            if response.stop_reason != "max_tokens":
-                return response
+        self.metrics.record_call(
+            iteration=iteration,
+            agent=self.name,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            duration=response.duration,
+            max_tokens_hit=(response.stop_reason == "max_tokens"),
+            reasoning_tokens=response.reasoning_tokens,
+            answer_tokens=response.answer_tokens,
+        )
 
+        if response.stop_reason == "max_tokens":
             self.metrics.alert(
                 iteration,
                 f"max_tokens_reached on {self.name} "
                 f"(input={response.input_tokens}, output={response.output_tokens})"
             )
-
-            if attempt < self.config.max_retries_on_max_tokens:
-                self.metrics.record_retry()
-                # Truncate context for retry: keep head and tail fractions
-                lines = context.splitlines()
-                if len(lines) > 20:
-                    cut = int(len(lines) * self.config.retry_context_head_fraction)
-                    keep_end = int(len(lines) * self.config.retry_context_tail_fraction)
-                    context = "\n".join(
-                        lines[:cut]
-                        + ["", "[... context truncated for retry ...]", ""]
-                        + lines[-keep_end:]
-                    )
+            log_scaffold_event(
+                self.workspace.root, iteration,
+                layer=6, event="max_tokens_no_retry",
+                detail=(
+                    f"agent={self.name}, "
+                    f"output_tokens={response.output_tokens}"
+                ),
+            )
 
         return response

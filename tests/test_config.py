@@ -19,7 +19,7 @@ class TestDefaults:
     def test_defaults_has_required_keys(self):
         required = {"model", "verify_model", "max_tokens", "max_iterations",
                      "critic_every_n", "compress_threshold",
-                     "max_retries_on_max_tokens", "sympy_timeout_seconds",
+                     "sympy_timeout_seconds",
                      "max_tool_rounds", "tool_output_limit", "min_er_for_completion"}
         assert required.issubset(DEFAULTS.keys())
 

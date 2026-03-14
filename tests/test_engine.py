@@ -1670,10 +1670,11 @@ class TestAgentFailureRouting:
         return engine
 
     def test_max_tokens_recorded(self):
-        """max_tokens stop_reason records a truncation failure."""
+        """max_tokens stop_reason records a truncation failure with token count."""
         engine = self._make_engine()
         result = MagicMock()
         result.stop_reason = "max_tokens"
+        result.output_tokens = 8000
         task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH, assigned_to="researcher")
 
         engine._record_agent_failures(task, "researcher", result)
@@ -1682,6 +1683,8 @@ class TestAgentFailureRouting:
         assert engine._agent_failures[0]["event"] == "max_tokens_truncation"
         assert engine._agent_failures[0]["task_id"] == "TASK-005"
         assert engine._agent_failures[0]["agent"] == "researcher"
+        assert "8000 tokens" in engine._agent_failures[0]["detail"]
+        assert "Decompose" in engine._agent_failures[0]["detail"]
 
     def test_max_rounds_forced_recorded(self):
         """max_rounds_forced stop_reason records an exhaustion failure."""
@@ -1714,7 +1717,11 @@ class TestAgentFailureRouting:
             "task_id": "TASK-004",
             "agent": "researcher",
             "event": "max_tokens_truncation",
-            "detail": "Task too large — consider decomposing into subtasks.",
+            "detail": (
+                "Output hit token limit (8000 tokens). "
+                "Decompose into smaller subtasks, each targeting a single "
+                "derivation step or sub-claim."
+            ),
             "iteration": 4,
         }]
         prefix = engine._build_context_prefix()
@@ -1722,6 +1729,8 @@ class TestAgentFailureRouting:
         assert "AGENT FAILURES" in prefix
         assert "TASK-004" in prefix
         assert "max_tokens_truncation" in prefix
+        assert "Decompose" in prefix
+        assert "token limit" in prefix
 
     def test_context_prefix_clears_agent_failures(self):
         """Agent failures are cleared after building context prefix."""
@@ -1967,3 +1976,93 @@ def unittest_any_string_containing(substring):
         def __repr__(self):
             return f"<string containing {substring!r}>"
     return _Matcher()
+
+
+class TestCallWithRetryNoRetry:
+    """_call_with_retry returns immediately on max_tokens — no retry loop."""
+
+    def _make_agent(self, tmp_path):
+        """Create a minimal concrete agent for testing _call_with_retry."""
+        from sciralph.agents.base import BaseAgent
+        from sciralph.llm import LLMResponse
+
+        class _StubAgent(BaseAgent):
+            name = "test_agent"
+            prompt_file = ""
+
+            def __init__(self, config, workspace, metrics):
+                super().__init__(config, workspace, metrics)
+                self._system_prompt = "system"
+
+            def build_context(self, task, iteration):
+                return "context"
+
+            def process_response(self, response, task, iteration):
+                pass
+
+        config = Config(workspace_dir=str(tmp_path))
+        ws = MagicMock()
+        ws.root = tmp_path
+        from sciralph.metrics import MetricsTracker
+        metrics = MetricsTracker()
+        return _StubAgent(config, ws, metrics), metrics
+
+    def test_no_retry_on_max_tokens(self, tmp_path):
+        """call_llm is invoked exactly once even when it returns max_tokens."""
+        from sciralph.llm import LLMResponse
+        agent, metrics = self._make_agent(tmp_path)
+
+        response = LLMResponse(
+            text="partial output...",
+            input_tokens=5000, output_tokens=8000,
+            stop_reason="max_tokens", duration=1.0,
+        )
+        with patch("sciralph.agents.base.call_llm", return_value=response) as mock_llm:
+            result = agent._call_with_retry("long context", iteration=3)
+
+        mock_llm.assert_called_once()
+        assert result.stop_reason == "max_tokens"
+        assert result.output_tokens == 8000
+
+    def test_normal_stop_returns_immediately(self, tmp_path):
+        """Normal end_turn returns without alert or scaffold event."""
+        from sciralph.llm import LLMResponse
+        agent, metrics = self._make_agent(tmp_path)
+
+        response = LLMResponse(
+            text="full output",
+            input_tokens=3000, output_tokens=2000,
+            stop_reason="end_turn", duration=0.5,
+        )
+        with patch("sciralph.agents.base.call_llm", return_value=response) as mock_llm:
+            result = agent._call_with_retry("context", iteration=1)
+
+        mock_llm.assert_called_once()
+        assert result.stop_reason == "end_turn"
+        assert len(metrics.alerts) == 0
+
+    def test_max_tokens_fires_alert_and_scaffold_event(self, tmp_path):
+        """max_tokens triggers a metrics alert and scaffold log event."""
+        from sciralph.llm import LLMResponse
+        agent, metrics = self._make_agent(tmp_path)
+
+        response = LLMResponse(
+            text="truncated...",
+            input_tokens=5000, output_tokens=8000,
+            stop_reason="max_tokens", duration=1.0,
+        )
+        with patch("sciralph.agents.base.call_llm", return_value=response), \
+             patch("sciralph.agents.base.log_scaffold_event") as mock_log:
+            agent._call_with_retry("context", iteration=3)
+
+        # Alert fired
+        assert len(metrics.alerts) == 1
+        assert "max_tokens_reached" in metrics.alerts[0]["message"]
+
+        # Scaffold event emitted
+        mock_log.assert_called_once()
+        args, kwargs = mock_log.call_args
+        assert args[1] == 3  # iteration
+        assert kwargs["layer"] == 6
+        assert kwargs["event"] == "max_tokens_no_retry"
+        assert "test_agent" in kwargs["detail"]

@@ -199,10 +199,15 @@ class SciRalph:
 
         # max_tokens truncation (one-shot or agentic)
         if stop == "max_tokens":
+            out_tok = getattr(result, "output_tokens", None) or getattr(result, "total_output_tokens", None) or 0
             self._agent_failures.append({
                 "task_id": task.task_id, "agent": agent_name,
                 "event": "max_tokens_truncation",
-                "detail": "Task too large — consider decomposing into subtasks.",
+                "detail": (
+                    f"Output hit token limit ({out_tok} tokens). "
+                    f"Decompose into smaller subtasks, each targeting a single "
+                    f"derivation step or sub-claim."
+                ),
                 "iteration": self.iteration,
             })
             log_scaffold_event(self.workspace.root, self.iteration, 6,
