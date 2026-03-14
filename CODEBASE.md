@@ -186,7 +186,7 @@ P5 is checked before P4 so stalled claims cannot be force-recomputed.
 | Budget exhaustion | Step 4 (P1) | Forces synthesize → next pass terminates |
 | Max iterations | Loop condition | `self.iteration >= self.config.max_iterations` |
 
-The `can_terminate()` gate requires: at least one ER, a critic pass has occurred, no unresolved HIGH critiques, and numerical verification when `requires_numerical: true` in problem YAML. If blocked, blockers are fed back to orchestrator.
+The `can_terminate()` gate requires: at least one VERIFIED computation triggers a mandatory critic pass, no unresolved HIGH critiques, and numerical verification when `requires_numerical: true` in problem YAML. If blocked, blockers are fed back to orchestrator.
 
 ### Dispatch routing
 
@@ -585,7 +585,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 
 | Check | Function | What it does | Failure compensated |
 |-------|----------|--------------|---------------------|
-| **ER demotion** | `check_er_promotion_gate()` Pass 1 | Scans for `## ER-NNN` headers without VERIFIED backing in COMPUTATION_LOG → rewrites to `## WH-NNN` + updates all prose references | LLM promoting WH to ER without computation |
+| **ER demotion** | `check_er_promotion_gate()` Pass 1 | Scans for `## ER-NNN` headers without VERIFIED backing in COMPUTATION_LOG → silently rewrites to `## WH-NNN` + updates all prose references (not injected into orchestrator context to prevent re-promotion churn) | LLM promoting WH to ER without computation |
 | **WH promotion** | `check_er_promotion_gate()` Pass 2 | Scans for `## WH-NNN` headers that DO have VERIFIED backing → promotes to `## ER-NNN` | LLM failing to promote after verification |
 | **Agent routing fix** | `check_task_agent_routing()` | Corrects known aliases in `assigned_to` frontmatter ("compute"→"computationalist", "critique"→"deep_critic", etc.) | LLM using shortform agent names |
 | **Phantom label stripping** | `check_phantom_labels()` | Finds "VERIFIED" in prose near ER/WH IDs without computation backing → replaces with `[unverified]` | LLM copying "VERIFIED" from existing text without evidence |
@@ -594,7 +594,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | **Verified frontmatter backfill** | `check_verified_frontmatter_backfill()` | Ensures `verified_results` list in RESEARCH_STATE frontmatter includes all IDs with VERIFIED entries; normalises WH↔ER form | LLM forgetting to update frontmatter |
 | **ID consistency** | `check_id_consistency()` | Corrects `total_computations` in COMPUTATION_LOG frontmatter to match actual `## COMP-NNN` header count | LLM writing wrong counter value |
 | **Critique resolution consistency** | `check_critique_resolution_consistency()` | Checks that resolved critiques actually had their fixes applied: target ER/WH still exists in RESEARCH_STATE, no leftover dual WH/ER labels | LLM marking critiques "resolved" without applying the fix |
-| **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when ERs exist, (2) zero unresolved HIGH critiques, (3) computation exists when `requires_numerical` | LLM trying to terminate prematurely |
+| **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when VERIFIED computations exist, (2) zero unresolved HIGH critiques, (3) computation exists when `requires_numerical` | LLM trying to terminate prematurely |
 
 ### Layer 5 — Engine override chain (`engine.py` → `_apply_overrides`)
 
@@ -622,7 +622,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | Displaced-task transparency | `_log_displacement()` + `_build_context_prefix()` | Logs every overridden task and feeds the list to the orchestrator's next context: "Consider re-scheduling if still needed" | Orchestrator unaware that its planned task was overridden |
 | Dispatch-level verdict tracking | `_track_compute_verdict()` | Counts consecutive non-VERIFIED verdicts per claim; below `stall_recompute_limit` sets `_pending_recompute_claim` and `_pending_recompute_verdict` (actual verdict), at/above limit escalates to `_stalled_claims` with violation | Infinite recompute loops on persistently failing claims |
 | Agent failure routing | `_record_agent_failures()` + `_build_context_prefix()` | Records max_tokens truncation, max_rounds exhaustion, and non-VERIFIED compute verdicts; shows "AGENT FAILURES" banner to orchestrator on next pass | Orchestrator re-issuing identical failing tasks without awareness of prior failures |
-| Violations/blockers as context prefix | `_build_context_prefix()` | All pending violations and termination blockers serialised into orchestrator's next user message with explicit "Do NOT emit terminate again" instruction | Orchestrator ignoring validation failures |
+| Violations/blockers as context prefix | `_build_context_prefix()` | All pending violations (except ER promotion gate, which is enforced silently by state rewrite) and termination blockers serialised into orchestrator's next user message with explicit "Do NOT emit terminate again" instruction | Orchestrator ignoring validation failures |
 | Forced compression at 2x threshold | `_check_compression()` | Force-compresses files exceeding 2× threshold | Runaway file growth crashing context window |
 
 ### Layer 7 — Orchestrator-level corrections (`agents/orchestrator.py`)

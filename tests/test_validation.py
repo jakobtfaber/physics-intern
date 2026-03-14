@@ -119,7 +119,7 @@ T = hbar * kappa / (2 pi k_B)
         violations = check_er_promotion_gate(ws)
 
         assert len(violations) == 1
-        assert violations[0].severity == ViolationSeverity.ERROR
+        assert violations[0].severity == ViolationSeverity.WARNING
         assert "demoted" in violations[0].message
         assert "ER-001" in violations[0].detail
         # State should now have WH-001
@@ -649,10 +649,12 @@ class TestCanTerminate:
         assert blockers == []
 
     def test_blocked_by_no_critic_pass(self):
-        """If ERs exist but no critic pass has occurred, termination blocked."""
+        """If VERIFIED computations exist but no critic pass has occurred, termination blocked."""
+        meta = {"total_computations": 1}
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify WH-001\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
         ws = MockWorkspace({
             "RESEARCH_STATE.md": "## ER-001 Some result\n\nContent.\n",
-            "COMPUTATION_LOG.md": "",
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
             "CRITIQUE_LOG.md": "",
         })
         metrics = MockMetrics(last_critic_iteration=0)
@@ -661,10 +663,12 @@ class TestCanTerminate:
         assert any("critic pass" in b.lower() for b in blockers)
 
     def test_allowed_with_critic_pass_done(self):
-        """ERs exist and a critic pass has occurred => gate 1 passes."""
+        """VERIFIED computations exist and a critic pass has occurred => gate 1 passes."""
+        meta = {"total_computations": 1}
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify WH-001\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
         ws = MockWorkspace({
             "RESEARCH_STATE.md": "## ER-001 Some result\n\nContent.\n",
-            "COMPUTATION_LOG.md": "",
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
             "CRITIQUE_LOG.md": "",
         })
         metrics = MockMetrics(last_critic_iteration=3)
@@ -756,17 +760,20 @@ OK.
 
 Big problem.
 """
+        meta = {"total_computations": 1}
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify WH-001\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
         ws = MockWorkspace({
             "RESEARCH_STATE.md": "## ER-001 Something\n\nContent.\n",
-            "COMPUTATION_LOG.md": "",
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
             "CRITIQUE_LOG.md": critique,
         })
         metrics = MockMetrics(last_critic_iteration=0)
         problem_meta = {"requires_numerical": True}
         allowed, blockers = can_terminate(ws, self._base_config(), metrics, problem_meta)
         assert allowed is False
-        # Should have at least 3 blockers: no critic, HIGH critique, no computations
-        assert len(blockers) >= 3
+        # Should have at least 2 blockers: no critic, HIGH critique
+        # (Gate 3 passes because comp_log has entries)
+        assert len(blockers) >= 2
 
     def test_none_problem_meta_treated_as_empty(self):
         ws = MockWorkspace({
@@ -779,16 +786,43 @@ Big problem.
         assert allowed is True
 
     def test_bold_format_er_detected_for_critic_gate(self):
-        """ERs in bold format (**ER-NNN**) should trigger the critic-pass gate."""
+        """VERIFIED computation should trigger the critic-pass gate regardless of header format."""
+        meta = {"total_computations": 1}
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify ER-001 partition function\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
         ws = MockWorkspace({
             "RESEARCH_STATE.md": "**ER-001 — Partition Function**\nBody.\n",
-            "COMPUTATION_LOG.md": "",
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
             "CRITIQUE_LOG.md": "",
         })
         metrics = MockMetrics(last_critic_iteration=0)
         allowed, blockers = can_terminate(ws, self._base_config(), metrics)
         assert allowed is False
         assert any("critic pass" in b.lower() for b in blockers)
+
+    def test_blocked_by_verified_comp_without_critic(self):
+        """WHs only (no ERs) but VERIFIED computation exists => should block (GPT-OSS failure mode)."""
+        meta = {"total_computations": 1}
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify WH-001 partition function\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": "## WH-001 Partition Function\n\nZ = 1/(2 sinh(...))\n",
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
+            "CRITIQUE_LOG.md": "",
+        })
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        assert allowed is False
+        assert any("critic pass" in b.lower() for b in blockers)
+
+    def test_no_verified_comp_allows_termination_without_critic(self):
+        """No verified computations => critic not required (early termination of empty runs)."""
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": "## WH-001 Some hypothesis\n\nContent.\n",
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        assert allowed is True
 
 
 class TestErPromotionGateBoldFormat:

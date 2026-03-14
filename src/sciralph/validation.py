@@ -12,7 +12,6 @@ from .markdown import (
     render_frontmatter,
     _parse_comp_entries,
     count_unresolved_critiques,
-    count_er_sections,
     find_er_section_ids,
     flatten_unverified_brackets,
     _ER_WH_ID_RE,
@@ -119,7 +118,7 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
             changed = True
             violations.append(Violation(
                 check="er_promotion_gate",
-                severity=ViolationSeverity.ERROR,
+                severity=ViolationSeverity.WARNING,
                 message=f"{er_id} has no VERIFIED computation backing — demoted to {wh_id}",
                 file="RESEARCH_STATE.md",
                 detail=er_id,
@@ -565,10 +564,11 @@ def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsT
     state = workspace.read_file("RESEARCH_STATE.md")
     comp_log = workspace.read_file("COMPUTATION_LOG.md")
 
-    er_count = count_er_sections(state)
+    entries = _parse_comp_entries(comp_log)
 
-    # Gate 1: At least one critic pass if ERs exist
-    if er_count > 0 and metrics.last_critic_iteration == 0:
+    # Gate 1: At least one critic pass if verified results exist
+    has_verified = any(e["verdict"] == "VERIFIED" for e in entries)
+    if has_verified and metrics.last_critic_iteration == 0:
         blockers.append(
             "No critic pass has occurred yet. "
             "Emit task_type: critique to run a review before terminating."
@@ -586,7 +586,6 @@ def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsT
     # Gate 3: At least one computation when problem requires it
     meta = problem_meta or {}
     if meta.get("requires_numerical", False):
-        entries = _parse_comp_entries(comp_log)
         if len(entries) == 0:
             blockers.append(
                 "Problem requires numerical verification but COMPUTATION_LOG has 0 entries. "

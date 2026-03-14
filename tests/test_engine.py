@@ -905,6 +905,30 @@ class TestTerminationGate:
         prefix = engine._build_context_prefix()
         assert prefix == ""
 
+    def test_context_prefix_filters_er_promotion_gate(self):
+        """ER promotion gate violations are silently filtered; other violations appear."""
+        engine, _ = self._make_engine()
+        engine._pending_violations = [
+            Violation(
+                check="er_promotion_gate", severity=ViolationSeverity.WARNING,
+                message="ER-001 has no VERIFIED computation backing — demoted to WH-001",
+                file="RESEARCH_STATE.md", detail="ER-001",
+            ),
+            Violation(
+                check="phantom_references", severity=ViolationSeverity.ERROR,
+                message="Phantom reference COMP-999", file="RESEARCH_STATE.md",
+            ),
+        ]
+        prefix = engine._build_context_prefix()
+
+        assert "POST-INTEGRATION VIOLATIONS" in prefix
+        assert "phantom_references" in prefix
+        assert "COMP-999" in prefix
+        # ER promotion gate violation should NOT appear
+        assert "er_promotion_gate" not in prefix
+        assert "UNVERIFIED CLAIMS" not in prefix
+        assert len(engine._pending_violations) == 0  # consumed
+
 
 class TestIsStaleLoop:
     """Test the _is_stale_loop detection."""
