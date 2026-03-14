@@ -1,6 +1,6 @@
 """Provider factory and re-exports."""
 
-from .base import LLMProvider, ProviderResponse
+from .base import LLMProvider, ProviderResponse, estimate_reasoning_tokens
 
 
 def create_provider(provider_name: str, api_key: str = "", **kwargs) -> LLMProvider:
@@ -21,4 +21,4 @@ def create_provider(provider_name: str, api_key: str = "", **kwargs) -> LLMProvi
         raise ValueError(f"Unknown provider: {provider_name}")
 
 
-__all__ = ["LLMProvider", "ProviderResponse", "create_provider"]
+__all__ = ["LLMProvider", "ProviderResponse", "estimate_reasoning_tokens", "create_provider"]

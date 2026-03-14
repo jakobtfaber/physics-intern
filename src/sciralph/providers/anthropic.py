@@ -50,12 +50,14 @@ class AnthropicProvider(LLMProvider):
         if tools:
             kwargs["tools"] = self._transform_tools(tools)
 
-        # Explicit timeout bypasses the SDK's nonstreaming timeout check
-        # which rejects large max_tokens (e.g. when thinking is enabled)
-        response = self._client.messages.create(
+        # Use streaming to avoid network timeouts on long requests.
+        # Streaming keeps the connection alive via SSE; get_final_message()
+        # returns the same Message object as messages.create().
+        with self._client.messages.stream(
             **kwargs,
             timeout=self._timeout,
-        )
+        ) as stream:
+            response = stream.get_final_message()
 
         # Extract text
         text_parts = []
@@ -76,11 +78,20 @@ class AnthropicProvider(LLMProvider):
                         "input": block.input,
                     })
 
+        # Estimate reasoning vs answer token split.
+        # Anthropic output_tokens includes thinking; estimate answer from visible text.
+        output_tokens = response.usage.output_tokens
+        content_words = len(text.split()) if text else 0
+        answer_tokens = int(content_words * 1.3)
+        reasoning_tokens = max(0, output_tokens - answer_tokens)
+
         return ProviderResponse(
             text=text,
             input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
+            output_tokens=output_tokens,
             stop_reason=response.stop_reason,
+            reasoning_tokens=reasoning_tokens,
+            answer_tokens=answer_tokens,
             tool_calls=tool_calls,
             raw_content=response.content,
         )

@@ -39,7 +39,8 @@ def _get_provider(config: Config) -> LLMProvider:
 _TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
 _TRANSIENT_EXC_NAMES = {"ConnectionError", "TimeoutError", "ReadTimeout",
                          "ConnectTimeout", "ConnectionResetError",
-                         "RemoteDisconnected", "BrokenPipeError"}
+                         "RemoteDisconnected", "BrokenPipeError",
+                         "APITimeoutError"}
 
 
 def _is_tool_call_failure(exc: Exception) -> bool:
@@ -125,6 +126,8 @@ class LLMResponse:
     output_tokens: int
     stop_reason: str
     duration: float
+    reasoning_tokens: int = 0
+    answer_tokens: int = 0
 
 
 @dataclass
@@ -139,6 +142,8 @@ class AgentResult:
     duration: float = 0.0
     stop_reason: str = "end_turn"
     token_alert_fired: bool = False
+    total_reasoning_tokens: int = 0
+    total_answer_tokens: int = 0
 
 
 def call_llm(system: str, user_content: str, config: Config,
@@ -164,6 +169,8 @@ def call_llm(system: str, user_content: str, config: Config,
         output_tokens=resp.output_tokens,
         stop_reason=resp.stop_reason,
         duration=duration,
+        reasoning_tokens=resp.reasoning_tokens,
+        answer_tokens=resp.answer_tokens,
     )
 
     if config.audit_log:
@@ -180,10 +187,10 @@ def _make_text_checkpoint_call(
     provider: LLMProvider, config: Config, system: str,
     messages: list[dict], round_num: int, iteration: int,
     agent_name: str = "",
-) -> tuple[str, int, int]:
+) -> tuple[str, int, int, int, int]:
     """Force a text-only checkpoint call mid-loop to extract intermediate findings.
 
-    Returns (text, input_tokens, output_tokens).
+    Returns (text, input_tokens, output_tokens, reasoning_tokens, answer_tokens).
     """
     checkpoint_system = (
         system + "\n\n"
@@ -211,9 +218,11 @@ def _make_text_checkpoint_call(
         _write_audit_entry(config, LLMResponse(
             text, resp.input_tokens, resp.output_tokens,
             "text_checkpoint", dur,
+            reasoning_tokens=resp.reasoning_tokens,
+            answer_tokens=resp.answer_tokens,
         ), checkpoint_system, "", agent_name, iteration, round=round_num)
 
-    return text, resp.input_tokens, resp.output_tokens
+    return text, resp.input_tokens, resp.output_tokens, resp.reasoning_tokens, resp.answer_tokens
 
 
 def _synthesize_from_tool_history(all_tool_calls: list[ToolCall]) -> str:
@@ -268,6 +277,8 @@ def run_agent_loop(
     all_tool_calls: list[ToolCall] = []
     total_input = 0
     total_output = 0
+    total_reasoning = 0
+    total_answer = 0
     zero_text_streak = 0
     cumulative_text_len = 0
     low_cumulative_bailout = False
@@ -306,6 +317,8 @@ def run_agent_loop(
 
         total_input += resp.input_tokens
         total_output += resp.output_tokens
+        total_reasoning += resp.reasoning_tokens
+        total_answer += resp.answer_tokens
         if total_input > config.computation_token_alert:
             token_alert_fired = True
 
@@ -317,6 +330,8 @@ def run_agent_loop(
             output_tokens=resp.output_tokens,
             stop_reason=resp.stop_reason,
             duration=duration,
+            reasoning_tokens=resp.reasoning_tokens,
+            answer_tokens=resp.answer_tokens,
         )
         if config.audit_log:
             _write_audit_entry(config, round_resp, system, user_content,
@@ -342,6 +357,8 @@ def run_agent_loop(
                 duration=time.time() - overall_start,
                 stop_reason="end_turn",
                 token_alert_fired=token_alert_fired,
+                total_reasoning_tokens=total_reasoning,
+                total_answer_tokens=total_answer,
             )
 
         # max_tokens: truncated
@@ -356,6 +373,8 @@ def run_agent_loop(
                 duration=time.time() - overall_start,
                 stop_reason="max_tokens",
                 token_alert_fired=token_alert_fired,
+                total_reasoning_tokens=total_reasoning,
+                total_answer_tokens=total_answer,
             )
 
         # tool_use: execute tools and continue
@@ -404,12 +423,14 @@ def run_agent_loop(
                     log_scaffold_event(config.workspace_dir, iteration, 2,
                                        "text_checkpoint", f"streak={zero_text_streak}")
                 try:
-                    cp_text, cp_in, cp_out = _make_text_checkpoint_call(
+                    cp_text, cp_in, cp_out, cp_reasoning, cp_answer = _make_text_checkpoint_call(
                         provider, config, system, messages,
                         round_num, iteration, agent_name,
                     )
                     total_input += cp_in
                     total_output += cp_out
+                    total_reasoning += cp_reasoning
+                    total_answer += cp_answer
                     if cp_text:
                         zero_text_streak = 0
                         cumulative_text_len += len(cp_text)
@@ -536,7 +557,7 @@ def run_agent_loop(
     )
 
     final_text = ""
-    final_in = final_out = 0
+    final_in = final_out = final_reasoning = final_answer = 0
     final_dur = 0.0
     try:
         start = time.time()
@@ -553,8 +574,12 @@ def run_agent_loop(
         final_dur = time.time() - start
         final_in = final_resp.input_tokens
         final_out = final_resp.output_tokens
+        final_reasoning = final_resp.reasoning_tokens
+        final_answer = final_resp.answer_tokens
         total_input += final_in
         total_output += final_out
+        total_reasoning += final_reasoning
+        total_answer += final_answer
         final_text = final_resp.text.strip()
     except Exception as exc:
         console.print(
@@ -585,6 +610,8 @@ def run_agent_loop(
             final_text = retry_resp.text.strip()
             total_input += retry_resp.input_tokens
             total_output += retry_resp.output_tokens
+            total_reasoning += retry_resp.reasoning_tokens
+            total_answer += retry_resp.answer_tokens
         except Exception:
             final_text = ""
 
@@ -601,7 +628,8 @@ def run_agent_loop(
 
     if config.audit_log:
         _write_audit_entry(config, LLMResponse(
-            final_text, final_in, final_out, "forced_partial", final_dur
+            final_text, final_in, final_out, "forced_partial", final_dur,
+            reasoning_tokens=final_reasoning, answer_tokens=final_answer,
         ), forced_system, user_content, agent_name, iteration,
         round=round_num + 1)
 
@@ -615,6 +643,8 @@ def run_agent_loop(
         duration=time.time() - overall_start,
         stop_reason="max_rounds_forced",
         token_alert_fired=token_alert_fired,
+        total_reasoning_tokens=total_reasoning,
+        total_answer_tokens=total_answer,
     )
 
 
@@ -635,6 +665,10 @@ def _write_audit_entry(config: Config, resp: LLMResponse,
         "user_content_chars": len(user_content),
         "response_chars": len(resp.text),
     }
+    if resp.reasoning_tokens > 0:
+        entry["reasoning_tokens"] = resp.reasoning_tokens
+    if resp.answer_tokens > 0:
+        entry["answer_tokens"] = resp.answer_tokens
     if round > 0:
         entry["round"] = round
     try:
@@ -658,6 +692,13 @@ def _write_conversation_log(config: Config, resp: LLMResponse,
     filename = f"iter{iteration:03d}_{agent}_{seq}.md"
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+    reasoning_rows = ""
+    if resp.reasoning_tokens > 0:
+        reasoning_rows = (
+            f"| Reasoning tokens | {resp.reasoning_tokens} |\n"
+            f"| Answer tokens | {resp.answer_tokens} |\n"
+        )
+
     content = f"""# LLM Call — iter {iteration}, {agent}, seq {seq}
 
 | Field | Value |
@@ -666,7 +707,7 @@ def _write_conversation_log(config: Config, resp: LLMResponse,
 | Model | {config.model} |
 | Input tokens | {resp.input_tokens} |
 | Output tokens | {resp.output_tokens} |
-| Duration | {resp.duration:.2f}s |
+{reasoning_rows}| Duration | {resp.duration:.2f}s |
 | Stop reason | {resp.stop_reason} |
 
 ## System Prompt

@@ -63,11 +63,19 @@ class OpenAIProvider(LLMProvider):
 
         stop_reason = _STOP_REASON_MAP.get(choice.finish_reason, choice.finish_reason)
 
+        # Extract native reasoning token breakdown when available
+        reasoning_tokens = 0
+        if hasattr(response.usage, 'completion_tokens_details') and response.usage.completion_tokens_details:
+            reasoning_tokens = getattr(response.usage.completion_tokens_details, 'reasoning_tokens', 0) or 0
+        answer_tokens = max(0, response.usage.completion_tokens - reasoning_tokens)
+
         return ProviderResponse(
             text=text,
             input_tokens=response.usage.prompt_tokens,
             output_tokens=response.usage.completion_tokens,
             stop_reason=stop_reason,
+            reasoning_tokens=reasoning_tokens,
+            answer_tokens=answer_tokens,
             tool_calls=tool_calls,
             raw_content=choice.message,
         )

@@ -67,6 +67,7 @@ deepseek-v3.2:
   env_key: HF_TOKEN
   input_cost: 0.56
   output_cost: 1.68
+  reasoning_format: think_tags
 
 kimi-k2.5:
   provider: huggingface
@@ -74,6 +75,7 @@ kimi-k2.5:
   env_key: HF_TOKEN
   input_cost: 0.50
   output_cost: 2.80
+  reasoning_format: separate_field
 
 glm-5:
   provider: huggingface
@@ -81,6 +83,7 @@ glm-5:
   env_key: HF_TOKEN
   input_cost: 1.00
   output_cost: 3.20
+  reasoning_format: separate_field
 
 gpt-oss-120b:
   provider: huggingface
@@ -88,6 +91,7 @@ gpt-oss-120b:
   env_key: HF_TOKEN
   input_cost: 0.25
   output_cost: 0.69
+  reasoning_format: separate_field
 
 minimax-m2.5:
   provider: huggingface
@@ -102,3 +106,4 @@ qwen-3.5-397B-A17B:
   env_key: HF_TOKEN
   input_cost: 0.60
   output_cost: 3.60
+  reasoning_format: think_tags

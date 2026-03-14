@@ -126,7 +126,7 @@ def _resolve_model(model_key: str) -> dict | None:
             return None
         reasoning = {}
         for key in ("reasoning_budget", "reasoning_effort", "thinking_level",
-                     "thinking", "effort"):
+                     "thinking", "effort", "reasoning_format"):
             if key in entry:
                 reasoning[key] = entry[key]
         return {

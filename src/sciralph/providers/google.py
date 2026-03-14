@@ -116,18 +116,23 @@ class GoogleProvider(LLMProvider):
               and response.candidates[0].finish_reason.name == "MAX_TOKENS"):
             stop_reason = "max_tokens"
 
-        # Token usage
+        # Token usage — include thoughts_token_count to fix undercounting
         input_tokens = 0
-        output_tokens = 0
+        answer_tokens = 0
+        reasoning_tokens = 0
         if response.usage_metadata:
             input_tokens = response.usage_metadata.prompt_token_count or 0
-            output_tokens = response.usage_metadata.candidates_token_count or 0
+            answer_tokens = response.usage_metadata.candidates_token_count or 0
+            reasoning_tokens = getattr(response.usage_metadata, 'thoughts_token_count', 0) or 0
+        output_tokens = answer_tokens + reasoning_tokens
 
         return ProviderResponse(
             text=text,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             stop_reason=stop_reason,
+            reasoning_tokens=reasoning_tokens,
+            answer_tokens=answer_tokens,
             tool_calls=tool_calls,
             raw_content=response.candidates[0].content if response.candidates else None,
         )

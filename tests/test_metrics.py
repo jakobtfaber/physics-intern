@@ -108,3 +108,45 @@ def test_default_tool_fields():
     assert m.calls[0].rounds == 1
     assert m.calls[0].tool_calls == 0
     assert not m.calls[0].truncated
+
+
+# --- Reasoning token metrics tests ---
+
+def test_reasoning_tokens_accumulate():
+    """total_reasoning_tokens and total_answer_tokens accumulate correctly."""
+    m = MetricsTracker()
+    m.record_call(1, "orchestrator", 1000, 500, 2.5, False,
+                  reasoning_tokens=300, answer_tokens=200)
+    m.record_call(2, "researcher", 2000, 800, 3.0, False,
+                  reasoning_tokens=500, answer_tokens=300)
+    assert m.total_reasoning_tokens == 800
+    assert m.total_answer_tokens == 500
+
+
+def test_reasoning_tokens_default_zero():
+    """Reasoning tokens default to 0 for backward compatibility."""
+    m = MetricsTracker()
+    m.record_call(1, "orchestrator", 100, 50, 1.0, False)
+    assert m.total_reasoning_tokens == 0
+    assert m.total_answer_tokens == 0
+    assert m.calls[0].reasoning_tokens == 0
+    assert m.calls[0].answer_tokens == 0
+
+
+def test_reasoning_tokens_in_markdown():
+    """Reasoning token totals appear in YAML frontmatter when > 0."""
+    m = MetricsTracker()
+    m.record_call(1, "orchestrator", 1000, 500, 2.5, False,
+                  reasoning_tokens=300, answer_tokens=200)
+    md = m.to_markdown()
+    assert "total_reasoning_tokens: 300" in md
+    assert "total_answer_tokens: 200" in md
+
+
+def test_no_reasoning_tokens_in_markdown_when_zero():
+    """Reasoning token fields omitted from frontmatter when all zero."""
+    m = MetricsTracker()
+    m.record_call(1, "orchestrator", 1000, 500, 2.5, False)
+    md = m.to_markdown()
+    assert "total_reasoning_tokens" not in md
+    assert "total_answer_tokens" not in md

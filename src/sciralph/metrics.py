@@ -15,6 +15,8 @@ class CallRecord:
     rounds: int = 1
     tool_calls: int = 0
     truncated: bool = False
+    reasoning_tokens: int = 0
+    answer_tokens: int = 0
 
 
 class MetricsTracker:
@@ -26,21 +28,27 @@ class MetricsTracker:
         self.last_critic_iteration: int = 0
         self.total_input_tokens: int = 0
         self.total_output_tokens: int = 0
+        self.total_reasoning_tokens: int = 0
+        self.total_answer_tokens: int = 0
         self.max_tokens_reached_count: int = 0
         self.total_tool_calls: int = 0
         self.retries: int = 0
 
     def record_call(self, iteration: int, agent: str, input_tokens: int,
                     output_tokens: int, duration: float, max_tokens_hit: bool,
-                    rounds: int = 1, tool_calls: int = 0, truncated: bool = False):
+                    rounds: int = 1, tool_calls: int = 0, truncated: bool = False,
+                    reasoning_tokens: int = 0, answer_tokens: int = 0):
         self.calls.append(CallRecord(
             iteration=iteration, agent=agent,
             input_tokens=input_tokens, output_tokens=output_tokens,
             duration=duration, max_tokens_hit=max_tokens_hit,
             rounds=rounds, tool_calls=tool_calls, truncated=truncated,
+            reasoning_tokens=reasoning_tokens, answer_tokens=answer_tokens,
         ))
         self.total_input_tokens += input_tokens
         self.total_output_tokens += output_tokens
+        self.total_reasoning_tokens += reasoning_tokens
+        self.total_answer_tokens += answer_tokens
         self.total_tool_calls += tool_calls
         if max_tokens_hit:
             self.max_tokens_reached_count += 1
@@ -67,6 +75,9 @@ class MetricsTracker:
             "max_tokens_reached_count": self.max_tokens_reached_count,
             "retries": self.retries,
         }
+        if self.total_reasoning_tokens > 0:
+            meta["total_reasoning_tokens"] = self.total_reasoning_tokens
+            meta["total_answer_tokens"] = self.total_answer_tokens
         if has_tool_calls:
             meta["total_tool_calls"] = self.total_tool_calls
 

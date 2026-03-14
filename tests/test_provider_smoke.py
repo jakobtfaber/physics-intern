@@ -36,6 +36,8 @@ def _assert_basic_response(resp):
     assert resp.stop_reason == "end_turn", f"Expected end_turn, got {resp.stop_reason}"
     assert resp.input_tokens > 0
     assert resp.output_tokens >= 0  # some providers report 0 with thinking enabled
+    assert resp.reasoning_tokens >= 0
+    assert resp.answer_tokens >= 0
     assert "4" in resp.text
 
 
@@ -59,6 +61,8 @@ class TestAnthropicSmoke:
         )
         resp = _simple_call(provider, "claude-sonnet-4-6")
         _assert_basic_response(resp)
+        # With thinking enabled, reasoning_tokens should be positive
+        assert resp.output_tokens == resp.reasoning_tokens + resp.answer_tokens
 
 
 # ── OpenAI ──────────────────────────────────────────────────────────────────
@@ -81,6 +85,7 @@ class TestOpenAISmoke:
         )
         resp = _simple_call(provider, "gpt-5.4")
         _assert_basic_response(resp)
+        assert resp.output_tokens == resp.reasoning_tokens + resp.answer_tokens
 
 
 # ── Google ──────────────────────────────────────────────────────────────────
@@ -103,6 +108,7 @@ class TestGoogleSmoke:
         )
         resp = _simple_call(provider, "gemini-3.1-pro-preview")
         _assert_basic_response(resp)
+        assert resp.output_tokens == resp.reasoning_tokens + resp.answer_tokens
 
 
 # ── HuggingFace ─────────────────────────────────────────────────────────────

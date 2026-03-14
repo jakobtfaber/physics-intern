@@ -100,6 +100,8 @@ class BaseAgent(ABC):
             rounds=result.rounds,
             tool_calls=len(result.tool_calls),
             truncated=result.truncated,
+            reasoning_tokens=result.total_reasoning_tokens,
+            answer_tokens=result.total_answer_tokens,
         )
 
         if result.truncated:
@@ -131,6 +133,8 @@ class BaseAgent(ABC):
                 output_tokens=response.output_tokens,
                 duration=response.duration,
                 max_tokens_hit=(response.stop_reason == "max_tokens"),
+                reasoning_tokens=response.reasoning_tokens,
+                answer_tokens=response.answer_tokens,
             )
 
             if response.stop_reason != "max_tokens":
