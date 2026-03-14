@@ -54,6 +54,9 @@ def main():
         problem_def = yaml.safe_load(f)
 
     problem = problem_def.get("problem", "")
+    answer_template = problem_def.get("answer_template", "")
+    if answer_template:
+        problem += f"\n\n## Answer Template\n\n{answer_template}"
 
     # Build config (3-tier merge)
     config = build_config(args)

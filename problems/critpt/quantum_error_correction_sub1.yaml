@@ -35,3 +35,28 @@ requires_numerical: true
 
 answer: |
   F_logical = 1 - (sp.Rational(16, 75)* p**2) / (1 - sp.Rational(8, 5)* p + sp.Rational(64, 75)* p**2)
+
+answer_template: |
+  import sympy as sp
+
+  p = sp.symbols('p')
+
+  def answer(p):
+      r"""
+      Return the expression of logical state fidelity of the final 2-qubit logical state
+      at the end of the circuit as a function of the two-qubit gate error rate $p$ in Sympy format.
+
+      Inputs
+      ----------
+      p: sympy.Symbol, the two-qubit gate error rate, $p$
+
+      Outputs
+      ----------
+      F_logical: sympy.Expr, the logical state fidelity as a function of $p$
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      F_logical = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return F_logical

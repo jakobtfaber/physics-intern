@@ -47,8 +47,22 @@ def json_to_yamls(json_path: str) -> None:
                 answer_lines.append("")
         indented_answer = "\n".join(answer_lines)
 
+        # Get code template
+        template = problem.get("code_template", "").strip()
+
+        # Indent template lines for YAML literal block scalar
+        template_lines = []
+        for line in template.split("\n"):
+            if line.strip():
+                template_lines.append(f"  {line}")
+            else:
+                template_lines.append("")
+        indented_template = "\n".join(template_lines)
+
         # Build YAML content
         yaml_content = f"problem: |\n{indented}\n\nrequires_numerical: true\n\nanswer: |\n{indented_answer}\n"
+        if template:
+            yaml_content += f"\nanswer_template: |\n{indented_template}\n"
 
         output_path = os.path.join(output_dir, filename)
         with open(output_path, "w") as f:
