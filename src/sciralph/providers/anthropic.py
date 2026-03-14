@@ -9,34 +9,37 @@ class AnthropicProvider(LLMProvider):
     """Anthropic Claude API provider."""
 
     def __init__(self, api_key: str = "", reasoning_budget: int = 0,
+                 thinking: bool = False, effort: str = "",
                  timeout: float = 600.0,
                  thinking_token_headroom: int = 1024, **kwargs):
         self._client = anthropic.Anthropic(api_key=api_key)
+        self._thinking = thinking or reasoning_budget > 0  # backward compat
         self._reasoning_budget = reasoning_budget
+        self._effort = effort
         self._timeout = timeout
         self._thinking_token_headroom = thinking_token_headroom
 
-    # Opus 4.6 requires adaptive thinking (no budget_tokens);
-    # other models use manual thinking with budget_tokens.
-    _ADAPTIVE_ONLY_MODELS = {"claude-opus-4-6"}
-
     def call(self, model: str, max_tokens: int, system: str,
              messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
-        if self._reasoning_budget > 0:
-            # Anthropic requires max_tokens > budget_tokens when thinking is enabled
-            effective_max = max(max_tokens, self._reasoning_budget + self._thinking_token_headroom)
-            if model in self._ADAPTIVE_ONLY_MODELS:
-                thinking = {"type": "adaptive"}
+        if self._thinking:
+            if self._reasoning_budget > 0:
+                # Legacy manual mode for older models with explicit budget_tokens
+                effective_max = max(max_tokens, self._reasoning_budget + self._thinking_token_headroom)
+                thinking_cfg = {"type": "enabled", "budget_tokens": self._reasoning_budget}
             else:
-                thinking = {"type": "enabled", "budget_tokens": self._reasoning_budget}
+                # Adaptive mode (recommended for Claude 4.6 models)
+                effective_max = max_tokens
+                thinking_cfg = {"type": "adaptive"}
             kwargs = dict(
                 model=model,
                 max_tokens=effective_max,
                 system=system,
                 messages=messages,
-                thinking=thinking,
+                thinking=thinking_cfg,
                 temperature=1.0,  # Required by Anthropic when thinking is enabled
             )
+            if self._effort:
+                kwargs["output_config"] = {"effort": self._effort}
         else:
             kwargs = dict(
                 model=model,

@@ -13,7 +13,8 @@ claude-opus-4.6:
   env_key: ANTHROPIC_API_KEY
   input_cost: 5.00
   output_cost: 25.00
-  reasoning_budget: 32000
+  thinking: true
+  effort: max
 
 claude-sonnet-4.6:
   provider: anthropic
@@ -21,6 +22,8 @@ claude-sonnet-4.6:
   env_key: ANTHROPIC_API_KEY
   input_cost: 3.00
   output_cost: 15.00
+  thinking: true
+  effort: high
 
 # ============================================================================
 # OpenAI
