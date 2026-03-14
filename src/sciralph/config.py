@@ -60,7 +60,7 @@ class Config:
     prior_failure_excerpt_chars: int = DEFAULTS["prior_failure_excerpt_chars"]
     thinking_token_headroom: int = DEFAULTS["thinking_token_headroom"]
     provider: str = ""
-    workspace_dir: str = "workspaces"
+    workspace_dir: str = ""
     audit_log: str = ""
     logs_dir: str = ""
     api_key: str = ""
