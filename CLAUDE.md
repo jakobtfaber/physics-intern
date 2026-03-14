@@ -16,7 +16,7 @@ src/sciralph/
   engine.py            — Main loop: orchestrate → validate → override → dispatch → compress → git
   validation.py        — Post-integration checks (ER gate, phantom labels, routing) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
-  config.py            — Config dataclass (model, provider, thresholds, timeouts, audit_log)
+  config.py            — Config dataclass (model, provider, thresholds, timeouts)
   llm.py               — Provider-agnostic LLM wrapper (call_llm, run_agent_loop) with JSONL audit logging
   models.yaml          — Model registry (friendly keys → provider + model_id + env_key)
   task.py              — Task dataclass + TaskType enum for typed task handling
@@ -28,7 +28,7 @@ src/sciralph/
     openai.py          — OpenAI adapter
     google.py          — Google Gemini adapter
     huggingface.py     — HuggingFace Inference Providers adapter
-  workspace.py         — File I/O + git operations on workspace/ + log_scaffold_event()
+  workspace.py         — File I/O + git operations on workspace/ + log_scaffold_event() + log_llm_call()
   markdown.py          — YAML frontmatter parsing, section extraction, critique helpers
   sandbox.py           — Python script execution with timeout
   metrics.py           — MetricsTracker (token counts, tool calls, alerts, Markdown rendering)
@@ -134,6 +134,6 @@ All core functionality is implemented and working (450 tests passing):
 - **Deep Critic** — two-phase format, preamble stripping, self-retraction filtering, INCONCLUSIVE severity cap, NO_CRITIQUES_FILED handling
 - **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
 - **Logging** — JSONL audit logging (metadata + cost per LLM call, round field for tool-use), full conversation logs
-- **Scaffolding log** — `SCAFFOLDING_LOG.jsonl` instrumentation across layers 1–9; every compensation mechanism emits structured events via `log_scaffold_event()` for profiling which mechanisms actually fire per model
+- **Scaffolding log** — `EVENT_LOG.jsonl` instrumentation across layers 1–9; every compensation mechanism emits structured events via `log_scaffold_event()` and LLM calls via `log_llm_call()` for profiling which mechanisms actually fire per model
 
 Next steps: `read_file` tool for orchestrator/researcher/critic (see PLAN.md future work)

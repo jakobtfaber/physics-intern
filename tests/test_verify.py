@@ -17,6 +17,7 @@ from sciralph.verify import (
     parse_verdict,
     parse_process_audit,
     append_process_audit_to_report,
+    _summarize_event_log,
 )
 
 
@@ -597,3 +598,91 @@ def test_append_process_audit_creates_report_if_missing(tmp_path):
     report = report_path.read_text()
     assert "process_verdict: EFFECTIVE" in report
     assert "# Process Audit" in report
+
+
+# ---------------------------------------------------------------------------
+# Event log tests
+# ---------------------------------------------------------------------------
+
+EVENT_LOG_LINES = """\
+{"kind":"scaffold","ts":"2026-03-13T14:00:00+00:00","iter":1,"layer":5,"event":"p1_budget_override","detail":"compute -> synthesize"}
+{"kind":"llm_call","ts":"2026-03-13T14:00:01+00:00","agent":"orchestrator","iter":1,"model":"claude-sonnet-4-6","input_tokens":2000,"output_tokens":800,"stop_reason":"end_turn","duration_s":5.0,"system_prompt_chars":3000,"user_content_chars":1000,"response_chars":500,"reasoning_tokens":0,"answer_tokens":0,"round":0}
+{"kind":"llm_call","ts":"2026-03-13T14:00:10+00:00","agent":"researcher","iter":2,"model":"claude-sonnet-4-6","input_tokens":5000,"output_tokens":2000,"stop_reason":"end_turn","duration_s":8.0,"system_prompt_chars":3000,"user_content_chars":4000,"response_chars":1500,"reasoning_tokens":0,"answer_tokens":0,"round":0}
+{"kind":"scaffold","ts":"2026-03-13T14:00:20+00:00","iter":3,"layer":2,"event":"forced_final_call","detail":"max_rounds"}
+{"kind":"scaffold","ts":"2026-03-13T14:00:25+00:00","iter":3,"layer":1,"event":"api_retry","detail":"attempt=1/3, TimeoutError"}
+"""
+
+
+def test_load_workspace_event_log(tmp_path):
+    """EVENT_LOG.jsonl is loaded when include_process_data=True."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "EVENT_LOG.jsonl").write_text(EVENT_LOG_LINES)
+
+    contents = load_workspace(ws_dir, include_process_data=True)
+    assert contents.event_log == EVENT_LOG_LINES
+    assert "llm_call" in contents.event_log
+
+
+
+def test_summarize_event_log_llm_table():
+    """LLM call summary table is generated."""
+    summary = _summarize_event_log(EVENT_LOG_LINES)
+    assert "orchestrator" in summary
+    assert "researcher" in summary
+    assert "LLM Calls by Agent" in summary
+    assert "2,000" in summary  # orchestrator input_tokens
+
+
+def test_summarize_event_log_scaffold_layers():
+    """Scaffold events are grouped by layer."""
+    summary = _summarize_event_log(EVENT_LOG_LINES)
+    assert "Layer 5" in summary or "Layer 1" in summary
+    assert "p1_budget_override" in summary
+
+
+def test_summarize_event_log_key_timeline():
+    """Key events appear in timeline."""
+    summary = _summarize_event_log(EVENT_LOG_LINES)
+    assert "forced_final_call" in summary
+    assert "api_retry" in summary
+
+
+def test_summarize_event_log_empty():
+    """Empty input returns empty string."""
+    assert _summarize_event_log("") == ""
+    assert _summarize_event_log("   \n  ") == ""
+
+
+def test_summarize_event_log_truncation():
+    """Summary is capped at max_chars."""
+    # Generate many events
+    lines = []
+    for i in range(500):
+        lines.append(f'{{"kind":"scaffold","ts":"T","iter":{i},"layer":1,"event":"api_retry","detail":"attempt={i}"}}')
+    raw = "\n".join(lines)
+    summary = _summarize_event_log(raw, max_chars=1000)
+    assert len(summary) <= 1000
+
+
+def test_build_process_audit_prompt_includes_event_log(tmp_path):
+    """Event log summary appears in the process audit prompt."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "EVENT_LOG.jsonl").write_text(EVENT_LOG_LINES)
+
+    contents = load_workspace(ws_dir, include_process_data=True)
+    system, user_content = build_process_audit_prompt(contents)
+
+    assert "Event Log Summary" in user_content
+    assert "orchestrator" in user_content
+    assert "LLM Calls by Agent" in user_content
+
+
+def test_build_process_audit_prompt_no_event_log(tmp_path):
+    """Missing event log shows 'Not available'."""
+    ws_dir = _make_workspace(tmp_path)
+
+    contents = load_workspace(ws_dir, include_process_data=True)
+    _, user_content = build_process_audit_prompt(contents)
+
+    assert "Event Log Summary" in user_content
+    assert "Not available" in user_content

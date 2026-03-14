@@ -4,7 +4,7 @@
 
 ### Failure Artifact Store
 
-**Problem:** Three distinct failure patterns (P1-2 max-tokens retry, computationalist zero-text bailout, blind recompute after INCONCLUSIVE) share a common root cause: structured failure data is generated at the LLM boundary but never persisted in a form accessible to subsequent orchestration decisions.
+**Problem:** Three distinct failure patterns (max-tokens retry, computationalist zero-text bailout, blind recompute after INCONCLUSIVE) share a common root cause: structured failure data is generated at the LLM boundary but never persisted in a form accessible to subsequent orchestration decisions.
 
 **Information loss chain:**
 
@@ -23,8 +23,6 @@
 - **Read by** `_enrich_compute_task_with_prior_failures()` (instead of parsing COMPUTATION_LOG.md stubs) and `_build_context_prefix()` (instead of relying on ephemeral `_agent_failures` list)
 
 **Files:** `workspace.py` (add `append_failure_artifact()` / `read_failure_artifact()`), `llm.py` (write artifact before returning), `agents/base.py` (write on max_tokens), `engine.py` (read in enrichment + context prefix).
-
-**Relationship to P1-2:** P1-2 is a quick surgical fix for the highest-waste sub-pattern (max-tokens blind retry). The failure artifact store is the structural follow-up that unifies all three patterns. Once implemented, P1-2's `context_prefix` message can include excerpts from the artifact.
 
 
 ## OTHER IDEAS

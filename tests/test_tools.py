@@ -112,7 +112,7 @@ def _mock_provider_response(text="", stop_reason="end_turn",
 
 
 def _make_config(**overrides) -> Config:
-    defaults = dict(api_key="test-key", audit_log="", logs_dir="", provider="anthropic",
+    defaults = dict(api_key="test-key", logs_dir="", provider="anthropic",
                     text_checkpoint_interval=999)  # disable checkpoints by default in tests
     defaults.update(overrides)
     return Config(**defaults)

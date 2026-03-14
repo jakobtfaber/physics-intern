@@ -78,7 +78,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `validation.py` | 597 | Post-integration checks (8 checks), `can_terminate()` gates, `Violation` dataclass |
 | `config.py` | 155 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
 | `task.py` | 82 | `Task` dataclass, `TaskType` enum, YAML serialization |
-| `llm.py` | 526 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, scaffolding log events |
+| `llm.py` | 526 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, event log entries |
 | `tools.py` | 129 | `ToolExecutor`, `ToolCall`, `execute_python` tool schema |
 | `workspace.py` | 224 | File I/O, git ops, phantom reference validation, `log_scaffold_event()` |
 | `markdown.py` | 502 | Frontmatter parsing, critique lifecycle, stall detection, comp parsing |
@@ -152,9 +152,9 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │  9. STATUS FIELD SAFETY NET                                          │
 │     └─ Reads status from RESEARCH_STATE frontmatter                  │
 │                                                                      │
-│  ── SCAFFOLDING LOG (cross-cutting) ──────────────────────────────── │
-│     Steps 1–9 emit events to SCAFFOLDING_LOG.jsonl whenever a        │
-│     compensation mechanism fires (see §7).                           │
+│  ── EVENT LOG (cross-cutting) ────────────────────────────────────── │
+│     Steps 1–9 emit events to EVENT_LOG.jsonl whenever a              │
+│     compensation mechanism fires or an LLM call completes (see §7).  │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -357,7 +357,7 @@ Two calling patterns:
 Both paths go through `_call_provider_with_retry()` which wraps every provider call in an exponential-backoff retry loop (see §7 for details).
 
 **Logging:** Every LLM call produces:
-- JSONL audit entry in `AUDIT_LOG.jsonl` (metadata only, no prompts; includes round number for tool-use and per-call cost)
+- JSONL event entry in `EVENT_LOG.jsonl` via `log_llm_call()` (metadata only, no prompts; includes round number for tool-use and per-call cost; `kind: "llm_call"`)
 - Full conversation log in `logs/iter{NNN}_{agent}_{seq}.md` (system prompt + context + response)
 
 ### Tool execution (`tools.py`)
@@ -382,7 +382,8 @@ All file I/O goes through `WorkspaceManager`. Agents never touch the filesystem 
 - `archive_file` — timestamped copy to `archive/` before compression
 - `validate_comp_references()` — scans RESEARCH_STATE for `COMP-NNN`/`TASK-NNN` refs, cross-checks against COMPUTATION_LOG entries, replaces orphaned refs with `[COMP-NNN:unverified]`
 - `git_commit(message)` — `git add -A` + `git commit --allow-empty` every iteration
-- `log_scaffold_event(workspace_dir, iteration, layer, event, detail)` — free function; appends one JSONL line to `SCAFFOLDING_LOG.jsonl` (see §7). Never raises (bare `except OSError: pass`). Called from engine, agents, validation, and llm modules
+- `log_scaffold_event(workspace_dir, iteration, layer, event, detail)` — free function; appends one JSONL line to `EVENT_LOG.jsonl` with `kind: "scaffold"` (see §7). Never raises (bare `except OSError: pass`). Called from engine, agents, validation, and llm modules
+- `log_llm_call(workspace_dir, ...)` — free function; appends one JSONL line to `EVENT_LOG.jsonl` with `kind: "llm_call"` (metadata: agent, model, tokens, cost, round number). Never raises. Called from `llm.py` after every provider call
 
 ### Markdown parsing (`markdown.py`)
 
@@ -428,8 +429,7 @@ workspaces/<run>/
   COMPUTATION_LOG.md     ← Computationalist appends; grows over the run
   CRITIQUE_LOG.md        ← Critic appends; scaffold manages Active/Resolved sections
   METRICS.md             ← Engine writes every iteration
-  AUDIT_LOG.jsonl        ← Append-only LLM call metadata (per-LLM-call tokens, cost)
-  SCAFFOLDING_LOG.jsonl  ← Append-only scaffolding intervention events (see §7)
+  EVENT_LOG.jsonl        ← Append-only events: scaffolding interventions (kind: "scaffold") + LLM call metadata (kind: "llm_call")
   computations/          ← Python scripts from tool execution (tool_exec_NNN.py)
   archive/               ← Pre-compression file copies
   logs/                  ← Full conversation logs (iter{NNN}_{agent}_{seq}.md)
@@ -504,15 +504,21 @@ Compression tiers: alert at 1x, compress at 1.5x, force-compress at 2x (though 1
 
 This section catalogues every mechanism that compensates for LLM misbehaviour at the scaffolding level. LLMs routinely fail in specific, predictable ways — promoting unverified results, hallucinating IDs, emitting malformed YAML, ignoring instructions, failing to terminate. The scaffolding corrects these failures across ten layers.
 
-### Scaffolding log (instrumentation)
+### Event log (instrumentation)
 
-Every mechanism in layers 1–10 emits a structured event to `SCAFFOLDING_LOG.jsonl` via `log_scaffold_event()` (defined in `workspace.py`). Each entry is a single JSON line:
+All scaffolding interventions and LLM call metadata are recorded in a single file, `EVENT_LOG.jsonl`, via two functions defined in `workspace.py`:
+
+- **`log_scaffold_event()`** — emits events with `kind: "scaffold"` whenever a compensation mechanism fires
+- **`log_llm_call()`** — emits events with `kind: "llm_call"` after every LLM provider call (metadata: agent, model, tokens, cost, round number)
+
+Each entry is a single JSON line with a `kind` field discriminating the event type:
 
 ```json
-{"ts": "2026-03-13T14:22:01+00:00", "iter": 5, "layer": 4, "event": "er_demotion", "detail": "ER-003 → WH-003 (no VERIFIED backing)"}
+{"kind": "scaffold", "ts": "2026-03-13T14:22:01+00:00", "iter": 5, "layer": 4, "event": "er_demotion", "detail": "ER-003 → WH-003 (no VERIFIED backing)"}
+{"kind": "llm_call", "ts": "2026-03-13T14:22:03+00:00", "iter": 5, "agent": "computationalist", "model": "claude-sonnet-4-6", "input_tokens": 12340, "output_tokens": 1890, "cost": 0.042, "round": 3}
 ```
 
-Fields: `ts` (UTC ISO-8601), `iter` (scaffolding iteration), `layer` (§7 layer number 1–10), `event` (mechanism key), `detail` (free-text context). The function never raises — failures are silently swallowed (`except OSError: pass`).
+Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter` (scaffolding iteration). Scaffold events additionally have `layer`, `event`, `detail`. LLM call events additionally have `agent`, `model`, `input_tokens`, `output_tokens`, `cost`, `round`. Both functions never raise — failures are silently swallowed (`except OSError: pass`).
 
 **Event keys by layer:**
 
@@ -532,17 +538,20 @@ Fields: `ts` (UTC ISO-8601), `iter` (scaffolding iteration), `layer` (§7 layer 
 **Quick analysis:**
 
 ```bash
-# Count events per mechanism across a run
-jq -r '.event' workspaces/<run>/SCAFFOLDING_LOG.jsonl | sort | uniq -c | sort -rn
+# Count scaffold events per mechanism across a run
+jq -r 'select(.kind == "scaffold") | .event' workspaces/<run>/EVENT_LOG.jsonl | sort | uniq -c | sort -rn
 
-# Count events per layer
-jq -r '.layer' workspaces/<run>/SCAFFOLDING_LOG.jsonl | sort | uniq -c | sort -rn
+# Count scaffold events per layer
+jq -r 'select(.kind == "scaffold") | .layer' workspaces/<run>/EVENT_LOG.jsonl | sort | uniq -c | sort -rn
 
 # Filter to a specific layer
-jq 'select(.layer == 4)' workspaces/<run>/SCAFFOLDING_LOG.jsonl
+jq 'select(.kind == "scaffold" and .layer == 4)' workspaces/<run>/EVENT_LOG.jsonl
 
 # Timeline of overrides
-jq 'select(.layer == 5) | "\(.iter) \(.event) \(.detail)"' workspaces/<run>/SCAFFOLDING_LOG.jsonl
+jq 'select(.kind == "scaffold" and .layer == 5) | "\(.iter) \(.event) \(.detail)"' workspaces/<run>/EVENT_LOG.jsonl
+
+# LLM call cost summary per agent
+jq -r 'select(.kind == "llm_call") | .agent' workspaces/<run>/EVENT_LOG.jsonl | sort | uniq -c | sort -rn
 ```
 
 ### Layer 1 — Transport / API retry (`llm.py`)
@@ -704,7 +713,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 | `test_metrics.py` | 110 | CallRecord, critic tracking, alerts, Markdown rendering |
 | `test_conversation_log.py` | 80 | File naming, sections, sequence counter |
 | `test_sandbox.py` | 66 | Script execution, timeout, MPLBACKEND |
-| `test_scaffold_log.py` | 120 | `log_scaffold_event` JSONL output, validation integration, budget override integration |
+| `test_scaffold_log.py` | 120 | `log_scaffold_event` and `log_llm_call` JSONL output to `EVENT_LOG.jsonl`, validation integration, budget override integration |
 
 **Testing approach:** pytest with `tmp_path` fixtures. All LLM calls are mocked (no real API calls). `SimpleNamespace` objects mock SDK responses. Fixture Markdown files for complex document parsing.
 
@@ -758,7 +767,7 @@ All documentation was synced with the codebase in March 2026.
 - 8 post-integration validation checks (up from 7; added critique resolution consistency)
 - Scaffolding-maintained iteration counter (no longer LLM-dependent)
 - `verify.py` remains Anthropic-only
-- Scaffolding log (`SCAFFOLDING_LOG.jsonl`) instrumentation implemented across layers 1–9 (layer 10 partial — `markdown.py` parse fallback not yet instrumented due to lacking workspace context)
+- Event log (`EVENT_LOG.jsonl`) instrumentation implemented across layers 1–9 for scaffold events, plus LLM call metadata (layer 10 partial — `markdown.py` parse fallback not yet instrumented due to lacking workspace context)
 - Workspace directory names now include model label (e.g. `20260313_142530_hawking_temperature_claude-sonnet-4-6`)
 - `read_file` tool for orchestrator/researcher/critic remains planned (not implemented)
 - External reference files (`files:` YAML key) remains planned (not implemented)

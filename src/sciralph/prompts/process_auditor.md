@@ -14,6 +14,9 @@ You will receive:
 - CURRENT_TASK.md — the final task at termination.
 - METRICS.md — per-iteration agent/token table, alerts, and budget usage.
 - Git log — one-line commit history showing iteration-to-agent mapping.
+- Event Log Summary — aggregated statistics from EVENT_LOG.jsonl: per-agent LLM
+  call counts and token usage, scaffold events grouped by layer, and a timeline
+  of key interventions (overrides, stalls, bailouts, retries).
 
 YOUR EVALUATION MUST COVER:
 
@@ -60,6 +63,20 @@ Look for:
 - Repeated identical approaches (FAILURE): same strategy tried multiple
   times without adaptation
 - Dead-end management: were dead ends recognized and abandoned efficiently?
+
+## 6. Scaffolding Intervention Patterns
+
+Use the Event Log Summary to evaluate:
+- API retries: frequency and distribution — are retries concentrated on one agent
+  or spread across the run?
+- Override frequency: how often did P1–P5 overrides fire? Were they appropriate?
+- Agent loop health: look for bailouts (zero-text, low-cumulative), forced final
+  calls, and tool-call failures — these indicate the model struggled to produce
+  useful output.
+- Tool execution issues: timeouts, truncations, repeated errors in the
+  computationalist loop.
+- Verdict failure patterns: repeated REFUTED/INCONCLUSIVE on the same claim
+  suggests the computational approach needs fundamental rethinking.
 
 ## 5. Termination Quality
 

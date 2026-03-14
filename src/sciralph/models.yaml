@@ -14,7 +14,7 @@ claude-opus-4.6:
   input_cost: 5.00
   output_cost: 25.00
   thinking: true
-  effort: max
+  effort: high
 
 claude-sonnet-4.6:
   provider: anthropic
@@ -29,13 +29,21 @@ claude-sonnet-4.6:
 # OpenAI
 # ============================================================================
 
-gpt-5.4:
+gpt-5.4-high:
   provider: openai
   model_id: gpt-5.4
   env_key: OPENAI_API_KEY
   input_cost: 2.50
   output_cost: 15.00
   reasoning_effort: high
+
+gpt-5.4-medium:
+  provider: openai
+  model_id: gpt-5.4
+  env_key: OPENAI_API_KEY
+  input_cost: 2.50
+  output_cost: 15.00
+  reasoning_effort: medium
 
 gpt-5.4-pro:
   provider: openai
@@ -55,6 +63,14 @@ gemini-3.1-pro-preview:
   input_cost: 2.00
   output_cost: 12.00
   thinking_level: high
+
+gemini-3-flash-preview:
+  provider: google
+  model_id: gemini-3-flash-preview
+  env_key: GOOGLE_API_KEY
+  input_cost: 0.5
+  output_cost: 3.00
+  thinking_level: medium
 
 # ============================================================================
 # HuggingFace Inference Providers

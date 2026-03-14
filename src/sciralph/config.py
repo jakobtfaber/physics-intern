@@ -61,7 +61,6 @@ class Config:
     thinking_token_headroom: int = DEFAULTS["thinking_token_headroom"]
     provider: str = ""
     workspace_dir: str = ""
-    audit_log: str = ""
     logs_dir: str = ""
     api_key: str = ""
     model_id: str = ""        # Resolved API model ID (from models.yaml)
@@ -91,7 +90,7 @@ class Config:
             self.api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
 
-# Fields settable via config.yaml (workspace_dir, audit_log, logs_dir, api_key excluded)
+# Fields settable via config.yaml (workspace_dir, logs_dir, api_key excluded)
 _YAML_CONFIG_FIELDS = frozenset({
     "model", "verify_model", "max_tokens", "max_iterations", "critic_every_n",
     "compress_threshold", "sympy_timeout_seconds",

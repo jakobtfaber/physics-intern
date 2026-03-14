@@ -400,7 +400,7 @@ class TestPenultimateRoundMessage:
 
         config = _make_config()
         config.max_tokens = 4096
-        config.audit_log = ""
+
         config.logs_dir = ""
         config.computation_token_alert = 999999
         config.checkpoint_round = 2
@@ -451,7 +451,7 @@ class TestPenultimateRoundMessage:
 
         config = _make_config()
         config.max_tokens = 4096
-        config.audit_log = ""
+
         config.logs_dir = ""
         config.computation_token_alert = 999999
         config.checkpoint_round = 2
@@ -501,7 +501,7 @@ class TestPenultimateRoundMessage:
 
         config = _make_config(api_retry_max=0)
         config.max_tokens = 4096
-        config.audit_log = ""
+
         config.logs_dir = ""
         config.computation_token_alert = 999999
         config.checkpoint_round = 2
@@ -555,7 +555,7 @@ class TestPenultimateRoundMessage:
 
         config = _make_config(api_retry_max=0, text_checkpoint_interval=2)
         config.max_tokens = 4096
-        config.audit_log = ""
+
         config.logs_dir = ""
         config.computation_token_alert = 999999
         config.checkpoint_round = 2
@@ -600,7 +600,7 @@ class TestPenultimateRoundMessage:
         tool_executor = MagicMock(spec=ToolExecutor)
         config = _make_config(api_retry_max=0)  # no retries — fail immediately
         config.max_tokens = 4096
-        config.audit_log = ""
+
         config.logs_dir = ""
         config.computation_token_alert = 999999
         config.checkpoint_round = 2
@@ -643,7 +643,7 @@ class TestPenultimateRoundMessage:
 
         config = _make_config()
         config.max_tokens = 4096
-        config.audit_log = ""
+
         config.logs_dir = ""
         config.computation_token_alert = 999999
         config.checkpoint_round = 2

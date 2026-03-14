@@ -209,16 +209,58 @@ def log_scaffold_event(
     event: str,
     detail: str = "",
 ) -> None:
-    """Append one event to SCAFFOLDING_LOG.jsonl. Never raises."""
+    """Append one scaffold event to EVENT_LOG.jsonl. Never raises."""
     try:
         entry = {
+            "kind": "scaffold",
             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "iter": iteration,
             "layer": layer,
             "event": event,
             "detail": detail,
         }
-        with open(Path(workspace_dir) / "SCAFFOLDING_LOG.jsonl", "a") as f:
+        with open(Path(workspace_dir) / "EVENT_LOG.jsonl", "a") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def log_llm_call(
+    workspace_dir: str | Path,
+    agent: str,
+    iteration: int,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    stop_reason: str,
+    duration_s: float,
+    system_prompt_chars: int,
+    user_content_chars: int,
+    response_chars: int,
+    reasoning_tokens: int = 0,
+    answer_tokens: int = 0,
+    round: int = 0,
+) -> None:
+    """Append one LLM-call event to EVENT_LOG.jsonl. Never raises."""
+    try:
+        entry = {
+            "kind": "llm_call",
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "agent": agent,
+            "iter": iteration,
+            "model": model,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "stop_reason": stop_reason,
+            "duration_s": duration_s,
+            "system_prompt_chars": system_prompt_chars,
+            "user_content_chars": user_content_chars,
+            "response_chars": response_chars,
+            "reasoning_tokens": reasoning_tokens,
+            "answer_tokens": answer_tokens,
+            "round": round,
+        }
+        with open(Path(workspace_dir) / "EVENT_LOG.jsonl", "a") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         pass

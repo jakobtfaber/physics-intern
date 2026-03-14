@@ -40,7 +40,6 @@ class SciRalph:
         self.metrics = MetricsTracker()
         self.workspace = WorkspaceManager(self.config)
         self.workspace.init(problem)
-        self.config.audit_log = str(self.workspace.root / "AUDIT_LOG.jsonl")
         self.config.logs_dir = str(self.workspace.logs_dir)
         self.iteration = 0
         self._stale_iterations = 0

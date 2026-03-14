@@ -12,7 +12,7 @@ from rich.console import Console
 from .config import Config
 from .providers import LLMProvider, ProviderResponse, create_provider
 from .tools import ToolCall, ToolExecutor
-from .workspace import log_scaffold_event
+from .workspace import log_llm_call, log_scaffold_event
 
 console = Console()
 
@@ -173,9 +173,15 @@ def call_llm(system: str, user_content: str, config: Config,
         answer_tokens=resp.answer_tokens,
     )
 
-    if config.audit_log:
-        _write_audit_entry(config, llm_response, system, user_content,
-                           agent_name, iteration)
+    if config.workspace_dir:
+        log_llm_call(
+            config.workspace_dir, agent_name, iteration, config.model,
+            llm_response.input_tokens, llm_response.output_tokens,
+            llm_response.stop_reason, round(llm_response.duration, 2),
+            len(system), len(user_content), len(llm_response.text),
+            reasoning_tokens=llm_response.reasoning_tokens,
+            answer_tokens=llm_response.answer_tokens,
+        )
 
     _write_conversation_log(config, llm_response, system, user_content,
                             agent_name, iteration)
@@ -214,13 +220,14 @@ def _make_text_checkpoint_call(
 
     text = resp.text.strip()
 
-    if config.audit_log:
-        _write_audit_entry(config, LLMResponse(
-            text, resp.input_tokens, resp.output_tokens,
-            "text_checkpoint", dur,
+    if config.workspace_dir:
+        log_llm_call(
+            config.workspace_dir, agent_name, iteration, config.model,
+            resp.input_tokens, resp.output_tokens, "text_checkpoint",
+            _round_num(dur, 2), len(checkpoint_system), 0, len(text),
             reasoning_tokens=resp.reasoning_tokens,
-            answer_tokens=resp.answer_tokens,
-        ), checkpoint_system, "", agent_name, iteration, round=round_num)
+            answer_tokens=resp.answer_tokens, round=round_num,
+        )
 
     return text, resp.input_tokens, resp.output_tokens, resp.reasoning_tokens, resp.answer_tokens
 
@@ -342,9 +349,15 @@ def run_agent_loop(
             reasoning_tokens=resp.reasoning_tokens,
             answer_tokens=resp.answer_tokens,
         )
-        if config.audit_log:
-            _write_audit_entry(config, round_resp, system, user_content,
-                               agent_name, iteration, round=round_num)
+        if config.workspace_dir:
+            log_llm_call(
+                config.workspace_dir, agent_name, iteration, config.model,
+                round_resp.input_tokens, round_resp.output_tokens,
+                round_resp.stop_reason, _round_num(round_resp.duration, 2),
+                len(system), len(user_content), len(round_resp.text),
+                reasoning_tokens=round_resp.reasoning_tokens,
+                answer_tokens=round_resp.answer_tokens, round=round_num,
+            )
 
         # end_turn: done (unless empty text after tool calls — fall through to forced final call)
         if resp.stop_reason == "end_turn":
@@ -671,12 +684,14 @@ def run_agent_loop(
         "duration": final_dur,
     })
 
-    if config.audit_log:
-        _write_audit_entry(config, LLMResponse(
-            final_text, final_in, final_out, "forced_partial", final_dur,
-            reasoning_tokens=final_reasoning, answer_tokens=final_answer,
-        ), forced_system, user_content, agent_name, iteration,
-        round=round_num + 1)
+    if config.workspace_dir:
+        log_llm_call(
+            config.workspace_dir, agent_name, iteration, config.model,
+            final_in, final_out, "forced_partial",
+            _round_num(final_dur, 2), len(forced_system), len(user_content),
+            len(final_text), reasoning_tokens=final_reasoning,
+            answer_tokens=final_answer, round=round_num + 1,
+        )
 
     result = AgentResult(
         text=final_text,
@@ -695,36 +710,6 @@ def run_agent_loop(
         config, system, user_content, agent_name,
         iteration, round_log, result)
     return result
-
-
-def _write_audit_entry(config: Config, resp: LLMResponse,
-                       system: str, user_content: str,
-                       agent_name: str, iteration: int, round: int = 0):
-    """Append one JSON line to the audit log."""
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "agent": agent_name,
-        "iteration": iteration,
-        "model": config.model,
-        "input_tokens": resp.input_tokens,
-        "output_tokens": resp.output_tokens,
-        "stop_reason": resp.stop_reason,
-        "duration_s": _round_num(resp.duration, 2),
-        "system_prompt_chars": len(system),
-        "user_content_chars": len(user_content),
-        "response_chars": len(resp.text),
-    }
-    if resp.reasoning_tokens > 0:
-        entry["reasoning_tokens"] = resp.reasoning_tokens
-    if resp.answer_tokens > 0:
-        entry["answer_tokens"] = resp.answer_tokens
-    if round > 0:
-        entry["round"] = round
-    try:
-        with open(config.audit_log, "a") as f:
-            f.write(json.dumps(entry) + "\n")
-    except OSError:
-        pass
 
 
 def _write_conversation_log(config: Config, resp: LLMResponse,

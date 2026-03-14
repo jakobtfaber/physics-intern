@@ -8,7 +8,7 @@ SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temp
 
 **How it works.** Five specialised LLM agents (orchestrator, researcher, computationalist, critic, compressor) take turns in a loop. No agent carries conversation history: each call starts from a fresh context and reads/writes shared Markdown files in a workspace directory. The orchestrator plans the next step, a worker agent executes it, and the cycle repeats. A layered verification stack — SymPy/NumPy computations, adversarial critique with severity tracking, and dependency-aware result promotion — acts as backpressure against errors. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
 
-**Current status.** Core functionality is complete (450 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 10 layers) compensates for predictable LLM failures: premature result promotion, hallucinated IDs, malformed YAML, ignored instructions, empty outputs, and premature termination. Every mechanism is instrumented — `SCAFFOLDING_LOG.jsonl` records each intervention with layer, event key, and detail, enabling profiling of which mechanisms actually fire per model. See `CODEBASE.md` §7 for the full catalog.
+**Current status.** Core functionality is complete (450 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 10 layers) compensates for predictable LLM failures: premature result promotion, hallucinated IDs, malformed YAML, ignored instructions, empty outputs, and premature termination. Every mechanism is instrumented — `EVENT_LOG.jsonl` records each intervention with layer, event key, and detail, enabling profiling of which mechanisms actually fire per model. See `CODEBASE.md` §7 for the full catalog.
 
 ## Quick Start
 
@@ -122,8 +122,7 @@ All research state is persisted under `workspaces/<run>/` (each run gets a times
 | `COMPUTATION_LOG.md` | Log of all computations and their outputs |
 | `CRITIQUE_LOG.md` | All critiques with severity and resolution status |
 | `METRICS.md` | Token usage, file sizes, alerts |
-| `AUDIT_LOG.jsonl` | Per-LLM-call metadata (tokens, duration, char counts) |
-| `SCAFFOLDING_LOG.jsonl` | Per-event log of scaffolding interventions (override firings, validation fixes, bailouts) |
+| `EVENT_LOG.jsonl` | Unified event log — LLM call metadata + scaffolding intervention events |
 | `VERIFICATION.md` | Independent verification report (written by `--write-report`) |
 | `computations/` | Saved Python scripts from computationalist |
 

@@ -1,5 +1,6 @@
 """Independent verification of SciRalph research workspaces."""
 
+import json
 import glob
 import re
 import subprocess
@@ -82,6 +83,7 @@ class WorkspaceContents:
     frontmatter: dict = field(default_factory=dict)
     metrics_md: str = ""
     git_log: str = ""
+    event_log: str = ""
 
 
 @dataclass
@@ -184,6 +186,11 @@ def load_workspace(workspace_dir: str, *, include_process_data: bool = False) ->
         metrics_path = ws / "METRICS.md"
         if metrics_path.exists():
             contents.metrics_md = metrics_path.read_text()
+
+        # Event log
+        event_log_path = ws / "EVENT_LOG.jsonl"
+        if event_log_path.exists():
+            contents.event_log = event_log_path.read_text()
 
         # Git log from workspace (may not be a git repo)
         try:
@@ -445,6 +452,100 @@ def write_verification_report(result: VerificationResult, workspace_dir: str) ->
 # Process audit
 # ---------------------------------------------------------------------------
 
+def _summarize_event_log(raw_text: str, max_chars: int = 4096) -> str:
+    """Parse EVENT_LOG.jsonl lines into a structured text summary for the process auditor.
+
+    Produces:
+    - LLM call table: per-agent call count, token totals, avg duration
+    - Scaffold events grouped by layer: event counts
+    - Timeline of key events (overrides, stalls, bailouts, retries, verdict failures)
+    """
+    if not raw_text.strip():
+        return ""
+
+    llm_calls: list[dict] = []
+    scaffold_events: list[dict] = []
+    for line in raw_text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        kind = entry.get("kind", "")
+        if kind == "llm_call":
+            llm_calls.append(entry)
+        elif kind == "scaffold":
+            scaffold_events.append(entry)
+
+    sections: list[str] = []
+
+    # --- LLM call summary ---
+    if llm_calls:
+        agent_stats: dict[str, dict] = {}
+        for c in llm_calls:
+            agent = c.get("agent", "unknown")
+            s = agent_stats.setdefault(agent, {"count": 0, "in": 0, "out": 0, "dur": 0.0})
+            s["count"] += 1
+            s["in"] += c.get("input_tokens", 0)
+            s["out"] += c.get("output_tokens", 0)
+            s["dur"] += c.get("duration_s", 0.0)
+
+        lines = ["### LLM Calls by Agent", ""]
+        lines.append("| Agent | Calls | Input Tok | Output Tok | Avg Duration |")
+        lines.append("|-------|------:|----------:|-----------:|-------------:|")
+        for agent in sorted(agent_stats):
+            s = agent_stats[agent]
+            avg = s["dur"] / s["count"] if s["count"] else 0
+            lines.append(f"| {agent} | {s['count']} | {s['in']:,} | {s['out']:,} | {avg:.1f}s |")
+        total_in = sum(s["in"] for s in agent_stats.values())
+        total_out = sum(s["out"] for s in agent_stats.values())
+        lines.append(f"| **Total** | {len(llm_calls)} | {total_in:,} | {total_out:,} | |")
+        sections.append("\n".join(lines))
+
+    # --- Scaffold events by layer ---
+    if scaffold_events:
+        layer_counts: dict[int, dict[str, int]] = {}
+        for e in scaffold_events:
+            layer = e.get("layer", 0)
+            event = e.get("event", "unknown")
+            layer_counts.setdefault(layer, {})
+            layer_counts[layer][event] = layer_counts[layer].get(event, 0) + 1
+
+        lines = ["### Scaffold Events by Layer", ""]
+        for layer in sorted(layer_counts):
+            events_str = ", ".join(f"{ev}({n})" for ev, n in sorted(layer_counts[layer].items()))
+            lines.append(f"- **Layer {layer}:** {events_str}")
+        sections.append("\n".join(lines))
+
+    # --- Timeline of key events ---
+    key_event_types = {
+        "api_retry", "forced_final_call", "zero_text_bailout", "low_text_bailout",
+        "tool_call_failure_fallback", "p1_budget_override", "p2_stale_loop_override",
+        "p3_forced_critic", "p4_refuted_recompute", "p5_stall_block",
+        "compute_verdict_failed", "compute_verdict_stall_escalation",
+        "termination_blocked", "dispatch_failure", "forced_call_retry",
+        "tool_history_synthesis",
+    }
+    key_events = [e for e in scaffold_events if e.get("event", "") in key_event_types]
+    if key_events:
+        lines = ["### Key Event Timeline", ""]
+        for e in key_events[:30]:  # cap timeline entries
+            lines.append(f"- iter {e.get('iter', '?')}: **{e.get('event', '')}** — {e.get('detail', '')}")
+        if len(key_events) > 30:
+            lines.append(f"- ... ({len(key_events) - 30} more)")
+        sections.append("\n".join(lines))
+
+    if not sections:
+        return ""
+
+    result = "\n\n".join(sections)
+    if len(result) > max_chars:
+        result = result[:max_chars - 20] + "\n\n[... truncated]"
+    return result
+
+
 def build_process_audit_prompt(contents: WorkspaceContents) -> tuple[str, str]:
     """Assemble the system prompt and user content for the process auditor LLM call."""
     system = (PROMPTS_DIR / "process_auditor.md").read_text()
@@ -479,6 +580,16 @@ def build_process_audit_prompt(contents: WorkspaceContents) -> tuple[str, str]:
         sections.append(f"## Git Log\n\n```\n{contents.git_log}\n```\n")
     else:
         sections.append("## Git Log\n\n(Not available.)\n")
+
+    # Event log summary
+    if contents.event_log:
+        summary = _summarize_event_log(contents.event_log)
+        if summary:
+            sections.append(f"## Event Log Summary\n\n{summary}\n")
+        else:
+            sections.append("## Event Log Summary\n\n(Log present but could not be parsed.)\n")
+    else:
+        sections.append("## Event Log Summary\n\n(Not available.)\n")
 
     user_content = "\n".join(sections)
     return system, user_content
