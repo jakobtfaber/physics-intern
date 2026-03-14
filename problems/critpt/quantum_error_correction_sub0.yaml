@@ -30,7 +30,10 @@ problem: |
 
   What is the physical state fidelity of the final physical 4-qubit state at the end of the
   circuit as a function of the two-qubit gate error rate p?
+  
+  Return F(p) the expression of the physical state fidelity of the final physical 4-qubit state
+    at the end of the circuit as a function of the two-qubit gate error rate $p$.
 
 requires_numerical: true
 
-answer: "(1 - 12/15*p)**2"
+answer: "F(p) = (1 - 12/15*p)**2"

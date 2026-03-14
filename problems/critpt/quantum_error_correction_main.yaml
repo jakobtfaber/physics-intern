@@ -34,7 +34,10 @@ problem: |
   What is the logical state fidelity of the final 2-qubit logical state at the end of the
   circuit as a function of two-qubit gate error rate p, assuming the state is post-selected on
   all detectable errors in the code and on the ancilla qubit measuring |0>?
+  
+  Return F(p) the expression of the logical state fidelity of the final 2-qubit logical state
+    at the end of the circuit as a function of two-qubit gate error rate $p$.
 
 requires_numerical: true
 
-answer: "1 - (16/25*p**2 - 128/125*p**3 + 2048/3375*p**4 - 32768/253125*p**5) / (1 - 68/15*p + 704/75*p**2 - 32768/3375*p**3 + 253952/50625*p**4 - 262144/253125*p**5)"
+answer: "F(p) = 1 - (16/25*p**2 - 128/125*p**3 + 2048/3375*p**4 - 32768/253125*p**5) / (1 - 68/15*p + 704/75*p**2 - 32768/3375*p**3 + 253952/50625*p**4 - 262144/253125*p**5)"
