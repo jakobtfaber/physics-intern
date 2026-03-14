@@ -60,7 +60,7 @@ def main():
 
     # Generate timestamped workspace directory if not explicitly set
     if args.workspace_dir is None:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_model = config.model.replace("/", "-").replace(":", "-")
         run_name = f"{timestamp}_{args.problem.stem}_{safe_model}"
         config.workspace_dir = str(Path("workspaces") / run_name)
