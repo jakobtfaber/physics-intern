@@ -67,6 +67,7 @@ class Config:
     audit_log: str = ""
     logs_dir: str = ""
     api_key: str = ""
+    model_id: str = ""        # Resolved API model ID (from models.yaml)
     input_cost: float = 0.0   # USD per million input tokens (from models.yaml)
     output_cost: float = 0.0  # USD per million output tokens (from models.yaml)
     reasoning: dict = field(default_factory=dict)  # provider-specific reasoning params
@@ -77,7 +78,7 @@ class Config:
             resolved = _resolve_model(self.model)
             if resolved:
                 self.provider = resolved["provider"]
-                self.model = resolved["model_id"]
+                self.model_id = resolved["model_id"]
                 self.input_cost = resolved.get("input_cost", 0.0)
                 self.output_cost = resolved.get("output_cost", 0.0)
                 self.reasoning = resolved.get("reasoning", {})
@@ -86,6 +87,9 @@ class Config:
             else:
                 # Default to anthropic for backward compatibility
                 self.provider = "anthropic"
+        # If model_id wasn't resolved, fall back to model (direct API id)
+        if not self.model_id:
+            self.model_id = self.model
         if not self.api_key:
             self.api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 

@@ -39,7 +39,7 @@ def _call_llm_streaming(system: str, user_content: str, config: Config) -> LLMRe
     stop_reason = ""
 
     with client.messages.stream(
-        model=config.model,
+        model=config.model_id,
         max_tokens=config.max_tokens,
         system=system,
         messages=[{"role": "user", "content": user_content}],
@@ -235,7 +235,7 @@ def build_verification_prompt(
     if known_answer:
         sections.append(f"## Known Answer\n\nThe expected answer for this problem is: **{known_answer}**\n\n"
                         "Use this to check whether the research arrived at the correct numerical value or expression. "
-                        "A matching answer with a flawed derivation is still PARTIALLY_VALID.\n")
+                        "A matching answer with a flawed derivation is still VALID but you can raise your concerns.\n")
 
     # Termination status
     if contents.terminated_cleanly:
