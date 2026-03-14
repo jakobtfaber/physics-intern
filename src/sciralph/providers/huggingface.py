@@ -252,8 +252,14 @@ class HuggingFaceProvider(LLMProvider):
         reasoning_tokens = 0
         answer_tokens = output_tokens
         if self._reasoning_format == "separate_field":
-            # Models like Kimi, GPT-OSS: completion_tokens includes reasoning
+            # Models like Kimi, GPT-OSS: completion_tokens includes reasoning.
+            # Count words in visible text AND tool call arguments so tool-use
+            # rounds don't misattribute all output_tokens to reasoning.
             content_words = len(text.split()) if text else 0
+            if choice.message.tool_calls:
+                for tc in choice.message.tool_calls:
+                    args_str = tc.function.arguments if isinstance(tc.function.arguments, str) else ""
+                    content_words += len(args_str.split())
             answer_tokens = int(content_words * 1.3)
             reasoning_tokens = max(0, output_tokens - answer_tokens)
         elif self._reasoning_format == "think_tags":

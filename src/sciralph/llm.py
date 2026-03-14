@@ -275,6 +275,7 @@ def run_agent_loop(
     messages = [{"role": "user", "content": user_content}]
 
     all_tool_calls: list[ToolCall] = []
+    round_log: list[dict] = []
     total_input = 0
     total_output = 0
     total_reasoning = 0
@@ -315,6 +316,14 @@ def run_agent_loop(
             raise
         duration = time.time() - start
 
+        round_log.append({
+            "kind": "llm_response", "round": round_num,
+            "text": resp.text, "tool_calls": resp.tool_calls,
+            "input_tokens": resp.input_tokens, "output_tokens": resp.output_tokens,
+            "reasoning_tokens": resp.reasoning_tokens, "answer_tokens": resp.answer_tokens,
+            "stop_reason": resp.stop_reason, "duration": duration,
+        })
+
         total_input += resp.input_tokens
         total_output += resp.output_tokens
         total_reasoning += resp.reasoning_tokens
@@ -336,8 +345,6 @@ def run_agent_loop(
         if config.audit_log:
             _write_audit_entry(config, round_resp, system, user_content,
                                agent_name, iteration, round=round_num)
-        _write_conversation_log(config, round_resp, system, user_content,
-                                agent_name, iteration)
 
         # end_turn: done (unless empty text after tool calls — fall through to forced final call)
         if resp.stop_reason == "end_turn":
@@ -347,7 +354,7 @@ def run_agent_loop(
                     log_scaffold_event(config.workspace_dir, iteration, 2,
                                        "empty_end_turn_fallthrough", f"rounds={round_num}")
                 break  # fall through to forced final call
-            return AgentResult(
+            result = AgentResult(
                 text=round_text,
                 tool_calls=all_tool_calls,
                 total_input_tokens=total_input,
@@ -360,10 +367,14 @@ def run_agent_loop(
                 total_reasoning_tokens=total_reasoning,
                 total_answer_tokens=total_answer,
             )
+            _write_agent_conversation_log(
+                config, system, user_content, agent_name,
+                iteration, round_log, result)
+            return result
 
         # max_tokens: truncated
         if resp.stop_reason == "max_tokens":
-            return AgentResult(
+            result = AgentResult(
                 text=round_text,
                 tool_calls=all_tool_calls,
                 total_input_tokens=total_input,
@@ -376,6 +387,10 @@ def run_agent_loop(
                 total_reasoning_tokens=total_reasoning,
                 total_answer_tokens=total_answer,
             )
+            _write_agent_conversation_log(
+                config, system, user_content, agent_name,
+                iteration, round_log, result)
+            return result
 
         # tool_use: execute tools and continue
         if resp.stop_reason == "tool_use":
@@ -385,6 +400,12 @@ def run_agent_loop(
             for tc_info in resp.tool_calls:
                 tc = tool_executor.execute(tc_info["name"], tc_info["input"])
                 all_tool_calls.append(tc)
+                round_log.append({
+                    "kind": "tool_result", "round": round_num,
+                    "tool_name": tc.tool_name, "tool_input": tc.tool_input,
+                    "output": tc.output, "is_error": tc.is_error,
+                    "duration": tc.duration,
+                })
                 tool_results.append({
                     "tool_call_id": tc_info["id"],
                     "name": tc_info["name"],
@@ -422,6 +443,11 @@ def run_agent_loop(
                 if config.workspace_dir:
                     log_scaffold_event(config.workspace_dir, iteration, 2,
                                        "text_checkpoint", f"streak={zero_text_streak}")
+                round_log.append({
+                    "kind": "scaffold_injection", "round": round_num,
+                    "label": "text_checkpoint",
+                    "content": "TEXT CHECKPOINT: Force text-only call to extract intermediate findings.",
+                })
                 try:
                     cp_text, cp_in, cp_out, cp_reasoning, cp_answer = _make_text_checkpoint_call(
                         provider, config, system, messages,
@@ -431,6 +457,11 @@ def run_agent_loop(
                     total_output += cp_out
                     total_reasoning += cp_reasoning
                     total_answer += cp_answer
+                    round_log.append({
+                        "kind": "checkpoint_response", "round": round_num,
+                        "text": cp_text,
+                        "input_tokens": cp_in, "output_tokens": cp_out,
+                    })
                     if cp_text:
                         zero_text_streak = 0
                         cumulative_text_len += len(cp_text)
@@ -462,45 +493,51 @@ def run_agent_loop(
 
             # Checkpoint nudge at halfway point
             if round_num == config.checkpoint_round:
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "CHECKPOINT: You are running low on available rounds. "
-                        "Write your COMP entry text now alongside any remaining "
-                        "tool calls. Do not defer all text to the final round."
-                    ),
+                _nudge_msg = (
+                    "CHECKPOINT: You are running low on available rounds. "
+                    "Write your COMP entry text now alongside any remaining "
+                    "tool calls. Do not defer all text to the final round."
+                )
+                messages.append({"role": "user", "content": _nudge_msg})
+                round_log.append({
+                    "kind": "scaffold_injection", "round": round_num,
+                    "label": "checkpoint_nudge", "content": _nudge_msg,
                 })
 
             # Final warning near end of loop
             if round_num == max_rounds - 2 and max_rounds >= 5:
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "FINAL WARNING: You have 2 rounds left before forced "
-                        "termination. Begin writing your COMP entry text NOW. "
-                        "If you need one more tool call, make it in your next "
-                        "response, but you MUST include your verdict text in "
-                        "that same response. Do not defer text to the final round."
-                    ),
+                _final_warn_msg = (
+                    "FINAL WARNING: You have 2 rounds left before forced "
+                    "termination. Begin writing your COMP entry text NOW. "
+                    "If you need one more tool call, make it in your next "
+                    "response, but you MUST include your verdict text in "
+                    "that same response. Do not defer text to the final round."
+                )
+                messages.append({"role": "user", "content": _final_warn_msg})
+                round_log.append({
+                    "kind": "scaffold_injection", "round": round_num,
+                    "label": "final_warning", "content": _final_warn_msg,
                 })
 
             # CRITICAL penultimate-round instruction
             if round_num == max_rounds - 1 and max_rounds >= 4:
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "CRITICAL: This is your LAST round with tool access. "
-                        "You MUST include your ## COMP-NNN verdict text in THIS "
-                        "response. If you only call a tool without writing text, "
-                        "your output will be recorded as INCONCLUSIVE.\n\n"
-                        "Write your verdict NOW using this format:\n"
-                        "## COMP-NNN: [description]\n"
-                        "**CLAIM:** [claim]\n"
-                        "**METHOD:** [method]\n"
-                        "**RESULT:** [results]\n"
-                        "**VERDICT:** [VERIFIED / REFUTED / INCONCLUSIVE]\n"
-                        "**NOTES:** [notes]"
-                    ),
+                _crit_msg = (
+                    "CRITICAL: This is your LAST round with tool access. "
+                    "You MUST include your ## COMP-NNN verdict text in THIS "
+                    "response. If you only call a tool without writing text, "
+                    "your output will be recorded as INCONCLUSIVE.\n\n"
+                    "Write your verdict NOW using this format:\n"
+                    "## COMP-NNN: [description]\n"
+                    "**CLAIM:** [claim]\n"
+                    "**METHOD:** [method]\n"
+                    "**RESULT:** [results]\n"
+                    "**VERDICT:** [VERIFIED / REFUTED / INCONCLUSIVE]\n"
+                    "**NOTES:** [notes]"
+                )
+                messages.append({"role": "user", "content": _crit_msg})
+                round_log.append({
+                    "kind": "scaffold_injection", "round": round_num,
+                    "label": "critical_warning", "content": _crit_msg,
                 })
 
     # Exhausted max_rounds or zero-text/low-cumulative/tool-failure bailout — force one final text-only call
@@ -524,15 +561,15 @@ def run_agent_loop(
         reason = (
             "IMPORTANT: You have reached the maximum number of tool-use rounds. "
         )
+    if tool_call_failure:
+        _reason = "tool_call_failure"
+    elif zero_text_streak >= config.zero_text_bailout:
+        _reason = "zero_text"
+    elif low_cumulative_bailout:
+        _reason = "low_cumulative"
+    else:
+        _reason = "max_rounds"
     if config.workspace_dir:
-        if tool_call_failure:
-            _reason = "tool_call_failure"
-        elif zero_text_streak >= config.zero_text_bailout:
-            _reason = "zero_text"
-        elif low_cumulative_bailout:
-            _reason = "low_cumulative"
-        else:
-            _reason = "max_rounds"
         log_scaffold_event(config.workspace_dir, iteration, 2, "forced_final_call", _reason)
 
     forced_system = (
@@ -626,6 +663,14 @@ def run_agent_loop(
     if on_round:
         on_round(round_num + 1, "forced_partial", [], total_input, total_output)
 
+    round_log.append({
+        "kind": "forced_final_call", "round": round_num + 1,
+        "reason": _reason, "text": final_text,
+        "input_tokens": final_in, "output_tokens": final_out,
+        "reasoning_tokens": final_reasoning, "answer_tokens": final_answer,
+        "duration": final_dur,
+    })
+
     if config.audit_log:
         _write_audit_entry(config, LLMResponse(
             final_text, final_in, final_out, "forced_partial", final_dur,
@@ -633,7 +678,7 @@ def run_agent_loop(
         ), forced_system, user_content, agent_name, iteration,
         round=round_num + 1)
 
-    return AgentResult(
+    result = AgentResult(
         text=final_text,
         tool_calls=all_tool_calls,
         total_input_tokens=total_input,
@@ -646,6 +691,10 @@ def run_agent_loop(
         total_reasoning_tokens=total_reasoning,
         total_answer_tokens=total_answer,
     )
+    _write_agent_conversation_log(
+        config, system, user_content, agent_name,
+        iteration, round_log, result)
+    return result
 
 
 def _write_audit_entry(config: Config, resp: LLMResponse,
@@ -722,6 +771,135 @@ def _write_conversation_log(config: Config, resp: LLMResponse,
 
 {resp.text}
 """
+    try:
+        Path(config.logs_dir, filename).write_text(content)
+    except OSError:
+        pass
+
+
+def _render_tool_input(name: str, input_data) -> str:
+    """Render tool input for conversation log display."""
+    if name == "execute_python" and isinstance(input_data, dict) and "code" in input_data:
+        return f"~~~python\n{input_data['code']}\n~~~"
+    try:
+        return f"```json\n{json.dumps(input_data, indent=2)}\n```"
+    except (TypeError, ValueError):
+        return f"```\n{input_data}\n```"
+
+
+def _write_agent_conversation_log(
+    config: Config, system: str, user_content: str,
+    agent_name: str, iteration: int,
+    round_log: list[dict], result: AgentResult,
+):
+    """Write a single comprehensive Markdown log for a tool-use agent invocation."""
+    if not config.logs_dir:
+        return
+
+    seq = _call_seq.get(iteration, 0) + 1
+    _call_seq[iteration] = seq
+
+    agent = agent_name or "unknown"
+    filename = f"iter{iteration:03d}_{agent}_{seq}.md"
+
+    lines: list[str] = []
+    lines.append(f"# Agent Conversation — iter {iteration}, {agent}\n")
+    lines.append("| Field | Value |")
+    lines.append("|-------|-------|")
+    lines.append(f"| Model | {config.model} |")
+    lines.append(f"| Total rounds | {result.rounds} |")
+    lines.append(f"| Total input tokens | {result.total_input_tokens} |")
+    lines.append(f"| Total output tokens | {result.total_output_tokens} |")
+    if result.total_reasoning_tokens > 0:
+        lines.append(f"| Total reasoning tokens | {result.total_reasoning_tokens} |")
+        lines.append(f"| Total answer tokens | {result.total_answer_tokens} |")
+    lines.append(f"| Total duration | {result.duration:.1f}s |")
+    lines.append(f"| Stop reason | {result.stop_reason} |")
+    lines.append("")
+
+    # System prompt in collapsible section
+    lines.append("## System Prompt\n")
+    lines.append("<details>")
+    lines.append(f"<summary>System prompt ({len(system)} chars)</summary>\n")
+    lines.append(system)
+    lines.append("\n</details>\n")
+
+    # User content in collapsible section
+    lines.append("## User Content\n")
+    lines.append("<details>")
+    lines.append(f"<summary>User content ({len(user_content)} chars)</summary>\n")
+    lines.append(user_content)
+    lines.append("\n</details>\n")
+
+    # Render chronological events
+    for entry in round_log:
+        kind = entry["kind"]
+
+        if kind == "llm_response":
+            lines.append("---\n")
+            lines.append(f"## Round {entry['round']}\n")
+            lines.append("### LLM Response")
+            tok_str = f"{entry['input_tokens']} in / {entry['output_tokens']} out"
+            if entry.get("reasoning_tokens", 0) > 0:
+                tok_str += f" ({entry['reasoning_tokens']} reasoning, {entry['answer_tokens']} answer)"
+            lines.append(
+                f"**Tokens:** {tok_str} | **Duration:** {entry['duration']:.1f}s "
+                f"| **Stop:** {entry['stop_reason']}\n"
+            )
+            text = entry.get("text", "")
+            if text and text.strip():
+                lines.append(text.strip())
+                lines.append("")
+            else:
+                lines.append("*(no text output)*\n")
+            if entry.get("tool_calls"):
+                for tc_info in entry["tool_calls"]:
+                    tc_name = tc_info.get("name", "unknown")
+                    tc_input = tc_info.get("input", {})
+                    lines.append(f"**Tool call: {tc_name}**")
+                    lines.append(_render_tool_input(tc_name, tc_input))
+                    lines.append("")
+
+        elif kind == "tool_result":
+            status = "error" if entry.get("is_error") else "success"
+            dur_str = f"{entry['duration']:.1f}s, " if entry.get("duration") else ""
+            lines.append(f"### Tool Result — {entry['tool_name']} ({dur_str}{status})")
+            lines.append(f"```\n{entry['output']}\n```\n")
+
+        elif kind == "scaffold_injection":
+            lines.append("---\n")
+            lines.append(f"### Scaffold — {entry['label']}\n")
+            lines.append(entry.get("content", ""))
+            lines.append("")
+
+        elif kind == "checkpoint_response":
+            lines.append("### Checkpoint Response")
+            lines.append(
+                f"**Tokens:** {entry['input_tokens']} in / {entry['output_tokens']} out\n"
+            )
+            text = entry.get("text", "")
+            if text and text.strip():
+                lines.append(text.strip())
+            else:
+                lines.append("*(no text output)*")
+            lines.append("")
+
+        elif kind == "forced_final_call":
+            lines.append("---\n")
+            lines.append(f"## Forced Final Call (reason: {entry.get('reason', 'unknown')})")
+            tok_str = f"{entry['input_tokens']} in / {entry['output_tokens']} out"
+            if entry.get("reasoning_tokens", 0) > 0:
+                tok_str += f" ({entry['reasoning_tokens']} reasoning, {entry['answer_tokens']} answer)"
+            dur_str = f" | **Duration:** {entry['duration']:.1f}s" if entry.get("duration") else ""
+            lines.append(f"**Tokens:** {tok_str}{dur_str}\n")
+            text = entry.get("text", "")
+            if text and text.strip():
+                lines.append(text.strip())
+            else:
+                lines.append("*(no text output)*")
+            lines.append("")
+
+    content = "\n".join(lines) + "\n"
     try:
         Path(config.logs_dir, filename).write_text(content)
     except OSError:
