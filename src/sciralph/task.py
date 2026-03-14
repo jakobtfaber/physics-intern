@@ -18,6 +18,7 @@ class TaskType(StrEnum):
     RESOLVE = "resolve"
     SYNTHESIZE = "synthesize"
     TERMINATE = "terminate"
+    FORMAT = "format"
 
 
 TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
@@ -28,6 +29,7 @@ TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
     TaskType.RESOLVE: "researcher",
     TaskType.SYNTHESIZE: "researcher",
     TaskType.TERMINATE: "orchestrator",
+    TaskType.FORMAT: "formatter",
 }
 
 

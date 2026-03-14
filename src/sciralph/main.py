@@ -55,8 +55,6 @@ def main():
 
     problem = problem_def.get("problem", "")
     answer_template = problem_def.get("answer_template", "")
-    if answer_template:
-        problem += f"\n\n## Answer Template\n\n{answer_template}"
 
     # Build config (3-tier merge)
     config = build_config(args)
@@ -75,7 +73,8 @@ def main():
     }
 
     # Run
-    engine = SciRalph(problem, config=config, problem_meta=problem_meta)
+    engine = SciRalph(problem, config=config, problem_meta=problem_meta,
+                       answer_template=answer_template)
     engine.run()
 
 

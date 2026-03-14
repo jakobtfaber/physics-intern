@@ -1565,6 +1565,7 @@ class TestDispatchFailureRecovery:
             engine.computationalist = MagicMock()
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
+            engine.formatter = MagicMock()
         return engine
 
     def test_transient_error_continues_loop(self):

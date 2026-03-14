@@ -25,6 +25,7 @@ from .agents.researcher import ResearcherAgent
 from .agents.computationalist import ComputationalistAgent
 from .agents.critic import CriticAgent
 from .agents.compressor import CompressorAgent
+from .agents.formatter import FormatterAgent
 
 console = Console()
 
@@ -33,7 +34,8 @@ class SciRalph:
     """Main loop for the SciRalph research system."""
 
     def __init__(self, problem: str, config: Config | None = None,
-                 problem_meta: dict | None = None):
+                 problem_meta: dict | None = None,
+                 answer_template: str = ""):
         self.config = config or Config()
         self.metrics = MetricsTracker()
         self.workspace = WorkspaceManager(self.config)
@@ -59,6 +61,7 @@ class SciRalph:
         self.computationalist = ComputationalistAgent(self.config, self.workspace, self.metrics)
         self.critic = CriticAgent(self.config, self.workspace, self.metrics)
         self.compressor = CompressorAgent(self.config, self.workspace, self.metrics)
+        self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
 
     def run(self):
         """Main loop: orchestrate → validate → override → dispatch → compress → git."""
@@ -86,6 +89,7 @@ class SciRalph:
                     self.workspace, self.config, self.metrics, self.problem_meta)
                 if allowed:
                     console.print("[green]Orchestrator signaled completion.[/green]")
+                    self._run_formatter()
                     self._set_research_status("completed")
                     break
                 self._pending_termination_blockers = blockers
@@ -412,7 +416,7 @@ class SciRalph:
         expected_agent = TASK_TYPE_AGENT_MAP.get(task.task_type)
         if expected_agent:
             if not task.assigned_to or task.assigned_to not in (
-                "orchestrator", "researcher", "computationalist", "deep_critic", "compressor"
+                "orchestrator", "researcher", "computationalist", "deep_critic", "compressor", "formatter"
             ):
                 self.metrics.alert(
                     self.iteration,
@@ -445,6 +449,11 @@ class SciRalph:
             result = self.computationalist.run(task, self.iteration, on_round=self._on_compute_round)
             self._last_content_iteration = self.iteration
             return "computationalist", result
+
+        elif tt == TaskType.FORMAT:
+            console.print("[cyan]Formatter[/cyan] producing ANSWER.md...")
+            result = self.formatter.run(task, self.iteration)
+            return "formatter", result
 
         elif tt == TaskType.CRITIQUE:
             console.print("[red]Deep Critic[/red] reviewing...")
@@ -704,6 +713,20 @@ class SciRalph:
         meta, body = parse_frontmatter(text)
         meta["status"] = status
         self.workspace.write_file("RESEARCH_STATE.md", render_frontmatter(meta, body))
+
+    def _run_formatter(self):
+        """Run the formatter agent to produce ANSWER.md."""
+        console.print("[cyan]Formatter[/cyan] producing ANSWER.md...")
+        fmt_task = Task(
+            task_id=f"FORMAT-{self.iteration:03d}",
+            task_type=TaskType.FORMAT,
+            assigned_to="formatter",
+            iteration=self.iteration,
+        )
+        self.formatter.run(fmt_task, self.iteration)
+        self.workspace.git_commit(
+            f"Iteration {self.iteration}: formatter - ANSWER.md"
+        )
 
     def _check_status_field(self) -> bool:
         """Check termination conditions beyond max_iterations."""
