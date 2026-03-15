@@ -190,6 +190,11 @@ def check_task_agent_routing(workspace: WorkspaceManager) -> list[Violation]:
         return []
 
     meta, body = parse_frontmatter(task_text)
+
+    # terminate tasks don't dispatch to any agent — skip routing check
+    if meta.get("task_type", "") == "terminate":
+        return []
+
     assigned = meta.get("assigned_to", "")
 
     if assigned in _VALID_AGENTS:

@@ -438,6 +438,16 @@ class TestCheckTaskAgentRouting:
         assert violations[0].severity == ViolationSeverity.ERROR
         assert "'magic_agent'" in violations[0].message
 
+    def test_terminate_task_skips_routing_check(self):
+        """Terminate tasks don't dispatch to any agent — no routing violation."""
+        for assigned in ("none", "None", "null", ""):
+            meta = {"task_id": "TASK-001", "task_type": "terminate", "assigned_to": assigned}
+            ws = MockWorkspace({
+                "CURRENT_TASK.md": render_frontmatter(meta, "Terminate.\n"),
+            })
+            violations = check_task_agent_routing(ws)
+            assert len(violations) == 0, f"terminate with assigned_to='{assigned}' should not violate"
+
     def test_empty_task_no_violation(self):
         ws = MockWorkspace({})
         violations = check_task_agent_routing(ws)

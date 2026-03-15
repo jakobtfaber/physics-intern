@@ -25,6 +25,49 @@
 **Files:** `workspace.py` (add `append_failure_artifact()` / `read_failure_artifact()`), `llm.py` (write artifact before returning), `agents/base.py` (write on max_tokens), `engine.py` (read in enrichment + context prefix).
 
 
+### Formal COMP→WH Registry
+
+**Problem:** There is no authoritative mapping between computations (COMP entries) and the claims they verify (WH/ER). The link is currently reconstructed at query time via substring matching (`"WH-001" in e["claim"]`), which fails in three observed ways:
+
+1. **No ID in CLAIM line** — when compute is dispatched before any WH exists (observed: gemini-3.1-pro), the task body has no WH/ER ID, so the CLAIM line is purely descriptive. The promotion gate then can't link the COMP to the later-created WH and silently refuses promotion.
+2. **Circular verification invisible** — two COMPs can both say VERIFIED for the same claim without the scaffolding knowing they're related. In the qwen run, COMP-009 "verified" the formula by plugging in COMP-002's own numbers. Nothing detected the circularity because each COMP is validated in isolation.
+3. **Contradictory VERIFIEDs undetected** — COMP-002 (30 detected/45 undetected) and COMP-008 (44 detected/31 undetected) both carried VERIFIED on overlapping claims. The scaffolding never compared their outputs because there's no structure connecting COMPs that target the same claim.
+
+**Proposed design:** A `comp_registry` in `LoopState` that formally tracks every computation's target claim and verdict.
+
+```python
+@dataclass
+class CompRecord:
+    comp_id: str            # COMP-003
+    target_claim: str       # WH-001
+    verdict: str            # VERIFIED / REFUTED / INCONCLUSIVE
+    iteration: int
+    # Future: key_numbers for contradiction detection
+
+comp_registry: dict[str, CompRecord] = field(default_factory=dict)  # keyed by comp_id
+```
+
+The orchestrator declares which claim a compute task targets via a `target_claim` frontmatter field in CURRENT_TASK.md. The engine reads it, passes it through the Task object, and registers the result after dispatch.
+
+**Implementation guidelines:**
+
+1. **`task.py`** — Add `target_claim: str = ""` field to `Task`. Parse from CURRENT_TASK.md frontmatter (`target_claim: WH-003`). Fallback: extract first `WH-NNN`/`ER-NNN` from `task.body` using existing `_ER_WH_ID_RE`.
+
+2. **`engine.py`** — Add `CompRecord` dataclass and `comp_registry: dict[str, CompRecord]` to `LoopState`. In `_track_compute_verdict()`, after parsing the last COMP entry, register a `CompRecord` with the target claim from `task.target_claim` (authoritative) or the parsed CLAIM line (fallback). This replaces the fire-and-forget behavior where VERIFIED clears tracking.
+
+3. **`computationalist.py`** — Use `task.target_claim` (when present) instead of regex-extracting from `task.body` for the CLAIM line injection. This makes the injection deterministic rather than heuristic.
+
+4. **`validation.py`** — `check_er_promotion_gate()` should consult the registry as the primary lookup (`any(r.target_claim == wh_id and r.verdict == "VERIFIED" for r in registry.values())`), falling back to the current substring matching for COMPs registered before this change or with missing target_claim.
+
+5. **Orchestrator prompt** — Add `target_claim` to the CURRENT_TASK.md frontmatter spec for compute tasks: "For `task_type: compute`, you MUST include `target_claim: WH-NNN` identifying the single hypothesis being verified."
+
+6. **Deferred binding** — When compute is dispatched before any WH exists (iteration 1 on a fresh problem), register the CompRecord with `target_claim=""`. When the researcher later formalizes a WH whose content matches the COMP's claim, bind retroactively. Heuristic: match on `_normalize_claim_key`. This is the only non-trivial piece — keep it simple and log a scaffold event when deferred binding fires.
+
+7. **Scope boundary** — The registry tracks COMP→WH links and verdicts only. Cross-COMP contradiction detection (comparing numerical outputs) and verification independence checks (detecting circular verification) are separate features that build on top of the registry but should be implemented independently.
+
+**Files:** `task.py` (+1 field, +2 lines in `from_frontmatter`), `engine.py` (+CompRecord dataclass, +comp_registry field, ~15 lines in `_track_compute_verdict`, ~10 lines deferred binding helper), `computationalist.py` (~5 lines to prefer `task.target_claim`), `validation.py` (~10 lines to use registry in promotion gate), `prompts/orchestrator.md` (add `target_claim` to frontmatter spec).
+
+
 ## OTHER IDEAS
 
 ### Improve orchestrator
