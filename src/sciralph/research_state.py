@@ -157,6 +157,13 @@ class ResearchState:
     def working_hypotheses(self) -> list[Hypothesis]:
         return [h for h in self.hypotheses.values() if h.status == HypothesisStatus.WORKING]
 
+    def failures_for_hypothesis(self, hypothesis_id: str) -> list[FailedApproach]:
+        """Failed approaches mentioning *hypothesis_id*."""
+        return [
+            fa for fa in self.failed_approaches
+            if hypothesis_id in fa.description or hypothesis_id in " ".join(fa.related_comps)
+        ]
+
     # --- Serialization ---
 
     def to_json(self) -> str:

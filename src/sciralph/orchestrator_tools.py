@@ -237,9 +237,10 @@ class OrchestratorToolExecutor:
 
     TOOL_DEFINITIONS: ClassVar[list[dict]] = ORCHESTRATOR_TOOL_DEFINITIONS
 
-    def __init__(self, workspace: WorkspaceManager, iteration: int):
+    def __init__(self, workspace: WorkspaceManager, iteration: int, research_state=None):
         self.workspace = workspace
         self.iteration = iteration
+        self.research_state = research_state
         self.mutations_applied: bool = False
         self.task_data: dict | None = None
         self.resolved_critique_ids: set[str] = set()
@@ -353,6 +354,16 @@ class OrchestratorToolExecutor:
 
         self.workspace.write_file("RESEARCH_STATE.md", state_text)
         self.mutations_applied = True
+
+        # Record in formal state if available
+        if self.research_state:
+            from .research_state import FailedApproach
+            self.research_state.failed_approaches.append(FailedApproach(
+                description=f"Abandoned {hid} — {title}",
+                reason=reason,
+                iteration=self.iteration,
+            ))
+
         return f"Abandoned {hid}: {reason}"
 
     def _resolve_critique(self, args: dict) -> str:

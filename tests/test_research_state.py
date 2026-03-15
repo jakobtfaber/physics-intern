@@ -380,3 +380,45 @@ class TestSerialization:
         parsed = json.loads(state.to_json())
         assert parsed["iteration"] == 1
         assert "WH-001" in parsed["hypotheses"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Failure tracking
+# ---------------------------------------------------------------------------
+
+class TestFailureTracking:
+
+    def test_failures_for_hypothesis(self):
+        state = ResearchState()
+        state.failed_approaches.append(FailedApproach(
+            description="REFUTED on: WH-001 spin prediction",
+            reason="Got spin-0 instead of spin-1",
+            related_comps=["COMP-002"],
+            iteration=3,
+        ))
+        state.failed_approaches.append(FailedApproach(
+            description="INCONCLUSIVE on: WH-002 entropy",
+            reason="Timeout",
+            related_comps=["COMP-005"],
+            iteration=4,
+        ))
+        wh1_failures = state.failures_for_hypothesis("WH-001")
+        assert len(wh1_failures) == 1
+        assert "spin prediction" in wh1_failures[0].description
+
+    def test_failures_round_trip(self):
+        state = ResearchState(iteration=5)
+        state.failed_approaches.append(FailedApproach(
+            description="REFUTED on: WH-001",
+            reason="Wrong coefficient",
+            related_comps=["COMP-003"],
+            iteration=4,
+        ))
+        restored = ResearchState.from_json(state.to_json())
+        assert len(restored.failed_approaches) == 1
+        assert restored.failed_approaches[0].reason == "Wrong coefficient"
+        assert restored.failed_approaches[0].related_comps == ["COMP-003"]
+
+    def test_no_failures_returns_empty(self):
+        state = ResearchState()
+        assert state.failures_for_hypothesis("WH-001") == []

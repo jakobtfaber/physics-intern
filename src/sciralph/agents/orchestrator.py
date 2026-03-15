@@ -146,8 +146,11 @@ class OrchestratorAgent(BaseAgent):
         on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
     ) -> AgentResult:
         """Run the orchestrator with state-mutation tools."""
+        # Pass research_state if the engine set it on us
+        research_state = getattr(self, "_research_state_ref", None)
         self._tool_executor = OrchestratorToolExecutor(
             workspace=self.workspace, iteration=iteration,
+            research_state=research_state,
         )
         result = run_agent_loop(
             system=self.system_prompt,

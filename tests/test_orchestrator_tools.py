@@ -325,6 +325,32 @@ class TestUnknownTool:
 # Integration: multiple tools in sequence
 # ---------------------------------------------------------------------------
 
+class TestAbandonRecordsFailure:
+    """Phase 4: abandon_hypothesis records in research_state.failed_approaches."""
+
+    def test_records_failed_approach(self):
+        from sciralph.research_state import ResearchState
+        ws, store = _make_workspace({"RESEARCH_STATE.md": SAMPLE_STATE})
+        rs = ResearchState()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=rs)
+        ex.execute("abandon_hypothesis", {
+            "id": "WH-001",
+            "reason": "Spin prediction was wrong.",
+        })
+        assert len(rs.failed_approaches) == 1
+        assert "WH-001" in rs.failed_approaches[0].description
+        assert "Spin prediction" in rs.failed_approaches[0].reason
+
+    def test_no_research_state_still_works(self):
+        ws, store = _make_workspace({"RESEARCH_STATE.md": SAMPLE_STATE})
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
+        tc = ex.execute("abandon_hypothesis", {
+            "id": "WH-001",
+            "reason": "Bad.",
+        })
+        assert not tc.is_error
+
+
 class TestMultipleTools:
     def test_add_then_update(self):
         ws, store = _make_workspace({"RESEARCH_STATE.md": SAMPLE_STATE})

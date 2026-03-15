@@ -348,6 +348,8 @@ class SciRalph:
 
         # Set context prefix for violations/blockers
         self.orchestrator.context_prefix = self._build_context_prefix()
+        # Pass research state reference for tool executor
+        self.orchestrator._research_state_ref = getattr(self, "research_state", None)
 
         orch_task = Task(
             task_id="", task_type=TaskType.RESEARCH,
@@ -629,9 +631,24 @@ class SciRalph:
         return task
 
     def _enrich_compute_task_with_prior_failures(self, task: Task):
-        """Append prior failure context to CURRENT_TASK.md for compute retries."""
+        """Append prior failure context to CURRENT_TASK.md for compute retries.
+
+        Consults both the formal ResearchState (failed_approaches) and
+        COMPUTATION_LOG.md (Markdown fallback) for comprehensive context.
+        """
         comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
         prior = find_prior_failures_for_claim(comp_log, task.body)
+
+        # Also check formal state for failed approaches targeting this claim
+        if hasattr(self, "research_state"):
+            from .markdown import _ER_WH_ID_RE
+            task_ids = set(_ER_WH_ID_RE.findall(task.body))
+            for fa in self.research_state.failed_approaches:
+                if task_ids and any(tid in fa.description for tid in task_ids):
+                    excerpt = f"**Prior failure (iter {fa.iteration}):** {fa.description}\n**Reason:** {fa.reason}"
+                    if excerpt not in prior:
+                        prior.append(excerpt)
+
         if not prior:
             return
         log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p6_enrichment",
@@ -677,6 +694,9 @@ class SciRalph:
         if verdict == "VERIFIED":
             self._state.claim_failure_count.pop(key, None)
             return
+
+        # Record failure in formal state
+        self._record_failed_computation(last, task, verdict)
 
         # REFUTED, INCONCLUSIVE, or any non-VERIFIED
         count = self._state.claim_failure_count.get(key, 0) + 1
@@ -830,6 +850,30 @@ class SciRalph:
                                    f"status={status}")
                 return True
         return False
+
+    def _record_failed_computation(self, comp_entry: dict, task: Task, verdict: str):
+        """Record a non-VERIFIED computation as a FailedApproach in the research state."""
+        if not hasattr(self, "research_state"):
+            return
+        from .research_state import FailedApproach
+
+        comp_id = comp_entry.get("id", "")
+        claim = comp_entry.get("claim", task.body[:200])
+        method = comp_entry.get("method", "")
+        notes = comp_entry.get("notes", "")
+        result = comp_entry.get("result", "")
+
+        description = f"{verdict} on: {claim}"
+        if method:
+            description += f"\nMethod: {method}"
+        reason = notes or result or f"Computation returned {verdict}"
+
+        self.research_state.failed_approaches.append(FailedApproach(
+            description=description,
+            reason=reason,
+            related_comps=[comp_id] if comp_id else [],
+            iteration=self.iteration,
+        ))
 
     def _register_computation(self, comp_entry: dict, task: Task):
         """Register a computation in the formal research state with authoritative target link."""
