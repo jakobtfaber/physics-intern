@@ -1,10 +1,11 @@
-"""Orchestrator agent: plans and coordinates research."""
+"""Orchestrator agent: plans and coordinates research via state-mutation tools."""
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
-from ..llm import LLMResponse
+from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..markdown import (
     parse_frontmatter,
     render_frontmatter,
@@ -19,7 +20,9 @@ from ..markdown import (
     flatten_unverified_brackets,
     CRIT_ID_RE,
 )
+from ..orchestrator_tools import OrchestratorToolExecutor
 from ..task import Task, TaskType
+from ..tools import ToolCall
 from .base import BaseAgent
 from ..categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event
@@ -27,21 +30,30 @@ from ..workspace import log_scaffold_event
 DELIM_RESEARCH = "=== RESEARCH_STATE.md ==="
 DELIM_TASK = "=== CURRENT_TASK.md ==="
 
+# Agent routing for set_next_task fallback
+_TASK_TYPE_AGENT_DEFAULTS = {
+    "research": "researcher",
+    "derive": "researcher",
+    "compute": "computationalist",
+    "critique": "deep_critic",
+    "resolve": "researcher",
+    "synthesize": "researcher",
+    "terminate": "orchestrator",
+}
+
 
 class OrchestratorAgent(BaseAgent):
     name = "orchestrator"
     prompt_file = "orchestrator.md"
+    tools = OrchestratorToolExecutor.TOOL_DEFINITIONS
 
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
         self.context_prefix: str = ""
+        self._tool_executor: OrchestratorToolExecutor | None = None
 
     def _completion_analysis(self, iteration: int = 0) -> str | None:
-        """Check if research appears complete; return banner if so.
-
-        When budget is low (≤3 iterations remaining), returns a synthesis
-        banner even if Working Hypotheses or critiques remain unresolved.
-        """
+        """Check if research appears complete; return banner if so."""
         state = self.workspace.read_file("RESEARCH_STATE.md")
         critique = self.workspace.read_file("CRITIQUE_LOG.md")
         crit_meta, _ = parse_frontmatter(critique)
@@ -58,12 +70,10 @@ class OrchestratorAgent(BaseAgent):
                 f"{wh_count} Working Hypotheses remaining, "
                 f"{high} HIGH / {medium} MEDIUM unresolved critiques. "
                 "ALL PROBLEM STEPS APPEAR TO BE ESTABLISHED. "
-                "Write a brief '## Synthesis' section at the end of "
-                "RESEARCH_STATE.md summarizing the key results and their "
-                "connections, then emit task_type: terminate. <<<"
+                "Write a brief '## Synthesis' section using update_hypothesis or "
+                "add_hypothesis, then call set_next_task with task_type: terminate. <<<"
             )
 
-        # Budget-aware: force synthesis when ≤3 iterations remain
         budget_remaining = self.config.max_iterations - iteration
         if budget_remaining <= self.config.budget_synthesis_margin and er_count >= 1:
             return (
@@ -73,11 +83,8 @@ class OrchestratorAgent(BaseAgent):
                 f"{er_count} Established Results, "
                 f"{wh_count} Working Hypotheses still pending, "
                 f"{high} HIGH / {medium} MEDIUM unresolved critiques. "
-                "You MUST synthesize ALL current Established Results into a "
-                "final answer NOW using task_type: synthesize. "
-                "Unresolved Working Hypotheses and critiques should be noted "
-                "as limitations, not pursued further. Set the research status "
-                "to 'partially_complete' if any items remain unresolved. <<<"
+                "You MUST call set_next_task with task_type: synthesize NOW. "
+                "Unresolved items should be noted as limitations. <<<"
             )
         return None
 
@@ -131,9 +138,74 @@ class OrchestratorAgent(BaseAgent):
             parts.append(self.workspace.read_file("PROPOSED_CHANGES.md"))
         return "\n".join(parts)
 
-    def process_response(self, response: LLMResponse, task: Task, iteration: int):
-        """Write CURRENT_TASK.md (and optionally RESEARCH_STATE.md) from orchestrator output."""
-        research_state, task_text = _split_response(response.text)
+    def _call_with_tools(
+        self,
+        context: str,
+        task: Task,
+        iteration: int,
+        on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
+    ) -> AgentResult:
+        """Run the orchestrator with state-mutation tools."""
+        self._tool_executor = OrchestratorToolExecutor(
+            workspace=self.workspace, iteration=iteration,
+        )
+        result = run_agent_loop(
+            system=self.system_prompt,
+            user_content=context,
+            config=self.config,
+            tool_executor=self._tool_executor,
+            tools=self.tools,
+            max_rounds=self.config.max_tool_rounds,
+            agent_name=self.name,
+            iteration=iteration,
+            on_round=on_round,
+        )
+
+        self.metrics.record_call(
+            iteration=iteration,
+            agent=self.name,
+            input_tokens=result.total_input_tokens,
+            output_tokens=result.total_output_tokens,
+            duration=result.duration,
+            max_tokens_hit=result.truncated,
+            rounds=result.rounds,
+            tool_calls=len(result.tool_calls),
+            truncated=result.truncated,
+            reasoning_tokens=result.total_reasoning_tokens,
+            answer_tokens=result.total_answer_tokens,
+        )
+        return result
+
+    def process_response(self, response: LLMResponse | AgentResult, task: Task, iteration: int):
+        """Process orchestrator output — tool-based mutations or legacy text format."""
+        text = response.text.strip() if response.text else ""
+
+        # Path A: Tool-based mutations were applied
+        if self._tool_executor and self._tool_executor.mutations_applied:
+            # Post-processing on RESEARCH_STATE.md (same as legacy path)
+            state_text = self.workspace.read_file("RESEARCH_STATE.md")
+            before = state_text
+            state_text = self._enforce_problem_statement(state_text)
+            if state_text != before:
+                log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "problem_statement_enforced", "")
+            before = state_text
+            state_text = normalize_er_wh_headers(state_text)
+            if state_text != before:
+                log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "header_normalized", "")
+            self.workspace.write_file("RESEARCH_STATE.md", state_text)
+            self.workspace.delete_file("PROPOSED_CHANGES.md")
+
+            # Write CURRENT_TASK.md from set_next_task tool call
+            if self._tool_executor.task_data:
+                task_obj = self._task_from_tool_data(self._tool_executor.task_data, iteration)
+                self.workspace.write_file("CURRENT_TASK.md", task_obj.to_markdown())
+            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION,
+                               "orchestrator_tool_mutations",
+                               f"mutations=True, task={'set' if self._tool_executor.task_data else 'missing'}")
+            return
+
+        # Path B: Legacy text-based format (fallback or provider without tool support)
+        research_state, task_text = _split_response(text)
         if research_state is not None:
             before = research_state
             research_state = self._enforce_problem_statement(research_state)
@@ -145,16 +217,32 @@ class OrchestratorAgent(BaseAgent):
                 log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "header_normalized", "")
             self.workspace.write_file("RESEARCH_STATE.md", research_state)
             self.workspace.delete_file("PROPOSED_CHANGES.md")
-            # Resolve critiques mentioned in the orchestrator's output
-            self._resolve_critiques(response.text, iteration)
+            self._resolve_critiques(text, iteration)
         self.workspace.write_file("CURRENT_TASK.md", task_text)
+
+    def _task_from_tool_data(self, data: dict, iteration: int) -> Task:
+        """Build a Task from set_next_task tool arguments."""
+        raw_type = data.get("task_type", "research")
+        try:
+            task_type = TaskType(raw_type)
+        except ValueError:
+            task_type = TaskType.RESEARCH
+        assigned_to = data.get("assigned_to") or _TASK_TYPE_AGENT_DEFAULTS.get(raw_type, "researcher")
+        return Task(
+            task_id=f"TASK-{iteration:03d}",
+            task_type=task_type,
+            assigned_to=assigned_to,
+            priority=data.get("priority", "medium"),
+            iteration=iteration,
+            target_claim=data.get("target_claim", ""),
+            body=data.get("description", ""),
+        )
 
     def _enforce_problem_statement(self, research_state: str) -> str:
         """Replace the Problem Statement section with the original from the problem YAML."""
         original = getattr(self.workspace, "problem_statement", None)
         if not original:
             return research_state
-        # Replace everything between "# Problem Statement" and the next "# " heading
         return re.sub(
             r"(# Problem Statement\s*\n).*?(?=\n# Conventions)",
             lambda m: m.group(1) + "\n" + original + "\n",
@@ -165,7 +253,6 @@ class OrchestratorAgent(BaseAgent):
 
     @staticmethod
     def _validate_resolution_note(note: str, crit_id: str, iteration: int) -> str:
-        """Validate and clean resolution note quality."""
         _SYSTEM_MARKERS = ("[error]", "phantom", ":unverified]", ">>> ", "<<<")
         if len(note) < 20:
             return f"Resolved via computation/analysis at iteration {iteration}."
@@ -174,10 +261,9 @@ class OrchestratorAgent(BaseAgent):
         return note
 
     def _resolve_critiques(self, response_text: str, iteration: int):
-        """Scan orchestrator output for resolved critique IDs and update CRITIQUE_LOG.md."""
+        """Scan orchestrator output for resolved critique IDs (legacy path)."""
         resolved_ids = extract_resolved_critique_ids(response_text)
 
-        # Defense-in-depth: also extract from RESEARCH_STATE.md frontmatter
         state_text = self.workspace.read_file("RESEARCH_STATE.md")
         if state_text:
             state_meta, _ = parse_frontmatter(state_text)
@@ -194,7 +280,6 @@ class OrchestratorAgent(BaseAgent):
         if not resolved_ids:
             return
 
-        # Try to extract per-critique resolution notes from prose
         resolution_notes = {}
         for crit_id in resolved_ids:
             note_match = re.search(
@@ -204,7 +289,6 @@ class OrchestratorAgent(BaseAgent):
             )
             if note_match:
                 note = note_match.group(1).strip()
-                # Collapse whitespace, cap at 300 chars at sentence boundary
                 note = " ".join(note.split())
                 if len(note) > 300:
                     cut = note[:300].rfind('.')
@@ -222,11 +306,14 @@ class OrchestratorAgent(BaseAgent):
             log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "critique_resolved",
                                f"crit_id={crit_id}")
 
-        # Update frontmatter counts
         self.workspace.write_file("CRITIQUE_LOG.md", ensure_critique_metadata_consistent(content))
 
     def parse_task(self, text: str, iteration: int = 0) -> Task:
-        """Parse CURRENT_TASK.md content into a Task."""
+        """Parse task — from tool executor if available, else from text."""
+        # Prefer tool-based task
+        if self._tool_executor and self._tool_executor.task_data:
+            return self._task_from_tool_data(self._tool_executor.task_data, iteration)
+        # Legacy: parse from text
         _, task_text = _split_response(text)
         return Task.from_frontmatter(task_text, fallback_iteration=iteration)
 

@@ -58,12 +58,17 @@ class TestToolsAttribute:
         assert ComputationalistAgent.tools[0]["function"]["name"] == "execute_python"
 
     def test_other_agents_no_tools(self):
-        from sciralph.agents.orchestrator import OrchestratorAgent
         from sciralph.agents.researcher import ResearcherAgent
         from sciralph.agents.critic import CriticAgent
-        assert OrchestratorAgent.tools == []
         assert ResearcherAgent.tools == []
         assert CriticAgent.tools == []
+
+    def test_orchestrator_has_state_mutation_tools(self):
+        from sciralph.agents.orchestrator import OrchestratorAgent
+        assert len(OrchestratorAgent.tools) > 0
+        tool_names = {t["function"]["name"] for t in OrchestratorAgent.tools}
+        assert "set_next_task" in tool_names
+        assert "add_hypothesis" in tool_names
 
 
 def _make_agent():
