@@ -55,7 +55,7 @@ def _mock_provider_response(text="", stop_reason="end_turn",
 
 def _make_config(**overrides) -> Config:
     defaults = dict(api_key="test-key", logs_dir="", provider="anthropic",
-                    text_checkpoint_interval=999)
+                    progress_check_interval=999)
     defaults.update(overrides)
     return Config(**defaults)
 
@@ -76,118 +76,15 @@ def _mock_provider():
 
 
 # ---------------------------------------------------------------------------
-# P0-A: Zero-Text Watchdog
+# P0-A: Progress Check (replaces zero-text watchdog)
 # ---------------------------------------------------------------------------
 
-class TestZeroTextWatchdog:
-    """P0-A: Computationalist enters tool-only loops producing no text."""
+class TestProgressCheck:
+    """P0-A: Progress check injected after N consecutive execute_python rounds."""
 
     @patch("sciralph.llm._get_provider")
-    def test_bailout_at_zero_text_threshold(self, mock_get_provider):
-        """Loop breaks after zero_text_bailout consecutive zero-text rounds."""
-        provider = _mock_provider()
-        mock_get_provider.return_value = provider
-
-        # Tool-only response (no text)
-        tool_response = _mock_provider_response(
-            "", "tool_use", 100, 50,
-            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
-        )
-
-        # Forced final text response
-        text_response = _mock_provider_response(
-            "## COMP-001\n**VERDICT:** INCONCLUSIVE", "end_turn", 150, 80
-        )
-
-        # 3 zero-text rounds, then forced final
-        provider.call.side_effect = [
-            tool_response, tool_response, tool_response,
-            text_response,
-        ]
-
-        config = _make_config(zero_text_bailout=3, max_tool_rounds=10)
-        executor = _make_executor()
-        result = run_agent_loop(
-            system="sys", user_content="question",
-            config=config, tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
-        )
-
-        # Should have bailed out early (3 tool rounds + 1 forced = 4 total calls)
-        assert result.stop_reason == "max_rounds_forced"
-        assert result.rounds < 10 + 1  # Less than max_rounds + forced
-        assert provider.call.call_count == 4
-
-    @patch("sciralph.llm._get_provider")
-    def test_zero_text_streak_resets_on_text(self, mock_get_provider):
-        """Zero-text streak resets when text is produced."""
-        provider = _mock_provider()
-        mock_get_provider.return_value = provider
-
-        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
-        # Round 1: tool only (zero text)
-        r1 = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
-        # Round 2: tool + text (resets streak)
-        r2 = _mock_provider_response("Working on it...", "tool_use", 100, 50, tool_calls=tc)
-        # Round 3: tool only (streak = 1 again)
-        r3 = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
-        # Round 4: end_turn
-        r4 = _mock_provider_response("Done.", "end_turn", 100, 50)
-
-        provider.call.side_effect = [r1, r2, r3, r4]
-
-        config = _make_config(zero_text_bailout=2, max_tool_rounds=10)
-        executor = _make_executor()
-        result = run_agent_loop(
-            system="sys", user_content="question",
-            config=config, tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
-        )
-
-        # Should NOT have bailed out — streak was reset
-        assert result.stop_reason == "end_turn"
-        assert result.rounds == 4
-
-    @patch("sciralph.llm._get_provider")
-    def test_bailout_forced_system_message(self, mock_get_provider):
-        """Forced system message mentions early termination for zero-text bailout."""
-        provider = _mock_provider()
-        mock_get_provider.return_value = provider
-
-        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
-        tool_response = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
-        text_response = _mock_provider_response("Done", "end_turn", 100, 50)
-        provider.call.side_effect = [
-            tool_response, tool_response,  # 2 zero-text rounds
-            text_response,  # forced
-        ]
-
-        config = _make_config(zero_text_bailout=2, max_tool_rounds=10)
-        executor = _make_executor()
-        run_agent_loop(
-            system="sys", user_content="question",
-            config=config, tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
-        )
-
-        # The forced final call should mention early termination
-        calls = provider.call.call_args_list
-        last_call = calls[-1]
-        forced_system = last_call.kwargs["system"]
-        assert "terminated early" in forced_system
-        assert "stopped producing text" in forced_system
-
-
-# ---------------------------------------------------------------------------
-# P1-A: Checkpoint Message at Round N
-# ---------------------------------------------------------------------------
-
-class TestCheckpointMessage:
-    """P1-A: Checkpoint nudge injected at configured round."""
-
-    @patch("sciralph.llm._get_provider")
-    def test_checkpoint_injected_at_round_n(self, mock_get_provider):
-        """Checkpoint message appears in messages at the configured round."""
+    def test_progress_check_injected_after_n_rounds(self, mock_get_provider):
+        """Progress check message injected after progress_check_interval consecutive exec_python."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
@@ -195,13 +92,13 @@ class TestCheckpointMessage:
         tool_response = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
         text_response = _mock_provider_response("Done.", "end_turn", 100, 50)
 
-        # 3 tool rounds then end_turn on round 4
+        # 3 tool rounds (triggers progress check), then end_turn
         provider.call.side_effect = [
             tool_response, tool_response, tool_response,
             text_response,
         ]
 
-        config = _make_config(checkpoint_round=2, max_tool_rounds=10)
+        config = _make_config(progress_check_interval=3, max_tool_rounds=10)
         executor = _make_executor()
         run_agent_loop(
             system="sys", user_content="question",
@@ -209,45 +106,78 @@ class TestCheckpointMessage:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
         )
 
-        # Inspect the messages passed to round 3 (which should include checkpoint)
-        # The checkpoint is added after round 2, so round 3's call should have it
+        # Round 4 should see the progress check message
         calls = provider.call.call_args_list
-        # Round 3 messages should contain the checkpoint
-        round3_messages = calls[2].kwargs["messages"]
-        checkpoint_found = any(
-            isinstance(msg.get("content"), str) and "CHECKPOINT" in msg["content"]
-            for msg in round3_messages
+        round4_messages = calls[3].kwargs["messages"]
+        progress_found = any(
+            isinstance(msg.get("content"), str) and "PROGRESS CHECK" in msg["content"]
+            for msg in round4_messages
             if isinstance(msg, dict) and msg.get("role") == "user"
         )
-        assert checkpoint_found, "Checkpoint message should be injected after round 2"
+        assert progress_found, "Progress check should be injected after 3 exec_python rounds"
 
     @patch("sciralph.llm._get_provider")
-    def test_no_checkpoint_before_round_n(self, mock_get_provider):
-        """No checkpoint if loop ends before checkpoint_round."""
+    def test_progress_check_resets_after_report_progress(self, mock_get_provider):
+        """Calling report_progress resets counter → no injection next round."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
-        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
-        r1 = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
-        r2 = _mock_provider_response("Done.", "end_turn", 100, 50)
-        provider.call.side_effect = [r1, r2]
+        exec_tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
+        progress_tc = [{"id": "t2", "name": "report_progress",
+                        "input": {"findings_so_far": "ok", "remaining_questions": "",
+                                  "ready_to_conclude": False}}]
 
-        config = _make_config(checkpoint_round=5, max_tool_rounds=10)
+        exec_resp = _mock_provider_response("", "tool_use", 100, 50, tool_calls=exec_tc)
+        progress_resp = _mock_provider_response("", "tool_use", 100, 50, tool_calls=progress_tc)
+        final_resp = _mock_provider_response("Done.", "end_turn", 100, 50)
+
+        # 2 exec → progress (resets) → 1 exec → end (no progress check since only 1 after reset)
+        provider.call.side_effect = [exec_resp, exec_resp, progress_resp, exec_resp, final_resp]
+
+        config = _make_config(progress_check_interval=2, max_tool_rounds=10)
         executor = _make_executor()
-        result = run_agent_loop(
+        run_agent_loop(
             system="sys", user_content="question",
             config=config, tool_executor=executor,
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
         )
 
-        # Only 2 rounds — no checkpoint should have been injected
-        assert result.rounds == 2
-        calls = provider.call.call_args_list
-        for call in calls:
+        # Progress check should fire once (after round 2), not after round 4.
+        # Count PROGRESS CHECK messages in the LAST call's messages (they accumulate).
+        last_messages = provider.call.call_args_list[-1].kwargs["messages"]
+        progress_count = sum(
+            1 for msg in last_messages
+            if isinstance(msg, dict) and isinstance(msg.get("content"), str)
+            and "PROGRESS CHECK" in msg["content"]
+        )
+        assert progress_count == 1
+
+    @patch("sciralph.llm._get_provider")
+    def test_no_progress_check_before_interval(self, mock_get_provider):
+        """No progress check if fewer than N exec_python rounds."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
+        exec_resp = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
+        final_resp = _mock_provider_response("Done.", "end_turn", 100, 50)
+
+        # Only 2 exec rounds (interval=3), no progress check
+        provider.call.side_effect = [exec_resp, exec_resp, final_resp]
+
+        config = _make_config(progress_check_interval=3, max_tool_rounds=10)
+        executor = _make_executor()
+        run_agent_loop(
+            system="sys", user_content="question",
+            config=config, tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
+        )
+
+        for call in provider.call.call_args_list:
             msgs = call.kwargs.get("messages", [])
             for msg in msgs:
                 if isinstance(msg, dict) and isinstance(msg.get("content"), str):
-                    assert "CHECKPOINT" not in msg["content"]
+                    assert "PROGRESS CHECK" not in msg["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -272,9 +202,7 @@ class TestFinalWarning:
         # 9 tool rounds then end_turn on round 10
         provider.call.side_effect = [tool_response] * 9 + [text_response]
 
-        config = _make_config(
-            checkpoint_round=2, max_tool_rounds=10, zero_text_bailout=20,
-        )
+        config = _make_config(max_tool_rounds=10)
         executor = _make_executor()
         run_agent_loop(
             system="sys", user_content="question",
@@ -306,7 +234,7 @@ class TestFinalWarning:
         # 3 tool rounds then end_turn
         provider.call.side_effect = [tool_response] * 3 + [text_response]
 
-        config = _make_config(checkpoint_round=2, max_tool_rounds=4)
+        config = _make_config(max_tool_rounds=4)
         executor = _make_executor()
         run_agent_loop(
             system="sys", user_content="question",
@@ -901,15 +829,11 @@ class TestCriticOverdue:
 # ---------------------------------------------------------------------------
 
 class TestNewConfigFields:
-    """Verify new config fields are properly loaded from defaults."""
+    """Verify config fields are properly loaded from defaults."""
 
-    def test_zero_text_bailout_default(self):
-        assert DEFAULTS["zero_text_bailout"] == 3
-        assert Config().zero_text_bailout == 3
-
-    def test_checkpoint_round_default(self):
-        assert DEFAULTS["checkpoint_round"] == 2
-        assert Config().checkpoint_round == 2
+    def test_progress_check_interval_default(self):
+        assert DEFAULTS["progress_check_interval"] == 3
+        assert Config().progress_check_interval == 3
 
     def test_computation_token_alert_default(self):
         assert DEFAULTS["computation_token_alert"] == 150_000
@@ -917,6 +841,5 @@ class TestNewConfigFields:
 
     def test_new_fields_in_yaml_config_fields(self):
         from sciralph.config import _YAML_CONFIG_FIELDS
-        assert "zero_text_bailout" in _YAML_CONFIG_FIELDS
-        assert "checkpoint_round" in _YAML_CONFIG_FIELDS
+        assert "progress_check_interval" in _YAML_CONFIG_FIELDS
         assert "computation_token_alert" in _YAML_CONFIG_FIELDS

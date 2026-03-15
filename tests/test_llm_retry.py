@@ -175,7 +175,7 @@ def _make_config(**overrides):
         api_retry_max=3,
         api_retry_initial_delay=0.01,  # fast for tests
         api_retry_max_delay=0.1,
-        text_checkpoint_interval=999,  # disable checkpoints in tests
+        progress_check_interval=999,  # disable progress checks in tests
     )
     defaults.update(overrides)
     return Config(**defaults)
@@ -403,8 +403,7 @@ class TestPenultimateRoundMessage:
 
         config.logs_dir = ""
         config.computation_token_alert = 999999
-        config.checkpoint_round = 2
-        config.zero_text_bailout = 10
+        config.progress_check_interval = 999
 
         with patch("sciralph.llm._get_provider", return_value=provider):
             result = run_agent_loop(
@@ -454,8 +453,7 @@ class TestPenultimateRoundMessage:
 
         config.logs_dir = ""
         config.computation_token_alert = 999999
-        config.checkpoint_round = 2
-        config.zero_text_bailout = 10
+        config.progress_check_interval = 999
 
         with patch("sciralph.llm._get_provider", return_value=provider):
             result = run_agent_loop(
@@ -504,8 +502,7 @@ class TestPenultimateRoundMessage:
 
         config.logs_dir = ""
         config.computation_token_alert = 999999
-        config.checkpoint_round = 2
-        config.zero_text_bailout = 10
+        config.progress_check_interval = 999
 
         with patch("sciralph.llm._get_provider", return_value=provider):
             result = run_agent_loop(
@@ -520,30 +517,17 @@ class TestPenultimateRoundMessage:
         assert "COMP-000" in result.text
         assert "INCONCLUSIVE" in result.text
 
-    def test_text_checkpoint_failure_continues_loop(self):
-        """When _make_text_checkpoint_call raises, the agent loop continues."""
+    def test_progress_check_does_not_break_loop(self):
+        """Progress check injection does not break the agent loop."""
         from sciralph.llm import run_agent_loop
         from sciralph.tools import ToolExecutor, ToolCall
 
         max_rounds = 5
         provider = MagicMock()
-        # Rounds 1..5 return tool_use with no text (to trigger checkpoint),
-        # then forced final call succeeds
         tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
         final_response = self._make_final_response()
 
-        call_count = 0
-        def side_effect(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            # The checkpoint call has no tools kwarg
-            if "tools" not in kwargs and call_count <= max_rounds:
-                raise Exception("output_parse_failed")
-            if call_count <= max_rounds:
-                return tool_responses[call_count - 1]
-            return final_response
-
-        provider.call = MagicMock(side_effect=side_effect)
+        provider.call = MagicMock(side_effect=tool_responses + [final_response])
         provider.format_assistant_message = MagicMock(return_value={"role": "assistant", "content": "tool"})
         provider.build_tool_result_messages = MagicMock(return_value=[{"role": "user", "content": "result"}])
 
@@ -553,13 +537,11 @@ class TestPenultimateRoundMessage:
             output="1", is_error=False, duration=0.1,
         ))
 
-        config = _make_config(api_retry_max=0, text_checkpoint_interval=2)
+        config = _make_config(api_retry_max=0)
         config.max_tokens = 4096
-
         config.logs_dir = ""
         config.computation_token_alert = 999999
-        config.checkpoint_round = 2
-        config.zero_text_bailout = 10
+        config.progress_check_interval = 2  # fires after 2 consecutive exec_python
 
         with patch("sciralph.llm._get_provider", return_value=provider):
             result = run_agent_loop(
@@ -603,8 +585,7 @@ class TestPenultimateRoundMessage:
 
         config.logs_dir = ""
         config.computation_token_alert = 999999
-        config.checkpoint_round = 2
-        config.zero_text_bailout = 10
+        config.progress_check_interval = 999
 
         with patch("sciralph.llm._get_provider", return_value=provider), \
              patch("sciralph.llm.time.sleep"):
@@ -646,8 +627,7 @@ class TestPenultimateRoundMessage:
 
         config.logs_dir = ""
         config.computation_token_alert = 999999
-        config.checkpoint_round = 2
-        config.zero_text_bailout = 10
+        config.progress_check_interval = 999
 
         with patch("sciralph.llm._get_provider", return_value=provider):
             run_agent_loop(

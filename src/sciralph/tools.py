@@ -104,6 +104,36 @@ class ToolExecutor:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "report_progress",
+                "description": (
+                    "Report your progress so far. You MUST call this when prompted by "
+                    "the system before making more execute_python calls. Summarize what "
+                    "your computations have shown and whether you have enough evidence "
+                    "to reach a verdict."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "findings_so_far": {
+                            "type": "string",
+                            "description": "Summary of what your computations have shown so far.",
+                        },
+                        "remaining_questions": {
+                            "type": "string",
+                            "description": "What specific new information you still need, if any.",
+                        },
+                        "ready_to_conclude": {
+                            "type": "boolean",
+                            "description": "True if you have enough evidence to call submit_verdict.",
+                        },
+                    },
+                    "required": ["findings_so_far", "remaining_questions", "ready_to_conclude"],
+                },
+            },
+        },
     ]
 
     def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000):
@@ -121,6 +151,8 @@ class ToolExecutor:
             output, is_error = self._execute_python(tool_input["code"])
         elif tool_name == "submit_verdict":
             output, is_error = self._submit_verdict(tool_input)
+        elif tool_name == "report_progress":
+            output, is_error = self._report_progress(tool_input)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -132,6 +164,21 @@ class ToolExecutor:
             is_error=is_error,
             duration=duration,
         )
+
+    def _report_progress(self, params: dict) -> tuple[str, bool]:
+        """Acknowledge progress report and guide next action."""
+        ready = params.get("ready_to_conclude", False)
+        if ready:
+            return (
+                "Acknowledged. You have indicated you are ready to conclude. "
+                "Call `submit_verdict` now with your findings."
+            ), False
+        remaining = params.get("remaining_questions", "")
+        return (
+            f"Acknowledged. Remaining questions: {remaining}\n"
+            "Continue with your next execute_python call, then call "
+            "submit_verdict when you have enough evidence."
+        ), False
 
     def _submit_verdict(self, params: dict) -> tuple[str, bool]:
         """Record verdict and signal loop to stop."""

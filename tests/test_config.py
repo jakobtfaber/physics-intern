@@ -32,12 +32,12 @@ class TestDefaults:
     def test_stall_recompute_limit_default(self):
         assert Config().stall_recompute_limit == 2
 
-    def test_text_checkpoint_interval_default(self):
-        assert Config().text_checkpoint_interval == 2
-        assert DEFAULTS["text_checkpoint_interval"] == 2
+    def test_progress_check_interval_default(self):
+        assert Config().progress_check_interval == 3
+        assert DEFAULTS["progress_check_interval"] == 3
 
-    def test_text_checkpoint_interval_in_yaml_fields(self):
-        assert "text_checkpoint_interval" in _YAML_CONFIG_FIELDS
+    def test_progress_check_interval_in_yaml_fields(self):
+        assert "progress_check_interval" in _YAML_CONFIG_FIELDS
 
 
 # ---------------------------------------------------------------------------

@@ -190,49 +190,6 @@ def call_llm(system: str, user_content: str, config: Config,
     return llm_response
 
 
-def _make_text_checkpoint_call(
-    provider: LLMProvider, config: Config, system: str,
-    messages: list[dict], round_num: int, iteration: int,
-    agent_name: str = "",
-) -> tuple[str, int, int, int, int]:
-    """Force a text-only checkpoint call mid-loop to extract intermediate findings.
-
-    Returns (text, input_tokens, output_tokens, reasoning_tokens, answer_tokens).
-    """
-    checkpoint_system = (
-        system + "\n\n"
-        "TEXT CHECKPOINT: You have been executing tools without writing any text. "
-        "Pause and write a brief summary of your intermediate findings so far — "
-        "what you have computed, what the results show, and what remains. "
-        "You will be able to continue using tools afterward."
-    )
-    start = time.time()
-    resp = _call_provider_with_retry(
-        provider, config,
-        workspace_dir=config.workspace_dir,
-        iteration=iteration,
-        model=config.model_id,
-        max_tokens=config.max_tokens,
-        system=checkpoint_system,
-        messages=messages,
-        # No tools — forces text-only
-    )
-    dur = time.time() - start
-
-    text = resp.text.strip()
-
-    if config.workspace_dir:
-        log_llm_call(
-            config.workspace_dir, agent_name, iteration, config.model,
-            resp.input_tokens, resp.output_tokens, "text_checkpoint",
-            _round_num(dur, 2), len(checkpoint_system), 0, len(text),
-            reasoning_tokens=resp.reasoning_tokens,
-            answer_tokens=resp.answer_tokens, round=round_num,
-        )
-
-    return text, resp.input_tokens, resp.output_tokens, resp.reasoning_tokens, resp.answer_tokens
-
-
 def _synthesize_from_tool_history(all_tool_calls: list[ToolCall]) -> str:
     """Build a COMP entry from tool execution history when the model produced no text."""
     successful = [tc for tc in all_tool_calls if not tc.is_error]
@@ -288,10 +245,7 @@ def run_agent_loop(
     total_output = 0
     total_reasoning = 0
     total_answer = 0
-    zero_text_streak = 0
-    cumulative_text_len = 0
-    low_cumulative_bailout = False
-    halfway = max_rounds // 2
+    consecutive_exec_python = 0
     token_alert_fired = False
     overall_start = time.time()
 
@@ -468,80 +422,37 @@ def run_agent_loop(
                     iteration, round_log, result)
                 return result
 
-            # Track consecutive zero-text rounds for early bailout
-            cumulative_text_len += len(round_text.strip())
-            if len(round_text.strip()) == 0:
-                zero_text_streak += 1
-            else:
-                zero_text_streak = 0
-            # Interleaved text checkpoint: force text output before bailout fires
-            if (zero_text_streak > 0
-                    and zero_text_streak % config.text_checkpoint_interval == 0
-                    and zero_text_streak < config.zero_text_bailout):
+            # Track consecutive execute_python for progress check
+            round_has_exec = any(tc.tool_name == "execute_python"
+                                 for tc in all_tool_calls[-len(tool_results):])
+            round_has_progress = any(tc.tool_name == "report_progress"
+                                     for tc in all_tool_calls[-len(tool_results):])
+            if round_has_progress:
+                consecutive_exec_python = 0
+            elif round_has_exec:
+                consecutive_exec_python += 1
+
+            # Progress check: after N consecutive execute_python rounds, require report_progress
+            if (consecutive_exec_python >= config.progress_check_interval
+                    and consecutive_exec_python % config.progress_check_interval == 0):
+                _progress_msg = (
+                    "PROGRESS CHECK: You have run {n} consecutive computations without "
+                    "reporting your progress. Before your next execute_python call, "
+                    "you MUST call `report_progress` to summarize your findings so far "
+                    "and state whether you are ready to call `submit_verdict`.\n\n"
+                    "If your recent computations confirmed what earlier ones already "
+                    "showed, you likely have enough evidence — set ready_to_conclude "
+                    "to true."
+                ).format(n=consecutive_exec_python)
+                messages.append({"role": "user", "content": _progress_msg})
+                round_log.append({
+                    "kind": "scaffold_injection", "round": round_num,
+                    "label": "progress_check", "content": _progress_msg,
+                })
                 if config.workspace_dir:
                     log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
-                                       "text_checkpoint", f"streak={zero_text_streak}")
-                round_log.append({
-                    "kind": "scaffold_injection", "round": round_num,
-                    "label": "text_checkpoint",
-                    "content": "TEXT CHECKPOINT: Force text-only call to extract intermediate findings.",
-                })
-                try:
-                    cp_text, cp_in, cp_out, cp_reasoning, cp_answer = _make_text_checkpoint_call(
-                        provider, config, system, messages,
-                        round_num, iteration, agent_name,
-                    )
-                    total_input += cp_in
-                    total_output += cp_out
-                    total_reasoning += cp_reasoning
-                    total_answer += cp_answer
-                    round_log.append({
-                        "kind": "checkpoint_response", "round": round_num,
-                        "text": cp_text,
-                        "input_tokens": cp_in, "output_tokens": cp_out,
-                    })
-                    if cp_text:
-                        zero_text_streak = 0
-                        cumulative_text_len += len(cp_text)
-                        messages.append({"role": "assistant", "content": cp_text})
-                        messages.append({"role": "user", "content": "Good. Continue with your tool calls."})
-                except Exception as exc:
-                    console.print(
-                        f"[yellow]Text checkpoint failed (round {round_num}): "
-                        f"{type(exc).__name__}: {exc} — continuing[/yellow]"
-                    )
-                    if config.workspace_dir:
-                        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
-                                           "text_checkpoint_failed",
-                                           f"round={round_num}, {type(exc).__name__}")
-
-            if zero_text_streak >= config.zero_text_bailout:
-                if config.workspace_dir:
-                    log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "zero_text_bailout",
-                                       f"streak={zero_text_streak}")
-                break  # Falls through to forced final call
-
-            # Low-cumulative-text bailout at halfway point (only for longer runs)
-            if halfway >= 3 and round_num == halfway and cumulative_text_len < config.low_text_bailout_chars:
-                low_cumulative_bailout = True
-                if config.workspace_dir:
-                    log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "low_text_bailout",
-                                       f"chars={cumulative_text_len}")
-                break  # Falls through to forced final call
-
-            # Checkpoint nudge at halfway point
-            if round_num == config.checkpoint_round:
-                _nudge_msg = (
-                    "CHECKPOINT: You are running low on available rounds. "
-                    "Finish your analysis and call `submit_verdict` with your "
-                    "findings, or write your COMP entry text now alongside any "
-                    "remaining tool calls. Do not defer all text to the final round."
-                )
-                messages.append({"role": "user", "content": _nudge_msg})
-                round_log.append({
-                    "kind": "scaffold_injection", "round": round_num,
-                    "label": "checkpoint_nudge", "content": _nudge_msg,
-                })
+                                       "progress_check",
+                                       f"consecutive_exec={consecutive_exec_python}, round={round_num}")
 
             # Final warning near end of loop
             if round_num == max_rounds - 2 and max_rounds >= 5:
@@ -584,35 +495,17 @@ def run_agent_loop(
                     "label": "critical_warning", "content": _crit_msg,
                 })
 
-    # Exhausted max_rounds or zero-text/low-cumulative/tool-failure bailout — force one final text-only call
+    # Exhausted max_rounds or tool-failure — force one final text-only call
     if tool_call_failure:
         reason = (
             "IMPORTANT: The tool-calling interface is unavailable due to a "
             "provider error. You cannot call any tools. "
         )
-    elif zero_text_streak >= config.zero_text_bailout:
-        reason = (
-            "IMPORTANT: You were terminated early because you stopped producing "
-            "text for multiple consecutive rounds. "
-        )
-    elif low_cumulative_bailout:
-        reason = (
-            "IMPORTANT: You were terminated early because you produced very little "
-            "text output across multiple rounds. You must write substantive analysis "
-            "alongside tool calls, not defer all text to the end. "
-        )
     else:
         reason = (
             "IMPORTANT: You have reached the maximum number of tool-use rounds. "
         )
-    if tool_call_failure:
-        _reason = "tool_call_failure"
-    elif zero_text_streak >= config.zero_text_bailout:
-        _reason = "zero_text"
-    elif low_cumulative_bailout:
-        _reason = "low_cumulative"
-    else:
-        _reason = "max_rounds"
+    _reason = "tool_call_failure" if tool_call_failure else "max_rounds"
     if config.workspace_dir:
         log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "forced_final_call", _reason)
 
@@ -803,6 +696,10 @@ def _render_tool_input(name: str, input_data) -> str:
         verdict = input_data.get("verdict", "?")
         claim = input_data.get("claim", "?")
         return f"**Verdict: {verdict}** for {claim}"
+    if name == "report_progress" and isinstance(input_data, dict):
+        ready = "Yes" if input_data.get("ready_to_conclude") else "No"
+        findings = input_data.get("findings_so_far", "?")
+        return f"**Ready to conclude:** {ready}\n**Findings:** {findings}"
     try:
         return f"```json\n{json.dumps(input_data, indent=2)}\n```"
     except (TypeError, ValueError):

@@ -91,7 +91,7 @@ Read `EVENT_LOG.jsonl` and look for:
 - Did `p6_enrichment` fire? If there were REFUTED/INCONCLUSIVE computations, was the retry enriched with prior failure context?
 
 **Bailout events:**
-- Count `zero_text_bailout`, `forced_final_call`, `text_checkpoint` events
+- Count `progress_check`, `forced_final_call` events
 - Did any bailout produce phantom computation entries?
 
 **Other events:**

@@ -39,9 +39,7 @@ class Config:
     )
     sympy_timeout_seconds: int = DEFAULTS["sympy_timeout_seconds"]
     max_tool_rounds: int = DEFAULTS["max_tool_rounds"]
-    zero_text_bailout: int = DEFAULTS["zero_text_bailout"]
-    text_checkpoint_interval: int = DEFAULTS["text_checkpoint_interval"]
-    checkpoint_round: int = DEFAULTS["checkpoint_round"]
+    progress_check_interval: int = DEFAULTS["progress_check_interval"]
     computation_token_alert: int = DEFAULTS["computation_token_alert"]
     tool_output_limit: int = DEFAULTS["tool_output_limit"]
     stall_threshold: int = DEFAULTS["stall_threshold"]
@@ -56,7 +54,6 @@ class Config:
     budget_synthesis_margin: int = DEFAULTS["budget_synthesis_margin"]
     budget_override_margin: int = DEFAULTS["budget_override_margin"]
     orchestrator_comp_log_tail: int = DEFAULTS["orchestrator_comp_log_tail"]
-    low_text_bailout_chars: int = DEFAULTS["low_text_bailout_chars"]
     prior_failure_excerpt_chars: int = DEFAULTS["prior_failure_excerpt_chars"]
     thinking_token_headroom: int = DEFAULTS["thinking_token_headroom"]
     provider: str = ""
@@ -94,13 +91,13 @@ class Config:
 _YAML_CONFIG_FIELDS = frozenset({
     "model", "verify_model", "max_tokens", "max_iterations", "critic_every_n",
     "compress_threshold", "sympy_timeout_seconds",
-    "max_tool_rounds", "zero_text_bailout", "text_checkpoint_interval", "checkpoint_round",
+    "max_tool_rounds", "progress_check_interval",
     "computation_token_alert", "tool_output_limit", "stall_threshold", "stall_recompute_limit",
     "min_er_for_completion", "api_retry_max", "api_retry_initial_delay",
     "api_retry_max_delay", "api_timeout",
     "compress_soft_multiplier", "compress_hard_multiplier",
     "budget_synthesis_margin", "budget_override_margin",
-    "orchestrator_comp_log_tail", "low_text_bailout_chars",
+    "orchestrator_comp_log_tail",
     "prior_failure_excerpt_chars", "thinking_token_headroom",
     "provider",
 })

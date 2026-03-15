@@ -21,7 +21,7 @@ src/sciralph/
   llm.py               — Provider-agnostic LLM wrapper (call_llm, run_agent_loop) with JSONL audit logging
   models.yaml          — Model registry (friendly keys → provider + model_id + env_key)
   task.py              — Task dataclass + TaskType enum for typed task handling
-  tools.py             — ToolExecutor + ToolCall for agentic tool-use (execute_python, submit_verdict)
+  tools.py             — ToolExecutor + ToolCall for agentic tool-use (execute_python, submit_verdict, report_progress)
   providers/
     __init__.py        — create_provider() factory + re-exports
     base.py            — LLMProvider ABC + ProviderResponse dataclass
@@ -37,7 +37,7 @@ src/sciralph/
     base.py            — BaseAgent ABC with template method + retry + tool-use dispatch
     orchestrator.py    — Plans tasks, integrates proposed changes
     researcher.py      — Derivations and reasoning
-    computationalist.py — Agentic code execution via execute_python + submit_verdict tools, verdict writing
+    computationalist.py — Agentic code execution via execute_python + submit_verdict + report_progress tools, verdict writing
     critic.py          — Adversarial review, critique counting
     compressor.py      — File size management
   prompts/             — Static .md system prompt files (one per agent, plus verifier)
@@ -91,7 +91,7 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 - `_dispatch()` returns `(agent_name, result)` tuple; `_record_agent_failures()` inspects the result for `max_tokens`, `max_rounds_forced` stop reasons and appends to `_state.agent_failures`
 - `_build_context_prefix()` emits 4 banner sections (consumed once then cleared): violations → blockers → displaced tasks → agent failures
 - Post-integration checks are pure functions in `validation.py` returning `list[Violation]`; 8 checks total including critique resolution consistency; violations inject into orchestrator context via `context_prefix` (except `er_promotion_gate` demotions, which are enforced silently by state rewrite to prevent re-promotion churn)
-- `run_agent_loop` forces a text-only final call on `max_rounds` exhaustion (no more empty stubs); `stop_reason="max_rounds_forced"`; two-round escalating warnings at `max_rounds-2` and `max_rounds-1` mention `submit_verdict` as preferred exit; interleaved text checkpoints via `_make_text_checkpoint_call()` fire at `text_checkpoint_interval` (default 2) consecutive zero-text rounds to recover text before bailout; `_synthesize_from_tool_history()` replaces the hardcoded stub with actual tool output excerpts when both forced call and retry produce empty text
+- `run_agent_loop` forces a text-only final call on `max_rounds` exhaustion (no more empty stubs); `stop_reason="max_rounds_forced"`; two-round escalating warnings at `max_rounds-2` and `max_rounds-1` mention `submit_verdict` as preferred exit; progress check injection after `progress_check_interval` (default 3) consecutive `execute_python` rounds injects a user message requiring `report_progress` tool call; `_synthesize_from_tool_history()` replaces the hardcoded stub with actual tool output excerpts when both forced call and retry produce empty text
 - `submit_verdict` tool uses the `stop_after_round` mechanism (same as orchestrator's `set_next_task`) — executor sets `stop_after_round = True`, loop detects it and returns `stop_reason="executor_stop"`; `process_response` extracts structured data from the tool call to format the COMP entry
 - `_call_provider_with_retry()` wraps every provider call with exponential-backoff retry (configurable via `api_retry_max`, `api_retry_initial_delay`, `api_retry_max_delay`); tool-call JSON failures are retryable
 - Iteration counter is scaffolding-maintained (`_update_research_iteration()`), not LLM-dependent
@@ -125,7 +125,7 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-All core functionality is implemented and working (660 tests passing):
+All core functionality is implemented and working (659 tests passing):
 
 - **Core loop** — all five agents, main loop, orchestrator integration, consolidated override chain (`_apply_overrides` P1–P6 + P3b), termination gates (`can_terminate`)
 - **Validation pipeline** — 8 post-integration checks (phantom references, ER promotion gate with bidirectional WH↔ER, phantom labels, stale unverified label promotion, verified frontmatter backfill, agent routing, ID consistency, critique resolution consistency), violation injection into orchestrator context
@@ -133,7 +133,7 @@ All core functionality is implemented and working (660 tests passing):
 - **Multi-provider support** — `providers/` abstraction layer with Anthropic, OpenAI, Google Gemini, HuggingFace adapters; `models.yaml` registry with cost tracking; `--model`/`--provider` CLI flags; `verify.py` stays Anthropic-only
 - **API resilience** — exponential-backoff retry on transient errors + tool-call JSON failures (`_call_provider_with_retry`); dispatch-level error catch; scaffolding-maintained iteration counter
 - **Orchestrator** — sub-problem decomposition, integration duty, critique resolution (4-pattern extraction), stale-iteration backstop, inline synthesis, context prefix for violations/blockers
-- **Computationalist** — agentic tool-use with `execute_python` (requires `purpose` param) + `submit_verdict` (structured exit path), forced partial output on truncation, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE), two-round escalating warnings
+- **Computationalist** — agentic tool-use with `execute_python` (requires `purpose` param) + `submit_verdict` (structured exit path) + `report_progress` (progress check tool), forced partial output on truncation, 3-valued verdict system (VERIFIED / REFUTED / INCONCLUSIVE), two-round escalating warnings, progress check injection
 - **Deep Critic** — two-phase format, preamble stripping, self-retraction filtering, INCONCLUSIVE severity cap, NO_CRITIQUES_FILED handling
 - **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
 - **Logging** — JSONL audit logging (metadata + cost per LLM call, round field for tool-use), full conversation logs

@@ -8,7 +8,7 @@ You will be given:
 
 ## TOOL USE
 
-You have two tools:
+You have three tools:
 
 ### `execute_python`
 Execute a Python script. You MUST provide a `purpose` parameter explaining
@@ -16,15 +16,22 @@ what the computation will determine and why it is needed. Write your code,
 call the tool, read the output. If it errors, fix and retry.
 
 ### `submit_verdict`
-Submit your final verdict as a structured tool call. Call this ONCE when
-you have enough evidence to conclude. This immediately ends your session.
-Do NOT call `execute_python` in the same response as `submit_verdict`.
+Submit your final verdict as a structured **tool call** (function call), not
+as text. Call this ONCE when you have enough evidence to conclude. This
+immediately ends your session. Do NOT call `execute_python` in the same
+response as `submit_verdict`.
 
 Parameters: `claim`, `method`, `result`, `verdict` (VERIFIED/REFUTED/INCONCLUSIVE), `notes`.
 
+### `report_progress`
+When the system asks you to report progress, call this tool to summarize
+your findings. Parameters: `findings_so_far`, `remaining_questions`,
+`ready_to_conclude` (boolean). If you set `ready_to_conclude` to true,
+you should call `submit_verdict` next.
+
 Typical computations need 1-3 `execute_python` calls followed by one
-`submit_verdict`. If you need >5 `execute_python` calls, reconsider your
-approach — simplify the computation or switch to analytical methods.
+`submit_verdict`. The system may ask you to call `report_progress` to
+summarize your findings — do so before continuing with more computations.
 
 INLINE TEXT RULE: Every response that includes a tool call MUST also
 include a brief text note (1-3 sentences) explaining what you are

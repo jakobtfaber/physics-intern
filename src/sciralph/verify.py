@@ -521,7 +521,7 @@ def _summarize_event_log(raw_text: str, max_chars: int = 4096) -> str:
 
     # --- Timeline of key events ---
     key_event_types = {
-        "api_retry", "forced_final_call", "zero_text_bailout", "low_text_bailout",
+        "api_retry", "forced_final_call", "progress_check",
         "tool_call_failure_fallback", "p1_budget_override", "p2_stale_loop_override",
         "p3_forced_critic", "p4_refuted_recompute", "p5_stall_block",
         "compute_verdict_failed", "compute_verdict_stall_escalation",

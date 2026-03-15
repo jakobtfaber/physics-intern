@@ -13,9 +13,7 @@ compress_threshold:
   COMPUTATION_LOG.md: 40000
 sympy_timeout_seconds: 60
 max_tool_rounds: 10
-zero_text_bailout: 999
-text_checkpoint_interval: 999
-checkpoint_round: 999
+progress_check_interval: 3
 computation_token_alert: 150000
 tool_output_limit: 10000
 stall_threshold: 2
@@ -42,10 +40,6 @@ budget_override_margin: 1
 # --- Orchestrator context ---
 # Number of COMPUTATION_LOG tail entries fed to orchestrator context
 orchestrator_comp_log_tail: 5
-
-# --- Agentic loop bailout ---
-# Cumulative text (chars) below which agentic loop bails out at the halfway point
-low_text_bailout_chars: 0
 
 # --- Prior failure enrichment ---
 # Max chars of prior failure excerpt pasted into compute task body

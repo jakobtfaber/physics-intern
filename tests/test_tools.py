@@ -73,11 +73,11 @@ class TestExecutePython:
 class TestToolDefinitions:
     def test_definitions_format(self):
         defs = ToolExecutor.TOOL_DEFINITIONS
-        assert len(defs) == 2
-        assert defs[0]["type"] == "function"
-        assert defs[1]["type"] == "function"
+        assert len(defs) == 3
         names = {d["function"]["name"] for d in defs}
-        assert names == {"execute_python", "submit_verdict"}
+        assert names == {"execute_python", "submit_verdict", "report_progress"}
+        for d in defs:
+            assert d["type"] == "function"
 
     def test_execute_python_requires_purpose(self):
         func = ToolExecutor.TOOL_DEFINITIONS[0]["function"]
@@ -94,6 +94,14 @@ class TestToolDefinitions:
         assert set(props.keys()) == {"claim", "method", "result", "verdict", "notes"}
         assert props["verdict"]["enum"] == ["VERIFIED", "REFUTED", "INCONCLUSIVE"]
         assert set(func["parameters"]["required"]) == {"claim", "method", "result", "verdict", "notes"}
+
+    def test_report_progress_schema(self):
+        func = ToolExecutor.TOOL_DEFINITIONS[2]["function"]
+        assert func["name"] == "report_progress"
+        props = func["parameters"]["properties"]
+        assert set(props.keys()) == {"findings_so_far", "remaining_questions", "ready_to_conclude"}
+        assert props["ready_to_conclude"]["type"] == "boolean"
+        assert set(func["parameters"]["required"]) == {"findings_so_far", "remaining_questions", "ready_to_conclude"}
 
 
 class TestTruncation:
@@ -152,9 +160,36 @@ def _mock_provider_response(text="", stop_reason="end_turn",
     )
 
 
+class TestReportProgress:
+    def test_report_progress_does_not_stop(self):
+        executor = _make_executor()
+        params = {"findings_so_far": "42 found", "remaining_questions": "none",
+                  "ready_to_conclude": True}
+        tc = executor.execute("report_progress", params)
+        assert not tc.is_error
+        assert not hasattr(executor, "stop_after_round") or not getattr(executor, "stop_after_round", False)
+
+    def test_report_progress_ready_message(self):
+        executor = _make_executor()
+        tc = executor.execute("report_progress", {
+            "findings_so_far": "done", "remaining_questions": "",
+            "ready_to_conclude": True,
+        })
+        assert "submit_verdict" in tc.output
+
+    def test_report_progress_not_ready_message(self):
+        executor = _make_executor()
+        tc = executor.execute("report_progress", {
+            "findings_so_far": "partial", "remaining_questions": "need more data",
+            "ready_to_conclude": False,
+        })
+        assert "Continue" in tc.output
+        assert "need more data" in tc.output
+
+
 def _make_config(**overrides) -> Config:
     defaults = dict(api_key="test-key", logs_dir="", provider="anthropic",
-                    text_checkpoint_interval=999)  # disable checkpoints by default in tests
+                    progress_check_interval=999)  # disable progress checks by default in tests
     defaults.update(overrides)
     return Config(**defaults)
 
@@ -533,71 +568,36 @@ class TestForcedCallRetry:
         assert provider.call.call_count == 3
 
 
-class TestInterleavedTextCheckpoint:
-    """Test interleaved text checkpoints that fire before zero_text_bailout."""
+class TestProgressCheckInLoop:
+    """Test progress check injection after consecutive execute_python calls."""
 
     @patch("sciralph.llm._get_provider")
-    def test_checkpoint_fires_at_interval(self, mock_get_provider):
-        """Checkpoint fires after text_checkpoint_interval consecutive zero-text rounds."""
+    def test_progress_check_injected_after_n_rounds(self, mock_get_provider):
+        """Progress check message injected after progress_check_interval consecutive exec_python."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
-        tool_resp = _mock_provider_response(
+        exec_resp = _mock_provider_response(
             "", "tool_use", 100, 50,
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
-        # Checkpoint call returns text
-        checkpoint_resp = _mock_provider_response("Intermediate: result is 42", "end_turn", 80, 40)
-        # Round 3 continues with tool use then produces text
-        final_resp = _mock_provider_response("## COMP-001\n**VERDICT:** VERIFIED", "end_turn", 200, 100)
-        provider.call.side_effect = [
-            tool_resp,    # round 1: tool, no text → streak=1
-            tool_resp,    # round 2: tool, no text → streak=2 → checkpoint fires
-            checkpoint_resp,  # checkpoint call → streak resets to 0
-            final_resp,   # round 3: end_turn with text
-        ]
-
-        config = _make_config()
-        config.text_checkpoint_interval = 2
-        config.zero_text_bailout = 3
-        executor = _make_executor()
-        result = run_agent_loop(
-            system="sys", user_content="q",
-            config=config, tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
-        )
-
-        assert "VERIFIED" in result.text
-        assert result.stop_reason == "end_turn"
-        # Checkpoint tokens are accumulated
-        assert result.total_input_tokens == 100 + 100 + 80 + 200
-        assert result.total_output_tokens == 50 + 50 + 40 + 100
-
-    @patch("sciralph.llm._get_provider")
-    def test_checkpoint_failure_allows_bailout(self, mock_get_provider):
-        """If checkpoint produces no text, streak stays → bailout fires next round."""
-        provider = _mock_provider()
-        mock_get_provider.return_value = provider
-
-        tool_resp = _mock_provider_response(
+        # After 3 exec_python rounds, progress check is injected;
+        # model calls report_progress then submit_verdict
+        progress_resp = _mock_provider_response(
             "", "tool_use", 100, 50,
-            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+            tool_calls=[{"id": "t2", "name": "report_progress",
+                         "input": {"findings_so_far": "42", "remaining_questions": "",
+                                   "ready_to_conclude": True}}],
         )
-        # Checkpoint returns empty text
-        empty_checkpoint = _mock_provider_response("", "end_turn", 80, 0)
-        # Forced final call
-        forced_resp = _mock_provider_response("## COMP-001\n**VERDICT:** INCONCLUSIVE", "end_turn", 200, 100)
-        provider.call.side_effect = [
-            tool_resp,         # round 1: streak=1
-            tool_resp,         # round 2: streak=2 → checkpoint fires
-            empty_checkpoint,  # checkpoint: no text → streak stays 2
-            tool_resp,         # round 3: streak=3 → bailout
-            forced_resp,       # forced final call
-        ]
+        verdict_resp = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t3", "name": "submit_verdict",
+                         "input": {"claim": "WH-001", "method": "num", "result": "ok",
+                                   "verdict": "VERIFIED", "notes": "done"}}],
+        )
+        provider.call.side_effect = [exec_resp, exec_resp, exec_resp, progress_resp, verdict_resp]
 
-        config = _make_config()
-        config.text_checkpoint_interval = 2
-        config.zero_text_bailout = 3
+        config = _make_config(progress_check_interval=3)
         executor = _make_executor()
         result = run_agent_loop(
             system="sys", user_content="q",
@@ -605,81 +605,31 @@ class TestInterleavedTextCheckpoint:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
         )
 
-        assert result.stop_reason == "max_rounds_forced"
-        assert "INCONCLUSIVE" in result.text
+        assert result.stop_reason == "executor_stop"
+        # Check progress check message was injected in round 4's messages
+        calls = provider.call.call_args_list
+        round4_messages = calls[3].kwargs["messages"]
+        progress_found = any(
+            isinstance(msg.get("content"), str) and "PROGRESS CHECK" in msg["content"]
+            for msg in round4_messages
+            if isinstance(msg, dict) and msg.get("role") == "user"
+        )
+        assert progress_found, "Progress check message should be injected after 3 exec_python rounds"
 
     @patch("sciralph.llm._get_provider")
-    def test_no_checkpoint_when_text_present(self, mock_get_provider):
-        """No checkpoint fires when model produces text in every round."""
+    def test_no_progress_check_before_interval(self, mock_get_provider):
+        """No progress check if fewer than N exec_python rounds."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
-        text_tool_resp = _mock_provider_response(
-            "working on it...", "tool_use", 100, 50,
-            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
-        )
-        final_resp = _mock_provider_response("## COMP-001\n**VERDICT:** VERIFIED", "end_turn", 200, 100)
-        provider.call.side_effect = [text_tool_resp, text_tool_resp, final_resp]
-
-        config = _make_config()
-        config.text_checkpoint_interval = 2
-        executor = _make_executor()
-        result = run_agent_loop(
-            system="sys", user_content="q",
-            config=config, tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
-        )
-
-        assert result.stop_reason == "end_turn"
-        # Only 3 calls (no checkpoint call)
-        assert provider.call.call_count == 3
-
-    @patch("sciralph.llm._get_provider")
-    def test_checkpoint_tokens_accumulated(self, mock_get_provider):
-        """Checkpoint call tokens are included in totals."""
-        provider = _mock_provider()
-        mock_get_provider.return_value = provider
-
-        tool_resp = _mock_provider_response(
+        exec_resp = _mock_provider_response(
             "", "tool_use", 100, 50,
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
-        checkpoint_resp = _mock_provider_response("mid-result", "end_turn", 120, 60)
-        final_resp = _mock_provider_response("Done", "end_turn", 200, 100)
-        provider.call.side_effect = [tool_resp, tool_resp, checkpoint_resp, final_resp]
+        final_resp = _mock_provider_response("Done.", "end_turn", 100, 50)
+        provider.call.side_effect = [exec_resp, exec_resp, final_resp]
 
-        config = _make_config()
-        config.text_checkpoint_interval = 2
-        config.zero_text_bailout = 3
-        executor = _make_executor()
-        result = run_agent_loop(
-            system="sys", user_content="q",
-            config=config, tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
-        )
-
-        assert result.total_input_tokens == 100 + 100 + 120 + 200
-        assert result.total_output_tokens == 50 + 50 + 60 + 100
-
-    @patch("sciralph.llm._get_provider")
-    def test_checkpoint_does_not_fire_at_bailout_threshold(self, mock_get_provider):
-        """Checkpoint should not fire when streak equals zero_text_bailout."""
-        provider = _mock_provider()
-        mock_get_provider.return_value = provider
-
-        tool_resp = _mock_provider_response(
-            "", "tool_use", 100, 50,
-            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
-        )
-        forced_resp = _mock_provider_response("## COMP-001\n**VERDICT:** INCONCLUSIVE", "end_turn", 200, 100)
-
-        # With interval=3 and bailout=3, checkpoint should NOT fire at streak=3
-        # because the guard requires streak < bailout
-        provider.call.side_effect = [tool_resp, tool_resp, tool_resp, forced_resp]
-
-        config = _make_config()
-        config.text_checkpoint_interval = 3
-        config.zero_text_bailout = 3
+        config = _make_config(progress_check_interval=3)
         executor = _make_executor()
         result = run_agent_loop(
             system="sys", user_content="q",
@@ -687,9 +637,52 @@ class TestInterleavedTextCheckpoint:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
         )
 
-        assert result.stop_reason == "max_rounds_forced"
-        # 3 tool rounds + 1 forced = 4 (no checkpoint call)
-        assert provider.call.call_count == 4
+        assert result.stop_reason == "end_turn"
+        # No PROGRESS CHECK in any messages
+        for call in provider.call.call_args_list:
+            msgs = call.kwargs.get("messages", [])
+            for msg in msgs:
+                if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                    assert "PROGRESS CHECK" not in msg["content"]
+
+    @patch("sciralph.llm._get_provider")
+    def test_progress_check_resets_after_report_progress(self, mock_get_provider):
+        """Counter resets after report_progress; no injection at next interval unless earned."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        exec_resp = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        progress_resp = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t2", "name": "report_progress",
+                         "input": {"findings_so_far": "partial", "remaining_questions": "more",
+                                   "ready_to_conclude": False}}],
+        )
+        final_resp = _mock_provider_response("Done.", "end_turn", 100, 50)
+        # 2 exec → progress → 1 exec → end (no second progress check since only 1 after reset)
+        provider.call.side_effect = [exec_resp, exec_resp, progress_resp, exec_resp, final_resp]
+
+        config = _make_config(progress_check_interval=2)
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="q",
+            config=config, tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
+        )
+
+        assert result.stop_reason == "end_turn"
+        # Progress check should have fired once (after round 2), not after round 4.
+        # Count PROGRESS CHECK messages in the LAST call's messages (they accumulate).
+        last_messages = provider.call.call_args_list[-1].kwargs["messages"]
+        progress_count = sum(
+            1 for msg in last_messages
+            if isinstance(msg, dict) and isinstance(msg.get("content"), str)
+            and "PROGRESS CHECK" in msg["content"]
+        )
+        assert progress_count == 1
 
 
 class TestToolHistorySynthesis:

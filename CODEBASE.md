@@ -80,7 +80,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `config.py` | 155 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
 | `task.py` | 82 | `Task` dataclass, `TaskType` enum, YAML serialization |
 | `llm.py` | 526 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, event log entries |
-| `tools.py` | 145 | `ToolExecutor`, `ToolCall`, `execute_python` + `submit_verdict` tool schemas |
+| `tools.py` | 230 | `ToolExecutor`, `ToolCall`, `execute_python` + `submit_verdict` + `report_progress` tool schemas |
 | `workspace.py` | 224 | File I/O, git ops, phantom reference validation, `log_scaffold_event()` |
 | `markdown.py` | 502 | Frontmatter parsing, critique lifecycle, stall detection, comp parsing |
 | `sandbox.py` | 49 | `subprocess.run` wrapper with timeout |
@@ -223,7 +223,7 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Currently the computationalist (`execute_python`, `submit_verdict`) and orchestrator (`set_next_task`, `add_hypothesis`) set `tools`.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Currently the computationalist (`execute_python`, `submit_verdict`, `report_progress`) and orchestrator (`set_next_task`, `add_hypothesis`) set `tools`.
 
 **No retry on truncation:** `_call_with_retry` returns immediately when `stop_reason == "max_tokens"` (no retries). The engine's `_record_agent_failures()` detects the truncation and injects a CAPACITY EXCEEDED banner into the orchestrator's next context via `_build_context_prefix()`, prompting task decomposition.
 
@@ -263,11 +263,11 @@ The `tools` class attribute is the **single switch** between one-shot and agenti
 
 #### Computationalist (`agents/computationalist.py`)
 
-**Role:** Code-based verification via `execute_python` + `submit_verdict` tools. The only agentic (tool-use) agent.
+**Role:** Code-based verification via `execute_python` + `submit_verdict` + `report_progress` tools. The only agentic (tool-use) agent.
 
 **Context:** `CURRENT_TASK.md` + full `RESEARCH_STATE.md`. Prior failure context is injected into the task by the engine, not by this agent.
 
-**Tool-use loop:** LLM writes Python (with `purpose` param) → `ToolExecutor` runs it in sandbox → output fed back → LLM iterates → calls `submit_verdict` for structured exit (or writes free-text verdict). Up to `max_tool_rounds` (default 10) rounds.
+**Tool-use loop:** LLM writes Python (with `purpose` param) → `ToolExecutor` runs it in sandbox → output fed back → LLM iterates → calls `submit_verdict` for structured exit (or writes free-text verdict). Up to `max_tool_rounds` (default 10) rounds. After `progress_check_interval` (default 3) consecutive `execute_python` rounds, a progress check message is injected requiring the model to call `report_progress`.
 
 **Two exit paths:**
 1. **Preferred:** `submit_verdict` tool call — structured data (claim, method, result, verdict, notes), triggers `stop_after_round` → `executor_stop`. `process_response` formats the COMP entry from the tool parameters.
@@ -275,6 +275,7 @@ The `tools` class attribute is the **single switch** between one-shot and agenti
 
 **Output processing:**
 - `submit_verdict` present → formats COMP entry from structured tool data (takes priority over free text)
+- Text contains `submit_verdict(...)` syntax (no actual tool call) → extracts parameters from text, formats COMP entry
 - Empty text (no submit_verdict) → synthesizes fallback INCONCLUSIVE entry
 - Ensures `##` header present
 - Appends iteration/tool-call metadata
@@ -368,9 +369,10 @@ Both paths go through `_call_provider_with_retry()` which wraps every provider c
 
 ### Tool execution (`tools.py`)
 
-Two tools defined in `ToolExecutor.TOOL_DEFINITIONS`:
+Three tools defined in `ToolExecutor.TOOL_DEFINITIONS`:
 1. **`execute_python`** — requires `purpose` (why this computation is needed) and `code` (the script). `purpose` is preserved in `ToolCall.tool_input` for logging/audit; only `code` is executed.
 2. **`submit_verdict`** — structured exit path for the computationalist. Sets `stop_after_round = True` (reuses `executor_stop` mechanism), stores params in `_last_verdict`. Parameters: `claim`, `method`, `result`, `verdict` (enum: VERIFIED/REFUTED/INCONCLUSIVE), `notes`.
+3. **`report_progress`** — progress check tool. Does NOT set `stop_after_round`. Parameters: `findings_so_far`, `remaining_questions`, `ready_to_conclude` (boolean). If `ready_to_conclude` is true, response guides model to call `submit_verdict`.
 
 The `ToolExecutor` class:
 - Writes each script to `computations/tool_exec_NNN.py` (monotonic counter per instance)
@@ -494,8 +496,7 @@ A hypothesis advances through this lifecycle:
 | `sympy_timeout_seconds` | 60 | Sandbox per-script timeout |
 | `max_tool_rounds` | 10 | Computationalist tool loop depth |
 | `tool_output_limit` | 10000 | Chars per tool output before truncation |
-| `zero_text_bailout` | 3 | Consecutive zero-text rounds before tool-use bailout |
-| `checkpoint_round` | 2 | Tool-use round that triggers a checkpoint nudge |
+| `progress_check_interval` | 3 | Consecutive `execute_python` rounds before progress check injection |
 | `computation_token_alert` | 150000 | Cumulative input tokens before firing alert |
 | `stall_threshold` | 2 | Repeat failures on same claim before stall block |
 | `stall_recompute_limit` | 2 | Max consecutive non-VERIFIED verdicts before P4 recompute blocked |
@@ -539,10 +540,10 @@ Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter
 
 | Category | Event keys |
 |----------|-----------|
-| `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `zero_text_bailout`, `low_text_bailout`, `forced_final_call`, `forced_final_call_failed`, `forced_call_retry`, `tool_history_synthesis`, `empty_end_turn_fallthrough`, `text_checkpoint`, `text_checkpoint_failed`, `tool_timeout`, `tool_output_truncation` |
+| `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `progress_check`, `forced_final_call`, `forced_final_call_failed`, `forced_call_retry`, `tool_history_synthesis`, `empty_end_turn_fallthrough`, `tool_timeout`, `tool_output_truncation` |
 | `state_invariants` | All `Violation.check` values from validation checks (e.g. `er_promotion_gate`, `phantom_references`, `phantom_labels`, `stale_unverified_labels`, `verified_frontmatter_backfill`, `task_agent_routing`, `id_consistency`, `critique_resolution_consistency`) |
 | `loop_control` | `p1_budget_override`, `p2_stale_loop_override`, `p3_forced_critic`, `p3b_redundant_critic_suppressed`, `p4_refuted_recompute`, `p4_recompute_enriched`, `p4_refuted_suppressed`, `p5_stall_block`, `p6_enrichment`, `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `compute_verdict_stall_escalation`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry` |
-| `output_normalization` | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened`, `preamble_stripped`, `critique_self_retracted`, `empty_response_stub`, `header_injected`, `claim_id_injected` |
+| `output_normalization` | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened`, `preamble_stripped`, `critique_self_retracted`, `empty_response_stub`, `header_injected`, `claim_id_injected`, `submit_verdict_text_extracted` |
 
 **Quick analysis:**
 
@@ -579,14 +580,12 @@ These mechanisms prevent the computationalist from wasting rounds or producing e
 
 | Mechanism | Trigger | Action |
 |-----------|---------|--------|
-| Zero-text streak bailout | N consecutive tool-use rounds with no text (`zero_text_bailout`, default 3) | Break loop → forced final call |
-| Low-cumulative-text bailout | < 100 chars total text at halfway point (and halfway ≥ 3) | Break loop → forced final call |
-| Checkpoint message | At `checkpoint_round` (default 2) | Inject user-turn message: "CHECKPOINT: Write your COMP entry text now" |
+| Progress check injection | N consecutive `execute_python` rounds without `report_progress` (`progress_check_interval`, default 3) | Inject user-turn message requiring `report_progress` tool call; fires again at 2N, 3N, etc. if model ignores |
 | Two-round escalating warning | At `max_rounds - 2`: warning; at `max_rounds - 1`: CRITICAL with exact format template | Inject user-turn messages with escalating urgency and an INCONCLUSIVE fallback template |
-| Interleaved text checkpoint | `text_checkpoint_interval` consecutive zero-text rounds (default 2, must be < `zero_text_bailout`) | Text-only LLM call via `_make_text_checkpoint_call()`; on success resets streak and injects assistant+user messages to resume tool use |
 | Tool history synthesis | Both forced final call and retry produce empty text | `_synthesize_from_tool_history()` builds COMP-000 entry from actual tool execution history (code + output excerpts) |
 | Forced text-only final call | Loop exits for any reason (max rounds, bailout, tool-call failure) | Final LLM call with `tools` omitted, strongly-worded system prompt with full COMP-NNN format, stop_reason set to `max_rounds_forced` |
 | `submit_verdict` structured exit | Model calls `submit_verdict` tool | Structured verdict data bypasses free-text generation; sets `stop_after_round` → `executor_stop`; `process_response` formats COMP entry from tool parameters. Plays WITH tool-calling tendency instead of against it |
+| `report_progress` tool | Model calls `report_progress` tool (prompted by progress check injection) | Captures structured reasoning (`findings_so_far`, `remaining_questions`, `ready_to_conclude`); enriches conversation history with explicit reasoning; if `ready_to_conclude`, response guides model to `submit_verdict`. Works WITH tool-calling tendency |
 | `execute_python` purpose parameter | Model calls `execute_python` | Required `purpose` field forces model to articulate WHY before each run; preserved in logs for audit; not enforced at execution time (schema-level only) |
 
 #### Tool execution guards
@@ -677,6 +676,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
 | submit_verdict extraction | `process_response()` | Extracts structured data from `submit_verdict` tool call, formats COMP entry; takes priority over free text | Tool-happy models (e.g. Gemini Flash) that never produce free text |
+| Text-based submit_verdict extraction | `process_response()` | When model writes `submit_verdict(...)` as text instead of a tool call, extract parameters and format COMP entry | Weaker models (Gemini Flash) writing tool syntax as prose instead of using function-calling interface |
 | Empty-response INCONCLUSIVE stub | `process_response()` | Synthesizes minimal COMP entry with VERDICT: INCONCLUSIVE when response is empty (and no submit_verdict) | Agent producing no text despite forced final call |
 | Missing header injection | `process_response()` | Prepends `## {task_id}: Computation` if output doesn't start with `##` | Headerless entry invisible to downstream parsers |
 | Claim ID injection | `process_response()` | Prepends target WH/ER ID to CLAIM line if missing | er_promotion_gate unable to link computation to claim |
