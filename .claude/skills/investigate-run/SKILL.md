@@ -1,6 +1,6 @@
 ---
 name: investigate-run
-description: "Investigates SciRalph workspace run by reading the verification report and tracing issues back through project files. Use to what went wrong and coule be improved in the multi-agent research process."
+description: "Investigates SciRalph workspace run by reading the verification report, formal research graph, and event log, then tracing issues back through project files. Use to understand what went wrong and could be improved in the multi-agent research process."
 ---
 
 # Analyze a SciRalph Run
@@ -9,6 +9,22 @@ Given a workspace directory (under `workspaces/` in the SciRalph project), perfo
 The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
 
 **Tools:** This is a read-only analysis. Use only `Read`, `Glob`, and `Grep`. Do NOT use `Bash` — all data is in workspace files that can be read directly.
+
+## Workspace Structure
+
+A workspace contains these key files:
+
+| File | Purpose |
+|---|---|
+| `VERIFICATION.md` | Independent verification report (science + process audit) |
+| `RESEARCH_GRAPH.json` | Formal research state: hypotheses, computations, critiques, failed_approaches with explicit cross-links |
+| `RESEARCH_STATE.md` | Rendered Markdown view of hypotheses and derivations |
+| `COMPUTATION_LOG.md` | All computation entries with CLAIM/VERDICT/METHOD/RESULT |
+| `CRITIQUE_LOG.md` | Active and resolved critiques |
+| `EVENT_LOG.jsonl` | Structured scaffold events (compensations, overrides, tool mutations) |
+| `METRICS.md` | Per-iteration token counts and alerts |
+| `ANSWER.md` | Final formatted answer |
+| `logs/` | Per-iteration LLM call logs (system prompt, user content, response) |
 
 ## Verification Report Structure
 
@@ -26,27 +42,78 @@ The verification report (`VERIFICATION.md`) is produced by two independent LLM c
    - Process events (EVENT-NNN with SUCCESS / FAILURE / MIXED tags)
    - Recommendations for future runs
 
-The event log EVENT_LOG.jsonl logs all the events and decisions where the scaffolding had to intervene.
-It should help you diagnose the root cause of any process issues flagged in the verification report, especially those tagged as FAILURE or MIXED.
-
 ## Procedure
 
-### Step 1: Read the verification report `VERIFICATION.md` in the workspace folder
+### Step 1: Read the verification report
 
-   - Especially focus on the process audit section and the reported FAILURE or MIXED events.
-   - Check for **alerts** (tool_loop_truncated, max_tokens_hit, budget_override)
-   - Read the recommendations.
-   - Note any relevant problem / event that seems to be coming from a problem in the multi-agent process.
+Read `VERIFICATION.md` in the workspace folder.
 
-### Step 2: Investigate
+- Focus on the process audit section and reported FAILURE or MIXED events.
+- Check for **alerts** (tool_loop_truncated, max_tokens_hit, budget_override)
+- Read the recommendations.
+- Note any problem or event that seems to come from a flaw in the multi-agent process.
 
-   - If an issue raised lacks sufficient explanations to understand what went wrong and what could be fixed, trace it back
-   - Look at the scaffolding events in the event log, and through the workspace files to find the root cause and make it explicit.
-   - Key failure to look for : empty/truncated outputs, computational failures, repeating the same task multiple times, tool loops that are cut off by max rounds or max tokens, and any event tagged as FAILURE or MIXED in the process audit.
+### Step 2: Examine the formal research state
 
-### Step 3: Synthesize
+Read `RESEARCH_GRAPH.json` and cross-reference with `RESEARCH_STATE.md`:
 
-   - Combine the verification report's assessments with your own cross-referencing to form a complete picture.
-   - Identify 0-3 key failure patterns (if any) that emerged in this run, and are not just LLM stochasticity but reflect real issues in the multi-agent process design or execution. 
-   - For each provide a recommendation for how to address it in future runs.
-   - If no significant failure patterns are found, just state it.
+**Hypothesis integrity:**
+- Are all WH/ER sections in RESEARCH_STATE.md reflected in the graph?
+- Do any hypotheses have status `abandoned`? Are they also in Dead Ends in the Markdown?
+- Is the `supporting_comps` list on each hypothesis complete (every VERIFIED comp targeting it)?
+
+**Computation link quality:**
+- Does every computation in the graph have a non-empty `target_hypothesis`?
+- Are any targets stale (pointing to a WH-NNN that was promoted to ER-NNN)?
+- Are there phantom TASK-* stubs (entries with empty claim/target from orchestrator bailouts)?
+
+**Critique tracking:**
+- Do resolved critiques have `iteration_resolved` set (not null)?
+- Are resolution texts specific (not generic "addressed by integration")?
+
+**Failed approaches:**
+- Are there entries in `failed_approaches`? Do they correspond to REFUTED/INCONCLUSIVE computations?
+- Were failures tracked for claims that were retried?
+
+### Step 3: Investigate scaffold events
+
+Read `EVENT_LOG.jsonl` and look for:
+
+**Orchestrator tool usage:**
+- Count `orchestrator_tool_mutations` events — how many show `mutations=True` (tool path) vs any legacy fallback?
+- If the orchestrator used tools: did it over-call `set_next_task` (multiple times per iteration)?
+
+**Promotion gate behavior:**
+- Count `er_promotion_gate` events — how many times did the gate fire? (1-2 is healthy; 5+ suggests the old fight-loop problem)
+- Were there any silent demotions that the orchestrator then re-promoted?
+
+**Failure enrichment:**
+- Did `p6_enrichment` fire? If there were REFUTED/INCONCLUSIVE computations, was the retry enriched with prior failure context?
+
+**Bailout events:**
+- Count `zero_text_bailout`, `forced_final_call`, `text_checkpoint` events
+- Did any bailout produce phantom computation entries?
+
+**Other events:**
+- `problem_statement_enforced` — how frequently? (should decrease with tool-based orchestrator)
+- `termination_blocked` — was termination correctly gated?
+- `task_agent_routing` violations
+
+### Step 4: Trace specific issues
+
+For any issue from Steps 1-3 that lacks sufficient explanation:
+
+- Read the relevant LLM call logs in `logs/` (e.g., `iter003_orchestrator_1.md` for iteration 3)
+- Check `COMPUTATION_LOG.md` for the specific COMP entries involved
+- Look at `METRICS.md` for token usage anomalies (context bloat, max_tokens hits)
+- Key failures to look for: empty/truncated outputs, computational failures, repeating the same task, tool loops cut off by max_rounds or max_tokens
+
+### Step 5: Synthesize
+
+Combine findings into a complete picture:
+
+- **Architecture health:** Did the structured state (RESEARCH_GRAPH.json) stay consistent with the Markdown files? Were tool mutations working correctly?
+- **Process efficiency:** How many iterations to completion? What fraction of tokens went to the orchestrator vs productive agents? Any wasted iterations?
+- **Failure patterns:** Identify 0-3 key failure patterns (if any) that are not just LLM stochasticity but reflect real issues in the process design.
+- For each pattern, provide a recommendation for how to address it.
+- If no significant failure patterns are found, state that clearly.
