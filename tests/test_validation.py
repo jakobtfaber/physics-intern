@@ -1388,3 +1388,89 @@ Something is wrong.
         })
         violations = check_critique_resolution_consistency(ws)
         assert len(violations) == 0
+
+
+# ---------------------------------------------------------------------------
+# ER promotion gate with ResearchState registry (Phase 2)
+# ---------------------------------------------------------------------------
+
+class TestERPromotionGateWithRegistry:
+    """Test that check_er_promotion_gate uses formal registry when available."""
+
+    def test_registry_based_demotion(self):
+        """ER without VERIFIED in registry is demoted."""
+        from sciralph.research_state import ResearchState, Computation, Verdict
+
+        state = "## ER-001 — Test Result\n\nBody.\n"
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM:** Verify ER-001\n**VERDICT:** REFUTED\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter({"total_computations": 1}, comp_body),
+        })
+        rs = ResearchState()
+        rs.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="ER-001", verdict=Verdict.REFUTED,
+        )
+        violations = check_er_promotion_gate(ws, research_state=rs)
+        assert len(violations) == 1
+        assert "demoted" in violations[0].message
+        assert "## WH-001" in ws.read_file("RESEARCH_STATE.md")
+
+    def test_registry_based_promotion(self):
+        """WH with VERIFIED in registry is promoted."""
+        from sciralph.research_state import ResearchState, Computation, Verdict
+
+        state = "## WH-001 — Test Hypothesis\n\nBody.\n"
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM:** Verify WH-001\n**VERDICT:** VERIFIED\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter({"total_computations": 1}, comp_body),
+        })
+        rs = ResearchState()
+        rs.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001", verdict=Verdict.VERIFIED,
+        )
+        violations = check_er_promotion_gate(ws, research_state=rs)
+        assert any("Promoted" in v.message for v in violations)
+        assert "## ER-001" in ws.read_file("RESEARCH_STATE.md")
+
+    def test_registry_target_claim_overrides_missing_substring(self):
+        """Registry links comp to hypothesis even when claim text lacks the ID."""
+        from sciralph.research_state import ResearchState, Computation, Verdict
+
+        # COMP-001's claim text does NOT mention WH-001 — only the registry knows
+        state = "## WH-001 — Partition Function\n\nBody.\n"
+        comp_body = (
+            "# Computations\n\n## COMP-001\n\n"
+            "**CLAIM:** Verify partition function calculation\n"
+            "**VERDICT:** VERIFIED\n"
+        )
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter({"total_computations": 1}, comp_body),
+        })
+        # Without registry: substring matching fails (no WH-001 in claim)
+        violations_no_registry = check_er_promotion_gate(ws)
+        assert not any("Promoted" in v.message for v in violations_no_registry)
+
+        # With registry: formal link found, WH-001 promoted
+        rs = ResearchState()
+        rs.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001", verdict=Verdict.VERIFIED,
+        )
+        # Reset state since first call demoted nothing (WH stayed WH)
+        ws._files["RESEARCH_STATE.md"] = state
+        violations_with_registry = check_er_promotion_gate(ws, research_state=rs)
+        assert any("Promoted" in v.message for v in violations_with_registry)
+        assert "## ER-001" in ws.read_file("RESEARCH_STATE.md")
+
+    def test_none_registry_falls_back_to_substring(self):
+        """When research_state is None, substring matching still works."""
+        state = "## ER-001 — Test\n\nBody.\n"
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM:** Verify ER-001\n**VERDICT:** VERIFIED\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": render_frontmatter({"total_computations": 1}, comp_body),
+        })
+        violations = check_er_promotion_gate(ws, research_state=None)
+        assert len(violations) == 0  # ER-001 stays because VERIFIED matches

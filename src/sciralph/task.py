@@ -44,6 +44,7 @@ class Task:
     iteration: int = 0
     blocking_critiques: list[str] = field(default_factory=list)
     target_file: str = ""
+    target_claim: str = ""
     body: str = ""
 
     def to_markdown(self) -> str:
@@ -59,6 +60,8 @@ class Task:
             meta["blocking_critiques"] = self.blocking_critiques
         if self.target_file:
             meta["target_file"] = self.target_file
+        if self.target_claim:
+            meta["target_claim"] = self.target_claim
         yaml_str = yaml.dump(meta, default_flow_style=False, sort_keys=False).strip()
         return f"---\n{yaml_str}\n---\n\n{self.body}"
 
@@ -80,5 +83,6 @@ class Task:
             iteration=effective_iter,
             blocking_critiques=meta.get("blocking_critiques", []),
             target_file=meta.get("target_file", ""),
+            target_claim=meta.get("target_claim", ""),
             body=body,
         )

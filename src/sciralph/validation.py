@@ -23,6 +23,7 @@ from .workspace import log_scaffold_event
 if TYPE_CHECKING:
     from .config import Config
     from .metrics import MetricsTracker
+    from .research_state import ResearchState
     from .workspace import WorkspaceManager
 
 
@@ -84,7 +85,7 @@ def _build_task_comp_mapping(entries: list[dict]) -> dict[str, set[str]]:
 # Individual check functions
 # ---------------------------------------------------------------------------
 
-def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
+def check_er_promotion_gate(workspace: WorkspaceManager, research_state: ResearchState | None = None) -> list[Violation]:
     """Demote ER-NNN sections that lack a VERIFIED computation backing,
     and promote WH-NNN headers when the body already uses ER-NNN with VERIFIED backing."""
     violations: list[Violation] = []
@@ -99,13 +100,22 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
     for er_id in er_ids:
         num = er_id.split("-")[1]
         wh_id = f"WH-{num}"
-        has_verified = any(
-            e["verdict"] == "VERIFIED" and (
-                er_id in e["claim"] or wh_id in e["claim"]
-                or er_id in e.get("body", "") or wh_id in e.get("body", "")
+        # Primary: check formal registry (target_hypothesis field)
+        has_verified = False
+        if research_state:
+            has_verified = any(
+                c.verdict.value == "VERIFIED" and c.target_hypothesis in (er_id, wh_id)
+                for c in research_state.computations.values()
             )
-            for e in entries
-        )
+        # Fallback: substring matching on computation log entries
+        if not has_verified:
+            has_verified = any(
+                e["verdict"] == "VERIFIED" and (
+                    er_id in e["claim"] or wh_id in e["claim"]
+                    or er_id in e.get("body", "") or wh_id in e.get("body", "")
+                )
+                for e in entries
+            )
         if not has_verified:
             state = re.sub(
                 rf'^(#{{2,3}} |(?:\*\*)){re.escape(er_id)}',
@@ -130,13 +140,22 @@ def check_er_promotion_gate(workspace: WorkspaceManager) -> list[Violation]:
     for wh_id in wh_ids:
         num = wh_id.split("-")[1]
         er_id = f"ER-{num}"
-        has_verified = any(
-            e["verdict"] == "VERIFIED" and (
-                er_id in e["claim"] or wh_id in e["claim"]
-                or er_id in e.get("body", "") or wh_id in e.get("body", "")
+        # Primary: check formal registry
+        has_verified = False
+        if research_state:
+            has_verified = any(
+                c.verdict.value == "VERIFIED" and c.target_hypothesis in (er_id, wh_id)
+                for c in research_state.computations.values()
             )
-            for e in entries
-        )
+        # Fallback: substring matching
+        if not has_verified:
+            has_verified = any(
+                e["verdict"] == "VERIFIED" and (
+                    er_id in e["claim"] or wh_id in e["claim"]
+                    or er_id in e.get("body", "") or wh_id in e.get("body", "")
+                )
+                for e in entries
+            )
         if has_verified:
             state = re.sub(
                 rf'^(#{{2,3}} ){re.escape(wh_id)}',
@@ -544,11 +563,20 @@ _DEFAULT_CHECKS = [
 ]
 
 
-def validate_post_integration(workspace: WorkspaceManager, config: Config | None = None, iteration: int = 0) -> list[Violation]:
+def validate_post_integration(
+    workspace: WorkspaceManager,
+    config: Config | None = None,
+    iteration: int = 0,
+    research_state: ResearchState | None = None,
+) -> list[Violation]:
     """Run all post-integration invariant checks. Returns violations to inject into next orchestrator context."""
     violations: list[Violation] = []
     for check in _DEFAULT_CHECKS:
-        check_violations = check(workspace)
+        # Pass research_state to checks that accept it
+        if check is check_er_promotion_gate:
+            check_violations = check(workspace, research_state=research_state)
+        else:
+            check_violations = check(workspace)
         if check_violations and hasattr(workspace, 'root') and workspace.root:
             for v in check_violations:
                 log_scaffold_event(workspace.root, iteration, CC.STATE_INVARIANTS, v.check, v.message)

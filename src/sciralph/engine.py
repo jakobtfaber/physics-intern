@@ -258,7 +258,11 @@ class SciRalph:
             task = self._run_orchestrator()
 
             # 2. Post-integration validation (Layer B hook -- stub returns [])
-            violations = validate_post_integration(self.workspace, self.config, iteration=self.iteration)
+            violations = validate_post_integration(
+                self.workspace, self.config,
+                iteration=self.iteration,
+                research_state=getattr(self, "research_state", None),
+            )
             if violations:
                 self._state.pending_violations.extend(violations)
 
@@ -667,6 +671,9 @@ class SciRalph:
         if not key:
             return
 
+        # Register computation in formal state with authoritative target link
+        self._register_computation(last, task)
+
         if verdict == "VERIFIED":
             self._state.claim_failure_count.pop(key, None)
             return
@@ -729,12 +736,17 @@ class SciRalph:
 
     def _make_recompute_task(self, claim: str, verdict: str = "REFUTED") -> Task:
         """Create a forced compute task to re-verify a claim after a non-VERIFIED verdict."""
+        # Extract target WH/ER ID from claim for formal linking
+        from .markdown import _ER_WH_ID_RE
+        target_ids = _ER_WH_ID_RE.findall(claim)
+        target_claim = target_ids[0] if target_ids else ""
         task = Task(
             task_id=f"TASK-{self.iteration:03d}",
             task_type=TaskType.COMPUTE,
             assigned_to="computationalist",
             priority="high",
             iteration=self.iteration,
+            target_claim=target_claim,
             body=(
                 f"# Re-verification After {verdict} Verdict\n\n"
                 f"The previous computation returned {verdict} for the following claim. "
@@ -819,9 +831,55 @@ class SciRalph:
                 return True
         return False
 
+    def _register_computation(self, comp_entry: dict, task: Task):
+        """Register a computation in the formal research state with authoritative target link."""
+        if not hasattr(self, "research_state"):
+            return
+        from .research_state import Computation, Verdict
+        from .markdown import _ER_WH_ID_RE
+
+        comp_id = comp_entry["id"]
+        verdict_str = comp_entry.get("verdict", "INCONCLUSIVE")
+        try:
+            verdict = Verdict(verdict_str)
+        except ValueError:
+            verdict = Verdict.INCONCLUSIVE
+
+        # Authoritative target: task.target_claim > IDs in claim > IDs in body
+        target = task.target_claim
+        if not target:
+            claim = comp_entry.get("claim", "")
+            ids = _ER_WH_ID_RE.findall(claim)
+            if not ids:
+                ids = _ER_WH_ID_RE.findall(comp_entry.get("body", ""))
+            target = ids[0] if ids else ""
+
+        self.research_state.computations[comp_id] = Computation(
+            id=comp_id,
+            target_hypothesis=target,
+            verdict=verdict,
+            claim=comp_entry.get("claim", ""),
+            method=comp_entry.get("method", ""),
+            iteration=self.iteration,
+        )
+
     def _sync_research_state(self):
-        """Build structured ResearchState from Markdown and save to workspace."""
+        """Build structured ResearchState from Markdown and save to workspace.
+
+        Preserves authoritative target_hypothesis links registered via
+        _register_computation (which may use task.target_claim).
+        """
+        # Save authoritative links before rebuilding
+        authoritative_targets = {
+            comp_id: comp.target_hypothesis
+            for comp_id, comp in self.research_state.computations.items()
+            if comp.target_hypothesis
+        }
         self.research_state = _build_research_state(self.workspace)
+        # Restore authoritative targets that may be better than substring-derived ones
+        for comp_id, target in authoritative_targets.items():
+            if comp_id in self.research_state.computations:
+                self.research_state.computations[comp_id].target_hypothesis = target
         self.research_state.save(self.workspace.root)
 
     def _update_metrics(self):

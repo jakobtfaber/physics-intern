@@ -123,3 +123,39 @@ class TestTaskTypeAgentMap:
 
     def test_research_maps_to_researcher(self):
         assert TASK_TYPE_AGENT_MAP[TaskType.RESEARCH] == "researcher"
+
+
+class TestTaskTargetClaim:
+    """Tests for target_claim field on Task (Phase 2: COMP→WH registry)."""
+
+    def test_target_claim_in_markdown(self):
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist", target_claim="WH-001",
+            body="Verify WH-001.",
+        )
+        md = task.to_markdown()
+        assert "target_claim: WH-001" in md
+
+    def test_target_claim_omitted_when_empty(self):
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist",
+            body="Verify something.",
+        )
+        md = task.to_markdown()
+        assert "target_claim" not in md
+
+    def test_target_claim_round_trip(self):
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.COMPUTE,
+            assigned_to="computationalist", target_claim="ER-003",
+            body="Verify ER-003.",
+        )
+        restored = Task.from_frontmatter(task.to_markdown())
+        assert restored.target_claim == "ER-003"
+
+    def test_target_claim_missing_in_frontmatter(self):
+        text = "---\ntask_type: compute\nassigned_to: computationalist\n---\n\nBody."
+        task = Task.from_frontmatter(text)
+        assert task.target_claim == ""
