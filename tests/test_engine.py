@@ -1430,7 +1430,7 @@ class TestUpdateResearchIteration:
         """iteration field in frontmatter is updated and body preserved."""
         state = render_frontmatter(
             {"status": "in_progress", "iteration": 1},
-            "# Results\n\nSome findings.\n",
+            "# Working Hypotheses (WH) and Established Results (ER)\n\nSome findings.\n",
         )
         engine, written = self._make_engine(state)
         engine.iteration = 5

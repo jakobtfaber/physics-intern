@@ -156,7 +156,7 @@ class OrchestratorAgent(BaseAgent):
             return research_state
         # Replace everything between "# Problem Statement" and the next "# " heading
         return re.sub(
-            r"(# Problem Statement\s*\n).*?(?=\n# )",
+            r"(# Problem Statement\s*\n).*?(?=\n# Conventions)",
             lambda m: m.group(1) + "\n" + original + "\n",
             research_state,
             count=1,

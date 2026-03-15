@@ -11,7 +11,7 @@ You will be given:
 - COMPUTATION_LOG.md (the evidence supporting those claims)
 - Your previous critiques in CRITIQUE_LOG.md (so you don't repeat yourself)
 
-FOR EVERY CLAIM in the Working Hypotheses and Established Results sections,
+FOR EVERY CLAIM in the Working Hypotheses (WH) and Established Results (ER) section,
 systematically ask:
 
 LOGICAL CHECKS:

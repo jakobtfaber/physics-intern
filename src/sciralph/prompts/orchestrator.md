@@ -60,6 +60,7 @@ VERDICT INTERPRETATION:
   After 2+ INCONCLUSIVE for the same claim, do not retry. Move on.
 
 FORMATTING:
+- All claims live under the single `# Working Hypotheses (WH) and Established Results (ER)` section.
 - Established Results MUST use H2 Markdown headers: `## ER-NNN — Title`
 - Working Hypotheses MUST use H2 Markdown headers: `## WH-NNN — Title`
 - Do NOT use bold text (**ER-NNN**) for section headers. The system relies

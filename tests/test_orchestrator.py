@@ -35,7 +35,7 @@ problem_id: test
 status: in_progress
 ---
 
-# Established Results
+# Working Hypotheses (WH) and Established Results (ER)
 
 Result A is proven.
 """
@@ -265,14 +265,14 @@ class TestConventionReminder:
         "---\nproblem_id: test\nstatus: in_progress\n---\n\n"
         "# Problem Statement\n\nDerive something.\n\n"
         "# Conventions\n\n(To be populated by the orchestrator as conventions become clear.)\n\n"
-        "# Established Results\n\nNone yet.\n"
+        "# Working Hypotheses (WH) and Established Results (ER)\n\nNone yet.\n"
     )
 
     RESEARCH_STATE_POPULATED = (
         "---\nproblem_id: test\nstatus: in_progress\n---\n\n"
         "# Problem Statement\n\nDerive something.\n\n"
         "# Conventions\n\n- Natural units: ħ = c = k_B = 1\n- Metric signature: (−, +, +, +)\n\n"
-        "# Established Results\n\nNone yet.\n"
+        "# Working Hypotheses (WH) and Established Results (ER)\n\nNone yet.\n"
     )
 
     def test_convention_reminder_at_iteration_3(self, orchestrator, workspace):
@@ -328,12 +328,12 @@ last_critic_pass: "2026-03-07T14:20:00Z"
         """Orchestrator output with resolved_critiques list updates CRITIQUE_LOG."""
         workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_LOG)
         workspace.write_file("RESEARCH_STATE.md",
-            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n\n# Results\n")
+            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n\n# Working Hypotheses (WH) and Established Results (ER)\n")
 
         response_text = (
             "=== RESEARCH_STATE.md ===\n"
             "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n"
-            "resolved_critiques: [CRIT-001]\n---\n\n# Established Results\n## ER-001\nDone.\n"
+            "resolved_critiques: [CRIT-001]\n---\n\n# Working Hypotheses (WH) and Established Results (ER)\n## ER-001\nDone.\n"
             "\n=== CURRENT_TASK.md ===\n"
             "---\ntask_id: TASK-003\ntask_type: compute\nassigned_to: computationalist\npriority: high\niteration: 3\n---\nVerify.\n"
         )
@@ -353,12 +353,12 @@ last_critic_pass: "2026-03-07T14:20:00Z"
         """Orchestrator prose mentioning 'CRIT-002 addressed' triggers resolution."""
         workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_LOG)
         workspace.write_file("RESEARCH_STATE.md",
-            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n\n# Results\n")
+            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n\n# Working Hypotheses (WH) and Established Results (ER)\n")
 
         response_text = (
             "=== RESEARCH_STATE.md ===\n"
             "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n"
-            "\n# Established Results\nCRIT-002 addressed by new derivation.\n"
+            "\n# Working Hypotheses (WH) and Established Results (ER)\nCRIT-002 addressed by new derivation.\n"
             "\n=== CURRENT_TASK.md ===\n"
             "---\ntask_id: TASK-003\ntask_type: compute\nassigned_to: computationalist\npriority: high\niteration: 3\n---\nVerify.\n"
         )
@@ -378,14 +378,14 @@ last_critic_pass: "2026-03-07T14:20:00Z"
         """Orchestrator output with resolved_critiques mapping format resolves critiques."""
         workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_LOG)
         workspace.write_file("RESEARCH_STATE.md",
-            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n\n# Results\n")
+            "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n---\n\n# Working Hypotheses (WH) and Established Results (ER)\n")
 
         response_text = (
             "=== RESEARCH_STATE.md ===\n"
             "---\nproblem_id: test\nstatus: in_progress\niteration: 3\n"
             "resolved_critiques:\n"
             "  CRIT-001: verified by computation COMP-003\n"
-            "---\n\n# Established Results\n## ER-001\nDone.\n"
+            "---\n\n# Working Hypotheses (WH) and Established Results (ER)\n## ER-001\nDone.\n"
             "\n=== CURRENT_TASK.md ===\n"
             "---\ntask_id: TASK-003\ntask_type: compute\nassigned_to: computationalist\npriority: high\niteration: 3\n---\nVerify.\n"
         )

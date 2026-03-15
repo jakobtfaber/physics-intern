@@ -556,7 +556,7 @@ class TestWhToErHeaderPromotion:
 
     def test_wh_header_promoted_when_er_in_body(self):
         """WH header renamed to ER when ER-NNN appears in body and has VERIFIED."""
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## WH-001 Hawking Temperature
 
@@ -587,7 +587,7 @@ Result: ER-001 is the Hawking temperature T = hbar*kappa/(2*pi*k_B).
 
     def test_wh_header_promoted_without_er_in_body(self):
         """WH header promoted to ER when VERIFIED backing exists, even without ER in body."""
-        state = """# Working Hypotheses
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## WH-001 Some Hypothesis
 
@@ -617,7 +617,7 @@ Just a regular WH, no ER reference.
 
     def test_wh_header_not_promoted_without_verified(self):
         """WH header stays WH even if ER-NNN in body but no VERIFIED computation."""
-        state = """# Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## WH-001 Something
 

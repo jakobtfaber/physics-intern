@@ -104,7 +104,7 @@ Computation refutes the result.
         return render_frontmatter(meta, body)
 
     def _state_with_er(self, er_id: str) -> str:
-        return f"""# Established Results
+        return f"""# Working Hypotheses (WH) and Established Results (ER)
 
 ## {er_id} Hawking Temperature
 
@@ -155,7 +155,7 @@ OK.
 
     def test_no_ers_no_violations(self):
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": "# Working Hypotheses\n\n## WH-001 something\n",
+            "RESEARCH_STATE.md": "# Working Hypotheses (WH) and Established Results (ER)\n\n## WH-001 something\n",
             "COMPUTATION_LOG.md": "",
         })
         violations = check_er_promotion_gate(ws)
@@ -172,7 +172,7 @@ OK.
 
     def test_multiple_ers_partial_demotion(self):
         """Two ERs: one has VERIFIED backing, one does not."""
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Good Result
 
@@ -206,7 +206,7 @@ OK.
 
     def test_wh_promoted_without_er_in_prose(self):
         """WH with VERIFIED backing is promoted even when ER-NNN doesn't appear in prose."""
-        state = "# Working Hypotheses\n\n## WH-001 Partition Function\n\nZ = 1/(2 sinh(...))\n"
+        state = "# Working Hypotheses (WH) and Established Results (ER)\n\n## WH-001 Partition Function\n\nZ = 1/(2 sinh(...))\n"
         ws = MockWorkspace({
             "RESEARCH_STATE.md": state,
             "COMPUTATION_LOG.md": self._comp_log_with_verified("WH-001"),
@@ -224,7 +224,7 @@ OK.
 
 class TestCheckPhantomLabels:
     def test_unsubstantiated_verified_stripped(self):
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Some result
 
@@ -253,7 +253,7 @@ This result is VERIFIED by computation (ER-001).
 **RESULT**:
 Correct.
 """
-        state = """# Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 This ER-001 result has been VERIFIED by COMP-001.
 """
@@ -565,7 +565,7 @@ OK.
 class TestValidatePostIntegration:
     def test_pipeline_runs_all_checks(self):
         """A workspace with multiple issues should trigger violations from different checks."""
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Unverified result
 
@@ -606,7 +606,7 @@ Backed by COMP-999 which doesn't exist.
 T = hbar * kappa / (2 pi k_B). Correct.
 """
         state_meta = {"status": "in_progress", "verified_results": ["ER-001"]}
-        state_body = """# Established Results
+        state_body = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Hawking Temperature
 
@@ -639,7 +639,7 @@ class TestCanTerminate:
     def test_clean_termination_allowed(self):
         """No ERs, no HIGH critiques, no numerical requirement => allowed."""
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": "# Results\n\nSome findings.\n",
+            "RESEARCH_STATE.md": "# Working Hypotheses (WH) and Established Results (ER)\n\nSome findings.\n",
             "COMPUTATION_LOG.md": "",
             "CRITIQUE_LOG.md": "",
         })
@@ -979,7 +979,7 @@ class TestDemotionProsePropagation:
 
     def test_demotion_propagates_all_prose_references(self):
         """When ER→WH demotion happens, prose references also get updated."""
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Hawking Temperature
 
@@ -1002,7 +1002,7 @@ See ER-001 in the synthesis section.
     def test_frontmatter_verified_results_normalized_after_demotion(self):
         """verified_results entries are renamed ER→WH after demotion."""
         state_meta = {"status": "in_progress", "verified_results": ["ER-001"]}
-        state_body = """# Established Results
+        state_body = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Partition Function
 
@@ -1025,7 +1025,7 @@ Z = exp(-x/2)/(1-exp(-x))
     def test_frontmatter_verified_results_normalized_after_promotion(self):
         """verified_results entries are renamed WH→ER after promotion."""
         state_meta = {"status": "in_progress", "verified_results": ["WH-003"]}
-        state_body = """# Established Results
+        state_body = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## WH-003 Hawking Temperature
 
@@ -1073,7 +1073,7 @@ class TestBackfillUsesPromotedForm:
 OK.
 """
         state_meta = {"status": "in_progress"}
-        state_body = """# Established Results
+        state_body = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Partition Function
 
@@ -1098,7 +1098,7 @@ class TestErPromotionProsePropagation:
 
     def test_promotion_propagates_prose(self):
         """When WH→ER promotion happens, prose references also get updated."""
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## WH-003 Hawking Temperature
 
@@ -1140,7 +1140,7 @@ Correct.
 **RESULT**:
 OK.
 """
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Partition Function
 
@@ -1174,7 +1174,7 @@ class TestVerifiedFrontmatterBackfill:
 All checks pass.
 """
         state_meta = {"status": "in_progress"}
-        state_body = "# Results\n\nSome findings.\n"
+        state_body = "# Working Hypotheses (WH) and Established Results (ER)\n\nSome findings.\n"
         ws = MockWorkspace({
             "RESEARCH_STATE.md": render_frontmatter(state_meta, state_body),
             "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
@@ -1198,7 +1198,7 @@ All checks pass.
 OK.
 """
         state_meta = {"status": "in_progress", "verified_results": ["ER-001"]}
-        state_body = "# Results\n"
+        state_body = "# Working Hypotheses (WH) and Established Results (ER)\n"
         ws = MockWorkspace({
             "RESEARCH_STATE.md": render_frontmatter(state_meta, state_body),
             "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
@@ -1222,7 +1222,7 @@ OK.
 status: in_progress
 ---
 
-# Established Results
+# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-002 Mean Energy
 
@@ -1261,7 +1261,7 @@ class TestCritiqueResolutionConsistency:
 **Target:** ER-001
 The label inconsistency between WH-001 and ER-001 has been resolved.
 """
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Hawking Temperature
 
@@ -1285,7 +1285,7 @@ T = hbar * kappa / (2 pi k_B)
 **Target:** ER-001
 Label inconsistency: header uses ER-001 but prose uses WH-001.
 """
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Hawking Temperature
 
@@ -1312,7 +1312,7 @@ See WH-001 for the original derivation.
 **Target:** WH-005
 Math error in WH-005 derivation has been corrected.
 """
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Hawking Temperature
 
@@ -1338,7 +1338,7 @@ Only ER-001 exists here.
 Mathematical sign error in the entropy derivation for ER-001.
 """
         # WH-001 and ER-001 both exist but critique is about math, not labels
-        state = """# Established Results
+        state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Hawking Temperature
 

@@ -437,7 +437,7 @@ def test_extract_resolved_via_yaml_mapping_in_frontmatter():
         "  CRIT-001: verified\n"
         "  CRIT-005: addressed\n"
         "---\n"
-        "\n# Established Results\n"
+        "\n# Working Hypotheses (WH) and Established Results (ER)\n"
     )
     ids = extract_resolved_critique_ids(text)
     assert ids >= {"CRIT-001", "CRIT-005"}

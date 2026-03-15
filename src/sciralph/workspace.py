@@ -46,13 +46,9 @@ class WorkspaceManager:
 
 (To be populated by the orchestrator as conventions become clear.)
 
-# Established Results
+# Working Hypotheses (WH) and Established Results (ER)
 
-Results here have survived critique and computational verification.
-
-# Working Hypotheses
-
-Not yet fully verified. Subject to critique.
+Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, pending).
 
 # Dead Ends
 

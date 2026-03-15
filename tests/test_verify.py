@@ -32,7 +32,7 @@ established_results: 3
 
 # Research State
 
-## Established Results
+## Working Hypotheses (WH) and Established Results (ER)
 
 ### ER-001: Schwarzschild metric
 The line element is ds² = -(1-2M/r)dt² + (1-2M/r)⁻¹dr² + r²dΩ²

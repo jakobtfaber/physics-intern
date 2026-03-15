@@ -10,15 +10,13 @@ iteration: 10
 
 Test problem description.
 
-# Established Results
+# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-1: First result
 - **Statement:** The answer is 42.
 - **Confidence:** HIGH
 - **Verified by:** COMP-001
 - **Depends on:** nothing
-
-# Working Hypotheses
 
 ## WH-1: Second result candidate
 - **Statement:** The derivative is 2x.
