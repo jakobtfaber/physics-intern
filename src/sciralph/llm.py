@@ -450,7 +450,7 @@ def run_agent_loop(
                     log_scaffold_event(config.workspace_dir, iteration, CC.LOOP_CONTROL,
                                        "executor_stop_signal",
                                        f"round={round_num}, agent={agent_name}")
-                return AgentResult(
+                result = AgentResult(
                     text=round_text,
                     tool_calls=all_tool_calls,
                     total_input_tokens=total_input,
@@ -463,6 +463,10 @@ def run_agent_loop(
                     duration=time.time() - overall_start,
                     token_alert_fired=token_alert_fired,
                 )
+                _write_agent_conversation_log(
+                    config, system, user_content, agent_name,
+                    iteration, round_log, result)
+                return result
 
             # Track consecutive zero-text rounds for early bailout
             cumulative_text_len += len(round_text.strip())
