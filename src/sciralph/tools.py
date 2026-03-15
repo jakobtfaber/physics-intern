@@ -49,15 +49,61 @@ class ToolExecutor:
                 "parameters": {
                     "type": "object",
                     "properties": {
+                        "purpose": {
+                            "type": "string",
+                            "description": (
+                                "Brief explanation of what this computation will determine "
+                                "and why it is needed beyond previous results."
+                            ),
+                        },
                         "code": {
                             "type": "string",
                             "description": "The complete Python script to execute.",
-                        }
+                        },
                     },
-                    "required": ["code"],
+                    "required": ["purpose", "code"],
                 },
             },
-        }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "submit_verdict",
+                "description": (
+                    "Submit your final COMP entry verdict. Call this ONCE when you "
+                    "have enough evidence to conclude. This immediately ends your "
+                    "session. Do NOT call execute_python in the same response as "
+                    "submit_verdict."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "claim": {
+                            "type": "string",
+                            "description": "The claim ID and description (e.g. 'WH-002 — fidelity is 1 to first order').",
+                        },
+                        "method": {
+                            "type": "string",
+                            "description": "Computation method used.",
+                        },
+                        "result": {
+                            "type": "string",
+                            "description": "Key numerical results and observations.",
+                        },
+                        "verdict": {
+                            "type": "string",
+                            "enum": ["VERIFIED", "REFUTED", "INCONCLUSIVE"],
+                            "description": "Your verdict.",
+                        },
+                        "notes": {
+                            "type": "string",
+                            "description": "Summary notes (1-3 sentences).",
+                        },
+                    },
+                    "required": ["claim", "method", "result", "verdict", "notes"],
+                },
+            },
+        },
     ]
 
     def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000):
@@ -73,6 +119,8 @@ class ToolExecutor:
 
         if tool_name == "execute_python":
             output, is_error = self._execute_python(tool_input["code"])
+        elif tool_name == "submit_verdict":
+            output, is_error = self._submit_verdict(tool_input)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -84,6 +132,12 @@ class ToolExecutor:
             is_error=is_error,
             duration=duration,
         )
+
+    def _submit_verdict(self, params: dict) -> tuple[str, bool]:
+        """Record verdict and signal loop to stop."""
+        self.stop_after_round = True
+        self._last_verdict = params
+        return f"Verdict recorded: {params.get('verdict', 'UNKNOWN')}", False
 
     def _execute_python(self, code: str) -> tuple[str, bool]:
         """Write code to file, execute via sandbox, return (output, is_error)."""

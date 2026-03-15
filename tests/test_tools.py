@@ -73,12 +73,27 @@ class TestExecutePython:
 class TestToolDefinitions:
     def test_definitions_format(self):
         defs = ToolExecutor.TOOL_DEFINITIONS
-        assert len(defs) == 1
+        assert len(defs) == 2
         assert defs[0]["type"] == "function"
-        func = defs[0]["function"]
+        assert defs[1]["type"] == "function"
+        names = {d["function"]["name"] for d in defs}
+        assert names == {"execute_python", "submit_verdict"}
+
+    def test_execute_python_requires_purpose(self):
+        func = ToolExecutor.TOOL_DEFINITIONS[0]["function"]
         assert func["name"] == "execute_python"
-        assert "parameters" in func
-        assert func["parameters"]["required"] == ["code"]
+        props = func["parameters"]["properties"]
+        assert "purpose" in props
+        assert props["purpose"]["type"] == "string"
+        assert set(func["parameters"]["required"]) == {"purpose", "code"}
+
+    def test_submit_verdict_schema(self):
+        func = ToolExecutor.TOOL_DEFINITIONS[1]["function"]
+        assert func["name"] == "submit_verdict"
+        props = func["parameters"]["properties"]
+        assert set(props.keys()) == {"claim", "method", "result", "verdict", "notes"}
+        assert props["verdict"]["enum"] == ["VERIFIED", "REFUTED", "INCONCLUSIVE"]
+        assert set(func["parameters"]["required"]) == {"claim", "method", "result", "verdict", "notes"}
 
 
 class TestTruncation:
@@ -93,6 +108,32 @@ class TestTruncation:
         # Preserves head and tail
         assert result.startswith("a" * 100)
         assert result.endswith("a" * 100)
+
+
+class TestSubmitVerdict:
+    def test_sets_stop_flag(self):
+        executor = _make_executor()
+        params = {"claim": "WH-001", "method": "numerical", "result": "ok",
+                  "verdict": "VERIFIED", "notes": "All checks pass."}
+        tc = executor.execute("submit_verdict", params)
+        assert not tc.is_error
+        assert "VERIFIED" in tc.output
+        assert executor.stop_after_round is True
+
+    def test_stores_last_verdict(self):
+        executor = _make_executor()
+        params = {"claim": "WH-002", "method": "symbolic", "result": "mismatch",
+                  "verdict": "REFUTED", "notes": "Discrepancy found."}
+        executor.execute("submit_verdict", params)
+        assert executor._last_verdict == params
+
+    def test_output_message(self):
+        executor = _make_executor()
+        tc = executor.execute("submit_verdict", {"claim": "c", "method": "m",
+                                                  "result": "r", "verdict": "INCONCLUSIVE",
+                                                  "notes": "n"})
+        assert tc.output == "Verdict recorded: INCONCLUSIVE"
+        assert tc.tool_name == "submit_verdict"
 
 
 # --- Agent loop tests ---
@@ -715,3 +756,44 @@ class TestToolHistorySynthesis:
         assert "INCONCLUSIVE" in result.text
         # Should contain actual code from tool history
         assert "numpy" in result.text
+
+
+class TestSubmitVerdictInLoop:
+    """Test submit_verdict triggers executor_stop in agent loop."""
+
+    @patch("sciralph.llm._get_provider")
+    def test_submit_verdict_stops_loop(self, mock_get_provider):
+        """Round 1: execute_python, round 2: submit_verdict → executor_stop."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: tool_use with execute_python
+        round1 = _mock_provider_response(
+            "Computing fidelity...", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "execute_python",
+                         "input": {"purpose": "Check fidelity", "code": "print(1.0)"}}],
+        )
+        # Round 2: tool_use with submit_verdict
+        round2 = _mock_provider_response(
+            "", "tool_use", 150, 60,
+            tool_calls=[{"id": "t2", "name": "submit_verdict",
+                         "input": {"claim": "WH-002", "method": "numerical",
+                                   "result": "fidelity=1.0", "verdict": "VERIFIED",
+                                   "notes": "All checks pass."}}],
+        )
+        provider.call.side_effect = [round1, round2]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
+        )
+
+        assert result.stop_reason == "executor_stop"
+        assert result.rounds == 2
+        assert len(result.tool_calls) == 2
+        assert result.tool_calls[1].tool_name == "submit_verdict"
+        assert not result.truncated
+        # No forced final call — only 2 provider calls
+        assert provider.call.call_count == 2

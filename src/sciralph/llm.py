@@ -533,8 +533,9 @@ def run_agent_loop(
             if round_num == config.checkpoint_round:
                 _nudge_msg = (
                     "CHECKPOINT: You are running low on available rounds. "
-                    "Write your COMP entry text now alongside any remaining "
-                    "tool calls. Do not defer all text to the final round."
+                    "Finish your analysis and call `submit_verdict` with your "
+                    "findings, or write your COMP entry text now alongside any "
+                    "remaining tool calls. Do not defer all text to the final round."
                 )
                 messages.append({"role": "user", "content": _nudge_msg})
                 round_log.append({
@@ -546,10 +547,11 @@ def run_agent_loop(
             if round_num == max_rounds - 2 and max_rounds >= 5:
                 _final_warn_msg = (
                     "FINAL WARNING: You have 2 rounds left before forced "
-                    "termination. Begin writing your COMP entry text NOW. "
+                    "termination. Call `submit_verdict` with your findings NOW. "
                     "If you need one more tool call, make it in your next "
-                    "response, but you MUST include your verdict text in "
-                    "that same response. Do not defer text to the final round."
+                    "response, but you MUST call `submit_verdict` or include "
+                    "your verdict text in that same response. Do not defer "
+                    "to the final round."
                 )
                 messages.append({"role": "user", "content": _final_warn_msg})
                 round_log.append({
@@ -561,10 +563,14 @@ def run_agent_loop(
             if round_num == max_rounds - 1 and max_rounds >= 4:
                 _crit_msg = (
                     "CRITICAL: This is your LAST round with tool access. "
-                    "You MUST include your ## COMP-NNN verdict text in THIS "
-                    "response. If you only call a tool without writing text, "
+                    "You MUST call `submit_verdict` NOW with your findings. "
+                    "If you cannot use `submit_verdict`, write your "
+                    "## COMP-NNN verdict text in THIS response instead. "
+                    "If you only call `execute_python` without a verdict, "
                     "your output will be recorded as INCONCLUSIVE.\n\n"
-                    "Write your verdict NOW using this format:\n"
+                    "Preferred: call `submit_verdict` with claim, method, "
+                    "result, verdict, and notes.\n\n"
+                    "Alternative — write free text:\n"
                     "## COMP-NNN: [description]\n"
                     "**CLAIM:** [claim]\n"
                     "**METHOD:** [method]\n"
@@ -790,7 +796,13 @@ def _write_conversation_log(config: Config, resp: LLMResponse,
 def _render_tool_input(name: str, input_data) -> str:
     """Render tool input for conversation log display."""
     if name == "execute_python" and isinstance(input_data, dict) and "code" in input_data:
-        return f"~~~python\n{input_data['code']}\n~~~"
+        purpose = input_data.get("purpose", "")
+        purpose_line = f"**Purpose:** {purpose}\n\n" if purpose else ""
+        return f"{purpose_line}~~~python\n{input_data['code']}\n~~~"
+    if name == "submit_verdict" and isinstance(input_data, dict):
+        verdict = input_data.get("verdict", "?")
+        claim = input_data.get("claim", "?")
+        return f"**Verdict: {verdict}** for {claim}"
     try:
         return f"```json\n{json.dumps(input_data, indent=2)}\n```"
     except (TypeError, ValueError):

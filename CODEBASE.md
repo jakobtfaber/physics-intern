@@ -80,7 +80,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `config.py` | 155 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
 | `task.py` | 82 | `Task` dataclass, `TaskType` enum, YAML serialization |
 | `llm.py` | 526 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, event log entries |
-| `tools.py` | 129 | `ToolExecutor`, `ToolCall`, `execute_python` tool schema |
+| `tools.py` | 145 | `ToolExecutor`, `ToolCall`, `execute_python` + `submit_verdict` tool schemas |
 | `workspace.py` | 224 | File I/O, git ops, phantom reference validation, `log_scaffold_event()` |
 | `markdown.py` | 502 | Frontmatter parsing, critique lifecycle, stall detection, comp parsing |
 | `sandbox.py` | 49 | `subprocess.run` wrapper with timeout |
@@ -89,7 +89,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `agents/base.py` | 158 | `BaseAgent` ABC, template method, retry logic |
 | `agents/orchestrator.py` | 252 | Planning, integration, critique resolution, inline synthesis, scaffolding log events |
 | `agents/researcher.py` | 40 | Derivations, writes `PROPOSED_CHANGES.md` |
-| `agents/computationalist.py` | 75 | Agentic tool-use, verdict writing, scaffolding log events |
+| `agents/computationalist.py` | 108 | Agentic tool-use, `submit_verdict` extraction, verdict writing, scaffolding log events |
 | `agents/critic.py` | 84 | Adversarial review, self-retraction filter, scaffolding log events |
 | `agents/compressor.py` | 27 | File size management |
 | `providers/__init__.py` | 24 | `create_provider()` factory + re-exports |
@@ -223,7 +223,7 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Currently only the computationalist sets `tools = ToolExecutor.TOOL_DEFINITIONS`.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Currently the computationalist (`execute_python`, `submit_verdict`) and orchestrator (`set_next_task`, `add_hypothesis`) set `tools`.
 
 **No retry on truncation:** `_call_with_retry` returns immediately when `stop_reason == "max_tokens"` (no retries). The engine's `_record_agent_failures()` detects the truncation and injects a CAPACITY EXCEEDED banner into the orchestrator's next context via `_build_context_prefix()`, prompting task decomposition.
 
@@ -263,14 +263,19 @@ The `tools` class attribute is the **single switch** between one-shot and agenti
 
 #### Computationalist (`agents/computationalist.py`)
 
-**Role:** Code-based verification via `execute_python` tool. The only agentic (tool-use) agent.
+**Role:** Code-based verification via `execute_python` + `submit_verdict` tools. The only agentic (tool-use) agent.
 
 **Context:** `CURRENT_TASK.md` + full `RESEARCH_STATE.md`. Prior failure context is injected into the task by the engine, not by this agent.
 
-**Tool-use loop:** LLM writes Python → `ToolExecutor` runs it in sandbox → output fed back → LLM iterates or writes final verdict. Up to `max_tool_rounds` (default 10) rounds.
+**Tool-use loop:** LLM writes Python (with `purpose` param) → `ToolExecutor` runs it in sandbox → output fed back → LLM iterates → calls `submit_verdict` for structured exit (or writes free-text verdict). Up to `max_tool_rounds` (default 10) rounds.
+
+**Two exit paths:**
+1. **Preferred:** `submit_verdict` tool call — structured data (claim, method, result, verdict, notes), triggers `stop_after_round` → `executor_stop`. `process_response` formats the COMP entry from the tool parameters.
+2. **Fallback:** Free-text verdict in final response (original path, still supported).
 
 **Output processing:**
-- Empty text → synthesizes fallback INCONCLUSIVE entry
+- `submit_verdict` present → formats COMP entry from structured tool data (takes priority over free text)
+- Empty text (no submit_verdict) → synthesizes fallback INCONCLUSIVE entry
 - Ensures `##` header present
 - Appends iteration/tool-call metadata
 - Appends to `COMPUTATION_LOG.md` (log grows, never overwrites)
@@ -363,7 +368,11 @@ Both paths go through `_call_provider_with_retry()` which wraps every provider c
 
 ### Tool execution (`tools.py`)
 
-One tool: `execute_python`. The `ToolExecutor` class:
+Two tools defined in `ToolExecutor.TOOL_DEFINITIONS`:
+1. **`execute_python`** — requires `purpose` (why this computation is needed) and `code` (the script). `purpose` is preserved in `ToolCall.tool_input` for logging/audit; only `code` is executed.
+2. **`submit_verdict`** — structured exit path for the computationalist. Sets `stop_after_round = True` (reuses `executor_stop` mechanism), stores params in `_last_verdict`. Parameters: `claim`, `method`, `result`, `verdict` (enum: VERIFIED/REFUTED/INCONCLUSIVE), `notes`.
+
+The `ToolExecutor` class:
 - Writes each script to `computations/tool_exec_NNN.py` (monotonic counter per instance)
 - Calls `sandbox.execute_python()` with timeout
 - Returns structured `ToolCall` records with output, error status, duration
@@ -577,6 +586,8 @@ These mechanisms prevent the computationalist from wasting rounds or producing e
 | Interleaved text checkpoint | `text_checkpoint_interval` consecutive zero-text rounds (default 2, must be < `zero_text_bailout`) | Text-only LLM call via `_make_text_checkpoint_call()`; on success resets streak and injects assistant+user messages to resume tool use |
 | Tool history synthesis | Both forced final call and retry produce empty text | `_synthesize_from_tool_history()` builds COMP-000 entry from actual tool execution history (code + output excerpts) |
 | Forced text-only final call | Loop exits for any reason (max rounds, bailout, tool-call failure) | Final LLM call with `tools` omitted, strongly-worded system prompt with full COMP-NNN format, stop_reason set to `max_rounds_forced` |
+| `submit_verdict` structured exit | Model calls `submit_verdict` tool | Structured verdict data bypasses free-text generation; sets `stop_after_round` → `executor_stop`; `process_response` formats COMP entry from tool parameters. Plays WITH tool-calling tendency instead of against it |
+| `execute_python` purpose parameter | Model calls `execute_python` | Required `purpose` field forces model to articulate WHY before each run; preserved in logs for audit; not enforced at execution time (schema-level only) |
 
 #### Tool execution guards
 
@@ -665,7 +676,8 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
-| Empty-response INCONCLUSIVE stub | `process_response()` | Synthesizes minimal COMP entry with VERDICT: INCONCLUSIVE when response is empty | Agent producing no text despite forced final call |
+| submit_verdict extraction | `process_response()` | Extracts structured data from `submit_verdict` tool call, formats COMP entry; takes priority over free text | Tool-happy models (e.g. Gemini Flash) that never produce free text |
+| Empty-response INCONCLUSIVE stub | `process_response()` | Synthesizes minimal COMP entry with VERDICT: INCONCLUSIVE when response is empty (and no submit_verdict) | Agent producing no text despite forced final call |
 | Missing header injection | `process_response()` | Prepends `## {task_id}: Computation` if output doesn't start with `##` | Headerless entry invisible to downstream parsers |
 | Claim ID injection | `process_response()` | Prepends target WH/ER ID to CLAIM line if missing | er_promotion_gate unable to link computation to claim |
 | Computation metadata recount | `_update_computation_metadata()` | Recounts `## COMP-NNN` headers and updates `total_computations` frontmatter | LLM using TASK-NNN headers instead of COMP-NNN |
@@ -711,9 +723,9 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 | `test_verify.py` | 582 | Workspace loading, verdict parsing, prompts, process audit, report patching |
 | `test_llm_retry.py` | 530 | Retry logic, transient error classification, backoff, tool-call failure fallback |
 | `test_orchestrator.py` | 515 | Response splitting, integration, completion analysis, budget, stalls, critiques, inline synthesis |
-| `test_tools.py` | 364 | ToolExecutor, run_agent_loop, truncation, token accumulation |
+| `test_tools.py` | 400 | ToolExecutor, submit_verdict, run_agent_loop, truncation, token accumulation |
 | `test_config.py` | 224 | Defaults, YAML/CLI override, merge priority, model resolution from models.yaml |
-| `test_computationalist.py` | 166 | Soft-check pattern, tools attribute, process_response, INCONCLUSIVE fallback |
+| `test_computationalist.py` | 220 | Soft-check pattern, tools attribute, process_response, submit_verdict processing, INCONCLUSIVE fallback |
 | `test_workspace.py` | 132 | init structure, validate_comp_references |
 | `test_provider_smoke.py` | 118 | Provider adapters: tool format, message format, stop reason normalisation |
 | `test_task.py` | 125 | TaskType enum, to_markdown, from_frontmatter, round-trip |

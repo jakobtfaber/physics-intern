@@ -37,10 +37,24 @@ class ComputationalistAgent(BaseAgent):
         """Process result from tool-use agent loop.
 
         The LLM's final text IS the COMPUTATION_LOG entry (with CLAIM, METHOD,
-        RESULT, VERDICT, NOTES). Scaffold adds header if missing and metadata.
+        RESULT, VERDICT, NOTES). If submit_verdict was called, its structured
+        data takes priority. Scaffold adds header if missing and metadata.
         """
         text = response.text.strip()
-        if not text:
+
+        # Check if submit_verdict was called — use its structured data
+        verdict_tc = next(
+            (tc for tc in response.tool_calls if tc.tool_name == "submit_verdict"),
+            None,
+        )
+        if verdict_tc and isinstance(verdict_tc.tool_input, dict):
+            text = self._format_verdict(verdict_tc.tool_input, task)
+            log_scaffold_event(
+                self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION,
+                "submit_verdict_used",
+                f"verdict={verdict_tc.tool_input.get('verdict', '?')}",
+            )
+        elif not text:
             log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "empty_response_stub", "")
             # Extract claim IDs from task body so stall detection can match
             claim_ids = _ER_WH_ID_RE.findall(task.body or "")
@@ -76,6 +90,24 @@ class ComputationalistAgent(BaseAgent):
 
         self.workspace.append_file("COMPUTATION_LOG.md", "\n" + text)
         self._update_computation_metadata()
+
+    @staticmethod
+    def _format_verdict(params: dict, task: Task) -> str:
+        """Format a COMP entry from submit_verdict tool parameters."""
+        task_id = task.task_id or "COMP-000"
+        claim = params.get("claim", "unknown")
+        method = params.get("method", "unknown")
+        result = params.get("result", "No results")
+        verdict = params.get("verdict", "INCONCLUSIVE")
+        notes = params.get("notes", "No notes")
+        return (
+            f"## {task_id}: Computation\n\n"
+            f"**CLAIM:** {claim}\n"
+            f"**METHOD:** {method}\n"
+            f"**RESULT:** {result}\n\n"
+            f"**VERDICT:** {verdict}\n"
+            f"**NOTES:** {notes}"
+        )
 
     def _update_computation_metadata(self):
         """Update COMPUTATION_LOG.md frontmatter with counts.

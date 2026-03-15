@@ -54,8 +54,9 @@ print(f"\\nCHECKS: {n_passed}/{n_total} PASSED")
 class TestToolsAttribute:
     def test_computationalist_has_tools(self):
         assert ComputationalistAgent.tools
-        assert len(ComputationalistAgent.tools) == 1
-        assert ComputationalistAgent.tools[0]["function"]["name"] == "execute_python"
+        assert len(ComputationalistAgent.tools) == 2
+        names = {t["function"]["name"] for t in ComputationalistAgent.tools}
+        assert names == {"execute_python", "submit_verdict"}
 
     def test_other_agents_no_tools(self):
         from sciralph.agents.researcher import ResearcherAgent
@@ -169,3 +170,96 @@ class TestAgenticResponse:
         appended_text = agent.workspace.append_file.call_args[0][1]
         assert "**CLAIM:** WH-005" in appended_text
         assert "INCONCLUSIVE" in appended_text
+
+
+class TestSubmitVerdictProcessing:
+    """Test that process_response extracts data from submit_verdict tool calls."""
+
+    def test_process_response_uses_submit_verdict_data(self):
+        """Empty text + submit_verdict tool call → formatted COMP entry."""
+        agent = _make_agent()
+        agent.workspace.read_file.return_value = ""
+
+        verdict_params = {
+            "claim": "WH-003 — entropy scales as area",
+            "method": "Numerical spot-checks at 5 test points",
+            "result": "All 5 checks pass within rtol=1e-6",
+            "verdict": "VERIFIED",
+            "notes": "Entropy-area proportionality confirmed.",
+        }
+        result = AgentResult(
+            text="",  # no free text — verdict is in tool call
+            tool_calls=[
+                ToolCall("execute_python", {"code": "print(1)"}, "1\n", False, 0.5),
+                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
+            ],
+            total_input_tokens=500,
+            total_output_tokens=200,
+            rounds=2,
+        )
+
+        task = Task(task_id="COMP-030", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", body="Verify WH-003 entropy")
+        agent.process_response(result, task, iteration=8)
+
+        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert "## COMP-030: Computation" in appended_text
+        assert "**CLAIM:** WH-003" in appended_text
+        assert "**VERDICT:** VERIFIED" in appended_text
+        assert "**METHOD:** Numerical spot-checks" in appended_text
+        assert "**NOTES:** Entropy-area proportionality confirmed." in appended_text
+
+    def test_process_response_prefers_submit_verdict_over_text(self):
+        """When both free text and submit_verdict exist, tool data wins."""
+        agent = _make_agent()
+        agent.workspace.read_file.return_value = ""
+
+        verdict_params = {
+            "claim": "WH-001 — temperature is correct",
+            "method": "numerical",
+            "result": "5/5 pass",
+            "verdict": "VERIFIED",
+            "notes": "Confirmed.",
+        }
+        result = AgentResult(
+            text="## COMP-099\n**CLAIM:** wrong\n**VERDICT:** REFUTED",  # free text
+            tool_calls=[
+                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
+            ],
+            total_input_tokens=300,
+            total_output_tokens=100,
+            rounds=1,
+        )
+
+        task = Task(task_id="COMP-050", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist")
+        agent.process_response(result, task, iteration=3)
+
+        appended_text = agent.workspace.append_file.call_args[0][1]
+        # Should use submit_verdict data, not the free text
+        assert "**VERDICT:** VERIFIED" in appended_text
+        assert "**CLAIM:** WH-001" in appended_text
+        assert "REFUTED" not in appended_text
+
+    def test_process_response_falls_back_without_submit_verdict(self):
+        """No submit_verdict in tool_calls → uses free text (existing behavior)."""
+        agent = _make_agent()
+        agent.workspace.read_file.return_value = ""
+
+        result = AgentResult(
+            text="## COMP-010: Test\n**CLAIM:** x = 1\n**VERDICT:** VERIFIED\n**NOTES:** OK.",
+            tool_calls=[
+                ToolCall("execute_python", {"code": "print(1)"}, "1\n", False, 0.5),
+            ],
+            total_input_tokens=300,
+            total_output_tokens=100,
+            rounds=2,
+        )
+
+        task = Task(task_id="COMP-010", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist")
+        agent.process_response(result, task, iteration=5)
+
+        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert "## COMP-010: Test" in appended_text
+        assert "**VERDICT:** VERIFIED" in appended_text
