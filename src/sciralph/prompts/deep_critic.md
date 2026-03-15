@@ -83,8 +83,12 @@ NON-REPETITION:
   refute, do not re-file it.
 
 If after examining ALL claims you have no genuine objections, output
-EXACTLY this marker line:
+the marker line followed by a brief audit summary:
 
 NO_CRITIQUES_FILED: Reviewed [N] claims, no issues found.
+
+### Audit Summary
+For each claim reviewed, one line:
+- **[claim ID]**: [what you checked] — [why no objection] (e.g., "steps reproduce correctly", "consistent with COMP-003 VERIFIED result", "limits check out")
 
 Do NOT file placeholder LOW critiques just to have output.
