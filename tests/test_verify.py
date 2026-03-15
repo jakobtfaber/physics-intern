@@ -605,11 +605,11 @@ def test_append_process_audit_creates_report_if_missing(tmp_path):
 # ---------------------------------------------------------------------------
 
 EVENT_LOG_LINES = """\
-{"kind":"scaffold","ts":"2026-03-13T14:00:00+00:00","iter":1,"layer":5,"event":"p1_budget_override","detail":"compute -> synthesize"}
+{"kind":"scaffold","ts":"2026-03-13T14:00:00+00:00","iter":1,"category":"loop_control","event":"p1_budget_override","detail":"compute -> synthesize"}
 {"kind":"llm_call","ts":"2026-03-13T14:00:01+00:00","agent":"orchestrator","iter":1,"model":"claude-sonnet-4-6","input_tokens":2000,"output_tokens":800,"stop_reason":"end_turn","duration_s":5.0,"system_prompt_chars":3000,"user_content_chars":1000,"response_chars":500,"reasoning_tokens":0,"answer_tokens":0,"round":0}
 {"kind":"llm_call","ts":"2026-03-13T14:00:10+00:00","agent":"researcher","iter":2,"model":"claude-sonnet-4-6","input_tokens":5000,"output_tokens":2000,"stop_reason":"end_turn","duration_s":8.0,"system_prompt_chars":3000,"user_content_chars":4000,"response_chars":1500,"reasoning_tokens":0,"answer_tokens":0,"round":0}
-{"kind":"scaffold","ts":"2026-03-13T14:00:20+00:00","iter":3,"layer":2,"event":"forced_final_call","detail":"max_rounds"}
-{"kind":"scaffold","ts":"2026-03-13T14:00:25+00:00","iter":3,"layer":1,"event":"api_retry","detail":"attempt=1/3, TimeoutError"}
+{"kind":"scaffold","ts":"2026-03-13T14:00:20+00:00","iter":3,"category":"call_reliability","event":"forced_final_call","detail":"max_rounds"}
+{"kind":"scaffold","ts":"2026-03-13T14:00:25+00:00","iter":3,"category":"call_reliability","event":"api_retry","detail":"attempt=1/3, TimeoutError"}
 """
 
 
@@ -633,10 +633,10 @@ def test_summarize_event_log_llm_table():
     assert "2,000" in summary  # orchestrator input_tokens
 
 
-def test_summarize_event_log_scaffold_layers():
-    """Scaffold events are grouped by layer."""
+def test_summarize_event_log_scaffold_categories():
+    """Scaffold events are grouped by category."""
     summary = _summarize_event_log(EVENT_LOG_LINES)
-    assert "Layer 5" in summary or "Layer 1" in summary
+    assert "call_reliability" in summary or "loop_control" in summary
     assert "p1_budget_override" in summary
 
 
@@ -658,7 +658,7 @@ def test_summarize_event_log_truncation():
     # Generate many events
     lines = []
     for i in range(500):
-        lines.append(f'{{"kind":"scaffold","ts":"T","iter":{i},"layer":1,"event":"api_retry","detail":"attempt={i}"}}')
+        lines.append(f'{{"kind":"scaffold","ts":"T","iter":{i},"category":"call_reliability","event":"api_retry","detail":"attempt={i}"}}')
     raw = "\n".join(lines)
     summary = _summarize_event_log(raw, max_chars=1000)
     assert len(summary) <= 1000

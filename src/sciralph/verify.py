@@ -504,19 +504,19 @@ def _summarize_event_log(raw_text: str, max_chars: int = 4096) -> str:
         lines.append(f"| **Total** | {len(llm_calls)} | {total_in:,} | {total_out:,} | |")
         sections.append("\n".join(lines))
 
-    # --- Scaffold events by layer ---
+    # --- Scaffold events by category ---
     if scaffold_events:
-        layer_counts: dict[int, dict[str, int]] = {}
+        cat_counts: dict[str, dict[str, int]] = {}
         for e in scaffold_events:
-            layer = e.get("layer", 0)
+            cat = e.get("category", "unknown")
             event = e.get("event", "unknown")
-            layer_counts.setdefault(layer, {})
-            layer_counts[layer][event] = layer_counts[layer].get(event, 0) + 1
+            cat_counts.setdefault(cat, {})
+            cat_counts[cat][event] = cat_counts[cat].get(event, 0) + 1
 
-        lines = ["### Scaffold Events by Layer", ""]
-        for layer in sorted(layer_counts):
-            events_str = ", ".join(f"{ev}({n})" for ev, n in sorted(layer_counts[layer].items()))
-            lines.append(f"- **Layer {layer}:** {events_str}")
+        lines = ["### Scaffold Events by Category", ""]
+        for cat in sorted(cat_counts):
+            events_str = ", ".join(f"{ev}({n})" for ev, n in sorted(cat_counts[cat].items()))
+            lines.append(f"- **{cat}:** {events_str}")
         sections.append("\n".join(lines))
 
     # --- Timeline of key events ---
