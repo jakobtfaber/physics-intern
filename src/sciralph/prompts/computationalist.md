@@ -131,7 +131,7 @@ tools), write the full COMPUTATION_LOG entry:
 ```
 ## COMP-NNN: [short description]
 
-**CLAIM:** [restate the claim being verified]
+**CLAIM:** [WH-NNN or ER-NNN] — [restate the claim being verified]
 **METHOD:** [what computation you performed]
 **RESULT:**
 [paste or summarize the key output from your execution]

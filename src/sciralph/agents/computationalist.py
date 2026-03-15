@@ -50,6 +50,17 @@ class ComputationalistAgent(BaseAgent):
                 "**NOTES:** Agent produced no text output."
             )
 
+        # Ensure the CLAIM line references the target WH/ER ID (needed by
+        # er_promotion_gate to link computations to claims).
+        target_ids = _ER_WH_ID_RE.findall(task.body or "")
+        if target_ids:
+            target_id = target_ids[0]
+            claim_match = re.search(r'\*\*CLAIM:\*\*\s*', text)
+            if claim_match and target_id not in text[claim_match.start():claim_match.end() + 200]:
+                text = text[:claim_match.end()] + f"{target_id} — " + text[claim_match.end():]
+                log_scaffold_event(self.workspace.root, iteration, 9, "claim_id_injected",
+                                   f"target={target_id}")
+
         # Ensure ## header
         if not text.startswith("##"):
             log_scaffold_event(self.workspace.root, iteration, 9, "header_injected",
