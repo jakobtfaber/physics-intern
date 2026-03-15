@@ -249,6 +249,39 @@ class TestResolveCritique:
         assert "RESOLVED" in updated
         assert "Fixed spin prediction" in updated
 
+    def test_sets_iteration_resolved_in_research_state(self):
+        from sciralph.research_state import (
+            ResearchState, Critique, Severity, CritiqueStatus,
+        )
+        rs = ResearchState()
+        rs.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
+        )
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_STATE,
+            "CRITIQUE_LOG.md": SAMPLE_CRITIQUE_LOG,
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=rs)
+        ex.execute("resolve_critique", {
+            "critique_id": "CRIT-001",
+            "resolution": "Fixed.",
+        })
+        assert rs.critiques["CRIT-001"].iteration_resolved == 5
+        assert rs.critiques["CRIT-001"].status == CritiqueStatus.RESOLVED
+        assert rs.critiques["CRIT-001"].resolution == "Fixed."
+
+    def test_no_research_state_still_resolves(self):
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_STATE,
+            "CRITIQUE_LOG.md": SAMPLE_CRITIQUE_LOG,
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
+        tc = ex.execute("resolve_critique", {
+            "critique_id": "CRIT-001",
+            "resolution": "Fixed.",
+        })
+        assert not tc.is_error
+
 
 # ---------------------------------------------------------------------------
 # Tool executor: update_section

@@ -384,6 +384,15 @@ class OrchestratorToolExecutor:
         self.workspace.write_file("CRITIQUE_LOG.md", content)
         self.resolved_critique_ids.add(crit_id)
         self.mutations_applied = True
+
+        # Update formal state with resolution metadata
+        if self.research_state and crit_id in self.research_state.critiques:
+            from .research_state import CritiqueStatus
+            c = self.research_state.critiques[crit_id]
+            c.status = CritiqueStatus.RESOLVED
+            c.resolution = resolution
+            c.iteration_resolved = self.iteration
+
         return f"Resolved {crit_id}"
 
     def _update_section(self, args: dict) -> str:

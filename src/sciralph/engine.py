@@ -915,17 +915,28 @@ class SciRalph:
         Preserves authoritative target_hypothesis links registered via
         _register_computation (which may use task.target_claim).
         """
-        # Save authoritative links before rebuilding
+        # Save authoritative data before rebuilding
         authoritative_targets = {
             comp_id: comp.target_hypothesis
             for comp_id, comp in self.research_state.computations.items()
             if comp.target_hypothesis
+        }
+        authoritative_resolutions = {
+            cid: (c.iteration_resolved, c.resolution)
+            for cid, c in self.research_state.critiques.items()
+            if c.iteration_resolved is not None
         }
         self.research_state = _build_research_state(self.workspace)
         # Restore authoritative targets that may be better than substring-derived ones
         for comp_id, target in authoritative_targets.items():
             if comp_id in self.research_state.computations:
                 self.research_state.computations[comp_id].target_hypothesis = target
+        # Restore authoritative critique resolution metadata
+        for cid, (iter_res, res_text) in authoritative_resolutions.items():
+            if cid in self.research_state.critiques:
+                self.research_state.critiques[cid].iteration_resolved = iter_res
+                if res_text:
+                    self.research_state.critiques[cid].resolution = res_text
         # Fix stale WH↔ER backlinks and rebuild supporting_comps
         self.research_state.normalize_references()
         self.research_state.save(self.workspace.root)
