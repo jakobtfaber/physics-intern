@@ -157,6 +157,9 @@ class ResearchState:
     def working_hypotheses(self) -> list[Hypothesis]:
         return [h for h in self.hypotheses.values() if h.status == HypothesisStatus.WORKING]
 
+    def abandoned_hypotheses(self) -> list[Hypothesis]:
+        return [h for h in self.hypotheses.values() if h.status == HypothesisStatus.ABANDONED]
+
     def failures_for_hypothesis(self, hypothesis_id: str) -> list[FailedApproach]:
         """Failed approaches mentioning *hypothesis_id*."""
         return [

@@ -423,6 +423,30 @@ class TestFailureTracking:
         state = ResearchState()
         assert state.failures_for_hypothesis("WH-001") == []
 
+    def test_abandoned_hypotheses_query(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.ABANDONED,
+        )
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", status=HypothesisStatus.WORKING,
+        )
+        state.hypotheses["ER-003"] = Hypothesis(
+            id="ER-003", status=HypothesisStatus.ESTABLISHED,
+        )
+        assert len(state.abandoned_hypotheses()) == 1
+        assert state.abandoned_hypotheses()[0].id == "WH-001"
+
+    def test_abandoned_status_round_trip(self):
+        state = ResearchState(iteration=5)
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Bad idea",
+            status=HypothesisStatus.ABANDONED, iteration_modified=3,
+        )
+        restored = ResearchState.from_json(state.to_json())
+        assert restored.hypotheses["WH-001"].status == HypothesisStatus.ABANDONED
+        assert restored.hypotheses["WH-001"].iteration_modified == 3
+
 
 # ---------------------------------------------------------------------------
 # Fix: phantom TASK-* stubs filtered from graph

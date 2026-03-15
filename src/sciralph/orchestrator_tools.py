@@ -361,12 +361,16 @@ class OrchestratorToolExecutor:
 
         # Record in formal state if available
         if self.research_state:
-            from .research_state import FailedApproach
+            from .research_state import FailedApproach, HypothesisStatus
             self.research_state.failed_approaches.append(FailedApproach(
                 description=f"Abandoned {hid} — {title}",
                 reason=reason,
                 iteration=self.iteration,
             ))
+            # Mark hypothesis as abandoned (preserves it in the graph)
+            if hid in self.research_state.hypotheses:
+                self.research_state.hypotheses[hid].status = HypothesisStatus.ABANDONED
+                self.research_state.hypotheses[hid].iteration_modified = self.iteration
 
         return f"Abandoned {hid}: {reason}"
 

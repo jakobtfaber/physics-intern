@@ -915,6 +915,12 @@ class SciRalph:
         Preserves authoritative target_hypothesis links registered via
         _register_computation (which may use task.target_claim).
         """
+        # Save abandoned hypotheses (not visible in Markdown after removal)
+        from .research_state import HypothesisStatus
+        abandoned_hypotheses = {
+            hid: h for hid, h in self.research_state.hypotheses.items()
+            if h.status == HypothesisStatus.ABANDONED
+        }
         # Save authoritative data before rebuilding
         authoritative_targets = {
             comp_id: comp.target_hypothesis
@@ -937,6 +943,10 @@ class SciRalph:
                 self.research_state.critiques[cid].iteration_resolved = iter_res
                 if res_text:
                     self.research_state.critiques[cid].resolution = res_text
+        # Restore abandoned hypotheses (removed from Markdown, kept in graph)
+        for hid, h in abandoned_hypotheses.items():
+            if hid not in self.research_state.hypotheses:
+                self.research_state.hypotheses[hid] = h
         # Fix stale WH↔ER backlinks and rebuild supporting_comps
         self.research_state.normalize_references()
         self.research_state.save(self.workspace.root)

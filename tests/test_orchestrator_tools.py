@@ -384,6 +384,18 @@ class TestAbandonRecordsFailure:
         assert "WH-001" in rs.failed_approaches[0].description
         assert "Spin prediction" in rs.failed_approaches[0].reason
 
+    def test_marks_hypothesis_abandoned_in_state(self):
+        from sciralph.research_state import ResearchState, Hypothesis, HypothesisStatus
+        rs = ResearchState()
+        rs.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="First", status=HypothesisStatus.WORKING,
+        )
+        ws, store = _make_workspace({"RESEARCH_STATE.md": SAMPLE_STATE})
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=rs)
+        ex.execute("abandon_hypothesis", {"id": "WH-001", "reason": "Wrong."})
+        assert rs.hypotheses["WH-001"].status == HypothesisStatus.ABANDONED
+        assert rs.hypotheses["WH-001"].iteration_modified == 3
+
     def test_no_research_state_still_works(self):
         ws, store = _make_workspace({"RESEARCH_STATE.md": SAMPLE_STATE})
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
