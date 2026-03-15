@@ -159,16 +159,8 @@ class SciRalph:
         self._final_report()
 
     def _run_orchestrator(self) -> Task:
-        """Run orchestrator pass: validate phantoms, set context prefix, get task."""
+        """Run orchestrator pass: set context prefix, get task."""
         console.print("[cyan]Orchestrator[/cyan] planning...")
-
-        # Validate COMP/TASK references in RESEARCH_STATE
-        phantoms = self.workspace.validate_comp_references()
-        if phantoms:
-            self.metrics.alert(
-                self.iteration,
-                f"Phantom references stripped: {', '.join(phantoms)}"
-            )
 
         # Set context prefix for violations/blockers
         self.orchestrator.context_prefix = self._build_context_prefix()
