@@ -1,5 +1,6 @@
 """SciRalph main loop engine."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from rich.console import Console
@@ -47,6 +48,173 @@ class LoopState:
     pending_termination_blockers: list[str] = field(default_factory=list)
     displaced_tasks: list[dict] = field(default_factory=list)
     agent_failures: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class Override:
+    """A single pre-dispatch override in the priority chain."""
+    name: str
+    priority: int
+    condition: Callable[["SciRalph", Task], bool]
+    action: Callable[["SciRalph", Task], Task]
+
+
+# ---------------------------------------------------------------------------
+# Override condition/action functions
+# ---------------------------------------------------------------------------
+
+def _p1_budget_condition(engine: "SciRalph", task: Task) -> bool:
+    budget_remaining = engine.config.max_iterations - engine.iteration
+    return (budget_remaining <= engine.config.budget_override_margin
+            and task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE))
+
+
+def _p1_budget_action(engine: "SciRalph", task: Task) -> Task:
+    budget_remaining = engine.config.max_iterations - engine.iteration
+    console.print(
+        f"[yellow]Budget enforcement: {budget_remaining} iteration(s) left, "
+        f"overriding '{task.task_type}' -> 'synthesize'.[/yellow]"
+    )
+    engine._log_displacement(task, "budget_enforcement")
+    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
+                       "p1_budget_override", f"{task.task_type.value} -> synthesize")
+    return engine._make_budget_synthesize_task()
+
+
+def _p2_stale_loop_condition(engine: "SciRalph", task: Task) -> bool:
+    return engine._is_stale_loop(task)
+
+
+def _p2_stale_loop_action(engine: "SciRalph", task: Task) -> Task:
+    engine._log_displacement(task, "stale_loop")
+    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
+                       "p2_stale_loop_override",
+                       f"stale_iterations={engine._state.stale_iterations}")
+    return engine._make_budget_synthesize_task()
+
+
+def _p3_forced_critic_condition(engine: "SciRalph", task: Task) -> bool:
+    return (engine._critic_overdue()
+            and task.task_type not in (TaskType.CRITIQUE, TaskType.SYNTHESIZE, TaskType.TERMINATE))
+
+
+def _p3_forced_critic_action(engine: "SciRalph", task: Task) -> Task:
+    console.print(
+        f"[yellow]Forcing critic pass (overdue: last critic at "
+        f"iter {engine.metrics.last_critic_iteration}, "
+        f"threshold {engine.config.critic_every_n}).[/yellow]"
+    )
+    engine._log_displacement(task, "forced_critic")
+    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
+                       "p3_forced_critic",
+                       f"last_critic={engine.metrics.last_critic_iteration}")
+    return engine._make_forced_critic_task()
+
+
+def _p3b_redundant_critic_condition(engine: "SciRalph", task: Task) -> bool:
+    return (task.task_type == TaskType.CRITIQUE
+            and engine.metrics.last_critic_iteration > 0
+            and engine.metrics.last_critic_iteration >= engine._state.last_content_iteration)
+
+
+def _p3b_redundant_critic_action(engine: "SciRalph", task: Task) -> Task:
+    console.print(
+        "[yellow]Skipping redundant critic — no new content since "
+        f"iteration {engine.metrics.last_critic_iteration} review.[/yellow]"
+    )
+    engine._log_displacement(task, "redundant_critic")
+    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
+                       "p3b_redundant_critic_suppressed", "")
+    return engine._make_post_critic_synthesize_task()
+
+
+def _p5_stall_block_condition(engine: "SciRalph", task: Task) -> bool:
+    if task.task_type != TaskType.COMPUTE:
+        return False
+    claim_key = _normalize_claim_key(task.body)
+    return claim_key in engine._state.stalled_claims
+
+
+def _p5_stall_block_action(engine: "SciRalph", task: Task) -> Task:
+    claim_key = _normalize_claim_key(task.body)
+    engine._state.pending_violations.append(
+        Violation(
+            check="stall_detection",
+            severity=ViolationSeverity.WARNING,
+            message=f"Stalled claim blocked: {claim_key[:80]}",
+            file="COMPUTATION_LOG.md",
+            detail=claim_key,
+        )
+    )
+    # Defense-in-depth: clear pending recompute if it targets the same claim
+    if engine._state.pending_recompute_claim:
+        pending_key = _normalize_claim_key(engine._state.pending_recompute_claim)
+        if pending_key == claim_key:
+            engine._state.pending_recompute_claim = None
+            engine._state.pending_recompute_verdict = None
+    engine._log_displacement(task, "stall_block")
+    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
+                       "p5_stall_block", f"claim={claim_key[:80]}")
+    return Task(
+        task_id=task.task_id,
+        task_type=TaskType.RESEARCH,
+        assigned_to="researcher",
+        priority=task.priority,
+        iteration=task.iteration,
+        body=(
+            "# Alternative Approach Needed\n\n"
+            f"Computation stalled on: {claim_key[:200]}\n"
+            "Multiple attempts have failed. Consider an alternative derivation "
+            "or analytical approach.\n"
+        ),
+    )
+
+
+def _p4_refuted_recompute_condition(engine: "SciRalph", task: Task) -> bool:
+    """Check for pending recompute. Always consumes the pending claim (side effect)."""
+    if not engine._state.pending_recompute_claim:
+        return False
+    # Consume the pending claim — even if we don't override, it's been processed
+    claim = engine._state.pending_recompute_claim
+    verdict = engine._state.pending_recompute_verdict or "REFUTED"
+    engine._state.pending_recompute_claim = None
+    engine._state.pending_recompute_verdict = None
+    if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
+        # Store for action to use
+        engine._p4_claim = claim
+        engine._p4_verdict = verdict
+        return True
+    # Suppressed: log but don't override
+    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
+                       "p4_refuted_suppressed",
+                       f"claim={claim[:80]}, task={task.task_type.value}")
+    return False
+
+
+def _p4_refuted_recompute_action(engine: "SciRalph", task: Task) -> Task:
+    claim = engine._p4_claim
+    verdict = engine._p4_verdict
+    del engine._p4_claim, engine._p4_verdict
+    console.print(f"[yellow]Forcing recompute after {verdict} verdict.[/yellow]")
+    engine._log_displacement(task, "refuted_recompute")
+    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
+                       "p4_refuted_recompute",
+                       f"claim={claim[:80]}, verdict={verdict}")
+    recompute_task = engine._make_recompute_task(claim, verdict)
+    engine._enrich_compute_task_with_prior_failures(recompute_task)
+    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
+                       "p4_recompute_enriched", f"claim={claim[:80]}")
+    return recompute_task
+
+
+_OVERRIDE_CHAIN: list[Override] = [
+    Override("budget_enforcement", 1, _p1_budget_condition, _p1_budget_action),
+    Override("stale_loop", 2, _p2_stale_loop_condition, _p2_stale_loop_action),
+    Override("forced_critic", 3, _p3_forced_critic_condition, _p3_forced_critic_action),
+    Override("redundant_critic", 4, _p3b_redundant_critic_condition, _p3b_redundant_critic_action),
+    Override("stall_block", 5, _p5_stall_block_condition, _p5_stall_block_action),
+    Override("refuted_recompute", 6, _p4_refuted_recompute_condition, _p4_refuted_recompute_action),
+]
 
 
 class SciRalph:
@@ -282,108 +450,14 @@ class SciRalph:
         return "\n".join(lines)
 
     def _apply_overrides(self, task: Task) -> Task:
-        """Consolidated pre-dispatch override chain (explicit priority order)."""
-        # P1: Budget enforcement (highest priority)
-        budget_remaining = self.config.max_iterations - self.iteration
-        if budget_remaining <= self.config.budget_override_margin and task.task_type not in (
-                TaskType.SYNTHESIZE, TaskType.TERMINATE):
-            console.print(
-                f"[yellow]Budget enforcement: {budget_remaining} iteration(s) left, "
-                f"overriding '{task.task_type}' -> 'synthesize'.[/yellow]"
-            )
-            self._log_displacement(task, "budget_enforcement")
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p1_budget_override",
-                               f"{task.task_type.value} -> synthesize")
-            return self._make_budget_synthesize_task()
+        """Consolidated pre-dispatch override chain (declarative priority order).
 
-        # P2: Stale-loop -> force SYNTHESIZE (not break)
-        if self._is_stale_loop(task):
-            self._log_displacement(task, "stale_loop")
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p2_stale_loop_override",
-                               f"stale_iterations={self._state.stale_iterations}")
-            return self._make_budget_synthesize_task()
-
-        # P3: Forced critic (overdue) — never override terminal tasks
-        if (self._critic_overdue()
-                and task.task_type not in (TaskType.CRITIQUE, TaskType.SYNTHESIZE, TaskType.TERMINATE)):
-            console.print(
-                f"[yellow]Forcing critic pass (overdue: last critic at "
-                f"iter {self.metrics.last_critic_iteration}, "
-                f"threshold {self.config.critic_every_n}).[/yellow]"
-            )
-            self._log_displacement(task, "forced_critic")
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p3_forced_critic",
-                               f"last_critic={self.metrics.last_critic_iteration}")
-            return self._make_forced_critic_task()
-
-        # P3b: Block redundant critic (no new content since last review)
-        if (task.task_type == TaskType.CRITIQUE
-                and self.metrics.last_critic_iteration > 0
-                and self.metrics.last_critic_iteration >= self._state.last_content_iteration):
-            console.print(
-                "[yellow]Skipping redundant critic — no new content since "
-                f"iteration {self.metrics.last_critic_iteration} review.[/yellow]"
-            )
-            self._log_displacement(task, "redundant_critic")
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p3b_redundant_critic_suppressed", "")
-            return self._make_post_critic_synthesize_task()
-
-        # P5: Block dispatch to stalled claim (checked before P4 as defense-in-depth)
-        if task.task_type == TaskType.COMPUTE:
-            claim_key = _normalize_claim_key(task.body)
-            if claim_key in self._state.stalled_claims:
-                self._state.pending_violations.append(
-                    Violation(
-                        check="stall_detection",
-                        severity=ViolationSeverity.WARNING,
-                        message=f"Stalled claim blocked: {claim_key[:80]}",
-                        file="COMPUTATION_LOG.md",
-                        detail=claim_key,
-                    )
-                )
-                # Defense-in-depth: clear pending recompute if it targets the same claim
-                if self._state.pending_recompute_claim:
-                    pending_key = _normalize_claim_key(self._state.pending_recompute_claim)
-                    if pending_key == claim_key:
-                        self._state.pending_recompute_claim = None
-                        self._state.pending_recompute_verdict = None
-                self._log_displacement(task, "stall_block")
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p5_stall_block",
-                                   f"claim={claim_key[:80]}")
-                # Return a research task instead — let orchestrator rethink
-                return Task(
-                    task_id=task.task_id,
-                    task_type=TaskType.RESEARCH,
-                    assigned_to="researcher",
-                    priority=task.priority,
-                    iteration=task.iteration,
-                    body=(
-                        "# Alternative Approach Needed\n\n"
-                        f"Computation stalled on: {claim_key[:200]}\n"
-                        "Multiple attempts have failed. Consider an alternative derivation "
-                        "or analytical approach.\n"
-                    ),
-                )
-
-        # P4: REFUTED/INCONCLUSIVE recompute
-        if self._state.pending_recompute_claim:
-            claim = self._state.pending_recompute_claim
-            verdict = self._state.pending_recompute_verdict or "REFUTED"
-            self._state.pending_recompute_claim = None
-            self._state.pending_recompute_verdict = None
-            if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-                console.print(f"[yellow]Forcing recompute after {verdict} verdict.[/yellow]")
-                self._log_displacement(task, "refuted_recompute")
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p4_refuted_recompute",
-                                   f"claim={claim[:80]}, verdict={verdict}")
-                recompute_task = self._make_recompute_task(claim, verdict)
-                self._enrich_compute_task_with_prior_failures(recompute_task)
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p4_recompute_enriched",
-                                   f"claim={claim[:80]}")
-                return recompute_task
-            else:
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p4_refuted_suppressed",
-                                   f"claim={claim[:80]}, task={task.task_type.value}")
+        Iterates _OVERRIDE_CHAIN sorted by priority. The first matching override
+        wins. P6 enrichment is non-overriding and runs after the loop.
+        """
+        for override in _OVERRIDE_CHAIN:
+            if override.condition(self, task):
+                return override.action(self, task)
 
         # P6: Enrichment (non-overriding, mutates task body)
         if task.task_type == TaskType.COMPUTE:
