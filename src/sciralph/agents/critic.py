@@ -12,7 +12,7 @@ from ..markdown import (
     insert_into_active_critiques,
     filter_self_retracted_critiques,
     render_frontmatter,
-    recount_critique_metadata,
+    ensure_critique_metadata_consistent,
 )
 from .base import BaseAgent
 from ..categories import CompensationCategory as CC
@@ -78,8 +78,8 @@ class CriticAgent(BaseAgent):
     def _update_critique_metadata(self):
         """Recount unresolved critiques and update frontmatter."""
         content = self.workspace.read_file("CRITIQUE_LOG.md")
-        meta, body = parse_frontmatter(content)
-        recounted = recount_critique_metadata(content)
-        meta.update(recounted)
+        updated = ensure_critique_metadata_consistent(content)
+        # Add last_critic_pass timestamp (critic-specific)
+        meta, body = parse_frontmatter(updated)
         meta["last_critic_pass"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.workspace.write_file("CRITIQUE_LOG.md", render_frontmatter(meta, body))

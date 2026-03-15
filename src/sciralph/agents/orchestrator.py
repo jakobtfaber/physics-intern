@@ -11,7 +11,7 @@ from ..markdown import (
     count_unresolved_critiques,
     resolve_critique,
     extract_resolved_critique_ids,
-    recount_critique_metadata,
+    ensure_critique_metadata_consistent,
     detect_computation_stalls,
     count_er_sections,
     count_wh_sections,
@@ -223,12 +223,7 @@ class OrchestratorAgent(BaseAgent):
                                f"crit_id={crit_id}")
 
         # Update frontmatter counts
-        meta, body = parse_frontmatter(content)
-        recounted = recount_critique_metadata(content)
-        meta["unresolved_high"] = recounted["unresolved_high"]
-        meta["unresolved_medium"] = recounted["unresolved_medium"]
-        meta["unresolved_low"] = recounted["unresolved_low"]
-        self.workspace.write_file("CRITIQUE_LOG.md", render_frontmatter(meta, body))
+        self.workspace.write_file("CRITIQUE_LOG.md", ensure_critique_metadata_consistent(content))
 
     def parse_task(self, text: str, iteration: int = 0) -> Task:
         """Parse CURRENT_TASK.md content into a Task."""

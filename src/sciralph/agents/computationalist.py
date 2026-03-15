@@ -78,7 +78,12 @@ class ComputationalistAgent(BaseAgent):
         self._update_computation_metadata()
 
     def _update_computation_metadata(self):
-        """Update COMPUTATION_LOG.md frontmatter with counts."""
+        """Update COMPUTATION_LOG.md frontmatter with counts.
+
+        Note: check_id_consistency() in validation.py also fixes this counter.
+        Both are kept — this is a best-effort fix at write time; validation is
+        the authoritative post-integration check.
+        """
         content = self.workspace.read_file("COMPUTATION_LOG.md")
         meta, body = parse_frontmatter(content)
         comp_count = len(re.findall(r'^## COMP-\d+', body, re.MULTILINE))

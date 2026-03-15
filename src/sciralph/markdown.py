@@ -317,6 +317,19 @@ def recount_critique_metadata(content: str) -> dict:
     }
 
 
+def ensure_critique_metadata_consistent(content: str) -> str:
+    """Recount critique statistics and write them into frontmatter atomically.
+
+    This is the single source of truth for critique metadata. Both the
+    orchestrator (after resolving critiques) and the critic (after filing
+    critiques) call this to keep counts accurate.
+    """
+    meta, body = parse_frontmatter(content)
+    recounted = recount_critique_metadata(content)
+    meta.update(recounted)
+    return render_frontmatter(meta, body)
+
+
 # --- Nested bracket flattening ---
 
 _NESTED_UNVERIFIED_RE = re.compile(
