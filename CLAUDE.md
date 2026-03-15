@@ -93,7 +93,7 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 - `_call_provider_with_retry()` wraps every provider call with exponential-backoff retry (configurable via `api_retry_max`, `api_retry_initial_delay`, `api_retry_max_delay`); tool-call JSON failures are retryable
 - Iteration counter is scaffolding-maintained (`_update_research_iteration()`), not LLM-dependent
 - Problem YAMLs may include `requires_numerical: true/false` — consumed by `can_terminate()` gate
-- See `CODEBASE.md` §7 for the complete LLM failure compensation catalog (50+ mechanisms across 10 layers)
+- See `CODEBASE.md` §7 for the complete LLM failure compensation catalog (50+ mechanisms across 4 categories)
 
 ## Running
 
@@ -126,7 +126,7 @@ All core functionality is implemented and working (450 tests passing):
 
 - **Core loop** — all five agents, main loop, orchestrator integration, consolidated override chain (`_apply_overrides` P1–P6 + P3b), termination gates (`can_terminate`)
 - **Validation pipeline** — 8 post-integration checks (phantom references, ER promotion gate with bidirectional WH↔ER, phantom labels, stale unverified label promotion, verified frontmatter backfill, agent routing, ID consistency, critique resolution consistency), violation injection into orchestrator context
-- **LLM failure compensation** — 50+ mechanisms across 10 layers compensating for predictable LLM failures (see `CODEBASE.md` §7)
+- **LLM failure compensation** — 50+ mechanisms across 4 categories compensating for predictable LLM failures (see `CODEBASE.md` §7)
 - **Multi-provider support** — `providers/` abstraction layer with Anthropic, OpenAI, Google Gemini, HuggingFace adapters; `models.yaml` registry with cost tracking; `--model`/`--provider` CLI flags; `verify.py` stays Anthropic-only
 - **API resilience** — exponential-backoff retry on transient errors + tool-call JSON failures (`_call_provider_with_retry`); dispatch-level error catch; scaffolding-maintained iteration counter
 - **Orchestrator** — sub-problem decomposition, integration duty, critique resolution (4-pattern extraction), stale-iteration backstop, inline synthesis, context prefix for violations/blockers
@@ -134,6 +134,6 @@ All core functionality is implemented and working (450 tests passing):
 - **Deep Critic** — two-phase format, preamble stripping, self-retraction filtering, INCONCLUSIVE severity cap, NO_CRITIQUES_FILED handling
 - **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
 - **Logging** — JSONL audit logging (metadata + cost per LLM call, round field for tool-use), full conversation logs
-- **Scaffolding log** — `EVENT_LOG.jsonl` instrumentation across layers 1–9; every compensation mechanism emits structured events via `log_scaffold_event()` and LLM calls via `log_llm_call()` for profiling which mechanisms actually fire per model
+- **Scaffolding log** — `EVENT_LOG.jsonl` instrumentation across all 4 categories; every compensation mechanism emits structured events via `log_scaffold_event()` and LLM calls via `log_llm_call()` for profiling which mechanisms actually fire per model
 
 Next steps: `read_file` tool for orchestrator/researcher/critic (see PLAN.md future work)

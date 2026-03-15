@@ -502,7 +502,12 @@ Compression tiers: alert at 1x, compress at 1.5x, force-compress at 2x (though 1
 
 ## 7. LLM Failure Compensation
 
-This section catalogues every mechanism that compensates for LLM misbehaviour at the scaffolding level. LLMs routinely fail in specific, predictable ways — promoting unverified results, hallucinating IDs, emitting malformed YAML, ignoring instructions, failing to terminate. The scaffolding corrects these failures across ten layers.
+This section catalogues every mechanism that compensates for LLM misbehaviour at the scaffolding level. LLMs routinely fail in specific, predictable ways — promoting unverified results, hallucinating IDs, emitting malformed YAML, ignoring instructions, failing to terminate. The scaffolding corrects these failures across four concern-based categories (defined in `categories.py` as `CompensationCategory`):
+
+- **`call_reliability`** — making each LLM call succeed: transport retry, tool-call fallback, agent loop bailouts, tool execution guards
+- **`state_invariants`** — keeping workspace files consistent: post-integration validation pipeline (8 checks)
+- **`loop_control`** — steering the main loop: override chain, dispatch guards, verdict tracking, termination gates
+- **`output_normalization`** — cleaning agent output: per-agent response corrections, markdown parsing tolerance
 
 ### Event log (instrumentation)
 
@@ -514,26 +519,20 @@ All scaffolding interventions and LLM call metadata are recorded in a single fil
 Each entry is a single JSON line with a `kind` field discriminating the event type:
 
 ```json
-{"kind": "scaffold", "ts": "2026-03-13T14:22:01+00:00", "iter": 5, "layer": 4, "event": "er_demotion", "detail": "ER-003 → WH-003 (no VERIFIED backing)"}
+{"kind": "scaffold", "ts": "2026-03-13T14:22:01+00:00", "iter": 5, "category": "state_invariants", "event": "er_demotion", "detail": "ER-003 → WH-003 (no VERIFIED backing)"}
 {"kind": "llm_call", "ts": "2026-03-13T14:22:03+00:00", "iter": 5, "agent": "computationalist", "model": "claude-sonnet-4-6", "input_tokens": 12340, "output_tokens": 1890, "cost": 0.042, "round": 3}
 ```
 
-Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter` (scaffolding iteration). Scaffold events additionally have `layer`, `event`, `detail`. LLM call events additionally have `agent`, `model`, `input_tokens`, `output_tokens`, `cost`, `round`. Both functions never raise — failures are silently swallowed (`except OSError: pass`).
+Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter` (scaffolding iteration). Scaffold events additionally have `category`, `event`, `detail`. LLM call events additionally have `agent`, `model`, `input_tokens`, `output_tokens`, `cost`, `round`. Both functions never raise — failures are silently swallowed (`except OSError: pass`).
 
-**Event keys by layer:**
+**Event keys by category:**
 
-| Layer | Event keys |
-|-------|-----------|
-| 1 | `api_retry` |
-| 2 | `tool_call_failure_fallback`, `zero_text_bailout`, `low_text_bailout`, `forced_final_call` |
-| 3 | `tool_timeout`, `tool_output_truncation` |
-| 4 | All `Violation.check` values from validation checks (e.g. `er_promotion_gate`, `phantom_references`, `phantom_labels`, `stale_unverified_labels`, `verified_frontmatter_backfill`, `task_agent_routing`, `id_consistency`, `critique_resolution_consistency`) |
-| 5 | `p1_budget_override`, `p2_stale_loop_override`, `p3_forced_critic`, `p3b_redundant_critic_suppressed`, `p4_refuted_recompute`, `p4_recompute_enriched`, `p4_refuted_suppressed`, `p5_stall_block`, `p6_enrichment` |
-| 6 | `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `compute_verdict_stall_escalation` |
-| 7 | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened` |
-| 8 | `preamble_stripped`, `critique_self_retracted` |
-| 9 | `empty_response_stub`, `header_injected` |
-| 10 | (YAML parse fallback fires inside `markdown.py` which does not currently have workspace context — not yet instrumented) |
+| Category | Event keys |
+|----------|-----------|
+| `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `zero_text_bailout`, `low_text_bailout`, `forced_final_call`, `forced_final_call_failed`, `forced_call_retry`, `tool_history_synthesis`, `empty_end_turn_fallthrough`, `text_checkpoint`, `text_checkpoint_failed`, `tool_timeout`, `tool_output_truncation` |
+| `state_invariants` | All `Violation.check` values from validation checks (e.g. `er_promotion_gate`, `phantom_references`, `phantom_labels`, `stale_unverified_labels`, `verified_frontmatter_backfill`, `task_agent_routing`, `id_consistency`, `critique_resolution_consistency`) |
+| `loop_control` | `p1_budget_override`, `p2_stale_loop_override`, `p3_forced_critic`, `p3b_redundant_critic_suppressed`, `p4_refuted_recompute`, `p4_recompute_enriched`, `p4_refuted_suppressed`, `p5_stall_block`, `p6_enrichment`, `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `compute_verdict_stall_escalation`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry` |
+| `output_normalization` | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened`, `preamble_stripped`, `critique_self_retracted`, `empty_response_stub`, `header_injected`, `claim_id_injected` |
 
 **Quick analysis:**
 
@@ -541,20 +540,22 @@ Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter
 # Count scaffold events per mechanism across a run
 jq -r 'select(.kind == "scaffold") | .event' workspaces/<run>/EVENT_LOG.jsonl | sort | uniq -c | sort -rn
 
-# Count scaffold events per layer
-jq -r 'select(.kind == "scaffold") | .layer' workspaces/<run>/EVENT_LOG.jsonl | sort | uniq -c | sort -rn
+# Count scaffold events per category
+jq -r 'select(.kind == "scaffold") | .category' workspaces/<run>/EVENT_LOG.jsonl | sort | uniq -c | sort -rn
 
-# Filter to a specific layer
-jq 'select(.kind == "scaffold" and .layer == 4)' workspaces/<run>/EVENT_LOG.jsonl
+# Filter to a specific category
+jq 'select(.kind == "scaffold" and .category == "state_invariants")' workspaces/<run>/EVENT_LOG.jsonl
 
 # Timeline of overrides
-jq 'select(.kind == "scaffold" and .layer == 5) | "\(.iter) \(.event) \(.detail)"' workspaces/<run>/EVENT_LOG.jsonl
+jq 'select(.kind == "scaffold" and .category == "loop_control") | "\(.iter) \(.event) \(.detail)"' workspaces/<run>/EVENT_LOG.jsonl
 
 # LLM call cost summary per agent
 jq -r 'select(.kind == "llm_call") | .agent' workspaces/<run>/EVENT_LOG.jsonl | sort | uniq -c | sort -rn
 ```
 
-### Layer 1 — Transport / API retry (`llm.py`)
+### call_reliability — Transport, retry, and agent loop resilience (`llm.py`, `tools.py`, `sandbox.py`)
+
+#### API and transport
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
@@ -562,7 +563,7 @@ jq -r 'select(.kind == "llm_call") | .agent' workspaces/<run>/EVENT_LOG.jsonl | 
 | Exponential-backoff retry | `_call_provider_with_retry()` | Wraps every `provider.call()` in a loop: up to `api_retry_max` attempts, doubling delay between `api_retry_initial_delay` and `api_retry_max_delay` | Rate limits, 5xx server errors, transient network failures |
 | Tool-call failure fallback | `run_agent_loop` | If retry exhaustion is due to a tool-call failure, sets `tool_call_failure=True`, breaks the loop, and forces a text-only final call telling the model "The tool-calling interface is unavailable" | Models emitting invalid JSON for tool calls |
 
-### Layer 2 — Agent loop resilience (`llm.py` → `run_agent_loop`)
+#### Agent loop bailouts
 
 These mechanisms prevent the computationalist from wasting rounds or producing empty output:
 
@@ -576,7 +577,7 @@ These mechanisms prevent the computationalist from wasting rounds or producing e
 | Tool history synthesis | Both forced final call and retry produce empty text | `_synthesize_from_tool_history()` builds COMP-000 entry from actual tool execution history (code + output excerpts) |
 | Forced text-only final call | Loop exits for any reason (max rounds, bailout, tool-call failure) | Final LLM call with `tools` omitted, strongly-worded system prompt with full COMP-NNN format, stop_reason set to `max_rounds_forced` |
 
-### Layer 3 — Tool execution guards (`tools.py`, `sandbox.py`)
+#### Tool execution guards
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
@@ -587,7 +588,7 @@ These mechanisms prevent the computationalist from wasting rounds or producing e
 | Banned API documentation | `TOOL_DEFINITIONS` | Lists removed/renamed APIs (e.g., `scipy.misc.derivative`, `numpy.trapz`) with correct replacements | Known-bad API usage causing reproducible crashes |
 | Unknown tool guard | `ToolExecutor.execute()` | `ValueError` on hallucinated tool names | Model inventing nonexistent tools |
 
-### Layer 4 — Post-integration validation pipeline (`validation.py`)
+### state_invariants — Post-integration validation pipeline (`validation.py`)
 
 All 8 checks run after every orchestrator pass. They are pure functions that mutate workspace files directly and return `Violation` objects injected into the orchestrator's next context.
 
@@ -604,7 +605,9 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | **Critique resolution consistency** | `check_critique_resolution_consistency()` | Checks that resolved critiques actually had their fixes applied: target ER/WH still exists in RESEARCH_STATE, no leftover dual WH/ER labels | LLM marking critiques "resolved" without applying the fix |
 | **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when VERIFIED computations exist, (2) zero unresolved HIGH critiques, (3) computation exists when `requires_numerical` | LLM trying to terminate prematurely |
 
-### Layer 5 — Engine override chain (`engine.py` → `_apply_overrides`)
+### loop_control — Engine override chain and dispatch guards (`engine.py`)
+
+#### Override chain (`_apply_overrides`)
 
 | Override | Priority | Condition | Action | Failure compensated |
 |----------|----------|-----------|--------|---------------------|
@@ -616,7 +619,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | REFUTED recompute | P4 | Previous REFUTED/INCONCLUSIVE verdict, count < `stall_recompute_limit` | Force compute on refuted claim | Orchestrator ignoring a REFUTED result |
 | Prior-failure enrichment | P6 | Compute task with prior failures on same claim | Append last failure's METHOD+RESULT+NOTES excerpt to task body; zero-output stall gets special "ZERO-OUTPUT STALL DETECTED" warning; also applied to P4 recompute tasks | Model repeating identical failing code |
 
-### Layer 6 — Engine-level guards (`engine.py`)
+#### Engine-level guards
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
@@ -633,7 +636,9 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | Violations/blockers as context prefix | `_build_context_prefix()` | All pending violations (except ER promotion gate, which is enforced silently by state rewrite) and termination blockers serialised into orchestrator's next user message with explicit "Do NOT emit terminate again" instruction | Orchestrator ignoring validation failures |
 | Forced compression at 2x threshold | `_check_compression()` | Force-compresses files exceeding 2× threshold | Runaway file growth crashing context window |
 
-### Layer 7 — Orchestrator-level corrections (`agents/orchestrator.py`)
+### output_normalization — Agent-level corrections and parsing tolerance
+
+#### Orchestrator corrections (`agents/orchestrator.py`)
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
@@ -647,7 +652,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | Critique metadata recount | `_resolve_critiques()` via `recount_critique_metadata()` | Recomputes unresolved_high/medium/low and total_critiques from actual file contents | LLM updating counters incorrectly |
 | Conventions section staleness reminder | `build_context()` | From iteration 3+, injects banner if Conventions still says "To be populated" | LLM skipping conventions population |
 
-### Layer 8 — Critic-level corrections (`agents/critic.py`, `markdown.py`)
+#### Critic corrections (`agents/critic.py`, `markdown.py`)
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
@@ -655,15 +660,16 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | Self-retraction filtering | `filter_self_retracted_critiques()` | Scans LOW/MEDIUM critiques for 9 retraction patterns; marks as `[WITHDRAWN]`, kept as HTML comments | Critic filing critiques then immediately retracting in Phase 2 |
 | Critique metadata recount | `_update_critique_metadata()` | Recounts all statistics from file and updates frontmatter, including `last_critic_pass` timestamp | Counter drift across multiple critic passes |
 
-### Layer 9 — Computationalist-level corrections (`agents/computationalist.py`)
+#### Computationalist corrections (`agents/computationalist.py`)
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
 | Empty-response INCONCLUSIVE stub | `process_response()` | Synthesizes minimal COMP entry with VERDICT: INCONCLUSIVE when response is empty | Agent producing no text despite forced final call |
 | Missing header injection | `process_response()` | Prepends `## {task_id}: Computation` if output doesn't start with `##` | Headerless entry invisible to downstream parsers |
+| Claim ID injection | `process_response()` | Prepends target WH/ER ID to CLAIM line if missing | er_promotion_gate unable to link computation to claim |
 | Computation metadata recount | `_update_computation_metadata()` | Recounts `## COMP-NNN` headers and updates `total_computations` frontmatter | LLM using TASK-NNN headers instead of COMP-NNN |
 
-### Layer 10 — Markdown parsing tolerance (`markdown.py`)
+#### Markdown parsing tolerance (`markdown.py`)
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
@@ -767,7 +773,7 @@ All documentation was synced with the codebase in March 2026.
 - 8 post-integration validation checks (up from 7; added critique resolution consistency)
 - Scaffolding-maintained iteration counter (no longer LLM-dependent)
 - `verify.py` remains Anthropic-only
-- Event log (`EVENT_LOG.jsonl`) instrumentation implemented across layers 1–9 for scaffold events, plus LLM call metadata (layer 10 partial — `markdown.py` parse fallback not yet instrumented due to lacking workspace context)
+- Event log (`EVENT_LOG.jsonl`) instrumentation implemented across all 4 categories for scaffold events, plus LLM call metadata (markdown parsing tolerance mechanisms not yet instrumented due to lacking workspace context)
 - Workspace directory names now include model label (e.g. `20260313_142530_hawking_temperature_claude-sonnet-4-6`)
 - `read_file` tool for orchestrator/researcher/critic remains planned (not implemented)
 - External reference files (`files:` YAML key) remains planned (not implemented)
