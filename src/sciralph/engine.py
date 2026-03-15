@@ -22,6 +22,7 @@ from .markdown import (
 from .metrics import MetricsTracker
 from .task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from .categories import CompensationCategory as CC
+from .research_state import build_from_workspace as _build_research_state, ResearchState
 from .validation import validate_post_integration, can_terminate, check_phantom_references, Violation, ViolationSeverity
 from .workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
@@ -233,6 +234,7 @@ class SciRalph:
         self.config.logs_dir = str(self.workspace.logs_dir)
         self.iteration = 0
         self._state = LoopState()
+        self.research_state = ResearchState()
         self.problem_meta = problem_meta or {}
 
         # Initialize agents
@@ -321,9 +323,10 @@ class SciRalph:
                                    f"count={len(post_phantoms)}")
                 self._state.pending_violations.extend(post_phantoms)
 
-            # 7. Compression, metrics, git
+            # 7. Compression, metrics, structured state snapshot, git
             self._check_compression()
             self._update_metrics()
+            self._sync_research_state()
             self.workspace.git_commit(
                 f"Iteration {self.iteration}: {agent_name} - {task.task_id}"
             )
@@ -815,6 +818,11 @@ class SciRalph:
                                    f"status={status}")
                 return True
         return False
+
+    def _sync_research_state(self):
+        """Build structured ResearchState from Markdown and save to workspace."""
+        self.research_state = _build_research_state(self.workspace)
+        self.research_state.save(self.workspace.root)
 
     def _update_metrics(self):
         """Write current metrics to METRICS.md."""
