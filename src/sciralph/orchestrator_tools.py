@@ -189,7 +189,10 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
             "name": "set_next_task",
             "description": (
                 "Set the next task for the research loop. "
-                "Call this ONCE as your final action."
+                "Call this ONCE as your final action. "
+                "This terminates the round — include all mutations in the "
+                "SAME batch before calling this tool, as no further rounds "
+                "will occur."
             ),
             "parameters": {
                 "type": "object",
@@ -244,6 +247,7 @@ class OrchestratorToolExecutor:
         self.mutations_applied: bool = False
         self.task_data: dict | None = None
         self.resolved_critique_ids: set[str] = set()
+        self.stop_after_round: bool = False
 
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
         start = time.time()
@@ -397,4 +401,5 @@ class OrchestratorToolExecutor:
 
     def _set_next_task(self, args: dict) -> str:
         self.task_data = args
+        self.stop_after_round = True
         return f"Task set: {args.get('task_type', '?')} → {args.get('assigned_to', '?')}"

@@ -307,6 +307,16 @@ class TestSetNextTask:
         assert ex.task_data["task_type"] == "compute"
         assert ex.task_data["target_claim"] == "WH-001"
 
+    def test_sets_stop_after_round(self):
+        ws, store = _make_workspace({})
+        ex = OrchestratorToolExecutor(ws, iteration=3)
+        assert not ex.stop_after_round
+        ex.execute("set_next_task", {
+            "task_type": "terminate",
+            "description": "Done.",
+        })
+        assert ex.stop_after_round
+
 
 # ---------------------------------------------------------------------------
 # Unknown tool

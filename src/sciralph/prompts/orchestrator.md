@@ -23,7 +23,10 @@ edits — do NOT rewrite entire files. The tools are:
 - update_section(section, content) — update Conventions/Open Questions/Dead Ends
 - set_next_task(task_type, assigned_to, priority, target_claim?, description)
 
-IMPORTANT: You MUST call set_next_task exactly once as your final action.
+IMPORTANT: You MUST call set_next_task exactly once. Calling it terminates
+the round — no further tool calls will be possible. Include ALL your
+mutations (add_hypothesis, update_hypothesis, resolve_critique, etc.) in
+the SAME response as set_next_task, before or alongside it.
 
 INTEGRATION DUTY:
 When PROPOSED_CHANGES.md is present, evaluate each proposed change.

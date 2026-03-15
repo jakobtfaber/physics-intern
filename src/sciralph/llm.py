@@ -444,6 +444,26 @@ def run_agent_loop(
                 on_round(round_num, resp.stop_reason, round_tool_calls,
                          total_input, total_output)
 
+            # Executor-signaled early stop (e.g., orchestrator's set_next_task)
+            if getattr(tool_executor, "stop_after_round", False):
+                if config.workspace_dir:
+                    log_scaffold_event(config.workspace_dir, iteration, CC.LOOP_CONTROL,
+                                       "executor_stop_signal",
+                                       f"round={round_num}, agent={agent_name}")
+                return AgentResult(
+                    text=round_text,
+                    tool_calls=all_tool_calls,
+                    total_input_tokens=total_input,
+                    total_output_tokens=total_output,
+                    total_reasoning_tokens=total_reasoning,
+                    total_answer_tokens=total_answer,
+                    rounds=round_num,
+                    truncated=False,
+                    stop_reason="executor_stop",
+                    duration=time.time() - overall_start,
+                    token_alert_fired=token_alert_fired,
+                )
+
             # Track consecutive zero-text rounds for early bailout
             cumulative_text_len += len(round_text.strip())
             if len(round_text.strip()) == 0:
