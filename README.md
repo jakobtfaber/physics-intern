@@ -131,7 +131,8 @@ All research state is persisted under `workspaces/<run>/` (each run gets a times
 ```
 src/sciralph/
   main.py              — Entry point, CLI argument parsing
-  engine.py            — Main loop: orchestrate → validate → override → dispatch → compress → git
+  engine.py            — Main loop (LoopState, Override chain): orchestrate → validate → override → dispatch → compress → git
+  categories.py        — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
   validation.py        — Post-integration checks (ER gate, phantom labels, routing) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
   config.py            — Config dataclass (model, thresholds, timeouts, audit log)

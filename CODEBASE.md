@@ -74,7 +74,8 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | File | Lines | Purpose |
 |------|------:|---------|
 | `main.py` | 91 | CLI entry point, arg parsing, workspace naming (includes model label in dir name) |
-| `engine.py` | 670 | `SciRalph` class: main loop, dispatch, overrides, compression, scaffolding log events |
+| `engine.py` | 790 | `SciRalph` class, `LoopState` dataclass, `Override` chain: main loop, dispatch, declarative overrides, compression, scaffolding log events |
+| `categories.py` | 11 | `CompensationCategory` enum (call_reliability, state_invariants, loop_control, output_normalization) |
 | `validation.py` | 597 | Post-integration checks (8 checks), `can_terminate()` gates, `Violation` dataclass |
 | `config.py` | 155 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
 | `task.py` | 82 | `Task` dataclass, `TaskType` enum, YAML serialization |
@@ -382,7 +383,7 @@ All file I/O goes through `WorkspaceManager`. Agents never touch the filesystem 
 - `archive_file` — timestamped copy to `archive/` before compression
 - `validate_comp_references()` — scans RESEARCH_STATE for `COMP-NNN`/`TASK-NNN` refs, cross-checks against COMPUTATION_LOG entries, replaces orphaned refs with `[COMP-NNN:unverified]`
 - `git_commit(message)` — `git add -A` + `git commit --allow-empty` every iteration
-- `log_scaffold_event(workspace_dir, iteration, layer, event, detail)` — free function; appends one JSONL line to `EVENT_LOG.jsonl` with `kind: "scaffold"` (see §7). Never raises (bare `except OSError: pass`). Called from engine, agents, validation, and llm modules
+- `log_scaffold_event(workspace_dir, iteration, category, event, detail)` — free function; appends one JSONL line to `EVENT_LOG.jsonl` with `kind: "scaffold"` (see §7). Never raises (bare `except OSError: pass`). Called from engine, agents, validation, and llm modules
 - `log_llm_call(workspace_dir, ...)` — free function; appends one JSONL line to `EVENT_LOG.jsonl` with `kind: "llm_call"` (metadata: agent, model, tokens, cost, round number). Never raises. Called from `llm.py` after every provider call
 
 ### Markdown parsing (`markdown.py`)
@@ -631,7 +632,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | Post-dispatch phantom check | `run()` | Runs `check_phantom_references()` after every agent dispatch | Phantoms introduced by non-orchestrator agents |
 | NO_CRITIQUES_FILED handling | `_dispatch()` | Detects `NO_CRITIQUES_FILED` in critic response → files `critic_clean` violation telling orchestrator to proceed to synthesize | Empty critic looping indefinitely |
 | Displaced-task transparency | `_log_displacement()` + `_build_context_prefix()` | Logs every overridden task and feeds the list to the orchestrator's next context: "Consider re-scheduling if still needed" | Orchestrator unaware that its planned task was overridden |
-| Dispatch-level verdict tracking | `_track_compute_verdict()` | Counts consecutive non-VERIFIED verdicts per claim; below `stall_recompute_limit` sets `_pending_recompute_claim` and `_pending_recompute_verdict` (actual verdict), at/above limit escalates to `_stalled_claims` with violation | Infinite recompute loops on persistently failing claims |
+| Dispatch-level verdict tracking | `_track_compute_verdict()` | Counts consecutive non-VERIFIED verdicts per claim; below `stall_recompute_limit` sets `_state.pending_recompute_claim` and `_state.pending_recompute_verdict` (actual verdict), at/above limit escalates to `_state.stalled_claims` with violation | Infinite recompute loops on persistently failing claims |
 | Agent failure routing | `_record_agent_failures()` + `_build_context_prefix()` | Records max_tokens truncation, max_rounds exhaustion, and non-VERIFIED compute verdicts; shows "AGENT FAILURES" banner to orchestrator on next pass | Orchestrator re-issuing identical failing tasks without awareness of prior failures |
 | Violations/blockers as context prefix | `_build_context_prefix()` | All pending violations (except ER promotion gate, which is enforced silently by state rewrite) and termination blockers serialised into orchestrator's next user message with explicit "Do NOT emit terminate again" instruction | Orchestrator ignoring validation failures |
 | Forced compression at 2x threshold | `_check_compression()` | Force-compresses files exceeding 2× threshold | Runaway file growth crashing context window |

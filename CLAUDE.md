@@ -13,7 +13,8 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 ```
 src/sciralph/
   main.py              — Entry point (reads problem YAML, CLI flags)
-  engine.py            — Main loop: orchestrate → validate → override → dispatch → compress → git
+  engine.py            — Main loop (LoopState, Override chain): orchestrate → validate → override → dispatch → compress → git
+  categories.py        — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
   validation.py        — Post-integration checks (ER gate, phantom labels, routing) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
   config.py            — Config dataclass (model, provider, thresholds, timeouts)
@@ -82,11 +83,12 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 - YAML frontmatter parsing always falls back to regex on failure — never crash the loop
 - Workspace git is managed by the scaffolding loop, not by agents
 - BaseAgent `tools` class attribute: non-empty → agentic loop, empty → one-shot `call_llm`
-- Critique regex constants (`CRIT_ID_RE`, `CRIT_HEADER_RE`, `CRIT_UNRESOLVED_RE`) and helpers (`extract_resolved_critique_ids`, `recount_critique_metadata`) are in `markdown.py`
+- Critique regex constants (`CRIT_ID_RE`, `CRIT_HEADER_RE`, `CRIT_UNRESOLVED_RE`) and helpers (`extract_resolved_critique_ids`, `recount_critique_metadata`, `ensure_critique_metadata_consistent`) are in `markdown.py`
 - Critique ID format: `CRIT-NNN` (regex also accepts `CRITIQUE-NNN` for LLM drift tolerance)
-- Engine overrides live in `_apply_overrides()` with explicit priority: P1 budget > P2 stale loop > P3 forced critic > P3b redundant critic suppression > P5 stall blocking > P4 REFUTED/INCONCLUSIVE recompute (applies P6 enrichment before returning) > P6 enrichment
-- `_track_compute_verdict()` maintains per-claim failure counters (`_claim_failure_count`); escalates to `_stalled_claims` at `config.stall_recompute_limit` (default 2); below stall limit sets `_pending_recompute_claim` and `_pending_recompute_verdict` (actual verdict string) and appends to `_agent_failures` for orchestrator awareness
-- `_dispatch()` returns `(agent_name, result)` tuple; `_record_agent_failures()` inspects the result for `max_tokens`, `max_rounds_forced` stop reasons and appends to `_agent_failures`
+- Engine overrides are declarative: `_OVERRIDE_CHAIN` is a list of `Override(name, priority, condition, action)` objects iterated by `_apply_overrides()`; priority ordering: P1 budget > P2 stale loop > P3 forced critic > P3b redundant critic suppression > P5 stall blocking > P4 REFUTED/INCONCLUSIVE recompute; P6 enrichment runs after the loop (non-overriding)
+- Inter-iteration state is consolidated in `LoopState` dataclass under `self._state` (stale_iterations, pending_recompute_claim/verdict, stalled_claims, claim_failure_count, last_content_iteration, pending_violations, pending_termination_blockers, displaced_tasks, agent_failures)
+- `_track_compute_verdict()` maintains per-claim failure counters (`_state.claim_failure_count`); escalates to `_state.stalled_claims` at `config.stall_recompute_limit` (default 2); below stall limit sets `_state.pending_recompute_claim` and `_state.pending_recompute_verdict` (actual verdict string) and appends to `_state.agent_failures` for orchestrator awareness
+- `_dispatch()` returns `(agent_name, result)` tuple; `_record_agent_failures()` inspects the result for `max_tokens`, `max_rounds_forced` stop reasons and appends to `_state.agent_failures`
 - `_build_context_prefix()` emits 4 banner sections (consumed once then cleared): violations → blockers → displaced tasks → agent failures
 - Post-integration checks are pure functions in `validation.py` returning `list[Violation]`; 8 checks total including critique resolution consistency; violations inject into orchestrator context via `context_prefix` (except `er_promotion_gate` demotions, which are enforced silently by state rewrite to prevent re-promotion churn)
 - `run_agent_loop` forces a text-only final call on `max_rounds` exhaustion (no more empty stubs); `stop_reason="max_rounds_forced"`; two-round escalating warnings at `max_rounds-2` and `max_rounds-1`; interleaved text checkpoints via `_make_text_checkpoint_call()` fire at `text_checkpoint_interval` (default 2) consecutive zero-text rounds to recover text before bailout; `_synthesize_from_tool_history()` replaces the hardcoded stub with actual tool output excerpts when both forced call and retry produce empty text
@@ -122,7 +124,7 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-All core functionality is implemented and working (450 tests passing):
+All core functionality is implemented and working (575 tests passing):
 
 - **Core loop** — all five agents, main loop, orchestrator integration, consolidated override chain (`_apply_overrides` P1–P6 + P3b), termination gates (`can_terminate`)
 - **Validation pipeline** — 8 post-integration checks (phantom references, ER promotion gate with bidirectional WH↔ER, phantom labels, stale unverified label promotion, verified frontmatter backfill, agent routing, ID consistency, critique resolution consistency), violation injection into orchestrator context
