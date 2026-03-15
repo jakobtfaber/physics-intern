@@ -462,3 +462,86 @@ OK.
         assert "COMP-001" in state.computations
         assert "TASK-001" not in state.computations
         assert len(state.computations) == 1
+
+
+# ---------------------------------------------------------------------------
+# Fix: normalize_references (stale WH↔ER backlinks)
+# ---------------------------------------------------------------------------
+
+class TestNormalizeReferences:
+
+    def test_updates_stale_wh_to_er(self):
+        """COMP targeting WH-002 should be updated when hypothesis is ER-002."""
+        state = ResearchState()
+        state.hypotheses["ER-002"] = Hypothesis(id="ER-002", status=HypothesisStatus.ESTABLISHED)
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-002", verdict=Verdict.VERIFIED,
+        )
+        state.normalize_references()
+        assert state.computations["COMP-001"].target_hypothesis == "ER-002"
+        assert "COMP-001" in state.hypotheses["ER-002"].supporting_comps
+
+    def test_updates_stale_er_to_wh(self):
+        """COMP targeting ER-001 should be updated when hypothesis was demoted to WH-001."""
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001", status=HypothesisStatus.WORKING)
+        state.computations["COMP-003"] = Computation(
+            id="COMP-003", target_hypothesis="ER-001", verdict=Verdict.REFUTED,
+        )
+        state.normalize_references()
+        assert state.computations["COMP-003"].target_hypothesis == "WH-001"
+        assert "COMP-003" in state.hypotheses["WH-001"].supporting_comps
+
+    def test_rebuilds_supporting_comps(self):
+        """After normalization, supporting_comps contains all matching COMPs."""
+        state = ResearchState()
+        state.hypotheses["ER-002"] = Hypothesis(
+            id="ER-002", status=HypothesisStatus.ESTABLISHED,
+            supporting_comps=["COMP-999"],  # stale entry
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-002", verdict=Verdict.VERIFIED,
+        )
+        state.computations["COMP-005"] = Computation(
+            id="COMP-005", target_hypothesis="ER-002", verdict=Verdict.VERIFIED,
+        )
+        state.normalize_references()
+        comps = state.hypotheses["ER-002"].supporting_comps
+        assert "COMP-001" in comps
+        assert "COMP-005" in comps
+        assert "COMP-999" not in comps  # stale entry removed
+
+    def test_idempotent(self):
+        """Calling normalize_references twice produces the same result."""
+        state = ResearchState()
+        state.hypotheses["ER-002"] = Hypothesis(id="ER-002", status=HypothesisStatus.ESTABLISHED)
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-002", verdict=Verdict.VERIFIED,
+        )
+        state.normalize_references()
+        target_after_first = state.computations["COMP-001"].target_hypothesis
+        comps_after_first = list(state.hypotheses["ER-002"].supporting_comps)
+        state.normalize_references()
+        assert state.computations["COMP-001"].target_hypothesis == target_after_first
+        assert state.hypotheses["ER-002"].supporting_comps == comps_after_first
+
+    def test_empty_target_ignored(self):
+        """COMPs with empty target_hypothesis are not modified."""
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="", verdict=Verdict.INCONCLUSIVE,
+        )
+        state.normalize_references()
+        assert state.computations["COMP-001"].target_hypothesis == ""
+        assert state.hypotheses["WH-001"].supporting_comps == []
+
+    def test_no_alias_match_preserves_target(self):
+        """COMP targeting a number that doesn't exist in hypotheses is left alone."""
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-099", verdict=Verdict.VERIFIED,
+        )
+        state.normalize_references()
+        assert state.computations["COMP-001"].target_hypothesis == "WH-099"

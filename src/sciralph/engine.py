@@ -926,6 +926,8 @@ class SciRalph:
         for comp_id, target in authoritative_targets.items():
             if comp_id in self.research_state.computations:
                 self.research_state.computations[comp_id].target_hypothesis = target
+        # Fix stale WH↔ER backlinks and rebuild supporting_comps
+        self.research_state.normalize_references()
         self.research_state.save(self.workspace.root)
 
     def _update_metrics(self):

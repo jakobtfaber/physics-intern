@@ -164,6 +164,42 @@ class ResearchState:
             if hypothesis_id in fa.description or hypothesis_id in " ".join(fa.related_comps)
         ]
 
+    # --- Reference normalization ---
+
+    def normalize_references(self):
+        """Normalize target_hypothesis in computations to match current hypothesis IDs,
+        and rebuild supporting_comps from scratch.
+
+        When the ER promotion gate renames WH-002 → ER-002, existing computations
+        that targeted WH-002 become stale. This method fixes those backlinks by
+        mapping the numeric suffix to the current hypothesis ID.
+        """
+        # Build alias map: number -> current ID  (e.g., "002" -> "ER-002")
+        id_by_num: dict[str, str] = {}
+        for hid in self.hypotheses:
+            parts = hid.split("-")
+            if len(parts) == 2:
+                id_by_num[parts[1]] = hid
+
+        # Update computation target_hypothesis to current form
+        for comp in self.computations.values():
+            target = comp.target_hypothesis
+            if not target or "-" not in target:
+                continue
+            num = target.split("-")[1]
+            if num in id_by_num and id_by_num[num] != target:
+                comp.target_hypothesis = id_by_num[num]
+
+        # Rebuild supporting_comps from scratch
+        for h in self.hypotheses.values():
+            h.supporting_comps = []
+        for comp_id, comp in self.computations.items():
+            target = comp.target_hypothesis
+            if target and target in self.hypotheses:
+                h = self.hypotheses[target]
+                if comp_id not in h.supporting_comps:
+                    h.supporting_comps.append(comp_id)
+
     # --- Serialization ---
 
     def to_json(self) -> str:
@@ -315,11 +351,22 @@ def build_from_workspace(workspace: WorkspaceManager) -> ResearchState:
             )
             state.computations[comp_id] = comp
 
-            # Link to hypothesis
+            # Link to hypothesis (alias-aware: check both WH-NNN and ER-NNN)
+            linked = False
             if target and target in state.hypotheses:
                 h = state.hypotheses[target]
                 if comp_id not in h.supporting_comps:
                     h.supporting_comps.append(comp_id)
+                linked = True
+            if not linked and target and "-" in target:
+                # Try the alias: WH-002 ↔ ER-002
+                num = target.split("-")[1]
+                alias = f"ER-{num}" if target.startswith("WH-") else f"WH-{num}"
+                if alias in state.hypotheses:
+                    h = state.hypotheses[alias]
+                    if comp_id not in h.supporting_comps:
+                        h.supporting_comps.append(comp_id)
+                    comp.target_hypothesis = alias  # fix the stale reference
 
     # --- Critiques from CRITIQUE_LOG.md ---
     critique_text = workspace.read_file("CRITIQUE_LOG.md")
