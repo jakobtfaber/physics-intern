@@ -39,6 +39,9 @@ class SciRalph:
         self.config = config or Config()
         self.metrics = MetricsTracker()
         self.workspace = WorkspaceManager(self.config)
+        # Append answer template to problem so all agents see the expected output format
+        if answer_template:
+            problem = problem.rstrip() + "\n\n# Expected answer format\n\n" + answer_template.strip()
         self.workspace.init(problem)
         self.config.logs_dir = str(self.workspace.logs_dir)
         self.iteration = 0
