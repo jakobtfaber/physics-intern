@@ -4,7 +4,7 @@
 
 model: claude-sonnet-4.6
 verify_model: claude-opus-4.6
-max_tokens: 32768
+max_tokens: 65536
 max_iterations: 200
 critic_every_n: 4
 compress_threshold:
@@ -51,6 +51,9 @@ low_text_bailout_chars: 100
 # Max chars of prior failure excerpt pasted into compute task body
 prior_failure_excerpt_chars: 3000
 
-# --- Extended thinking ---
-# Token headroom above reasoning_budget when computing effective max_tokens
-thinking_token_headroom: 1024
+# --- Extended thinking (Anthropic only) ---
+# Guaranteed answer token reserve for Anthropic thinking models.
+# When no explicit reasoning_budget is set, thinking is capped at
+# (max_tokens - thinking_token_headroom) to prevent 0-answer-token exhaustion.
+# Only affects the Anthropic provider; other providers ignore this parameter.
+thinking_token_headroom: 8192

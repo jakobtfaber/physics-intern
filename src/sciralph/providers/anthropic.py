@@ -23,13 +23,14 @@ class AnthropicProvider(LLMProvider):
              messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
         if self._thinking:
             if self._reasoning_budget > 0:
-                # Legacy manual mode for older models with explicit budget_tokens
+                # Explicit budget mode with user-specified reasoning budget
                 effective_max = max(max_tokens, self._reasoning_budget + self._thinking_token_headroom)
                 thinking_cfg = {"type": "enabled", "budget_tokens": self._reasoning_budget}
             else:
-                # Adaptive mode (recommended for Claude 4.6 models)
+                # Cap thinking to guarantee answer token reserve
+                budget = max(1024, max_tokens - self._thinking_token_headroom)
                 effective_max = max_tokens
-                thinking_cfg = {"type": "adaptive"}
+                thinking_cfg = {"type": "enabled", "budget_tokens": budget}
             kwargs = dict(
                 model=model,
                 max_tokens=effective_max,
