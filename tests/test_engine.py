@@ -2064,6 +2064,6 @@ class TestCallWithRetryNoRetry:
         mock_log.assert_called_once()
         args, kwargs = mock_log.call_args
         assert args[1] == 3  # iteration
-        assert kwargs["layer"] == 6
+        assert kwargs["category"] == "loop_control"
         assert kwargs["event"] == "max_tokens_no_retry"
         assert "test_agent" in kwargs["detail"]

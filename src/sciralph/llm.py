@@ -12,6 +12,7 @@ from rich.console import Console
 from .config import Config
 from .providers import LLMProvider, ProviderResponse, create_provider
 from .tools import ToolCall, ToolExecutor
+from .categories import CompensationCategory as CC
 from .workspace import log_llm_call, log_scaffold_event
 
 console = Console()
@@ -110,7 +111,7 @@ def _call_provider_with_retry(provider: LLMProvider, config: Config,
                 f"{config.api_retry_max}): {exc}[/yellow]"
             )
             if workspace_dir:
-                log_scaffold_event(workspace_dir, iteration, 1, "api_retry",
+                log_scaffold_event(workspace_dir, iteration, CC.CALL_RELIABILITY, "api_retry",
                                    f"attempt={attempt + 1}/{config.api_retry_max}, {type(exc).__name__}")
             time.sleep(min(delay, config.api_retry_max_delay))
             delay *= 2
@@ -317,7 +318,7 @@ def run_agent_loop(
                 )
                 tool_call_failure = True
                 if config.workspace_dir:
-                    log_scaffold_event(config.workspace_dir, iteration, 2, "tool_call_failure_fallback",
+                    log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "tool_call_failure_fallback",
                                        f"round={round_num}")
                 break
             raise
@@ -364,7 +365,7 @@ def run_agent_loop(
             if not round_text.strip() and all_tool_calls:
                 # Model ended turn with no text after tool calls — force a text-only final call
                 if config.workspace_dir:
-                    log_scaffold_event(config.workspace_dir, iteration, 2,
+                    log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
                                        "empty_end_turn_fallthrough", f"rounds={round_num}")
                 break  # fall through to forced final call
             result = AgentResult(
@@ -431,10 +432,10 @@ def run_agent_loop(
             if config.workspace_dir:
                 for tc in all_tool_calls[-len(tool_results):]:
                     if tc.output.startswith("TIMEOUT:"):
-                        log_scaffold_event(config.workspace_dir, iteration, 3, "tool_timeout",
+                        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "tool_timeout",
                                            f"round={round_num}")
                     elif "[... truncated" in tc.output or "[...truncated" in tc.output:
-                        log_scaffold_event(config.workspace_dir, iteration, 3, "tool_output_truncation",
+                        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "tool_output_truncation",
                                            f"round={round_num}")
 
             # Notify caller about round progress
@@ -454,7 +455,7 @@ def run_agent_loop(
                     and zero_text_streak % config.text_checkpoint_interval == 0
                     and zero_text_streak < config.zero_text_bailout):
                 if config.workspace_dir:
-                    log_scaffold_event(config.workspace_dir, iteration, 2,
+                    log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
                                        "text_checkpoint", f"streak={zero_text_streak}")
                 round_log.append({
                     "kind": "scaffold_injection", "round": round_num,
@@ -486,13 +487,13 @@ def run_agent_loop(
                         f"{type(exc).__name__}: {exc} — continuing[/yellow]"
                     )
                     if config.workspace_dir:
-                        log_scaffold_event(config.workspace_dir, iteration, 2,
+                        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
                                            "text_checkpoint_failed",
                                            f"round={round_num}, {type(exc).__name__}")
 
             if zero_text_streak >= config.zero_text_bailout:
                 if config.workspace_dir:
-                    log_scaffold_event(config.workspace_dir, iteration, 2, "zero_text_bailout",
+                    log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "zero_text_bailout",
                                        f"streak={zero_text_streak}")
                 break  # Falls through to forced final call
 
@@ -500,7 +501,7 @@ def run_agent_loop(
             if halfway >= 3 and round_num == halfway and cumulative_text_len < config.low_text_bailout_chars:
                 low_cumulative_bailout = True
                 if config.workspace_dir:
-                    log_scaffold_event(config.workspace_dir, iteration, 2, "low_text_bailout",
+                    log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "low_text_bailout",
                                        f"chars={cumulative_text_len}")
                 break  # Falls through to forced final call
 
@@ -583,7 +584,7 @@ def run_agent_loop(
     else:
         _reason = "max_rounds"
     if config.workspace_dir:
-        log_scaffold_event(config.workspace_dir, iteration, 2, "forced_final_call", _reason)
+        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "forced_final_call", _reason)
 
     forced_system = (
         system + "\n\n"
@@ -637,14 +638,14 @@ def run_agent_loop(
             f"— synthesizing from tool history[/yellow]"
         )
         if config.workspace_dir:
-            log_scaffold_event(config.workspace_dir, iteration, 2,
+            log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
                                "forced_final_call_failed",
                                f"{type(exc).__name__}: {str(exc)[:200]}")
 
     if not final_text:
         # Forced call produced nothing or failed — retry once with minimal prompt
         if config.workspace_dir:
-            log_scaffold_event(config.workspace_dir, iteration, 2,
+            log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
                                "forced_call_retry", "empty forced final call")
         try:
             retry_resp = _call_provider_with_retry(
@@ -668,7 +669,7 @@ def run_agent_loop(
         if not final_text:
             # Still nothing — synthesize from tool history so the entry exists
             if config.workspace_dir:
-                log_scaffold_event(config.workspace_dir, iteration, 2,
+                log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
                                    "tool_history_synthesis",
                                    f"tool_calls={len(all_tool_calls)}")
             final_text = _synthesize_from_tool_history(all_tool_calls)

@@ -10,6 +10,7 @@ from ..llm import AgentResult
 from ..markdown import parse_frontmatter, render_frontmatter
 from ..tools import ToolExecutor
 from .base import BaseAgent
+from ..categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event
 
 if TYPE_CHECKING:
@@ -40,7 +41,7 @@ class ComputationalistAgent(BaseAgent):
         """
         text = response.text.strip()
         if not text:
-            log_scaffold_event(self.workspace.root, iteration, 9, "empty_response_stub", "")
+            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "empty_response_stub", "")
             # Extract claim IDs from task body so stall detection can match
             claim_ids = _ER_WH_ID_RE.findall(task.body or "")
             claim_line = ", ".join(dict.fromkeys(claim_ids)) if claim_ids else "unknown"
@@ -58,12 +59,12 @@ class ComputationalistAgent(BaseAgent):
             claim_match = re.search(r'\*\*CLAIM:\*\*\s*', text)
             if claim_match and target_id not in text[claim_match.start():claim_match.end() + 200]:
                 text = text[:claim_match.end()] + f"{target_id} — " + text[claim_match.end():]
-                log_scaffold_event(self.workspace.root, iteration, 9, "claim_id_injected",
+                log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "claim_id_injected",
                                    f"target={target_id}")
 
         # Ensure ## header
         if not text.startswith("##"):
-            log_scaffold_event(self.workspace.root, iteration, 9, "header_injected",
+            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "header_injected",
                                f"task_id={task.task_id or ''}")
             task_id = task.task_id or f"TASK-{iteration:03d}"
             text = f"## {task_id}: Computation\n\n" + text

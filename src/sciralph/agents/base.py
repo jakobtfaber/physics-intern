@@ -11,6 +11,7 @@ from ..config import Config
 from ..llm import AgentResult, LLMResponse, call_llm, run_agent_loop
 from ..metrics import MetricsTracker
 from ..tools import ToolCall, ToolExecutor
+from ..categories import CompensationCategory as CC
 from ..workspace import WorkspaceManager, log_scaffold_event
 
 if TYPE_CHECKING:
@@ -149,7 +150,7 @@ class BaseAgent(ABC):
             )
             log_scaffold_event(
                 self.workspace.root, iteration,
-                layer=6, event="max_tokens_no_retry",
+                category=CC.LOOP_CONTROL, event="max_tokens_no_retry",
                 detail=(
                     f"agent={self.name}, "
                     f"output_tokens={response.output_tokens}"

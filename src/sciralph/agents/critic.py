@@ -15,6 +15,7 @@ from ..markdown import (
     recount_critique_metadata,
 )
 from .base import BaseAgent
+from ..categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event
 
 if TYPE_CHECKING:
@@ -47,7 +48,7 @@ class CriticAgent(BaseAgent):
         """Insert new critiques into Active section and update frontmatter counts."""
         stripped = self._strip_preamble(response.text)
         if stripped != response.text:
-            log_scaffold_event(self.workspace.root, iteration, 8, "preamble_stripped", "")
+            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "preamble_stripped", "")
         filtered_text, retracted = filter_self_retracted_critiques(stripped)
 
         if filtered_text.strip():
@@ -56,7 +57,7 @@ class CriticAgent(BaseAgent):
             self.workspace.write_file("CRITIQUE_LOG.md", content)
 
         if retracted:
-            log_scaffold_event(self.workspace.root, iteration, 8, "critique_self_retracted",
+            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "critique_self_retracted",
                                f"count={len(retracted)}")
             self._log_retractions(retracted, iteration)
 

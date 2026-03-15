@@ -18,6 +18,7 @@ from .markdown import (
 )
 from .metrics import MetricsTracker
 from .task import Task, TaskType, TASK_TYPE_AGENT_MAP
+from .categories import CompensationCategory as CC
 from .validation import validate_post_integration, can_terminate, check_phantom_references, Violation, ViolationSeverity
 from .workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
@@ -95,7 +96,7 @@ class SciRalph:
                     self._set_research_status("completed")
                     break
                 self._pending_termination_blockers = blockers
-                log_scaffold_event(self.workspace.root, self.iteration, 6, "termination_blocked",
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "termination_blocked",
                                    f"blockers: {'; '.join(b[:60] for b in blockers)}")
                 continue  # re-enter loop
 
@@ -124,7 +125,7 @@ class SciRalph:
                     f"[yellow]Dispatch failed (transient), skipping to next "
                     f"iteration: {exc}[/yellow]"
                 )
-                log_scaffold_event(self.workspace.root, self.iteration, 6, "dispatch_failure",
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "dispatch_failure",
                                    f"{type(exc).__name__}: {str(exc)[:200]}")
                 continue
 
@@ -139,7 +140,7 @@ class SciRalph:
             # 6b. Post-dispatch phantom check — catch refs introduced by agents
             post_phantoms = check_phantom_references(self.workspace)
             if post_phantoms:
-                log_scaffold_event(self.workspace.root, self.iteration, 6, "post_dispatch_phantom",
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "post_dispatch_phantom",
                                    f"count={len(post_phantoms)}")
                 self._pending_violations.extend(post_phantoms)
 
@@ -216,7 +217,7 @@ class SciRalph:
                 ),
                 "iteration": self.iteration,
             })
-            log_scaffold_event(self.workspace.root, self.iteration, 6,
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
                                "agent_failure_max_tokens",
                                f"task={task.task_id}, agent={agent_name}")
 
@@ -228,7 +229,7 @@ class SciRalph:
                 "detail": f"Exhausted {result.rounds} tool-use rounds without completing.",
                 "iteration": self.iteration,
             })
-            log_scaffold_event(self.workspace.root, self.iteration, 6,
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
                                "agent_failure_max_rounds",
                                f"task={task.task_id}, agent={agent_name}, rounds={result.rounds}")
 
@@ -290,14 +291,14 @@ class SciRalph:
                 f"overriding '{task.task_type}' -> 'synthesize'.[/yellow]"
             )
             self._log_displacement(task, "budget_enforcement")
-            log_scaffold_event(self.workspace.root, self.iteration, 5, "p1_budget_override",
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p1_budget_override",
                                f"{task.task_type.value} -> synthesize")
             return self._make_budget_synthesize_task()
 
         # P2: Stale-loop -> force SYNTHESIZE (not break)
         if self._is_stale_loop(task):
             self._log_displacement(task, "stale_loop")
-            log_scaffold_event(self.workspace.root, self.iteration, 5, "p2_stale_loop_override",
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p2_stale_loop_override",
                                f"stale_iterations={self._stale_iterations}")
             return self._make_budget_synthesize_task()
 
@@ -310,7 +311,7 @@ class SciRalph:
                 f"threshold {self.config.critic_every_n}).[/yellow]"
             )
             self._log_displacement(task, "forced_critic")
-            log_scaffold_event(self.workspace.root, self.iteration, 5, "p3_forced_critic",
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p3_forced_critic",
                                f"last_critic={self.metrics.last_critic_iteration}")
             return self._make_forced_critic_task()
 
@@ -323,7 +324,7 @@ class SciRalph:
                 f"iteration {self.metrics.last_critic_iteration} review.[/yellow]"
             )
             self._log_displacement(task, "redundant_critic")
-            log_scaffold_event(self.workspace.root, self.iteration, 5, "p3b_redundant_critic_suppressed", "")
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p3b_redundant_critic_suppressed", "")
             return self._make_post_critic_synthesize_task()
 
         # P5: Block dispatch to stalled claim (checked before P4 as defense-in-depth)
@@ -346,7 +347,7 @@ class SciRalph:
                         self._pending_recompute_claim = None
                         self._pending_recompute_verdict = None
                 self._log_displacement(task, "stall_block")
-                log_scaffold_event(self.workspace.root, self.iteration, 5, "p5_stall_block",
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p5_stall_block",
                                    f"claim={claim_key[:80]}")
                 # Return a research task instead — let orchestrator rethink
                 return Task(
@@ -372,15 +373,15 @@ class SciRalph:
             if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
                 console.print(f"[yellow]Forcing recompute after {verdict} verdict.[/yellow]")
                 self._log_displacement(task, "refuted_recompute")
-                log_scaffold_event(self.workspace.root, self.iteration, 5, "p4_refuted_recompute",
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p4_refuted_recompute",
                                    f"claim={claim[:80]}, verdict={verdict}")
                 recompute_task = self._make_recompute_task(claim, verdict)
                 self._enrich_compute_task_with_prior_failures(recompute_task)
-                log_scaffold_event(self.workspace.root, self.iteration, 5, "p4_recompute_enriched",
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p4_recompute_enriched",
                                    f"claim={claim[:80]}")
                 return recompute_task
             else:
-                log_scaffold_event(self.workspace.root, self.iteration, 5, "p4_refuted_suppressed",
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p4_refuted_suppressed",
                                    f"claim={claim[:80]}, task={task.task_type.value}")
 
         # P6: Enrichment (non-overriding, mutates task body)
@@ -425,7 +426,7 @@ class SciRalph:
                     f"Routing fix: empty/invalid assigned_to '{task.assigned_to}' "
                     f"for {task.task_type}, inferred '{expected_agent}'",
                 )
-                log_scaffold_event(self.workspace.root, self.iteration, 6, "routing_conflict_corrected",
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "routing_conflict_corrected",
                                    f"'{task.assigned_to}' -> '{expected_agent}' for {task.task_type.value}")
                 task.assigned_to = expected_agent
             elif task.assigned_to != expected_agent:
@@ -435,7 +436,7 @@ class SciRalph:
                     f"vs expected='{expected_agent}' for {task.task_type}; "
                     f"using task_type for routing",
                 )
-                log_scaffold_event(self.workspace.root, self.iteration, 6, "routing_conflict_corrected",
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "routing_conflict_corrected",
                                    f"'{task.assigned_to}' -> '{expected_agent}' for {task.task_type.value}")
 
         tt = task.task_type
@@ -462,7 +463,7 @@ class SciRalph:
             response = self.critic.run(task, self.iteration)
             if hasattr(response, 'text') and 'NO_CRITIQUES_FILED' in (response.text or ''):
                 console.print("[dim]Critic: no issues found[/dim]")
-                log_scaffold_event(self.workspace.root, self.iteration, 6, "no_critiques_filed", "")
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "no_critiques_filed", "")
                 self._pending_violations.append(
                     Violation(
                         check="critic_clean",
@@ -551,7 +552,7 @@ class SciRalph:
         prior = find_prior_failures_for_claim(comp_log, task.body)
         if not prior:
             return
-        log_scaffold_event(self.workspace.root, self.iteration, 5, "p6_enrichment",
+        log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p6_enrichment",
                            f"claim={_normalize_claim_key(task.body)[:80]}")
         task_text = self.workspace.read_file("CURRENT_TASK.md")
         addendum = (
@@ -611,7 +612,7 @@ class SciRalph:
                 f"{verdict} verdict (attempt {count}/{self.config.stall_recompute_limit}) "
                 f"— will force recompute next iteration"
             )
-            log_scaffold_event(self.workspace.root, self.iteration, 6,
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
                                "compute_verdict_failed",
                                f"claim={key[:80]}, verdict={verdict}, "
                                f"attempt={count}/{self.config.stall_recompute_limit}")
@@ -637,7 +638,7 @@ class SciRalph:
                 self.iteration,
                 f"{verdict} verdict (attempt {count}) — claim escalated to stall"
             )
-            log_scaffold_event(self.workspace.root, self.iteration, 6,
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
                                "compute_verdict_stall_escalation",
                                f"claim={key[:80]}, verdict={verdict}, count={count}")
 
@@ -735,7 +736,7 @@ class SciRalph:
         state = self.workspace.read_file("RESEARCH_STATE.md")
         for status in ("completed", "abandoned", "partially_complete"):
             if f'status: "{status}"' in state or f"status: {status}" in state:
-                log_scaffold_event(self.workspace.root, self.iteration, 6, "status_field_exit",
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "status_field_exit",
                                    f"status={status}")
                 return True
         return False

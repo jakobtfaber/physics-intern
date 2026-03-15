@@ -205,7 +205,7 @@ Not yet fully verified. Subject to critique.
 def log_scaffold_event(
     workspace_dir: str | Path,
     iteration: int,
-    layer: int,
+    category: str,
     event: str,
     detail: str = "",
 ) -> None:
@@ -215,7 +215,7 @@ def log_scaffold_event(
             "kind": "scaffold",
             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "iter": iteration,
-            "layer": layer,
+            "category": category,
             "event": event,
             "detail": detail,
         }

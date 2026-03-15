@@ -14,21 +14,21 @@ class TestLogScaffoldEvent:
     """Core function tests for log_scaffold_event."""
 
     def test_creates_valid_jsonl(self, tmp_path):
-        log_scaffold_event(tmp_path, iteration=2, layer=5, event="p1_budget_override",
+        log_scaffold_event(tmp_path, iteration=2, category="loop_control", event="p1_budget_override",
                            detail="compute -> synthesize")
         logfile = tmp_path / "EVENT_LOG.jsonl"
         assert logfile.exists()
         entry = json.loads(logfile.read_text().strip())
         assert entry["kind"] == "scaffold"
         assert entry["iter"] == 2
-        assert entry["layer"] == 5
+        assert entry["category"] == "loop_control"
         assert entry["event"] == "p1_budget_override"
         assert entry["detail"] == "compute -> synthesize"
         assert "ts" in entry
 
     def test_appends_multiple(self, tmp_path):
-        log_scaffold_event(tmp_path, 1, 4, "phantom_references", "first")
-        log_scaffold_event(tmp_path, 2, 5, "p3_forced_critic", "second")
+        log_scaffold_event(tmp_path, 1, "state_invariants", "phantom_references", "first")
+        log_scaffold_event(tmp_path, 2, "loop_control", "p3_forced_critic", "second")
         lines = (tmp_path / "EVENT_LOG.jsonl").read_text().strip().split("\n")
         assert len(lines) == 2
         assert json.loads(lines[0])["event"] == "phantom_references"
@@ -36,19 +36,19 @@ class TestLogScaffoldEvent:
 
     def test_no_crash_on_bad_path(self):
         # Writing to a nonexistent directory should not raise
-        log_scaffold_event("/nonexistent/dir/xyz", 1, 1, "api_retry", "test")
+        log_scaffold_event("/nonexistent/dir/xyz", 1, "call_reliability", "api_retry", "test")
 
     def test_empty_detail(self, tmp_path):
-        log_scaffold_event(tmp_path, 1, 8, "preamble_stripped")
+        log_scaffold_event(tmp_path, 1, "output_normalization", "preamble_stripped")
         entry = json.loads((tmp_path / "EVENT_LOG.jsonl").read_text().strip())
         assert entry["detail"] == ""
 
 
 class TestValidatePostIntegrationLogs:
-    """Integration test: validate_post_integration writes Layer 4 events."""
+    """Integration test: validate_post_integration writes state_invariants events."""
 
     def test_violations_are_logged(self, tmp_path):
-        """Set up workspace with a phantom reference, verify EVENT_LOG.jsonl gets Layer 4 event."""
+        """Set up workspace with a phantom reference, verify EVENT_LOG.jsonl gets state_invariants event."""
         from sciralph.workspace import WorkspaceManager
         from sciralph.validation import validate_post_integration
 
@@ -67,14 +67,14 @@ class TestValidatePostIntegrationLogs:
         logfile = ws.root / "EVENT_LOG.jsonl"
         assert logfile.exists()
         entries = [json.loads(line) for line in logfile.read_text().strip().split("\n")]
-        layer4 = [e for e in entries if e["layer"] == 4]
-        assert len(layer4) > 0
-        assert any(e["event"] == "phantom_references" for e in layer4)
-        assert all(e["iter"] == 3 for e in layer4)
+        state_inv = [e for e in entries if e["category"] == "state_invariants"]
+        assert len(state_inv) > 0
+        assert any(e["event"] == "phantom_references" for e in state_inv)
+        assert all(e["iter"] == 3 for e in state_inv)
 
 
 class TestBudgetOverrideLogs:
-    """Integration test: P1 budget override writes Layer 5 event."""
+    """Integration test: P1 budget override writes loop_control event."""
 
     def test_budget_override_logs_event(self, tmp_path):
         ws_dir = tmp_path / "ws"
@@ -119,7 +119,7 @@ class TestBudgetOverrideLogs:
         logfile = ws_dir / "EVENT_LOG.jsonl"
         assert logfile.exists()
         entry = json.loads(logfile.read_text().strip())
-        assert entry["layer"] == 5
+        assert entry["category"] == "loop_control"
         assert entry["event"] == "p1_budget_override"
         assert "compute -> synthesize" in entry["detail"]
 
@@ -150,14 +150,14 @@ class TestLogLlmCall:
         assert "ts" in entry
 
     def test_interleaves_with_scaffold_events(self, tmp_path):
-        log_scaffold_event(tmp_path, 1, 5, "p1_budget_override", "first")
+        log_scaffold_event(tmp_path, 1, "loop_control", "p1_budget_override", "first")
         log_llm_call(
             tmp_path, agent="researcher", iteration=1, model="m",
             input_tokens=100, output_tokens=50, stop_reason="end_turn",
             duration_s=1.0, system_prompt_chars=100, user_content_chars=200,
             response_chars=50,
         )
-        log_scaffold_event(tmp_path, 2, 6, "dispatch_failure", "second")
+        log_scaffold_event(tmp_path, 2, "loop_control", "dispatch_failure", "second")
         lines = (tmp_path / "EVENT_LOG.jsonl").read_text().strip().split("\n")
         assert len(lines) == 3
         assert json.loads(lines[0])["kind"] == "scaffold"
