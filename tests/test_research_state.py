@@ -422,3 +422,43 @@ class TestFailureTracking:
     def test_no_failures_returns_empty(self):
         state = ResearchState()
         assert state.failures_for_hypothesis("WH-001") == []
+
+
+# ---------------------------------------------------------------------------
+# Fix: phantom TASK-* stubs filtered from graph
+# ---------------------------------------------------------------------------
+
+class TestPhantomTaskStubFiltering:
+
+    def test_build_from_workspace_skips_task_entries(self):
+        """TASK-* entries in COMPUTATION_LOG should not appear in state.computations."""
+        comp_log = """\
+---
+total_computations: 2
+---
+
+# Computations
+
+## TASK-001: Computation
+
+**CLAIM:** unknown
+**VERDICT:** INCONCLUSIVE
+**NOTES:** Agent produced no text output.
+
+## COMP-001: Verification of WH-001
+
+**CLAIM:** Verify WH-001 result
+**VERDICT:** VERIFIED
+**RESULT:**
+OK.
+"""
+        ws = MagicMock()
+        ws.read_file = MagicMock(side_effect=lambda f: {
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": comp_log,
+            "CRITIQUE_LOG.md": "",
+        }.get(f, ""))
+        state = build_from_workspace(ws)
+        assert "COMP-001" in state.computations
+        assert "TASK-001" not in state.computations
+        assert len(state.computations) == 1

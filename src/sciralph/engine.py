@@ -883,6 +883,8 @@ class SciRalph:
         from .markdown import _ER_WH_ID_RE
 
         comp_id = comp_entry["id"]
+        if not comp_id.startswith("COMP-"):
+            return  # Skip TASK-* stubs from forced-call bailouts
         verdict_str = comp_entry.get("verdict", "INCONCLUSIVE")
         try:
             verdict = Verdict(verdict_str)

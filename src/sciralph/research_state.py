@@ -290,6 +290,8 @@ def build_from_workspace(workspace: WorkspaceManager) -> ResearchState:
         entries = _parse_comp_entries(comp_text)
         for entry in entries:
             comp_id = entry["id"]
+            if not comp_id.startswith("COMP-"):
+                continue  # Skip TASK-* stubs from forced-call bailouts
             claim = entry.get("claim", "")
             # Determine target hypothesis: first ER/WH ID in claim, then body
             target_ids = _ER_WH_ID_RE.findall(claim)
