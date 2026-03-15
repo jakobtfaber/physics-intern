@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch, PropertyMock, call
 
 from sciralph.config import Config
+from sciralph.engine import LoopState
 from sciralph.markdown import parse_frontmatter, render_frontmatter
 from sciralph.task import Task, TaskType
 from sciralph.validation import Violation, ViolationSeverity
@@ -270,16 +271,11 @@ class TestRefutedRecompute:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 3
-            engine._pending_recompute_claim = None
-            engine._pending_recompute_verdict = None
-            engine._claim_failure_count = {}
-            engine._stalled_claims = set()
-            engine._pending_violations = []
-            engine._agent_failures = []
+            engine._state = LoopState()
         return engine, ws, written
 
     def test_refuted_sets_pending_recompute(self):
-        """REFUTED verdict sets _pending_recompute_claim."""
+        """REFUTED verdict sets _state.pending_recompute_claim."""
         engine, ws, _ = self._make_engine()
         ws.read_file = MagicMock(return_value=self.COMP_LOG_REFUTED)
 
@@ -287,11 +283,11 @@ class TestRefutedRecompute:
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert engine._pending_recompute_claim is not None
-        assert "formula X = Y" in engine._pending_recompute_claim
+        assert engine._state.pending_recompute_claim is not None
+        assert "formula X = Y" in engine._state.pending_recompute_claim
 
     def test_verified_no_pending(self):
-        """VERIFIED verdict does not set _pending_recompute_claim."""
+        """VERIFIED verdict does not set _state.pending_recompute_claim."""
         engine, ws, _ = self._make_engine()
         ws.read_file = MagicMock(return_value=self.COMP_LOG_VERIFIED)
 
@@ -299,7 +295,7 @@ class TestRefutedRecompute:
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert engine._pending_recompute_claim is None
+        assert engine._state.pending_recompute_claim is None
 
     def test_make_recompute_task(self):
         """_make_recompute_task creates a valid compute task."""
@@ -316,26 +312,26 @@ class TestRefutedRecompute:
     def test_pending_recompute_consumed_on_next_iteration(self):
         """Pending recompute claim is consumed and cleared."""
         engine, ws, written = self._make_engine()
-        engine._pending_recompute_claim = "Verify formula X = Y"
+        engine._state.pending_recompute_claim = "Verify formula X = Y"
 
         # Simulate what happens at top of loop
-        claim = engine._pending_recompute_claim
-        engine._pending_recompute_claim = None
+        claim = engine._state.pending_recompute_claim
+        engine._state.pending_recompute_claim = None
         task = Task(task_id="TASK-003", task_type=TaskType.RESEARCH, assigned_to="researcher")
         if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
             task = engine._make_recompute_task(claim)
 
         assert task.task_type == TaskType.COMPUTE
-        assert engine._pending_recompute_claim is None
+        assert engine._state.pending_recompute_claim is None
 
     def test_pending_recompute_skipped_on_synthesize(self):
         """Pending recompute is NOT forced during synthesize/terminate."""
         engine, _, _ = self._make_engine()
-        engine._pending_recompute_claim = "Verify formula X = Y"
+        engine._state.pending_recompute_claim = "Verify formula X = Y"
 
         task = Task(task_id="TASK-003", task_type=TaskType.SYNTHESIZE, assigned_to="researcher")
-        claim = engine._pending_recompute_claim
-        engine._pending_recompute_claim = None
+        claim = engine._state.pending_recompute_claim
+        engine._state.pending_recompute_claim = None
         if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
             task = engine._make_recompute_task(claim)
 
@@ -386,23 +382,18 @@ class TestComputeVerdictTracking:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 3
-            engine._pending_recompute_claim = None
-            engine._pending_recompute_verdict = None
-            engine._claim_failure_count = {}
-            engine._stalled_claims = set()
-            engine._pending_violations = []
-            engine._agent_failures = []
+            engine._state = LoopState()
         return engine, ws, written
 
     def test_first_refuted_allows_recompute(self):
-        """First REFUTED sets _pending_recompute_claim (count=1 < limit=2)."""
+        """First REFUTED sets _state.pending_recompute_claim (count=1 < limit=2)."""
         engine, ws, _ = self._make_engine(self.COMP_LOG_REFUTED)
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert engine._pending_recompute_claim is not None
-        assert any(v == 1 for v in engine._claim_failure_count.values())
+        assert engine._state.pending_recompute_claim is not None
+        assert any(v == 1 for v in engine._state.claim_failure_count.values())
 
     def test_first_inconclusive_allows_recompute(self):
         """INCONCLUSIVE also counted and triggers recompute."""
@@ -411,54 +402,54 @@ class TestComputeVerdictTracking:
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert engine._pending_recompute_claim is not None
+        assert engine._state.pending_recompute_claim is not None
         # Counter should be 1
-        assert any(v == 1 for v in engine._claim_failure_count.values())
+        assert any(v == 1 for v in engine._state.claim_failure_count.values())
 
     def test_second_failure_escalates_to_stall(self):
-        """Pre-set count=1, second failure adds to _stalled_claims, no _pending_recompute_claim."""
+        """Pre-set count=1, second failure adds to _state.stalled_claims, no _state.pending_recompute_claim."""
         engine, ws, _ = self._make_engine(self.COMP_LOG_REFUTED)
         # Pre-set count to 1 for the claim key
         from sciralph.markdown import _normalize_claim_key
         key = _normalize_claim_key("Verify formula X = Y")
-        engine._claim_failure_count[key] = 1
+        engine._state.claim_failure_count[key] = 1
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert engine._pending_recompute_claim is None
-        assert key in engine._stalled_claims
-        assert engine._claim_failure_count[key] == 2
+        assert engine._state.pending_recompute_claim is None
+        assert key in engine._state.stalled_claims
+        assert engine._state.claim_failure_count[key] == 2
 
     def test_verified_resets_counter(self):
         """VERIFIED clears the failure counter for that claim."""
         engine, ws, _ = self._make_engine(self.COMP_LOG_VERIFIED)
         from sciralph.markdown import _normalize_claim_key
         key = _normalize_claim_key("Verify formula X = Y")
-        engine._claim_failure_count[key] = 1
+        engine._state.claim_failure_count[key] = 1
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert key not in engine._claim_failure_count
-        assert engine._pending_recompute_claim is None
+        assert key not in engine._state.claim_failure_count
+        assert engine._state.pending_recompute_claim is None
 
     def test_verified_does_not_unstall(self):
-        """VERIFIED resets counter but does NOT remove from _stalled_claims."""
+        """VERIFIED resets counter but does NOT remove from _state.stalled_claims."""
         engine, ws, _ = self._make_engine(self.COMP_LOG_VERIFIED)
         from sciralph.markdown import _normalize_claim_key
         key = _normalize_claim_key("Verify formula X = Y")
-        engine._claim_failure_count[key] = 2
-        engine._stalled_claims.add(key)
+        engine._state.claim_failure_count[key] = 2
+        engine._state.stalled_claims.add(key)
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert key not in engine._claim_failure_count
-        assert key in engine._stalled_claims  # stays stalled
+        assert key not in engine._state.claim_failure_count
+        assert key in engine._state.stalled_claims  # stays stalled
 
     def test_different_claims_tracked_independently(self):
         """Two different WH IDs have separate counters."""
@@ -471,32 +462,32 @@ class TestComputeVerdictTracking:
         engine, ws, _ = self._make_engine(comp_log_wh002)
         from sciralph.markdown import _normalize_claim_key
         key1 = _normalize_claim_key("Verify WH-001 formula")
-        engine._claim_failure_count[key1] = 1  # pre-existing failure on WH-001
+        engine._state.claim_failure_count[key1] = 1  # pre-existing failure on WH-001
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify WH-002 temperature")
         engine._track_compute_verdict(task)
 
         # WH-001 counter unchanged
-        assert engine._claim_failure_count[key1] == 1
+        assert engine._state.claim_failure_count[key1] == 1
         # WH-002 has its own counter
         key2 = _normalize_claim_key("Verify WH-002 temperature")
-        assert engine._claim_failure_count.get(key2, 0) == 1
+        assert engine._state.claim_failure_count.get(key2, 0) == 1
 
     def test_stall_escalation_injects_violation(self):
         """Stall escalation adds Violation with check='computation_stall'."""
         engine, ws, _ = self._make_engine(self.COMP_LOG_REFUTED)
         from sciralph.markdown import _normalize_claim_key
         key = _normalize_claim_key("Verify formula X = Y")
-        engine._claim_failure_count[key] = 1  # next will be 2 == limit
+        engine._state.claim_failure_count[key] = 1  # next will be 2 == limit
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert len(engine._pending_violations) == 1
-        assert engine._pending_violations[0].check == "computation_stall"
-        assert "failed verification" in engine._pending_violations[0].message
+        assert len(engine._state.pending_violations) == 1
+        assert engine._state.pending_violations[0].check == "computation_stall"
+        assert "failed verification" in engine._state.pending_violations[0].message
 
     def test_limit_of_1_escalates_immediately(self):
         """With stall_recompute_limit=1, first failure escalates."""
@@ -506,9 +497,9 @@ class TestComputeVerdictTracking:
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert engine._pending_recompute_claim is None
-        assert len(engine._stalled_claims) > 0
-        assert len(engine._pending_violations) == 1
+        assert engine._state.pending_recompute_claim is None
+        assert len(engine._state.stalled_claims) > 0
+        assert len(engine._state.pending_violations) == 1
 
     def test_empty_comp_log_noop(self):
         """No entries, nothing happens."""
@@ -518,9 +509,9 @@ class TestComputeVerdictTracking:
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert engine._pending_recompute_claim is None
-        assert len(engine._claim_failure_count) == 0
-        assert len(engine._stalled_claims) == 0
+        assert engine._state.pending_recompute_claim is None
+        assert len(engine._state.claim_failure_count) == 0
+        assert len(engine._state.stalled_claims) == 0
 
 
 class TestCriticCleanSignal:
@@ -540,7 +531,7 @@ class TestCriticCleanSignal:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 5
-            engine._pending_violations = []
+            engine._state = LoopState()
             engine.critic = MagicMock()
         return engine
 
@@ -554,9 +545,9 @@ class TestCriticCleanSignal:
         task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
         engine._dispatch(task)
 
-        assert len(engine._pending_violations) == 1
-        assert engine._pending_violations[0].check == "critic_clean"
-        assert "NO issues" in engine._pending_violations[0].message
+        assert len(engine._state.pending_violations) == 1
+        assert engine._state.pending_violations[0].check == "critic_clean"
+        assert "NO issues" in engine._state.pending_violations[0].message
 
     def test_normal_critique_no_violation(self):
         """Normal critic output does NOT inject a violation."""
@@ -568,7 +559,7 @@ class TestCriticCleanSignal:
         task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
         engine._dispatch(task)
 
-        assert len(engine._pending_violations) == 0
+        assert len(engine._state.pending_violations) == 0
 
 
 class TestApplyOverrides:
@@ -602,15 +593,12 @@ class TestApplyOverrides:
             engine.metrics = MagicMock()
             engine.metrics.last_critic_iteration = last_critic_iteration
             engine.iteration = current_iteration
-            engine._stale_iterations = stale_iterations
-            engine._stalled_claims = set()
-            engine._claim_failure_count = {}
-
-            engine._pending_recompute_claim = pending_recompute
-            engine._pending_recompute_verdict = pending_recompute_verdict
-            engine._last_content_iteration = current_iteration
-            engine._displaced_tasks = []
-            engine._agent_failures = []
+            engine._state = LoopState(
+                stale_iterations=stale_iterations,
+                pending_recompute_claim=pending_recompute,
+                pending_recompute_verdict=pending_recompute_verdict,
+                last_content_iteration=current_iteration,
+            )
         return engine, written
 
     def test_budget_override_highest_priority(self):
@@ -648,7 +636,7 @@ class TestApplyOverrides:
         result = engine._apply_overrides(task)
 
         assert result.task_type == TaskType.SYNTHESIZE
-        assert engine._stale_iterations == 2
+        assert engine._state.stale_iterations == 2
 
     def test_forced_critic_overrides_task(self):
         """Forced critic (P3) replaces non-critique task when overdue."""
@@ -680,7 +668,7 @@ class TestApplyOverrides:
 
         assert result.task_type == TaskType.COMPUTE
         assert "Re-verification After REFUTED Verdict" in result.body
-        assert engine._pending_recompute_claim is None  # consumed
+        assert engine._state.pending_recompute_claim is None  # consumed
 
     def test_enrichment_non_overriding(self):
         """P5 enrichment mutates task body without changing task type."""
@@ -718,9 +706,9 @@ class TestApplyOverrides:
             last_critic_iteration=14, critic_every_n=4,
         )
         # last_content_iteration < last_critic_iteration → redundant
-        engine._last_content_iteration = 13
-        engine._pending_violations = []
-        engine._pending_termination_blockers = []
+        engine._state.last_content_iteration = 13
+        engine._state.pending_violations = []
+        engine._state.pending_termination_blockers = []
 
         task = Task(
             task_id="TASK-015", task_type=TaskType.CRITIQUE,
@@ -730,8 +718,8 @@ class TestApplyOverrides:
 
         assert result.task_type == TaskType.SYNTHESIZE
         assert "Clean Review" in result.body
-        assert len(engine._displaced_tasks) == 1
-        assert engine._displaced_tasks[0]["override"] == "redundant_critic"
+        assert len(engine._state.displaced_tasks) == 1
+        assert engine._state.displaced_tasks[0]["override"] == "redundant_critic"
 
     def test_critique_allowed_when_new_content_exists(self):
         """P3b: Critique passes through when content was produced after last critic."""
@@ -740,9 +728,9 @@ class TestApplyOverrides:
             last_critic_iteration=10, critic_every_n=4,
         )
         # last_content_iteration > last_critic_iteration → new content exists
-        engine._last_content_iteration = 14
-        engine._pending_violations = []
-        engine._pending_termination_blockers = []
+        engine._state.last_content_iteration = 14
+        engine._state.pending_violations = []
+        engine._state.pending_termination_blockers = []
 
         task = Task(
             task_id="TASK-015", task_type=TaskType.CRITIQUE,
@@ -758,9 +746,9 @@ class TestApplyOverrides:
             max_iterations=20, current_iteration=5,
             last_critic_iteration=0, critic_every_n=4,
         )
-        engine._last_content_iteration = 0
-        engine._pending_violations = []
-        engine._pending_termination_blockers = []
+        engine._state.last_content_iteration = 0
+        engine._state.pending_violations = []
+        engine._state.pending_termination_blockers = []
 
         task = Task(
             task_id="TASK-005", task_type=TaskType.CRITIQUE,
@@ -809,8 +797,8 @@ class TestApplyOverrides:
         )
         from sciralph.markdown import _normalize_claim_key
         key = _normalize_claim_key("Verify WH-001 formula")
-        engine._stalled_claims = {key}
-        engine._pending_violations = []
+        engine._state.stalled_claims = {key}
+        engine._state.pending_violations = []
 
         task = Task(
             task_id="TASK-005", task_type=TaskType.COMPUTE,
@@ -821,7 +809,7 @@ class TestApplyOverrides:
 
         assert result.task_type == TaskType.RESEARCH
         assert "Alternative Approach" in result.body
-        assert engine._pending_recompute_claim is None  # cleared by P5
+        assert engine._state.pending_recompute_claim is None  # cleared by P5
 
 
 class TestTerminationGate:
@@ -848,14 +836,8 @@ class TestTerminationGate:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 5
-            engine._stale_iterations = 0
-            engine._pending_recompute_claim = None
-            engine._pending_recompute_verdict = None
+            engine._state = LoopState()
             engine.problem_meta = {}
-            engine._pending_violations = []
-            engine._pending_termination_blockers = []
-            engine._displaced_tasks = []
-            engine._agent_failures = []
         return engine, written
 
     def test_terminate_allowed_when_stub(self):
@@ -872,7 +854,7 @@ class TestTerminationGate:
     def test_build_context_prefix_with_violations(self):
         """Context prefix includes pending violations."""
         engine, _ = self._make_engine()
-        engine._pending_violations = [
+        engine._state.pending_violations = [
             Violation(
                 check="test_check", severity=ViolationSeverity.ERROR,
                 message="Something wrong", file="TEST.md",
@@ -883,12 +865,12 @@ class TestTerminationGate:
         assert "POST-INTEGRATION VIOLATIONS" in prefix
         assert "test_check" in prefix
         assert "Something wrong" in prefix
-        assert len(engine._pending_violations) == 0  # consumed
+        assert len(engine._state.pending_violations) == 0  # consumed
 
     def test_build_context_prefix_with_blockers(self):
         """Context prefix includes termination blockers."""
         engine, _ = self._make_engine()
-        engine._pending_termination_blockers = [
+        engine._state.pending_termination_blockers = [
             "Missing numerical verification",
             "Unresolved critiques remain",
         ]
@@ -897,7 +879,7 @@ class TestTerminationGate:
         assert "TERMINATION BLOCKED" in prefix
         assert "Missing numerical verification" in prefix
         assert "Unresolved critiques remain" in prefix
-        assert len(engine._pending_termination_blockers) == 0  # consumed
+        assert len(engine._state.pending_termination_blockers) == 0  # consumed
 
     def test_build_context_prefix_empty_when_no_issues(self):
         """Context prefix is empty when no violations or blockers."""
@@ -908,7 +890,7 @@ class TestTerminationGate:
     def test_context_prefix_filters_er_promotion_gate(self):
         """ER promotion gate violations are silently filtered; other violations appear."""
         engine, _ = self._make_engine()
-        engine._pending_violations = [
+        engine._state.pending_violations = [
             Violation(
                 check="er_promotion_gate", severity=ViolationSeverity.WARNING,
                 message="ER-001 has no VERIFIED computation backing — demoted to WH-001",
@@ -927,7 +909,7 @@ class TestTerminationGate:
         # ER promotion gate violation should NOT appear
         assert "er_promotion_gate" not in prefix
         assert "UNVERIFIED CLAIMS" not in prefix
-        assert len(engine._pending_violations) == 0  # consumed
+        assert len(engine._state.pending_violations) == 0  # consumed
 
 
 class TestIsStaleLoop:
@@ -948,28 +930,28 @@ class TestIsStaleLoop:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 5
-            engine._stale_iterations = stale_iterations
+            engine._state = LoopState(stale_iterations=stale_iterations)
         return engine
 
     def test_synthesize_resets_stale_counter(self):
-        """SYNTHESIZE resets _stale_iterations to 0."""
+        """SYNTHESIZE resets _state.stale_iterations to 0."""
         engine = self._make_engine(stale_iterations=3)
         task = Task(task_id="T", task_type=TaskType.SYNTHESIZE, assigned_to="researcher")
 
         result = engine._is_stale_loop(task)
 
         assert result is False
-        assert engine._stale_iterations == 0
+        assert engine._state.stale_iterations == 0
 
     def test_terminate_resets_stale_counter(self):
-        """TERMINATE resets _stale_iterations to 0."""
+        """TERMINATE resets _state.stale_iterations to 0."""
         engine = self._make_engine(stale_iterations=3)
         task = Task(task_id="T", task_type=TaskType.TERMINATE, assigned_to="orchestrator")
 
         result = engine._is_stale_loop(task)
 
         assert result is False
-        assert engine._stale_iterations == 0
+        assert engine._state.stale_iterations == 0
 
     def test_stale_detected_after_two_iterations(self):
         """Stale loop detected when 2+ iterations with complete-looking state."""
@@ -980,7 +962,7 @@ class TestIsStaleLoop:
         result = engine._is_stale_loop(task)
 
         assert result is True
-        assert engine._stale_iterations == 2
+        assert engine._state.stale_iterations == 2
 
     def test_not_stale_on_first_iteration(self):
         """Not stale after just one iteration of complete-looking state."""
@@ -991,7 +973,7 @@ class TestIsStaleLoop:
         result = engine._is_stale_loop(task)
 
         assert result is False
-        assert engine._stale_iterations == 1
+        assert engine._state.stale_iterations == 1
 
     def test_not_stale_when_wh_present(self):
         """Not stale when Working Hypotheses remain."""
@@ -1002,7 +984,7 @@ class TestIsStaleLoop:
         result = engine._is_stale_loop(task)
 
         assert result is False
-        assert engine._stale_iterations == 0  # reset
+        assert engine._state.stale_iterations == 0  # reset
 
     def test_not_stale_when_insufficient_er(self):
         """Not stale when fewer ERs than min_er_for_completion."""
@@ -1013,7 +995,7 @@ class TestIsStaleLoop:
         result = engine._is_stale_loop(task)
 
         assert result is False
-        assert engine._stale_iterations == 0  # reset
+        assert engine._state.stale_iterations == 0  # reset
 
 
 class TestCheckStatusField:
@@ -1099,29 +1081,19 @@ total_computations: 3
             engine.metrics = MagicMock()
             engine.metrics.last_critic_iteration = 4
             engine.iteration = 5
-            engine._stale_iterations = 0
-            engine._stalled_claims = set()
-            engine._claim_failure_count = {}
-
-            engine._pending_recompute_claim = None
-            engine._pending_recompute_verdict = None
-            engine._pending_violations = []
-            engine._pending_termination_blockers = []
-            engine._displaced_tasks = []
-            engine._agent_failures = []
-            engine._last_content_iteration = 5
+            engine._state = LoopState(last_content_iteration=5)
             engine.problem_meta = {}
         return engine
 
     def test_stall_detected_after_threshold(self):
         engine = self._make_engine(self.COMP_LOG_STALLED)
         engine._update_stall_tracking()
-        assert len(engine._stalled_claims) > 0
-        assert any("WH-001" in c for c in engine._stalled_claims)
+        assert len(engine._state.stalled_claims) > 0
+        assert any("WH-001" in c for c in engine._state.stalled_claims)
 
     def test_stalled_claim_blocked_in_overrides(self):
         engine = self._make_engine()
-        engine._stalled_claims = {"WH-001"}
+        engine._state.stalled_claims = {"WH-001"}
         task = Task(
             task_id="TASK-005", task_type=TaskType.COMPUTE,
             assigned_to="computationalist", iteration=5,
@@ -1133,7 +1105,7 @@ total_computations: 3
 
     def test_non_stalled_compute_passes_through(self):
         engine = self._make_engine()
-        engine._stalled_claims = {"WH-001"}
+        engine._state.stalled_claims = {"WH-001"}
         task = Task(
             task_id="TASK-005", task_type=TaskType.COMPUTE,
             assigned_to="computationalist", iteration=5,
@@ -1174,17 +1146,11 @@ class TestDisplacedTaskLogging:
             engine.metrics = MagicMock()
             engine.metrics.last_critic_iteration = last_critic_iteration
             engine.iteration = current_iteration
-            engine._stale_iterations = stale_iterations
-            engine._stalled_claims = set()
-            engine._claim_failure_count = {}
-
-            engine._pending_recompute_claim = pending_recompute
-            engine._pending_recompute_verdict = None
-            engine._last_content_iteration = current_iteration
-            engine._displaced_tasks = []
-            engine._agent_failures = []
-            engine._pending_violations = []
-            engine._pending_termination_blockers = []
+            engine._state = LoopState(
+                stale_iterations=stale_iterations,
+                pending_recompute_claim=pending_recompute,
+                last_content_iteration=current_iteration,
+            )
         return engine, written
 
     def test_budget_override_logs_displacement(self):
@@ -1199,9 +1165,9 @@ class TestDisplacedTaskLogging:
         )
         result = engine._apply_overrides(task)
         assert result.task_type == TaskType.SYNTHESIZE
-        assert len(engine._displaced_tasks) == 1
-        assert engine._displaced_tasks[0]["override"] == "budget_enforcement"
-        assert engine._displaced_tasks[0]["task_type"] == "compute"
+        assert len(engine._state.displaced_tasks) == 1
+        assert engine._state.displaced_tasks[0]["override"] == "budget_enforcement"
+        assert engine._state.displaced_tasks[0]["task_type"] == "compute"
 
     def test_forced_critic_logs_displacement(self):
         """Forced critic logs the displaced task."""
@@ -1216,8 +1182,8 @@ class TestDisplacedTaskLogging:
         )
         result = engine._apply_overrides(task)
         assert result.task_type == TaskType.CRITIQUE
-        assert len(engine._displaced_tasks) == 1
-        assert engine._displaced_tasks[0]["override"] == "forced_critic"
+        assert len(engine._state.displaced_tasks) == 1
+        assert engine._state.displaced_tasks[0]["override"] == "forced_critic"
 
     def test_stall_block_logs_displacement(self):
         """Stall blocking logs the displaced task."""
@@ -1225,7 +1191,7 @@ class TestDisplacedTaskLogging:
             max_iterations=20, current_iteration=5,
             last_critic_iteration=4,
         )
-        engine._stalled_claims = {"WH-001"}
+        engine._state.stalled_claims = {"WH-001"}
         task = Task(
             task_id="TASK-005", task_type=TaskType.COMPUTE,
             assigned_to="computationalist", iteration=5,
@@ -1233,13 +1199,13 @@ class TestDisplacedTaskLogging:
         )
         result = engine._apply_overrides(task)
         assert result.task_type == TaskType.RESEARCH
-        assert len(engine._displaced_tasks) == 1
-        assert engine._displaced_tasks[0]["override"] == "stall_block"
+        assert len(engine._state.displaced_tasks) == 1
+        assert engine._state.displaced_tasks[0]["override"] == "stall_block"
 
     def test_displacement_injected_into_context_prefix(self):
         """Displaced tasks appear in context prefix."""
         engine, written = self._make_engine()
-        engine._displaced_tasks = [{
+        engine._state.displaced_tasks = [{
             "task_id": "TASK-004",
             "task_type": "compute",
             "body_summary": "Verify something",
@@ -1254,7 +1220,7 @@ class TestDisplacedTaskLogging:
     def test_displacement_cleared_after_prefix(self):
         """Displaced tasks list is cleared after building prefix."""
         engine, written = self._make_engine()
-        engine._displaced_tasks = [{
+        engine._state.displaced_tasks = [{
             "task_id": "TASK-004",
             "task_type": "compute",
             "body_summary": "Verify something",
@@ -1262,7 +1228,7 @@ class TestDisplacedTaskLogging:
             "iteration": 4,
         }]
         engine._build_context_prefix()
-        assert len(engine._displaced_tasks) == 0
+        assert len(engine._state.displaced_tasks) == 0
 
     def test_no_displacement_when_not_overridden(self):
         """No displacement recorded when task passes through unchanged."""
@@ -1277,7 +1243,7 @@ class TestDisplacedTaskLogging:
         )
         result = engine._apply_overrides(task)
         assert result.task_type == TaskType.RESEARCH
-        assert len(engine._displaced_tasks) == 0
+        assert len(engine._state.displaced_tasks) == 0
 
 
 class TestZeroOutputStallHandling:
@@ -1317,28 +1283,18 @@ Agent produced no text output. Writing INCONCLUSIVE stub.
             engine.metrics = MagicMock()
             engine.metrics.last_critic_iteration = 4
             engine.iteration = 5
-            engine._stale_iterations = 0
-            engine._stalled_claims = set()
-            engine._claim_failure_count = {}
-
-            engine._pending_recompute_claim = None
-            engine._pending_recompute_verdict = None
-            engine._pending_violations = []
-            engine._pending_termination_blockers = []
-            engine._displaced_tasks = []
-            engine._agent_failures = []
-            engine._last_content_iteration = 5
+            engine._state = LoopState(last_content_iteration=5)
         return engine, ws, written
 
     def test_single_zero_output_does_not_block(self):
-        """A single zero-output INCONCLUSIVE should NOT add to _stalled_claims.
+        """A single zero-output INCONCLUSIVE should NOT add to _state.stalled_claims.
 
         One failure deserves a retry; only threshold (2) consecutive failures block.
         """
         engine, ws, _ = self._make_engine()
         ws.read_file = MagicMock(return_value=self.COMP_LOG_ZERO_OUTPUT)
         engine._update_stall_tracking()
-        assert not any("WH-001" in c for c in engine._stalled_claims)
+        assert not any("WH-001" in c for c in engine._state.stalled_claims)
 
     def test_two_zero_output_stalls_block(self):
         """Two consecutive zero-output INCONCLUSIVEs on the same claim DO block."""
@@ -1364,7 +1320,7 @@ Agent produced no text output. Writing INCONCLUSIVE stub.
         engine, ws, _ = self._make_engine()
         ws.read_file = MagicMock(return_value=comp_log_two_failures)
         engine._update_stall_tracking()
-        assert any("WH-001" in c for c in engine._stalled_claims)
+        assert any("WH-001" in c for c in engine._state.stalled_claims)
 
     def test_enrich_flags_zero_output_stall(self):
         """Enrichment adds ZERO-OUTPUT STALL instructions when prior has no-text marker."""
@@ -1410,7 +1366,7 @@ class TestDispatchRoutingValidation:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 5
-            engine._last_content_iteration = 5
+            engine._state = LoopState(last_content_iteration=5)
             engine.researcher = MagicMock()
             engine.computationalist = MagicMock()
             engine.critic = MagicMock()
@@ -1548,16 +1504,7 @@ class TestDispatchFailureRecovery:
             engine.metrics.total_input_tokens = 0
             engine.metrics.total_output_tokens = 0
             engine.iteration = 0
-            engine._stale_iterations = 0
-            engine._stalled_claims = set()
-            engine._pending_recompute_claim = None
-            engine._pending_recompute_verdict = None
-            engine._pending_violations = []
-            engine._pending_termination_blockers = []
-            engine._displaced_tasks = []
-            engine._agent_failures = []
-            engine._last_content_iteration = 0
-            engine._claim_failure_count = {}
+            engine._state = LoopState()
             engine.problem_meta = {}
 
             engine.orchestrator = MagicMock()
@@ -1664,10 +1611,7 @@ class TestAgentFailureRouting:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 5
-            engine._pending_violations = []
-            engine._pending_termination_blockers = []
-            engine._displaced_tasks = []
-            engine._agent_failures = []
+            engine._state = LoopState()
         return engine
 
     def test_max_tokens_recorded(self):
@@ -1680,12 +1624,12 @@ class TestAgentFailureRouting:
 
         engine._record_agent_failures(task, "researcher", result)
 
-        assert len(engine._agent_failures) == 1
-        assert engine._agent_failures[0]["event"] == "max_tokens_truncation"
-        assert engine._agent_failures[0]["task_id"] == "TASK-005"
-        assert engine._agent_failures[0]["agent"] == "researcher"
-        assert "8000 tokens" in engine._agent_failures[0]["detail"]
-        assert "Decompose" in engine._agent_failures[0]["detail"]
+        assert len(engine._state.agent_failures) == 1
+        assert engine._state.agent_failures[0]["event"] == "max_tokens_truncation"
+        assert engine._state.agent_failures[0]["task_id"] == "TASK-005"
+        assert engine._state.agent_failures[0]["agent"] == "researcher"
+        assert "8000 tokens" in engine._state.agent_failures[0]["detail"]
+        assert "Decompose" in engine._state.agent_failures[0]["detail"]
 
     def test_max_rounds_forced_recorded(self):
         """max_rounds_forced stop_reason records an exhaustion failure."""
@@ -1696,9 +1640,9 @@ class TestAgentFailureRouting:
 
         engine._record_agent_failures(task, "computationalist", result)
 
-        assert len(engine._agent_failures) == 1
-        assert engine._agent_failures[0]["event"] == "max_rounds_exhaustion"
-        assert "10 tool-use rounds" in engine._agent_failures[0]["detail"]
+        assert len(engine._state.agent_failures) == 1
+        assert engine._state.agent_failures[0]["event"] == "max_rounds_exhaustion"
+        assert "10 tool-use rounds" in engine._state.agent_failures[0]["detail"]
 
     def test_normal_end_turn_not_recorded(self):
         """Normal end_turn does NOT record a failure."""
@@ -1709,12 +1653,12 @@ class TestAgentFailureRouting:
 
         engine._record_agent_failures(task, "researcher", result)
 
-        assert len(engine._agent_failures) == 0
+        assert len(engine._state.agent_failures) == 0
 
     def test_context_prefix_includes_agent_failures(self):
         """Agent failures appear in context prefix banner."""
         engine = self._make_engine()
-        engine._agent_failures = [{
+        engine._state.agent_failures = [{
             "task_id": "TASK-004",
             "agent": "researcher",
             "event": "max_tokens_truncation",
@@ -1736,7 +1680,7 @@ class TestAgentFailureRouting:
     def test_context_prefix_clears_agent_failures(self):
         """Agent failures are cleared after building context prefix."""
         engine = self._make_engine()
-        engine._agent_failures = [{
+        engine._state.agent_failures = [{
             "task_id": "TASK-004",
             "agent": "researcher",
             "event": "max_tokens_truncation",
@@ -1744,7 +1688,7 @@ class TestAgentFailureRouting:
             "iteration": 4,
         }]
         engine._build_context_prefix()
-        assert len(engine._agent_failures) == 0
+        assert len(engine._state.agent_failures) == 0
 
     def test_compute_verdict_appends_to_agent_failures(self):
         """REFUTED verdict below stall limit appends to _agent_failures."""
@@ -1769,20 +1713,15 @@ class TestAgentFailureRouting:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 5
-            engine._pending_recompute_claim = None
-            engine._pending_recompute_verdict = None
-            engine._claim_failure_count = {}
-            engine._stalled_claims = set()
-            engine._pending_violations = []
-            engine._agent_failures = []
+            engine._state = LoopState()
 
         task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert len(engine._agent_failures) == 1
-        assert engine._agent_failures[0]["event"] == "refuted_verdict"
-        assert "Attempt 1/3" in engine._agent_failures[0]["detail"]
+        assert len(engine._state.agent_failures) == 1
+        assert engine._state.agent_failures[0]["event"] == "refuted_verdict"
+        assert "Attempt 1/3" in engine._state.agent_failures[0]["detail"]
 
     def test_compute_verdict_stall_no_agent_failure(self):
         """At stall escalation (count >= limit), no _agent_failures entry (violation used instead)."""
@@ -1807,33 +1746,30 @@ class TestAgentFailureRouting:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 5
-            engine._pending_recompute_claim = None
-            engine._pending_recompute_verdict = None
-            engine._claim_failure_count = {"verify formula x = y": 1}  # already at limit-1
-            engine._stalled_claims = set()
-            engine._pending_violations = []
-            engine._agent_failures = []
+            engine._state = LoopState(
+                claim_failure_count={"verify formula x = y": 1},  # already at limit-1
+            )
 
         task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        # Stall escalation uses violations, not _agent_failures
-        assert len(engine._agent_failures) == 0
-        assert len(engine._pending_violations) == 1
-        assert engine._pending_violations[0].check == "computation_stall"
+        # Stall escalation uses violations, not _state.agent_failures
+        assert len(engine._state.agent_failures) == 0
+        assert len(engine._state.pending_violations) == 1
+        assert engine._state.pending_violations[0].check == "computation_stall"
 
     def test_context_prefix_ordering(self):
         """Agent failures appear after displaced tasks in context prefix."""
         engine = self._make_engine()
-        engine._displaced_tasks = [{
+        engine._state.displaced_tasks = [{
             "task_id": "TASK-003",
             "task_type": "compute",
             "body_summary": "Verify something",
             "override": "forced_critic",
             "iteration": 4,
         }]
-        engine._agent_failures = [{
+        engine._state.agent_failures = [{
             "task_id": "TASK-003",
             "agent": "computationalist",
             "event": "max_rounds_exhaustion",
@@ -1883,14 +1819,11 @@ Grid too coarse at boundary.
             engine.metrics = MagicMock()
             engine.metrics.last_critic_iteration = 4
             engine.iteration = 5
-            engine._stale_iterations = 0
-            engine._stalled_claims = set()
-            engine._claim_failure_count = {}
-            engine._pending_recompute_claim = pending_recompute
-            engine._pending_recompute_verdict = pending_verdict
-            engine._last_content_iteration = 5
-            engine._displaced_tasks = []
-            engine._agent_failures = []
+            engine._state = LoopState(
+                pending_recompute_claim=pending_recompute,
+                pending_recompute_verdict=pending_verdict,
+                last_content_iteration=5,
+            )
         return engine, ws, written
 
     def test_p4_recompute_gets_enrichment(self):
@@ -1945,8 +1878,8 @@ Grid too coarse at boundary.
                     assigned_to="computationalist", body="Verify formula X = Y")
         engine._track_compute_verdict(task)
 
-        assert engine._pending_recompute_claim is not None
-        assert engine._pending_recompute_verdict == "INCONCLUSIVE"
+        assert engine._state.pending_recompute_claim is not None
+        assert engine._state.pending_recompute_verdict == "INCONCLUSIVE"
 
     def test_p4_recompute_with_inconclusive_verdict(self):
         """End-to-end: INCONCLUSIVE verdict flows through _apply_overrides to recompute task."""
@@ -1965,8 +1898,8 @@ Grid too coarse at boundary.
         assert result.task_type == TaskType.COMPUTE
         assert "INCONCLUSIVE" in result.body
         assert "REFUTED" not in result.body
-        assert engine._pending_recompute_claim is None
-        assert engine._pending_recompute_verdict is None
+        assert engine._state.pending_recompute_claim is None
+        assert engine._state.pending_recompute_verdict is None
 
 
 def unittest_any_string_containing(substring):

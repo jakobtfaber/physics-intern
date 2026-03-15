@@ -831,7 +831,8 @@ class TestCriticOverdue:
             engine.metrics = MagicMock()
             engine.metrics.last_critic_iteration = last_critic_iteration
             engine.iteration = current_iteration
-            engine._last_content_iteration = last_content_iteration
+            from sciralph.engine import LoopState
+            engine._state = LoopState(last_content_iteration=last_content_iteration)
 
         return engine
 
@@ -883,7 +884,8 @@ class TestCriticOverdue:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 7
-            engine._last_content_iteration = 0
+            from sciralph.engine import LoopState
+            engine._state = LoopState()
 
             engine.researcher = MagicMock()
             engine.computationalist = MagicMock()
@@ -891,7 +893,7 @@ class TestCriticOverdue:
 
         task = Task(task_id="T", task_type=TaskType.RESEARCH, assigned_to="researcher")
         engine._dispatch(task)
-        assert engine._last_content_iteration == 7
+        assert engine._state.last_content_iteration == 7
 
 
 # ---------------------------------------------------------------------------

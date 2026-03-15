@@ -5,6 +5,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from sciralph.config import Config
+from sciralph.engine import LoopState
 from sciralph.markdown import render_frontmatter
 from sciralph.task import Task, TaskType
 from sciralph.workspace import log_llm_call, log_scaffold_event
@@ -98,14 +99,7 @@ class TestBudgetOverrideLogs:
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 10
-            engine._stale_iterations = 0
-            engine._pending_recompute_claim = None
-            engine._pending_recompute_verdict = None
-            engine._stalled_claims = set()
-            engine._claim_failure_count = {}
-            engine._pending_violations = []
-            engine._displaced_tasks = []
-            engine._agent_failures = []
+            engine._state = LoopState()
 
             task = Task(
                 task_id="TASK-010", task_type=TaskType.COMPUTE,

@@ -1,5 +1,7 @@
 """SciRalph main loop engine."""
 
+from dataclasses import dataclass, field
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -31,6 +33,22 @@ from .agents.formatter import FormatterAgent
 console = Console()
 
 
+@dataclass
+class LoopState:
+    """Inter-iteration state for the main research loop."""
+    stale_iterations: int = 0
+    pending_recompute_claim: str | None = None
+    pending_recompute_verdict: str | None = None
+    stalled_claims: set[str] = field(default_factory=set)
+    claim_failure_count: dict[str, int] = field(default_factory=dict)
+    last_content_iteration: int = 0
+    # Consumed-once feedback accumulators (cleared after orchestrator reads them)
+    pending_violations: list = field(default_factory=list)
+    pending_termination_blockers: list[str] = field(default_factory=list)
+    displaced_tasks: list[dict] = field(default_factory=list)
+    agent_failures: list[dict] = field(default_factory=list)
+
+
 class SciRalph:
     """Main loop for the SciRalph research system."""
 
@@ -46,17 +64,8 @@ class SciRalph:
         self.workspace.init(problem)
         self.config.logs_dir = str(self.workspace.logs_dir)
         self.iteration = 0
-        self._stale_iterations = 0
-        self._pending_recompute_claim: str | None = None
-        self._pending_recompute_verdict: str | None = None
-        self._stalled_claims: set[str] = set()
-        self._claim_failure_count: dict[str, int] = {}
-        self._last_content_iteration: int = 0
+        self._state = LoopState()
         self.problem_meta = problem_meta or {}
-        self._pending_violations: list = []
-        self._pending_termination_blockers: list[str] = []
-        self._displaced_tasks: list[dict] = []
-        self._agent_failures: list[dict] = []
 
         # Initialize agents
         self.orchestrator = OrchestratorAgent(self.config, self.workspace, self.metrics)
@@ -81,7 +90,7 @@ class SciRalph:
             # 2. Post-integration validation (Layer B hook -- stub returns [])
             violations = validate_post_integration(self.workspace, self.config, iteration=self.iteration)
             if violations:
-                self._pending_violations.extend(violations)
+                self._state.pending_violations.extend(violations)
 
             # 3. Pre-dispatch overrides (explicit priority chain)
             task = self._apply_overrides(task)
@@ -95,7 +104,7 @@ class SciRalph:
                     self._run_formatter()
                     self._set_research_status("completed")
                     break
-                self._pending_termination_blockers = blockers
+                self._state.pending_termination_blockers = blockers
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "termination_blocked",
                                    f"blockers: {'; '.join(b[:60] for b in blockers)}")
                 continue  # re-enter loop
@@ -110,7 +119,7 @@ class SciRalph:
                     self.iteration,
                     f"Dispatch failed (transient): {type(exc).__name__}: {exc}",
                 )
-                self._pending_violations.append(
+                self._state.pending_violations.append(
                     Violation(
                         check="dispatch_failure",
                         severity=ViolationSeverity.WARNING,
@@ -142,7 +151,7 @@ class SciRalph:
             if post_phantoms:
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "post_dispatch_phantom",
                                    f"count={len(post_phantoms)}")
-                self._pending_violations.extend(post_phantoms)
+                self._state.pending_violations.extend(post_phantoms)
 
             # 7. Compression, metrics, git
             self._check_compression()
@@ -183,7 +192,7 @@ class SciRalph:
             "override": override_name,
             "iteration": self.iteration,
         }
-        self._displaced_tasks.append(summary)
+        self._state.displaced_tasks.append(summary)
         self.metrics.alert(
             self.iteration,
             f"task_displaced: {original_task.task_id} ({original_task.task_type}) "
@@ -199,7 +208,7 @@ class SciRalph:
         # max_tokens truncation (one-shot or agentic)
         if stop == "max_tokens":
             out_tok = getattr(result, "output_tokens", None) or getattr(result, "total_output_tokens", None) or 0
-            self._agent_failures.append({
+            self._state.agent_failures.append({
                 "task_id": task.task_id, "agent": agent_name,
                 "event": "max_tokens_truncation",
                 "detail": (
@@ -215,7 +224,7 @@ class SciRalph:
 
         # max_rounds exhaustion (agentic only)
         if stop == "max_rounds_forced" and isinstance(result, AgentResult):
-            self._agent_failures.append({
+            self._state.agent_failures.append({
                 "task_id": task.task_id, "agent": agent_name,
                 "event": "max_rounds_exhaustion",
                 "detail": f"Exhausted {result.rounds} tool-use rounds without completing.",
@@ -228,12 +237,12 @@ class SciRalph:
     def _build_context_prefix(self) -> str:
         """Build prefix for orchestrator context with violations, blockers, and displaced tasks."""
         lines = []
-        if self._pending_violations:
+        if self._state.pending_violations:
             # ER-demotion/promotion violations are enforced by state rewrite
             # in check_er_promotion_gate(); injecting them into context causes
             # re-promotion churn.  Keep only non-gate violations.
             display_violations = [
-                v for v in self._pending_violations
+                v for v in self._state.pending_violations
                 if v.check != "er_promotion_gate"
             ]
             if display_violations:
@@ -241,35 +250,35 @@ class SciRalph:
                 for v in display_violations:
                     lines.append(f"  [{v.severity}] {v.check}: {v.message}")
                 lines.append(">>> END VIOLATIONS <<<\n")
-            self._pending_violations.clear()
-        if self._pending_termination_blockers:
+            self._state.pending_violations.clear()
+        if self._state.pending_termination_blockers:
             lines.append(">>> TERMINATION BLOCKED — YOU CANNOT TERMINATE YET <<<")
             lines.append("Your previous terminate request was REJECTED for these reasons:")
-            for b in self._pending_termination_blockers:
+            for b in self._state.pending_termination_blockers:
                 lines.append(f"  - {b}")
             lines.append(
                 "Do NOT emit task_type: terminate again until you have addressed "
                 "ALL blockers above. Emit the specific task_type indicated in each blocker."
             )
             lines.append(">>> END TERMINATION BLOCKERS <<<\n")
-            self._pending_termination_blockers.clear()
-        if self._displaced_tasks:
+            self._state.pending_termination_blockers.clear()
+        if self._state.displaced_tasks:
             lines.append(">>> DISPLACED TASKS (from previous iteration overrides) <<<")
             lines.append("Consider re-scheduling if still needed:")
-            for d in self._displaced_tasks:
+            for d in self._state.displaced_tasks:
                 lines.append(
                     f"  - {d['task_id']} ({d['task_type']}): displaced by "
                     f"{d['override']} at iteration {d['iteration']}. "
                     f"Summary: {d['body_summary']}"
                 )
             lines.append(">>> END DISPLACED TASKS <<<\n")
-            self._displaced_tasks.clear()
-        if self._agent_failures:
+            self._state.displaced_tasks.clear()
+        if self._state.agent_failures:
             lines.append(">>> AGENT FAILURES (previous iteration) <<<")
-            for f in self._agent_failures:
+            for f in self._state.agent_failures:
                 lines.append(f"  - {f['task_id']} ({f['agent']}): {f['event']}. {f['detail']}")
             lines.append(">>> END AGENT FAILURES <<<\n")
-            self._agent_failures.clear()
+            self._state.agent_failures.clear()
         return "\n".join(lines)
 
     def _apply_overrides(self, task: Task) -> Task:
@@ -291,7 +300,7 @@ class SciRalph:
         if self._is_stale_loop(task):
             self._log_displacement(task, "stale_loop")
             log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p2_stale_loop_override",
-                               f"stale_iterations={self._stale_iterations}")
+                               f"stale_iterations={self._state.stale_iterations}")
             return self._make_budget_synthesize_task()
 
         # P3: Forced critic (overdue) — never override terminal tasks
@@ -310,7 +319,7 @@ class SciRalph:
         # P3b: Block redundant critic (no new content since last review)
         if (task.task_type == TaskType.CRITIQUE
                 and self.metrics.last_critic_iteration > 0
-                and self.metrics.last_critic_iteration >= self._last_content_iteration):
+                and self.metrics.last_critic_iteration >= self._state.last_content_iteration):
             console.print(
                 "[yellow]Skipping redundant critic — no new content since "
                 f"iteration {self.metrics.last_critic_iteration} review.[/yellow]"
@@ -322,8 +331,8 @@ class SciRalph:
         # P5: Block dispatch to stalled claim (checked before P4 as defense-in-depth)
         if task.task_type == TaskType.COMPUTE:
             claim_key = _normalize_claim_key(task.body)
-            if claim_key in self._stalled_claims:
-                self._pending_violations.append(
+            if claim_key in self._state.stalled_claims:
+                self._state.pending_violations.append(
                     Violation(
                         check="stall_detection",
                         severity=ViolationSeverity.WARNING,
@@ -333,11 +342,11 @@ class SciRalph:
                     )
                 )
                 # Defense-in-depth: clear pending recompute if it targets the same claim
-                if self._pending_recompute_claim:
-                    pending_key = _normalize_claim_key(self._pending_recompute_claim)
+                if self._state.pending_recompute_claim:
+                    pending_key = _normalize_claim_key(self._state.pending_recompute_claim)
                     if pending_key == claim_key:
-                        self._pending_recompute_claim = None
-                        self._pending_recompute_verdict = None
+                        self._state.pending_recompute_claim = None
+                        self._state.pending_recompute_verdict = None
                 self._log_displacement(task, "stall_block")
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p5_stall_block",
                                    f"claim={claim_key[:80]}")
@@ -357,11 +366,11 @@ class SciRalph:
                 )
 
         # P4: REFUTED/INCONCLUSIVE recompute
-        if self._pending_recompute_claim:
-            claim = self._pending_recompute_claim
-            verdict = self._pending_recompute_verdict or "REFUTED"
-            self._pending_recompute_claim = None
-            self._pending_recompute_verdict = None
+        if self._state.pending_recompute_claim:
+            claim = self._state.pending_recompute_claim
+            verdict = self._state.pending_recompute_verdict or "REFUTED"
+            self._state.pending_recompute_claim = None
+            self._state.pending_recompute_verdict = None
             if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
                 console.print(f"[yellow]Forcing recompute after {verdict} verdict.[/yellow]")
                 self._log_displacement(task, "refuted_recompute")
@@ -385,14 +394,14 @@ class SciRalph:
     def _is_stale_loop(self, task: Task) -> bool:
         """Detect stale loop when research appears complete but orchestrator didn't terminate."""
         if task.task_type in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-            self._stale_iterations = 0
+            self._state.stale_iterations = 0
             return False
         state = self.workspace.read_file("RESEARCH_STATE.md")
         er_count = count_er_sections(state)
         wh_count = count_wh_sections(state)
         if er_count >= self.config.min_er_for_completion and wh_count == 0:
-            self._stale_iterations += 1
-            if self._stale_iterations >= 2:
+            self._state.stale_iterations += 1
+            if self._state.stale_iterations >= 2:
                 console.print(
                     "[yellow]Backstop: research appears complete but orchestrator "
                     "did not terminate. Forcing synthesize.[/yellow]"
@@ -400,7 +409,7 @@ class SciRalph:
                 self.metrics.alert(self.iteration, "Stale loop detected — forcing synthesize")
                 return True
         else:
-            self._stale_iterations = 0
+            self._state.stale_iterations = 0
         return False
 
     def _dispatch(self, task: Task) -> tuple[str, "LLMResponse | AgentResult"]:
@@ -436,13 +445,13 @@ class SciRalph:
         if tt in (TaskType.RESEARCH, TaskType.DERIVE, TaskType.RESOLVE, TaskType.SYNTHESIZE):
             console.print(f"[green]Researcher[/green] working on: {tt}")
             result = self.researcher.run(task, self.iteration)
-            self._last_content_iteration = self.iteration
+            self._state.last_content_iteration = self.iteration
             return "researcher", result
 
         elif tt == TaskType.COMPUTE:
             console.print("[magenta]Computationalist[/magenta] working...")
             result = self.computationalist.run(task, self.iteration, on_round=self._on_compute_round)
-            self._last_content_iteration = self.iteration
+            self._state.last_content_iteration = self.iteration
             return "computationalist", result
 
         elif tt == TaskType.FORMAT:
@@ -456,7 +465,7 @@ class SciRalph:
             if hasattr(response, 'text') and 'NO_CRITIQUES_FILED' in (response.text or ''):
                 console.print("[dim]Critic: no issues found[/dim]")
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "no_critiques_filed", "")
-                self._pending_violations.append(
+                self._state.pending_violations.append(
                     Violation(
                         check="critic_clean",
                         severity=ViolationSeverity.WARNING,
@@ -480,7 +489,7 @@ class SciRalph:
         if (self.iteration - self.metrics.last_critic_iteration) < self.config.critic_every_n:
             return False
         # Skip if critic already reviewed the latest content
-        if self.metrics.last_critic_iteration >= self._last_content_iteration:
+        if self.metrics.last_critic_iteration >= self._state.last_content_iteration:
             return False
         return True
 
@@ -582,18 +591,18 @@ class SciRalph:
             return
 
         if verdict == "VERIFIED":
-            self._claim_failure_count.pop(key, None)
+            self._state.claim_failure_count.pop(key, None)
             return
 
         # REFUTED, INCONCLUSIVE, or any non-VERIFIED
-        count = self._claim_failure_count.get(key, 0) + 1
-        self._claim_failure_count[key] = count
+        count = self._state.claim_failure_count.get(key, 0) + 1
+        self._state.claim_failure_count[key] = count
 
         if count < self.config.stall_recompute_limit:
             # Allow auto-recompute (existing P4 behavior, now gated)
-            self._pending_recompute_claim = claim
-            self._pending_recompute_verdict = verdict
-            self._agent_failures.append({
+            self._state.pending_recompute_claim = claim
+            self._state.pending_recompute_verdict = verdict
+            self._state.agent_failures.append({
                 "task_id": task.task_id, "agent": "computationalist",
                 "event": f"{verdict.lower()}_verdict",
                 "detail": f"Attempt {count}/{self.config.stall_recompute_limit}. Will force recompute next iteration.",
@@ -610,8 +619,8 @@ class SciRalph:
                                f"attempt={count}/{self.config.stall_recompute_limit}")
         else:
             # Escalate: block further recomputes, inform orchestrator
-            self._stalled_claims.add(key)
-            self._pending_violations.append(
+            self._state.stalled_claims.add(key)
+            self._state.pending_violations.append(
                 Violation(
                     check="computation_stall",
                     severity=ViolationSeverity.WARNING,
@@ -639,7 +648,7 @@ class SciRalph:
         comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
         stalls = detect_computation_stalls(comp_log, threshold=self.config.stall_threshold)
         for stall in stalls:
-            self._stalled_claims.add(stall["claim"])
+            self._state.stalled_claims.add(stall["claim"])
 
     def _make_recompute_task(self, claim: str, verdict: str = "REFUTED") -> Task:
         """Create a forced compute task to re-verify a claim after a non-VERIFIED verdict."""
