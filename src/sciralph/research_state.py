@@ -47,6 +47,12 @@ class CritiqueStatus(StrEnum):
     WITHDRAWN = "withdrawn"
 
 
+class RQStatus(StrEnum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+    ABANDONED = "abandoned"
+
+
 # ---------------------------------------------------------------------------
 # Entity dataclasses
 # ---------------------------------------------------------------------------
@@ -103,6 +109,18 @@ class FailedApproach:
     iteration: int = 0
 
 
+@dataclass
+class ResearchQuestion:
+    """Open-ended research question (not a falsifiable claim)."""
+    id: str                                         # RQ-NNN
+    question: str = ""
+    context: str = ""                               # why this question matters
+    resolved_to: list[str] = field(default_factory=list)  # WH-NNN IDs
+    status: RQStatus = RQStatus.OPEN
+    iteration_created: int = 0
+    iteration_resolved: int | None = None
+
+
 # ---------------------------------------------------------------------------
 # ResearchState
 # ---------------------------------------------------------------------------
@@ -118,6 +136,7 @@ class ResearchState:
     hypotheses: dict[str, Hypothesis] = field(default_factory=dict)
     computations: dict[str, Computation] = field(default_factory=dict)
     critiques: dict[str, Critique] = field(default_factory=dict)
+    research_questions: dict[str, ResearchQuestion] = field(default_factory=dict)
     failed_approaches: list[FailedApproach] = field(default_factory=list)
     iteration: int = 0
     problem_statement: str = ""
@@ -193,6 +212,22 @@ class ResearchState:
             if has_explore and not has_verified:
                 result.append(h)
         return result
+
+    def open_research_questions(self) -> list[ResearchQuestion]:
+        """All open research questions."""
+        return [rq for rq in self.research_questions.values() if rq.status == RQStatus.OPEN]
+
+    def next_rq_num(self) -> int:
+        """Max existing RQ number + 1."""
+        nums = []
+        for rqid in self.research_questions:
+            parts = rqid.split("-")
+            if len(parts) == 2 and parts[0] == "RQ":
+                try:
+                    nums.append(int(parts[1]))
+                except ValueError:
+                    pass
+        return max(nums, default=0) + 1
 
     def unestablished_dependencies(self, hypothesis_id: str) -> list[str]:
         """Return dependency IDs that are not yet ESTABLISHED."""
@@ -327,6 +362,13 @@ class ResearchState:
                 for dep in h.depends_on
             ]
 
+        # Update resolved_to references in research questions
+        for rq in self.research_questions.values():
+            rq.resolved_to = [
+                id_by_num.get(ref.split("-")[1], ref) if "-" in ref else ref
+                for ref in rq.resolved_to
+            ]
+
         # Rebuild supporting_comps from scratch
         for h in self.hypotheses.values():
             h.supporting_comps = []
@@ -393,6 +435,16 @@ class ResearchState:
                 resolution=crdata.get("resolution", ""),
                 iteration_filed=crdata.get("iteration_filed", 0),
                 iteration_resolved=crdata.get("iteration_resolved"),
+            )
+        for rqid, rqdata in data.get("research_questions", {}).items():
+            state.research_questions[rqid] = ResearchQuestion(
+                id=rqdata["id"],
+                question=rqdata.get("question", ""),
+                context=rqdata.get("context", ""),
+                resolved_to=rqdata.get("resolved_to", []),
+                status=RQStatus(rqdata.get("status", "open")),
+                iteration_created=rqdata.get("iteration_created", 0),
+                iteration_resolved=rqdata.get("iteration_resolved"),
             )
         for fdata in data.get("failed_approaches", []):
             state.failed_approaches.append(FailedApproach(

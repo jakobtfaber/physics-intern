@@ -281,6 +281,32 @@ class TestRenderResearchStateMd:
         md = render_research_state_md(populated_state)
         assert "**Depends on:**" not in md
 
+    def test_research_questions_section_rendered(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        state = ResearchState(problem_statement="Test")
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is F(p)?",
+            context="Needed for verification", status=RQStatus.OPEN,
+        )
+        state.research_questions["RQ-002"] = ResearchQuestion(
+            id="RQ-002", question="Resolved question",
+            status=RQStatus.RESOLVED, resolved_to=["WH-003"],
+        )
+        md = render_research_state_md(state)
+        assert "# Research Questions" in md
+        assert "RQ-001 [OPEN]" in md
+        assert "What is F(p)?" in md
+        assert "RQ-002 [RESOLVED]" in md
+        assert "Resolved to: WH-003" in md
+        # RQ section should appear before hypotheses section
+        rq_pos = md.index("# Research Questions")
+        wh_pos = md.index("# Working Hypotheses")
+        assert rq_pos < wh_pos
+
+    def test_no_rq_section_when_empty(self, empty_state):
+        md = render_research_state_md(empty_state)
+        assert "# Research Questions" not in md
+
     def test_promotion_justification_rendered(self):
         state = ResearchState(problem_statement="Test")
         state.hypotheses["ER-001"] = Hypothesis(

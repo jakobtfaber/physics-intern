@@ -1317,3 +1317,67 @@ class TestUnestablishedDependencies:
     def test_returns_empty_for_unknown_hypothesis(self):
         state = ResearchState()
         assert state.unestablished_dependencies("WH-999") == []
+
+
+# ---------------------------------------------------------------------------
+# Phase 4b: Research Questions (B1+B3) tests
+# ---------------------------------------------------------------------------
+
+class TestResearchQuestionLifecycle:
+    """Tests for ResearchQuestion entity and queries."""
+
+    def test_json_round_trip(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        state = ResearchState()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001",
+            question="What is the leading-order correction?",
+            context="Needed for next step",
+            resolved_to=["WH-003"],
+            status=RQStatus.RESOLVED,
+            iteration_created=1,
+            iteration_resolved=3,
+        )
+        json_str = state.to_json()
+        restored = ResearchState.from_json(json_str)
+        rq = restored.research_questions["RQ-001"]
+        assert rq.question == "What is the leading-order correction?"
+        assert rq.status == RQStatus.RESOLVED
+        assert rq.resolved_to == ["WH-003"]
+        assert rq.iteration_resolved == 3
+
+    def test_json_backward_compat_no_rqs(self):
+        data = {"hypotheses": {}}
+        state = ResearchState.from_json(json.dumps(data))
+        assert state.research_questions == {}
+
+    def test_open_research_questions(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        state = ResearchState()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Open one", status=RQStatus.OPEN,
+        )
+        state.research_questions["RQ-002"] = ResearchQuestion(
+            id="RQ-002", question="Resolved one", status=RQStatus.RESOLVED,
+        )
+        assert len(state.open_research_questions()) == 1
+        assert state.open_research_questions()[0].id == "RQ-001"
+
+    def test_next_rq_num(self):
+        from sciralph.research_state import ResearchQuestion
+        state = ResearchState()
+        assert state.next_rq_num() == 1
+        state.research_questions["RQ-001"] = ResearchQuestion(id="RQ-001")
+        assert state.next_rq_num() == 2
+
+    def test_normalize_references_remaps_resolved_to(self):
+        from sciralph.research_state import ResearchQuestion
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="test", resolved_to=["WH-001"],
+        )
+        state.normalize_references()
+        assert state.research_questions["RQ-001"].resolved_to == ["ER-001"]

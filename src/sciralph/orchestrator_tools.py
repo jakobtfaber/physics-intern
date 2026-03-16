@@ -186,6 +186,56 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "add_research_question",
+            "description": (
+                "Add an open-ended research question (RQ). "
+                "Use for questions that need exploration before a concrete "
+                "hypothesis can be formulated. Returns the auto-assigned ID (e.g., RQ-001)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "The research question.",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Why this question matters for the research.",
+                    },
+                },
+                "required": ["question"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "resolve_research_question",
+            "description": (
+                "Mark a research question as resolved. "
+                "Provide the WH IDs that the question resolved into."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Research question ID, e.g. RQ-001.",
+                    },
+                    "resolved_to": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "WH/ER IDs this question resolved into.",
+                    },
+                },
+                "required": ["id", "resolved_to"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "set_next_task",
             "description": (
                 "Set the next task for the research loop. "
@@ -262,6 +312,8 @@ class OrchestratorToolExecutor:
             "promote_hypothesis": self._promote_hypothesis,
             "resolve_critique": self._resolve_critique,
             "update_section": self._update_section,
+            "add_research_question": self._add_research_question,
+            "resolve_research_question": self._resolve_research_question,
             "set_next_task": self._set_next_task,
         }
         handler = handlers.get(tool_name)
@@ -404,6 +456,22 @@ class OrchestratorToolExecutor:
                 f"{', '.join(unestablished)}. Promote or resolve them first."
             )
 
+        # Guardrail: require verification evidence
+        verify_kinds = {"verify", "research_verify"}
+        from .research_state import Verdict as _V
+        has_verification = any(
+            c.target_hypothesis in (wh_id, er_id)
+            and c.kind in verify_kinds
+            and c.verdict == _V.VERIFIED
+            for c in state.computations.values()
+        )
+        if not has_verification:
+            return (
+                f"Error: Cannot promote {wh_id} — no VERIFIED computation "
+                "with kind 'verify' or 'research_verify' exists. "
+                "Schedule a compute_verify or research_verify task first."
+            )
+
         # Perform promotion in state
         h = state.hypotheses.pop(wh_id)
         h.id = er_id
@@ -466,6 +534,47 @@ class OrchestratorToolExecutor:
 
         self.mutations_applied = True
         return f"Updated # {section_name}"
+
+    def _add_research_question(self, args: dict) -> str:
+        from .research_state import ResearchQuestion
+
+        state = self.research_state
+        if not state:
+            return "Error: no research state available"
+
+        num = state.next_rq_num()
+        rq_id = f"RQ-{num:03d}"
+        question = args.get("question", "Untitled question")
+        context = args.get("context", "")
+
+        state.research_questions[rq_id] = ResearchQuestion(
+            id=rq_id,
+            question=question,
+            context=context,
+            iteration_created=self.iteration,
+        )
+        self.mutations_applied = True
+        return f"Added {rq_id} — {question}"
+
+    def _resolve_research_question(self, args: dict) -> str:
+        from .research_state import RQStatus
+
+        state = self.research_state
+        if not state:
+            return "Error: no research state available"
+
+        rq_id = args["id"]
+        resolved_to = args.get("resolved_to", [])
+
+        if rq_id not in state.research_questions:
+            return f"Error: {rq_id} not found in research state"
+
+        rq = state.research_questions[rq_id]
+        rq.status = RQStatus.RESOLVED
+        rq.resolved_to = resolved_to
+        rq.iteration_resolved = self.iteration
+        self.mutations_applied = True
+        return f"Resolved {rq_id} → {', '.join(resolved_to)}"
 
     def _set_next_task(self, args: dict) -> str:
         self.task_data = args

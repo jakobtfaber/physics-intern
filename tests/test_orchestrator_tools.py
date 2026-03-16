@@ -491,6 +491,33 @@ class TestDependencyGraph:
         assert "ER-002" in state.hypotheses
         assert state.hypotheses["ER-002"].promotion_justification == "Verified by COMP-001, dependency ER-001 established"
 
+    def test_promotion_blocked_without_verification_evidence(self):
+        """Promotion requires at least one VERIFIED verify/research_verify computation."""
+        ws = _make_workspace()
+        state = _make_state()  # no computations
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "Just because",
+        })
+        assert "no VERIFIED computation" in tc.output
+
+    def test_promotion_allowed_with_research_verify_evidence(self):
+        """research_verify kind counts as verification evidence."""
+        ws = _make_workspace()
+        state = _make_state()
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001",
+            verdict=Verdict.VERIFIED, kind="research_verify",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "Verified by analytical review",
+        })
+        assert not tc.is_error
+        assert "ER-001" in state.hypotheses
+
     def test_promotion_stores_justification(self):
         ws = _make_workspace()
         state = _make_state_with_verified("WH-001")
@@ -502,3 +529,52 @@ class TestDependencyGraph:
         assert not tc.is_error
         assert "ER-001" in state.hypotheses
         assert state.hypotheses["ER-001"].promotion_justification == "Strong evidence from COMP-001"
+
+
+class TestResearchQuestionTools:
+    """Tests for add_research_question and resolve_research_question tools."""
+
+    def test_add_research_question(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=2, research_state=state)
+        tc = ex.execute("add_research_question", {
+            "question": "What is the entropy correction?",
+            "context": "Needed for WH-002",
+        })
+        assert not tc.is_error
+        assert "RQ-001" in tc.output
+        assert "RQ-001" in state.research_questions
+        rq = state.research_questions["RQ-001"]
+        assert rq.question == "What is the entropy correction?"
+        assert rq.context == "Needed for WH-002"
+        assert ex.mutations_applied
+
+    def test_resolve_research_question(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        ws = _make_workspace()
+        state = _make_state()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is F(p)?",
+            iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("resolve_research_question", {
+            "id": "RQ-001",
+            "resolved_to": ["WH-003"],
+        })
+        assert not tc.is_error
+        rq = state.research_questions["RQ-001"]
+        assert rq.status == RQStatus.RESOLVED
+        assert rq.resolved_to == ["WH-003"]
+        assert rq.iteration_resolved == 3
+
+    def test_resolve_missing_rq_returns_error(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("resolve_research_question", {
+            "id": "RQ-999",
+            "resolved_to": [],
+        })
+        assert "not found" in tc.output

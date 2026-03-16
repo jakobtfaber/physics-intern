@@ -16,6 +16,7 @@ from .research_state import (
     CritiqueStatus,
     HypothesisStatus,
     ResearchState,
+    RQStatus,
     Severity,
     Verdict,
 )
@@ -49,6 +50,23 @@ def render_research_state_md(state: ResearchState) -> str:
     parts.append("# Conventions\n")
     parts.append(state.conventions or "(To be populated by the orchestrator as conventions become clear.)")
     parts.append("")
+
+    # Research Questions
+    open_rqs = [rq for rq in state.research_questions.values() if rq.status == RQStatus.OPEN]
+    resolved_rqs = [rq for rq in state.research_questions.values() if rq.status != RQStatus.OPEN]
+    if state.research_questions:
+        parts.append("# Research Questions\n")
+        for rq in sorted(open_rqs, key=lambda r: r.id):
+            parts.append(f"## {rq.id} [OPEN] — {rq.question}")
+            if rq.context:
+                parts.append(f"  Context: {rq.context}")
+            parts.append("")
+        for rq in sorted(resolved_rqs, key=lambda r: r.id):
+            status_tag = f"[{rq.status.upper()}]"
+            parts.append(f"## {rq.id} {status_tag} — {rq.question}")
+            if rq.resolved_to:
+                parts.append(f"  Resolved to: {', '.join(rq.resolved_to)}")
+            parts.append("")
 
     # Working Hypotheses and Established Results
     parts.append("# Working Hypotheses (WH) and Established Results (ER)\n")

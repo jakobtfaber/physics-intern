@@ -74,6 +74,20 @@ CONVENTIONS:
 - Use update_section("Conventions", ...) to maintain the unit system,
   metric signature, sign conventions, and variable definitions.
 
+RESEARCH QUESTIONS (RQ):
+Use add_research_question for open-ended exploration targets that are
+NOT yet concrete enough to be a falsifiable hypothesis. Examples:
+- "What is the leading-order correction to the entropy?"
+- "What functional form does F(p) take?"
+
+After an explore result answers the question, call resolve_research_question
+with the WH IDs the question resolved into. RQs that lead nowhere can be
+abandoned via resolve with an empty resolved_to list.
+
+Use add_hypothesis for concrete, falsifiable claims:
+- "S = 4 pi M^2 (Bekenstein-Hawking entropy)"
+- "F(p) = 1 - p/3 to first order in p"
+
 INLINE SYNTHESIS:
 When ALL problem steps have been promoted to Established Results
 (0 Working Hypotheses, 0 unresolved HIGH/MEDIUM critiques), call
