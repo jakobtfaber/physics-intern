@@ -82,7 +82,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `llm.py` | 526 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, event log entries |
 | `tools.py` | 230 | `ToolExecutor`, `ToolCall`, `execute_python` + `submit_verdict` + `report_progress` tool schemas |
 | `workspace.py` | 224 | File I/O, git ops, phantom reference validation, `log_scaffold_event()` |
-| `markdown.py` | 502 | Frontmatter parsing, critique lifecycle, stall detection, comp parsing |
+| `markdown.py` | 502 | Frontmatter parsing, critique lifecycle, comp parsing |
 | `sandbox.py` | 49 | `subprocess.run` wrapper with timeout |
 | `metrics.py` | 110 | `MetricsTracker`, `METRICS.md` rendering |
 | `verify.py` | 760 | Independent verification script (science + process audit) |
@@ -144,7 +144,7 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │                                                                      │
 │  7. POST-DISPATCH CHECKS                                             │
 │     └─ Verdict tracking with failure counter after COMPUTE           │
-│     └─ Stall tracking update                                         │
+│     └─ Stall clearing on research/derive/resolve targeting stalled   │
 │     └─ Phantom reference check on agent output                       │
 │     └─ NO_CRITIQUES_FILED detection after CRITIQUE                   │
 │                                                                      │
@@ -171,7 +171,7 @@ All overrides are consolidated in `_apply_overrides()` with explicit priority:
 | P3 | Forced critic | > `critic_every_n` since last critic AND new content since last critic | → critique |
 | P3b | Redundant critic suppression | Scheduled critique but no new content since last critic | → synthesize |
 | P5 | Stall block | COMPUTE task targets a stalled claim (≥ threshold consecutive failures) | → research |
-| P4 | REFUTED/INCONCLUSIVE recompute | Previous REFUTED/INCONCLUSIVE verdict, count < `stall_recompute_limit` | → compute (P6 enrichment applied before return) |
+| P4 | REFUTED/INCONCLUSIVE recompute | Previous REFUTED/INCONCLUSIVE verdict, count < `stall_recompute_limit`; pure condition, state consumed by action, unconsumed state cleaned up post-loop | → compute (P6 enrichment applied before return) |
 | P6 | Enrichment | COMPUTE task with prior failures on same claim | Mutates task body (additive) |
 
 Higher priority wins. Displaced tasks are logged and shown to orchestrator on next pass via `context_prefix`.
@@ -194,7 +194,7 @@ The `can_terminate()` gate requires: at least one VERIFIED computation triggers 
 | TaskType | Agent | Notes |
 |----------|-------|-------|
 | `research`, `derive`, `resolve`, `synthesize` | Researcher | Synthesize rarely dispatched; orchestrator typically writes synthesis inline |
-| `compute` | Computationalist | Post-dispatch: REFUTED detection + stall tracking |
+| `compute` | Computationalist | Post-dispatch: verdict tracking with failure counter |
 | `critique` | Critic | Post-dispatch: NO_CRITIQUES_FILED detection |
 | Unknown | Researcher | Fallback with console warning |
 
@@ -359,7 +359,7 @@ Two calling patterns:
 
 **`call_llm`** — stateless one-shot. Uses `_call_provider_with_retry()` for API resilience. Returns `LLMResponse(text, input_tokens, output_tokens, stop_reason, duration)`. Used by orchestrator, researcher, critic, compressor.
 
-**`run_agent_loop`** — stateful multi-turn. Maintains a growing `messages` list across rounds. Each round: LLM response → tool extraction → `ToolExecutor.execute()` → tool result fed back. Returns `AgentResult(text, tool_calls, total_input/output_tokens, rounds, truncated, duration, stop_reason)`. Used exclusively by computationalist.
+**`run_agent_loop`** — stateful multi-turn. Maintains a growing `messages` list across rounds. Each round: LLM response → tool extraction → `ToolExecutor.execute()` → tool result fed back. Returns `AgentResult(text, tool_calls, total_input/output_tokens, rounds, truncated, duration, stop_reason)`. Used exclusively by computationalist. On `max_rounds` exhaustion or `tool_call_failure`, forces a single text-only final call via agent-agnostic user message (system prompt unchanged); empty text is honest failure (no synthesis fallback). Agent-agnostic warnings at `max_rounds-2` and `max_rounds-1` (no agent-specific format references).
 
 Both paths go through `_call_provider_with_retry()` which wraps every provider call in an exponential-backoff retry loop (see §7 for details).
 
@@ -507,7 +507,7 @@ A hypothesis advances through this lifecycle:
 | `api_retry_max_delay` | 30.0 | Max retry delay (seconds) |
 | `api_timeout` | 120.0 | Per-API-call timeout (seconds) |
 
-Compression tiers: alert at 1x, compress at 1.5x, force-compress at 2x (though 1.5x and 2x currently execute identical code).
+Compression: alert at 1x, compress at `compress_soft_multiplier` (default 1.5x).
 
 ---
 
@@ -540,9 +540,9 @@ Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter
 
 | Category | Event keys |
 |----------|-----------|
-| `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `progress_check`, `forced_final_call`, `forced_final_call_failed`, `forced_call_retry`, `tool_history_synthesis`, `empty_end_turn_fallthrough`, `tool_timeout`, `tool_output_truncation` |
+| `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `progress_check`, `forced_final_call`, `forced_final_call_failed`, `empty_end_turn_fallthrough`, `tool_timeout`, `tool_output_truncation` |
 | `state_invariants` | All `Violation.check` values from validation checks (e.g. `er_demotion_safety`, `phantom_references`, `phantom_labels`, `stale_unverified_labels`, `verified_frontmatter_backfill`, `task_agent_routing`, `id_consistency`, `critique_resolution_consistency`) |
-| `loop_control` | `p1_budget_override`, `p2_stale_loop_override`, `p3_forced_critic`, `p3b_redundant_critic_suppressed`, `p4_refuted_recompute`, `p4_recompute_enriched`, `p4_refuted_suppressed`, `p5_stall_block`, `p6_enrichment`, `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `compute_verdict_stall_escalation`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry` |
+| `loop_control` | `p1_budget_override`, `p2_stale_loop_override`, `p3_forced_critic`, `p3b_redundant_critic_suppressed`, `p4_refuted_recompute`, `p4_recompute_enriched`, `p4_refuted_suppressed`, `p5_stall_block`, `p6_enrichment`, `stall_cleared_by_research`, `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `compute_verdict_stall_escalation`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry` |
 | `output_normalization` | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened`, `preamble_stripped`, `critique_self_retracted`, `empty_response_stub`, `header_injected`, `claim_id_injected`, `submit_verdict_text_extracted` |
 
 **Quick analysis:**
@@ -581,9 +581,8 @@ These mechanisms prevent the computationalist from wasting rounds or producing e
 | Mechanism | Trigger | Action |
 |-----------|---------|--------|
 | Progress check injection | N consecutive `execute_python` rounds without `report_progress` (`progress_check_interval`, default 3) | Inject user-turn message requiring `report_progress` tool call; fires again at 2N, 3N, etc. if model ignores |
-| Two-round escalating warning | At `max_rounds - 2`: warning; at `max_rounds - 1`: CRITICAL with exact format template | Inject user-turn messages with escalating urgency and an INCONCLUSIVE fallback template |
-| Tool history synthesis | Both forced final call and retry produce empty text | `_synthesize_from_tool_history()` builds COMP-000 entry from actual tool execution history (code + output excerpts) |
-| Forced text-only final call | Loop exits for any reason (max rounds, bailout, tool-call failure) | Final LLM call with `tools` omitted, strongly-worded system prompt with full COMP-NNN format, stop_reason set to `max_rounds_forced` |
+| Two-round escalating warning | At `max_rounds - 2`: warning; at `max_rounds - 1`: CRITICAL | Inject agent-agnostic user-turn messages with escalating urgency (no agent-specific format references); mentions `submit_verdict` as preferred exit |
+| Forced text-only final call | Loop exits via max rounds or tool-call failure | Single forced text-only call via agent-agnostic user message (system prompt unchanged), `tools` omitted, stop_reason set to `max_rounds_forced`; empty text is honest failure (no synthesis fallback) |
 | `submit_verdict` structured exit | Model calls `submit_verdict` tool | Structured verdict data bypasses free-text generation; sets `stop_after_round` → `executor_stop`; `process_response` formats COMP entry from tool parameters. Plays WITH tool-calling tendency instead of against it |
 | `report_progress` tool | Model calls `report_progress` tool (prompted by progress check injection) | Captures structured reasoning (`findings_so_far`, `remaining_questions`, `ready_to_conclude`); enriches conversation history with explicit reasoning; if `ready_to_conclude`, response guides model to `submit_verdict`. Works WITH tool-calling tendency |
 | `execute_python` purpose parameter | Model calls `execute_python` | Required `purpose` field forces model to articulate WHY before each run; preserved in logs for audit; not enforced at execution time (schema-level only) |
@@ -626,7 +625,7 @@ All 7 checks run after every orchestrator pass. They are pure functions that mut
 | Forced critic | P3 | Overdue AND new content exists | Force critique | Orchestrator skipping critic indefinitely |
 | Redundant critic suppression | P3b | Critique scheduled but no new content | Force synthesize | Infinite critic-no-critique loop |
 | Stall blocking | P5 | Compute targets claim with ≥ threshold failures | Force research with alternative-approach request | Infinite retries on same broken claim |
-| REFUTED recompute | P4 | Previous REFUTED/INCONCLUSIVE verdict, count < `stall_recompute_limit` | Force compute on refuted claim | Orchestrator ignoring a REFUTED result |
+| REFUTED recompute | P4 | Previous REFUTED/INCONCLUSIVE verdict, count < `stall_recompute_limit`. Condition is pure (no side effects); state consumed by action; unconsumed state cleaned up in `_apply_overrides` post-loop with `p4_refuted_suppressed` log event | Force compute on refuted claim | Orchestrator ignoring a REFUTED result |
 | Prior-failure enrichment | P6 | Compute task with prior failures on same claim | Append last failure's METHOD+RESULT+NOTES excerpt to task body; zero-output stall gets special "ZERO-OUTPUT STALL DETECTED" warning; also applied to P4 recompute tasks | Model repeating identical failing code |
 
 #### Engine-level guards
@@ -641,10 +640,11 @@ All 7 checks run after every orchestrator pass. They are pure functions that mut
 | Post-dispatch phantom check | `run()` | Runs `check_phantom_references()` after every agent dispatch | Phantoms introduced by non-orchestrator agents |
 | NO_CRITIQUES_FILED handling | `_dispatch()` | Detects `NO_CRITIQUES_FILED` in critic response → files `critic_clean` violation telling orchestrator to proceed to synthesize | Empty critic looping indefinitely |
 | Displaced-task transparency | `_log_displacement()` + `_build_context_prefix()` | Logs every overridden task and feeds the list to the orchestrator's next context: "Consider re-scheduling if still needed" | Orchestrator unaware that its planned task was overridden |
-| Dispatch-level verdict tracking | `_track_compute_verdict()` | Counts consecutive non-VERIFIED verdicts per claim; below `stall_recompute_limit` sets `_state.pending_recompute_claim` and `_state.pending_recompute_verdict` (actual verdict), at/above limit escalates to `_state.stalled_claims` with violation | Infinite recompute loops on persistently failing claims |
+| Dispatch-level verdict tracking | `_track_compute_verdict()` | Counter-based (authoritative path; text-scan removed). Counts consecutive non-VERIFIED verdicts per claim; below `stall_recompute_limit` sets `_state.pending_recompute_claim` and `_state.pending_recompute_verdict` (actual verdict), at/above limit escalates to `_state.stalled_claims` with violation. VERIFIED verdict clears the claim from `stalled_claims` | Infinite recompute loops on persistently failing claims |
+| Stall clearing on research | `_clear_stall_if_research_targets()` | Research/derive/resolve task targeting a stalled claim clears that claim from `_state.stalled_claims` and `_state.claim_failure_count`; emits `stall_cleared_by_research` event | Stalled claims stuck permanently even after alternative research approach |
 | Agent failure routing | `_record_agent_failures()` + `_build_context_prefix()` | Records max_tokens truncation, max_rounds exhaustion, and non-VERIFIED compute verdicts; shows "AGENT FAILURES" banner to orchestrator on next pass | Orchestrator re-issuing identical failing tasks without awareness of prior failures |
 | Violations/blockers as context prefix | `_build_context_prefix()` | All pending violations (except ER demotion safety, which is enforced silently by state rewrite) and termination blockers serialised into orchestrator's next user message with explicit "Do NOT emit terminate again" instruction | Orchestrator ignoring validation failures |
-| Forced compression at 2x threshold | `_check_compression()` | Force-compresses files exceeding 2× threshold | Runaway file growth crashing context window |
+| Compression at soft threshold | `_check_compression()` | Compresses files exceeding `compress_soft_multiplier` × threshold (single tier) | Runaway file growth crashing context window |
 
 ### output_normalization — Agent-level corrections and parsing tolerance
 
@@ -717,7 +717,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 |-----------|------:|----------------|
 | `test_engine.py` | 1405 | Main loop, overrides, termination gates, compression, budget, stalls, status, dispatch errors |
 | `test_validation.py` | 1346 | All 8 post-integration checks, can_terminate gates, violation types, critique resolution consistency |
-| `test_markdown.py` | 958 | Frontmatter, sections, critique lifecycle, stall detection, comp parsing, header normalisation |
+| `test_markdown.py` | 958 | Frontmatter, sections, critique lifecycle, comp parsing, header normalisation |
 | `test_report_recommendations.py` | 931 | Report generation, recommendation analysis |
 | `test_verify.py` | 582 | Workspace loading, verdict parsing, prompts, process audit, report patching |
 | `test_llm_retry.py` | 530 | Retry logic, transient error classification, backoff, tool-call failure fallback |
@@ -745,10 +745,6 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 ---
 
 ## 10. Known Issues
-
-### Compression 1.5x vs 2x are identical
-
-In `_check_compression()`, the 1.5x and 2x threshold branches execute identical code (same `Task` construction, same `compressor.run()` call). Only the console message differs. If the intent was more aggressive compression at 2x, it is not implemented.
 
 ### `_check_status_field` uses string matching
 
