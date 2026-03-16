@@ -20,7 +20,7 @@
 
 ## 1. Architecture Overview
 
-SciRalph is a multi-agent scaffolding system for autonomous scientific research in theoretical physics. Six agents take turns in a main loop. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. LLM calls go through a provider abstraction layer supporting Anthropic, OpenAI, Google Gemini, and HuggingFace.
+SciRalph is a multi-agent scaffolding system for autonomous scientific research in theoretical physics. Eight agent roles take turns in a main loop, following a 2x2 dispatch matrix (reasoning/code × explore/verify). All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. LLM calls go through a provider abstraction layer supporting Anthropic, OpenAI, Google Gemini, and HuggingFace.
 
 ```
                         ┌──────────────────┐
@@ -44,8 +44,10 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
               │                 │
      ┌────────▼────────────────▼───────────────────┐
      │                   Agents                     │
-     │  orchestrator  researcher  computationalist  │
-     │  critic        compressor  formatter         │
+     │  orchestrator    compute_verify              │
+     │  compute_explore research_verify             │
+     │  research_explore  critic                    │
+     │  compressor     formatter                    │
      └─────────────────────────────────────────────┘
 
      ┌─────────────────────────────────────────────┐
@@ -78,9 +80,9 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 
 - **ResearchState as source of truth.** All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`). Agents mutate state via tool calls, then Markdown files (`RESEARCH_STATE.md`, `COMPUTATION_LOG.md`, `CRITIQUE_LOG.md`) are rendered from the state for git snapshots and agent context.
 - **Fresh context per call.** Agents are stateless — each call starts from a fresh context built from the current state. No conversation history is carried between iterations.
-- **Staging discipline.** The researcher writes to `PROPOSED_CHANGES.md`, never to `RESEARCH_STATE.md`. The orchestrator reviews and integrates on its next pass. No agent can self-certify its own results.
+- **2x2 dispatch matrix.** Four specialized agents handle the explore/verify × reasoning/code matrix: `compute_verify`, `compute_explore`, `research_verify`, `research_explore`. Each has a focused prompt and tool set — no mode switching or conditional instructions.
 - **Mandatory critic passes.** The scaffold forces critic reviews every N iterations, regardless of agent judgment.
-- **Tool-based state mutation.** Three agents are agentic (orchestrator, computationalist, critic) — they mutate `ResearchState` via typed tool executors (`OrchestratorToolExecutor`, `ToolExecutor`, `CriticToolExecutor`). Tool calls use the `stop_after_round` mechanism to signal completion.
+- **Tool-based state mutation.** Six agents are agentic — orchestrator (9 tools via `OrchestratorToolExecutor`), four compute/research agents (2-3 tools via `ToolExecutor`, dynamic per task type), and critic (2 tools via `CriticToolExecutor`). Tool calls use the `stop_after_round` mechanism to signal completion.
 - **Provider-agnostic.** LLM calls go through a `providers/` abstraction layer. Model selection is resolved via `models.yaml` registry (friendly key → provider + model_id + env_key + cost). The `verify.py` script is Anthropic-only.
 
 ### Source file map
@@ -88,17 +90,17 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | File | Lines | Purpose |
 |------|------:|---------|
 | `main.py` | 82 | CLI entry point, arg parsing, workspace naming (includes model label in dir name) |
-| `engine.py` | 596 | `SciRalph` class, `LoopState` dataclass: main loop, dispatch, compression, scaffolding log events |
-| `research_state.py` | 607 | `ResearchState` dataclass: authoritative structured state (hypotheses, computations, critiques, failed_approaches), query/mutation methods, JSON serialization |
-| `renderers.py` | 309 | Snapshot renderers (state → `RESEARCH_STATE.md`, `COMPUTATION_LOG.md`, `CRITIQUE_LOG.md`) and per-agent context renderers |
-| `orchestrator_tools.py` | 451 | `OrchestratorToolExecutor`: 7 state-mutation tools for orchestrator agent |
-| `critic_tools.py` | 153 | `CriticToolExecutor`: `submit_critique` + `finish_review` tools for critic agent |
-| `tools.py` | 313 | `ToolExecutor`, `ToolCall`, `execute_python` + `submit_verdict`/`submit_result` + `report_progress` tool schemas; `tools_for_task_type()` |
+| `engine.py` | 599 | `SciRalph` class, `LoopState` dataclass: main loop, dispatch, compression, scaffolding log events |
+| `research_state.py` | 695 | `ResearchState` dataclass: authoritative structured state (hypotheses, research_questions, computations, critiques, failed_approaches), query/mutation methods, JSON serialization |
+| `renderers.py` | 340 | Snapshot renderers (state → `RESEARCH_STATE.md`, `COMPUTATION_LOG.md`, `CRITIQUE_LOG.md`) and per-agent context renderers |
+| `orchestrator_tools.py` | 662 | `OrchestratorToolExecutor`: 9 state-mutation tools for orchestrator agent |
+| `critic_tools.py` | 154 | `CriticToolExecutor`: `submit_critique` + `finish_review` tools for critic agent |
+| `tools.py` | 335 | `ToolExecutor`, `ToolCall`, `execute_python` + `submit_verdict`/`submit_result` + `report_progress` tool schemas; `tools_for_task_type()` |
 | `categories.py` | 10 | `CompensationCategory` enum (call_reliability, state_invariants, loop_control, output_normalization) |
-| `validation.py` | 647 | Post-integration checks (8 checks), `can_terminate()` gates, `Violation` dataclass |
+| `validation.py` | 603 | Post-integration checks (8 checks), `can_terminate()` gates, `Violation` dataclass |
 | `config.py` | 168 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
-| `task.py` | 92 | `Task` dataclass, `TaskType` enum (10 types including `format`), YAML serialization |
-| `llm.py` | 737 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, event log entries |
+| `task.py` | 86 | `Task` dataclass, `TaskType` enum, `TASK_TYPE_AGENT_MAP`, YAML serialization |
+| `llm.py` | 757 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, event log entries |
 | `workspace.py` | 262 | File I/O, git ops, phantom reference validation, `log_scaffold_event()`, `log_llm_call()` |
 | `markdown.py` | 507 | Frontmatter parsing, critique lifecycle, comp parsing |
 | `sandbox.py` | 49 | `subprocess.run` wrapper with timeout |
@@ -106,11 +108,14 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `verify.py` | 894 | Independent verification script (science + process audit) |
 | `computation_index.py` | 68 | JSONL helpers for `COMPUTATION_INDEX.jsonl` (legacy, used by validation) |
 | `critique_index.py` | 60 | JSONL helpers for `CRITIQUE_INDEX.jsonl` (legacy) |
-| `agents/base.py` | 160 | `BaseAgent` ABC, template method, retry logic, tool-use dispatch |
-| `agents/orchestrator.py` | 218 | Agentic: state mutation via `OrchestratorToolExecutor`, renders state → Markdown |
-| `agents/researcher.py` | 40 | One-shot: derivations, writes `PROPOSED_CHANGES.md` |
-| `agents/computationalist.py` | 255 | Agentic: explore/verify modes via `ToolExecutor`, writes `Computation` objects to `ResearchState` |
-| `agents/critic.py` | 170 | Agentic: adversarial review via `CriticToolExecutor`, writes `Critique` objects to `ResearchState` |
+| `agents/base.py` | 161 | `BaseAgent` ABC, template method, retry logic, tool-use dispatch |
+| `agents/orchestrator.py` | 198 | Agentic: state mutation via `OrchestratorToolExecutor`, renders state → Markdown |
+| `agents/computationalist.py` | 251 | Base agentic code execution; writes `Computation` objects to `ResearchState`, renders `COMPUTATION_LOG.md` from state |
+| `agents/compute_verify.py` | 28 | `ComputeVerifyAgent`: verify mode (`execute_python` + `submit_verdict` + `report_progress`) |
+| `agents/compute_explore.py` | 28 | `ComputeExploreAgent`: explore mode (`execute_python` + `submit_result` + `report_progress`) |
+| `agents/research_verify.py` | 27 | `ResearchVerifyAgent`: analytical verification (`submit_verdict` + `report_progress`, no `execute_python`) |
+| `agents/research_explore.py` | 40 | `ResearchExploreAgent`: analytical exploration (`submit_result` + `report_progress`, no `execute_python`) |
+| `agents/critic.py` | 165 | Agentic: adversarial review via `CriticToolExecutor`, writes `Critique` objects to `ResearchState` |
 | `agents/compressor.py` | 27 | One-shot: file size management |
 | `agents/formatter.py` | 40 | One-shot: produces `ANSWER.md` from final research state |
 | `providers/__init__.py` | 24 | `create_provider()` factory + re-exports |
@@ -120,7 +125,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `providers/google.py` | 155 | Google Gemini adapter |
 | `providers/huggingface.py` | 306 | HuggingFace Inference Providers adapter |
 | `models.yaml` | ~100 | Model registry (friendly keys → provider, model_id, env_key, cost) |
-| **Total** | **~7,827** | |
+| **Total** | **~8,197** | |
 
 ---
 
@@ -141,7 +146,7 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │        (saves an LLM call vs. old override chain)                    │
 │     └─ Otherwise: orchestrator pass                                  │
 │        └─ context_prefix: violations/blockers/verdicts/agent failures│
-│        └─ Reads all state → integrates PROPOSED_CHANGES.md           │
+│        └─ Reads all state, integrates explore results                │
 │        └─ Emits CURRENT_TASK.md                                      │
 │                                                                      │
 │  3. POST-INTEGRATION VALIDATION                                      │
@@ -200,13 +205,17 @@ The `can_terminate()` gate requires: at least one VERIFIED computation triggers 
 
 ### Dispatch routing
 
+Dispatch follows the 2x2 matrix via `TASK_TYPE_AGENT_MAP` (in `task.py`):
+
 | TaskType | Agent | Notes |
 |----------|-------|-------|
-| `research`, `derive`, `resolve`, `synthesize` | Researcher | Synthesize rarely dispatched; orchestrator typically writes synthesis inline |
-| `compute`, `compute_explore`, `compute_verify` | Computationalist | Dynamic tool set via `tools_for_task_type()`; post-dispatch: `_track_computation()` |
-| `critique` | Deep Critic | Post-dispatch: `_no_critiques_filed` detection |
-| `format` | Formatter | Dispatched automatically on successful termination |
-| Unknown | Researcher | Fallback with console warning |
+| `research_explore` | `research_explore` | Analytical exploration, derivation, critique resolution |
+| `research_verify` | `research_verify` | Analytical verification without code |
+| `compute_explore` | `compute_explore` | Exploratory computation via code |
+| `compute_verify` / `compute` (legacy) | `compute_verify` | Numerical verification via code; post-dispatch: `_track_computation()` |
+| `critique` | `deep_critic` | Post-dispatch: `_no_critiques_filed` detection |
+| `format` | `formatter` | Dispatched automatically on successful termination |
+| `terminate` | `orchestrator` | Handled by engine termination gate |
 
 ---
 
@@ -233,9 +242,9 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Three agents are agentic: orchestrator (7 tools via `OrchestratorToolExecutor`), computationalist (3 tools via `ToolExecutor`, dynamic per task type), and critic (2 tools via `CriticToolExecutor`).
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Six agents are agentic: orchestrator (9 tools via `OrchestratorToolExecutor`), four compute/research agents (2-3 tools via `ToolExecutor`, dynamic per task type), and critic (2 tools via `CriticToolExecutor`). Two agents are one-shot: compressor and formatter.
 
-All three agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_verdict`/`submit_result`, `finish_review`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`.
+All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_verdict`/`submit_result`, `finish_review`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`.
 
 **No retry on truncation:** `_call_with_retry` returns immediately when `stop_reason == "max_tokens"` (no retries). The engine's `_record_agent_failures()` detects the truncation and injects a CAPACITY EXCEEDED banner into the orchestrator's next context via `_build_context_prefix()`, prompting task decomposition.
 
@@ -244,12 +253,13 @@ All three agentic tool executors use the `stop_after_round` mechanism: a termina
 The authoritative source of truth for all research state. Agents mutate it via tools; Markdown files are rendered from it.
 
 **Entity dataclasses:**
-- `Hypothesis` — `id`, `statement`, `status` (`HypothesisStatus`: WORKING/ESTABLISHED/REFUTED/ABANDONED), `derivation`, `supporting_comps`, `critiques`, `iteration_created`, `iteration_modified`
-- `Computation` — `id`, `target_hypothesis`, `verdict` (`Verdict`: VERIFIED/REFUTED/INCONCLUSIVE), `claim`, `method`, `key_results`, `code_path`, `failure_detail`, `iteration`, `kind` ("explore"/"verify"), `zero_output`, `confidence`, `notes`, `result`
+- `Hypothesis` — `id`, `statement`, `status` (`HypothesisStatus`: WORKING/ESTABLISHED/REFUTED/ABANDONED), `derivation`, `supporting_comps`, `critiques`, `iteration_created`, `iteration_modified`, `depends_on` (list of hypothesis IDs), `promotion_justification`
+- `ResearchQuestion` — `id` (RQ-NNN), `question`, `context`, `resolved_to` (list of hypothesis IDs), `status` (`RQStatus`: OPEN/RESOLVED/ABANDONED), `iteration_created`, `iteration_resolved`
+- `Computation` — `id`, `target_hypothesis`, `verdict` (`Verdict`: VERIFIED/REFUTED/INCONCLUSIVE), `claim`, `method`, `key_results`, `code_path`, `failure_detail`, `iteration`, `kind` ("explore"/"verify"/"research_verify"), `zero_output`, `confidence`, `notes`, `result`
 - `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `iteration_filed`, `iteration_resolved`
 - `FailedApproach` — `description`, `reason`, `related_comps`, `iteration`
 
-**ResearchState fields:** `hypotheses` (dict by ID), `computations` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `iteration`, `problem_statement`, `conventions`, `open_questions`, `status`, `title`
+**ResearchState fields:** `hypotheses` (dict by ID), `research_questions` (dict by ID), `computations` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `iteration`, `problem_statement`, `conventions`, `open_questions`, `status`, `title`
 
 **Key query methods:** `verified_comps_for()`, `has_verified_backing()`, `active_critiques_for()`, `unresolved_high_critiques()`, `established_hypotheses()`, `working_hypotheses()`, `explore_only_hypotheses()`, `refuted_targets()`, `detect_computation_stalls()`
 
@@ -264,7 +274,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `render_computation_log_md(state)` → `COMPUTATION_LOG.md` (computation entries sorted by iteration, explore/verify format)
 - `render_critique_log_md(state)` → `CRITIQUE_LOG.md` (active/resolved/withdrawn sections with frontmatter counts)
 
-**Per-agent context renderers:** `render_orchestrator_context()`, `render_researcher_context()`, `render_computationalist_context()`, `render_critic_context()`
+**Per-agent context renderers:** `render_orchestrator_context()`, `render_computationalist_context()`, `render_critic_context()`
 
 ### Agent-by-agent summary
 
@@ -272,13 +282,15 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **Role:** Planning and state mutation. Mutates `ResearchState` via tools, renders state → Markdown, emits `CURRENT_TASK.md`.
 
-**Tools** (7, via `OrchestratorToolExecutor`):
-- `add_hypothesis` — creates new WH-NNN in state, auto-assigns ID
+**Tools** (9, via `OrchestratorToolExecutor`):
+- `add_hypothesis` — creates new WH-NNN in state, auto-assigns ID; optional `from_rq` param links to originating RQ
 - `update_hypothesis` — updates statement/derivation for existing WH/ER
 - `abandon_hypothesis` — marks as ABANDONED, records in `failed_approaches`
-- `promote_hypothesis` — promotes WH → ER with guardrails (checks for REFUTED without VERIFIED, unresolved HIGH critiques)
+- `promote_hypothesis` — promotes WH → ER with guardrails (requires VERIFIED computation, checks for unresolved HIGH critiques, blocks on unestablished `depends_on`)
 - `resolve_critique` — marks critique as RESOLVED with resolution text
 - `update_section` — replaces content of Conventions, Open Questions, or Dead Ends
+- `add_research_question` — creates new RQ-NNN for open-ended exploration targets
+- `resolve_research_question` — marks RQ as resolved, links to resulting hypothesis IDs
 - `set_next_task` — emits next task; triggers `stop_after_round` to end agent loop
 
 **Context (largest in the system):**
@@ -286,38 +298,34 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - Completion analysis banner (if ER count sufficient, or budget pressure) — includes synthesis instruction
 - Computation stall warnings from `research_state.detect_computation_stalls()`
 - Full `RESEARCH_STATE.md`, `CRITIQUE_LOG.md`, tail of `COMPUTATION_LOG.md`, `METRICS.md`
-- `PROPOSED_CHANGES.md` (when present)
 
-**Output processing:** Only processes if `_tool_executor.mutations_applied` is true. Renders state → `RESEARCH_STATE.md` + `CRITIQUE_LOG.md` via `renderers.py`. Writes `CURRENT_TASK.md` from `set_next_task` tool data. Deletes `PROPOSED_CHANGES.md` after integration.
+**Output processing:** Only processes if `_tool_executor.mutations_applied` is true. Renders state → `RESEARCH_STATE.md` + `CRITIQUE_LOG.md` via `renderers.py`. Writes `CURRENT_TASK.md` from `set_next_task` tool data.
 
 **Prompt rules (key):** COMPUTE-FIRST (new hypotheses get verification before critique); converged derivation → move to verification; stall loops → escalate or downgrade; LOW critiques don't block promotion.
 
-#### Researcher (`agents/researcher.py`)
+#### Compute/Research agents (2x2 matrix)
 
-**Role:** Derivations, proofs, hypothesis generation. Writes only to `PROPOSED_CHANGES.md`.
+Four specialized agents inherit from `ComputationalistAgent` (`agents/computationalist.py`), which provides the base agentic tool-use loop, `Computation` object creation, and `COMPUTATION_LOG.md` rendering. Each agent has a focused prompt and tool set — no mode switching.
 
-**Mode:** One-shot (no tools).
+|               | Explore (RQ → WH)    | Verify (WH → ER)     |
+|---------------|----------------------|----------------------|
+| **Reasoning** | `research_explore`   | `research_verify`    |
+| **Code**      | `compute_explore`    | `compute_verify`     |
 
-**Context (leanest):** `CURRENT_TASK.md` + `RESEARCH_STATE.md`. For RESOLVE tasks, adds relevant critique sections from `CRITIQUE_LOG.md`.
+**`ComputeVerifyAgent`** (`agents/compute_verify.py`): `execute_python` + `submit_verdict` + `report_progress`. Numerical verification of claims via code.
 
-**Output:** Entire response → `PROPOSED_CHANGES.md`. The simplest agent mechanically.
+**`ComputeExploreAgent`** (`agents/compute_explore.py`): `execute_python` + `submit_result` + `report_progress`. Exploratory computation via code.
 
-**Prompt rules:** Mandatory confidence tags (HIGH/MEDIUM/LOW) on every claim. MEDIUM/LOW claims must specify a verification method.
+**`ResearchVerifyAgent`** (`agents/research_verify.py`): `submit_verdict` + `report_progress` (no `execute_python`). Analytical verification without code.
 
-#### Computationalist (`agents/computationalist.py` + `tools.py`)
+**`ResearchExploreAgent`** (`agents/research_explore.py`): `submit_result` + `report_progress` (no `execute_python`). Analytical exploration, derivation, critique resolution.
 
-**Role:** Code-based verification (verify mode) or exploration (explore mode) via agentic tool-use loop.
+**Context:** `CURRENT_TASK.md` + `RESEARCH_STATE.md` excerpt. Prior failure context is injected into compute tasks by the engine via `_enrich_compute_task_with_prior_failures()`.
 
-**Tools** (3, dynamic per task type via `tools_for_task_type()`):
-- `COMPUTE_VERIFY` / `COMPUTE` (legacy): `execute_python` + `submit_verdict` + `report_progress`
-- `COMPUTE_EXPLORE`: `execute_python` + `submit_result` + `report_progress`
-
-**Context:** `CURRENT_TASK.md` + `RESEARCH_STATE.md` excerpt. Prior failure context is injected into the task by the engine via `_enrich_compute_task_with_prior_failures()`.
-
-**Tool-use loop:** LLM writes Python (with `purpose` param) → `ToolExecutor` runs it in sandbox → output fed back → LLM iterates → calls `submit_verdict` or `submit_result` for structured exit. Up to `max_tool_rounds` (default 10) rounds. After `progress_check_interval` (default 3) consecutive `execute_python` rounds, a progress check message is injected requiring `report_progress`.
+**Tool-use loop:** LLM writes Python (with `purpose` param, code agents only) → `ToolExecutor` runs it in sandbox → output fed back → LLM iterates → calls `submit_verdict` or `submit_result` for structured exit. Up to `max_tool_rounds` (default 10) rounds. After `progress_check_interval` (default 3) consecutive `execute_python` rounds, a progress check message is injected requiring `report_progress`.
 
 **Output processing:**
-- `submit_verdict` present → creates `Computation` with `kind="verify"`, verdict from tool params
+- `submit_verdict` present → creates `Computation` with `kind="verify"` or `kind="research_verify"`, verdict from tool params
 - `submit_result` present → creates `Computation` with `kind="explore"`, `verdict=INCONCLUSIVE`, confidence from tool params
 - No exit tool → creates fallback `Computation` with `verdict=INCONCLUSIVE`, `zero_output=True` if response empty
 - Writes `Computation` object to `research_state.computations`
@@ -325,7 +333,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **3-valued verdict system:** VERIFIED / REFUTED / INCONCLUSIVE
 
-**Prompt rules (critical):**
+**Prompt rules (critical, for code agents):**
 - Numerical spot-checks always required (5+ parameter values, `np.isclose` with `rtol=1e-6`)
 - Never use `assert` (crashes waste a tool call)
 - Independence: never hardcode the tested formula on both sides
@@ -432,14 +440,24 @@ For `COMPUTE_EXPLORE`:
 2. **`submit_result`** — structured explore-mode exit. Params: `target_id`, `description`, `method`, `result`, `confidence` (exact/approximate/partial), `notes`. Sets `stop_after_round = True`.
 3. **`report_progress`** — same as above.
 
-**`OrchestratorToolExecutor`** (orchestrator) — 7 state-mutation tools:
-1. **`add_hypothesis`** — creates new WH-NNN in `ResearchState`
+For `RESEARCH_VERIFY`:
+1. **`submit_verdict`** — same as verify mode above (no `execute_python`).
+2. **`report_progress`** — same as above.
+
+For `RESEARCH_EXPLORE`:
+1. **`submit_result`** — same as explore mode above (no `execute_python`).
+2. **`report_progress`** — same as above.
+
+**`OrchestratorToolExecutor`** (orchestrator) — 9 state-mutation tools:
+1. **`add_hypothesis`** — creates new WH-NNN in `ResearchState`; optional `from_rq` links to originating RQ
 2. **`update_hypothesis`** — updates statement/derivation
 3. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
-4. **`promote_hypothesis`** — WH → ER with guardrails (REFUTED/VERIFIED checks, HIGH critique checks)
+4. **`promote_hypothesis`** — WH → ER with guardrails (requires VERIFIED computation, HIGH critique checks, dependency checks)
 5. **`resolve_critique`** — marks CRIT-NNN as RESOLVED with resolution text
 6. **`update_section`** — replaces Conventions, Open Questions, or Dead Ends content
-7. **`set_next_task`** — emits task; sets `stop_after_round = True`
+7. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
+8. **`resolve_research_question`** — marks RQ as resolved, links to resulting hypothesis IDs
+9. **`set_next_task`** — emits task; sets `stop_after_round = True`
 
 Tracks `mutations_applied` (bool) and `resolved_critique_ids` (set) for `process_response` to use.
 
@@ -512,9 +530,8 @@ Each run creates a timestamped workspace directory (e.g., `workspaces/20260313_1
 workspaces/<run>/
   RESEARCH_GRAPH.json    ← Authoritative structured state (ResearchState serialized as JSON)
   RESEARCH_STATE.md      ← Rendered from ResearchState by orchestrator (git snapshot + agent context)
-  PROPOSED_CHANGES.md    ← Researcher writes; orchestrator integrates on next pass
   CURRENT_TASK.md        ← Orchestrator writes via set_next_task tool; consumed by dispatched agent
-  COMPUTATION_LOG.md     ← Rendered from ResearchState by computationalist
+  COMPUTATION_LOG.md     ← Rendered from ResearchState by compute/research agents
   CRITIQUE_LOG.md        ← Rendered from ResearchState by orchestrator/critic
   ANSWER.md              ← Formatter writes on successful termination
   METRICS.md             ← Engine writes every iteration
@@ -534,27 +551,22 @@ workspaces/<run>/
            │                                                  CRITIQUE_LOG.md
            │                                                  CURRENT_TASK.md
            │
-           ├──► Computationalist adds Computation ──► renders → COMPUTATION_LOG.md
+           ├──► Compute/Research agents add Computation ──► renders → COMPUTATION_LOG.md
            │
            ├──► Critic adds Critique(s) ──► renders → CRITIQUE_LOG.md
            │
            └──► _sync_research_state() ──► saves → RESEARCH_GRAPH.json
-
-     PROPOSED_CHANGES.md ◄──── Researcher (one-shot, writes text)
-           │
-           └──► Orchestrator reads + integrates into ResearchState on next pass
-                (deletes PROPOSED_CHANGES.md after integration)
 ```
 
 ### Promotion pipeline
 
-A hypothesis advances through this lifecycle:
-1. **Working Hypothesis (WH-NNN)** — researcher proposes in PROPOSED_CHANGES
-2. **Orchestrator integrates** — calls `add_hypothesis` tool, creates `Hypothesis` with status WORKING
-3. **Explore** (optional) — computationalist runs `compute_explore` to investigate properties
-4. **Verify** — computationalist runs `compute_verify` → `submit_verdict` → VERIFIED / REFUTED / INCONCLUSIVE
+A claim advances through this lifecycle:
+1. **Research Question (RQ-NNN)** — orchestrator creates via `add_research_question` for open-ended exploration
+2. **Explore** — `compute_explore` or `research_explore` investigates the question → `submit_result`
+3. **Working Hypothesis (WH-NNN)** — orchestrator calls `add_hypothesis` (optionally with `from_rq` to link to originating RQ), creates `Hypothesis` with status WORKING. Direct WH creation (skipping RQ) is allowed when the claim is already concrete.
+4. **Verify** — `compute_verify` or `research_verify` → `submit_verdict` → VERIFIED / REFUTED / INCONCLUSIVE
 5. **Critique** — critic reviews via `submit_critique` tool, files objections
-6. **Established Result (ER-NNN)** — orchestrator calls `promote_hypothesis` tool with guardrails: (a) ≥ 1 VERIFIED verify-type computation, (b) no unresolved HIGH critiques
+6. **Established Result (ER-NNN)** — orchestrator calls `promote_hypothesis` tool with guardrails: (a) ≥ 1 VERIFIED computation with kind in {verify, research_verify}, (b) no unresolved HIGH critiques, (c) all `depends_on` entries are already established
 7. **Termination** — orchestrator emits `terminate` task → `can_terminate()` gates → formatter produces `ANSWER.md`
 
 ---
@@ -779,7 +791,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 
 ## 9. Testing
 
-**716 tests** across 23 test files (~11,316 lines). Run with `uv run python -m pytest -v`.
+**762 tests** across 23 test files (~11,316 lines). Run with `uv run python -m pytest -v`.
 
 | Test file | Lines | What it covers |
 |-----------|------:|----------------|
@@ -812,7 +824,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 **Notable coverage gaps:**
 - `call_llm` one-shot path (only `run_agent_loop` is tested via `test_tools.py`)
 - BaseAgent retry logic directly
-- Researcher, compressor, formatter `process_response` methods
+- Compressor, formatter `process_response` methods
 - Workspace git operations
 - End-to-end `main.py` run path
 
@@ -850,11 +862,11 @@ The `messages` list grows unboundedly across rounds. Large tool outputs can push
 
 All documentation was synced with the codebase on 2026-03-16.
 
-- **ResearchState as source of truth** — `research_state.py` (607 lines) provides authoritative structured state; agents mutate via tools, Markdown rendered from state
-- **Three agentic agents** — orchestrator (7 tools via `OrchestratorToolExecutor`), computationalist (3 tools via `ToolExecutor`, dynamic per task type), critic (2 tools via `CriticToolExecutor`); all use `stop_after_round` mechanism
+- **ResearchState as source of truth** — `research_state.py` (695 lines) provides authoritative structured state; agents mutate via tools, Markdown rendered from state
+- **Six agentic agents** — orchestrator (9 tools via `OrchestratorToolExecutor`), four compute/research agents (2-3 tools via `ToolExecutor`, dynamic per task type), critic (2 tools via `CriticToolExecutor`); all use `stop_after_round` mechanism
+- **2x2 dispatch matrix** — four specialized agents (compute_verify, compute_explore, research_verify, research_explore) inherit from `ComputationalistAgent`; each has focused prompt and tool set
 - **Renderers** — `renderers.py` produces Markdown snapshot files + per-agent context from ResearchState
 - **Formatter agent** — `agents/formatter.py` produces `ANSWER.md` on successful termination
-- **Explore/verify compute modes** — `compute_explore` and `compute_verify` task types with different tool sets and exit paths
 - Multi-provider support (Anthropic, OpenAI, Google Gemini, HuggingFace) fully implemented with `models.yaml` registry
 - API retry with exponential backoff implemented (transient errors + tool-call failures)
 - 8 post-integration validation checks including critique resolution consistency

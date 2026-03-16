@@ -184,7 +184,7 @@ def check_phantom_labels(workspace: WorkspaceManager) -> list[Violation]:
     else:
         verified_claims = set()
 
-    for filename in ("RESEARCH_STATE.md", "PROPOSED_CHANGES.md"):
+    for filename in ("RESEARCH_STATE.md",):
         text = workspace.read_file(filename)
         if not text:
             continue

@@ -225,7 +225,6 @@ def render_orchestrator_context(
     metrics_text: str = "",
     config: Config,
     iteration: int,
-    proposed_changes: str = "",
     comp_log_tail: str = "",
 ) -> str:
     """Render orchestrator user-message context from ResearchState.
@@ -272,40 +271,6 @@ def render_orchestrator_context(
 
     parts.append("\n## METRICS.md (summary)\n")
     parts.append(metrics_text)
-
-    if proposed_changes:
-        parts.append("\n## PROPOSED_CHANGES.md (pending review)\n")
-        parts.append(proposed_changes)
-
-    return "\n".join(parts)
-
-
-def render_researcher_context(state: ResearchState, task: Task) -> str:
-    """Render researcher user-message context from ResearchState.
-
-    Structurally equivalent to ResearcherAgent.build_context().
-    """
-    from .task import TaskType
-
-    parts = [
-        "## CURRENT_TASK.md\n",
-        task.to_markdown(),
-        "\n## RESEARCH_STATE.md\n",
-        render_research_state_md(state),
-    ]
-
-    if task.blocking_critiques:
-        parts.append("\n## Relevant Critiques\n")
-        for crit_id in task.blocking_critiques:
-            if crit_id in state.critiques:
-                c = state.critiques[crit_id]
-                sev_tag = f"[{c.severity}]"
-                parts.append(f"## {c.id} {sev_tag}\n")
-                targets_str = ", ".join(c.targets) if c.targets else "general"
-                parts.append(f"**Target:** {targets_str}\n")
-                if c.argument:
-                    parts.append(c.argument)
-                parts.append("")
 
     return "\n".join(parts)
 

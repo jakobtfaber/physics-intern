@@ -11,7 +11,6 @@ from sciralph.renderers import (
     render_critique_log_md,
     render_orchestrator_context,
     render_research_state_md,
-    render_researcher_context,
     render_task_md,
 )
 from sciralph.research_state import (
@@ -675,25 +674,6 @@ class TestRenderOrchestratorContext:
         assert "## METRICS.md (summary)" in ctx
         assert "Total tokens: 50000" in ctx
 
-    def test_proposed_changes_included(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            config=config,
-            iteration=5,
-            proposed_changes="## Proposed\n\nAdd new hypothesis WH-004.",
-        )
-        assert "## PROPOSED_CHANGES.md (pending review)" in ctx
-        assert "Add new hypothesis WH-004" in ctx
-
-    def test_proposed_changes_omitted_when_empty(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            config=config,
-            iteration=5,
-            proposed_changes="",
-        )
-        assert "PROPOSED_CHANGES.md" not in ctx
-
     def test_budget_at_last_iteration(self, populated_state, config):
         ctx = render_orchestrator_context(
             populated_state,
@@ -702,55 +682,6 @@ class TestRenderOrchestratorContext:
         )
         assert "20 of 20" in ctx
         assert "0 remaining" in ctx
-
-
-# ===========================================================================
-# render_researcher_context
-# ===========================================================================
-
-class TestRenderResearcherContext:
-
-    def test_includes_task(self, populated_state, sample_task):
-        ctx = render_researcher_context(populated_state, sample_task)
-        assert "## CURRENT_TASK.md" in ctx
-        assert "TASK-005" in ctx
-
-    def test_includes_research_state(self, populated_state, sample_task):
-        ctx = render_researcher_context(populated_state, sample_task)
-        assert "## RESEARCH_STATE.md" in ctx
-        assert "# Problem Statement" in ctx
-        assert "Hawking temperature" in ctx
-
-    def test_resolve_task_includes_relevant_critiques(self, populated_state, resolve_task):
-        ctx = render_researcher_context(populated_state, resolve_task)
-        assert "## Relevant Critiques" in ctx
-        assert "CRIT-001" in ctx
-        assert "thermal equilibrium" in ctx
-
-    def test_non_resolve_task_no_critique_section(self, populated_state, sample_task):
-        ctx = render_researcher_context(populated_state, sample_task)
-        assert "## Relevant Critiques" not in ctx
-
-    def test_resolve_with_missing_critique_id(self, populated_state):
-        task = Task(
-            task_id="TASK-007",
-            task_type=TaskType.RESEARCH_EXPLORE,
-            assigned_to="research_explore",
-            iteration=5,
-            blocking_critiques=["CRIT-999"],  # does not exist
-            body="Resolve non-existent critique.",
-        )
-        ctx = render_researcher_context(populated_state, task)
-        assert "## Relevant Critiques" in ctx
-        # CRIT-999 is not in state, so it should not appear in the critiques section
-        crit_section_start = ctx.index("## Relevant Critiques")
-        crit_section = ctx[crit_section_start:]
-        assert "CRIT-999" not in crit_section
-
-    def test_resolve_shows_severity_and_target(self, populated_state, resolve_task):
-        ctx = render_researcher_context(populated_state, resolve_task)
-        assert "[HIGH]" in ctx
-        assert "**Target:** WH-002" in ctx
 
 
 # ===========================================================================

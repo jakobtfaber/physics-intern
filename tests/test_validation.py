@@ -274,18 +274,6 @@ This ER-001 result has been VERIFIED by COMP-001.
         violations = check_phantom_labels(ws)
         assert len(violations) == 0
 
-    def test_proposed_changes_also_checked(self):
-        proposed = "WH-002 is VERIFIED per our analysis.\n"
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": "",
-            "PROPOSED_CHANGES.md": proposed,
-            "COMPUTATION_LOG.md": "",
-        })
-        violations = check_phantom_labels(ws)
-        assert len(violations) == 1
-        assert violations[0].file == "PROPOSED_CHANGES.md"
-
-
 # ---------------------------------------------------------------------------
 # check_phantom_references
 # ---------------------------------------------------------------------------
