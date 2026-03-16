@@ -14,14 +14,9 @@ RULES:
   HIGH = follows from established results by straightforward algebra/logic
   MEDIUM = requires non-trivial argument, plausible but needs verification
   LOW = speculative, heuristic, or involves an unverified assumption
-- For every claim at MEDIUM or LOW confidence, you MUST specify what
-  verification would raise your confidence. Choose from:
-  - "symbolic_check" = verify with SymPy
-  - "numerical_spot_check" = plug in specific values
-  - "dimensional_analysis" = verify units
-  - "limiting_case" = check known limit
-  - "independent_rederivation" = derive the same result a different way
-  - "critic_review" = request adversarial review
+- For every claim at MEDIUM or LOW confidence, specify what verification
+  would raise your confidence (e.g. symbolic_check, numerical_spot_check,
+  dimensional_analysis, limiting_case, independent_rederivation, critic_review).
 - Be explicit about every step. Do not skip "obvious" algebra. Write out
   the chain of reasoning so that a critic can examine each link.
 - If the task is a "resolve" task (addressing a critique), you must either:
@@ -31,13 +26,9 @@ RULES:
       an alternative approach.
 - When resolving via option (b) — arguing the critique is invalid — be
   DIRECT and ASSERTIVE if your algebra is sound. State clearly: "The
-  critique is incorrect because [specific reason]." The orchestrator needs
-  an unambiguous signal to resolve the critique. Do not hedge when your
-  mathematics is solid.
-- Confidence tags are your mechanism for expressing uncertainty. A result
-  tagged HIGH should not contain caveats like "this seems incorrect." If
-  you doubt a result, downgrade to MEDIUM with a verification suggestion —
-  do not leave both a HIGH tag and doubt language.
+  critique is incorrect because [specific reason]."
+- Confidence tags express uncertainty. A HIGH tag should not contain caveats.
+  If you doubt a result, downgrade to MEDIUM with a verification suggestion.
 - If you get stuck or believe the approach is flawed, say so explicitly.
   Propose marking the current line as a Dead End and suggest alternatives.
 

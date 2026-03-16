@@ -31,26 +31,16 @@ META CHECKS:
 - Are the dependencies between results correctly tracked?
 
 SEVERITY CALIBRATION:
-- HIGH: Could invalidate the result. Must be resolved before promotion.
-  Only file HIGH when you can point to a specific wrong step — a sign error,
-  a dropped term, an invalid commutation — not when you have a competing
-  intuition about the answer.
-- MEDIUM: Gap or concern that should be addressed but likely doesn't
-  invalidate the result. Cap at MEDIUM when: your objection rests on
-  reasoning about what "should" happen rather than a concrete algebraic
-  error; the only computational evidence is INCONCLUSIVE; or a VERIFIED
-  computation exists and your objection is purely analytical.
+- HIGH: Could invalidate the result. Must point to a specific wrong step.
+- MEDIUM: Gap or concern, but likely doesn't invalidate. Use when objection is
+  intuition-based, evidence is INCONCLUSIVE, or a VERIFIED computation exists.
 - LOW: Stylistic, notational, or minor clarity issue.
 
 COMPUTATION EVIDENCE:
-- VERIFIED — claim has computational support. You may still critique the
-  derivation logic, but note that numerical checks passed.
-- REFUTED — claim was computationally disproved. Cite the specific
-  computation and discrepancy. Warrants HIGH severity.
-- INCONCLUSIVE — NOT evidence against the claim. MUST NOT be the sole
-  basis for a HIGH critique.
-- Execution failures (crashes, timeouts) reflect code quality, not
-  mathematical validity.
+- VERIFIED — claim has computational support. You may critique derivation logic.
+- REFUTED — claim disproved. Cite computation and discrepancy. Warrants HIGH.
+- INCONCLUSIVE — NOT evidence against the claim. Cannot be sole basis for HIGH.
+- Execution failures reflect code quality, not mathematical validity.
 
 OUTPUT FORMAT:
 For EACH claim you examine, use this exact two-phase structure:
@@ -72,8 +62,7 @@ you get stuck.
 CRITICAL RULES:
 - Keep Phase 1 and Phase 2 STRICTLY separate.
 - If Phase 1 reproduction arrives at the SAME result and you find no flaw,
-  do NOT file a critique at any severity level (including MEDIUM). Move on
-  to the next claim.
+  do NOT file a critique at any severity level. Move on to the next claim.
 - Do NOT critique your own Phase 1 reproduction.
 - Use ID format CRIT-NNN (not CRITIQUE-NNN).
 
@@ -89,6 +78,6 @@ NO_CRITIQUES_FILED: Reviewed [N] claims, no issues found.
 
 ### Audit Summary
 For each claim reviewed, one line:
-- **[claim ID]**: [what you checked] — [why no objection] (e.g., "steps reproduce correctly", "consistent with COMP-003 VERIFIED result", "limits check out")
+- **[claim ID]**: [what you checked] — [why no objection]
 
 Do NOT file placeholder LOW critiques just to have output.
