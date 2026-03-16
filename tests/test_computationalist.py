@@ -265,113 +265,11 @@ class TestSubmitVerdictProcessing:
         assert "**VERDICT:** VERIFIED" in appended_text
 
 
-class TestExtractVerdictFromText:
-    """Test _extract_verdict_from_text static method."""
+class TestFreeTextFallthrough:
+    """Test that free text without submit_verdict passes through."""
 
-    def test_extracts_call_syntax(self):
-        text = 'call submit_verdict(claim="WH-001", method="numerical", result="ok", verdict="VERIFIED", notes="done")'
-        result = ComputationalistAgent._extract_verdict_from_text(text)
-        assert result is not None
-        assert result["verdict"] == "VERIFIED"
-        assert result["claim"] == "WH-001"
-        assert result["method"] == "numerical"
-
-    def test_extracts_without_call_prefix(self):
-        text = 'submit_verdict(claim="X", method="m", result="r", verdict="REFUTED", notes="n")'
-        result = ComputationalistAgent._extract_verdict_from_text(text)
-        assert result["verdict"] == "REFUTED"
-
-    def test_returns_none_when_no_match(self):
-        text = "This is just regular text with no tool call."
-        assert ComputationalistAgent._extract_verdict_from_text(text) is None
-
-    def test_returns_none_without_verdict_field(self):
-        text = 'call submit_verdict(claim="WH-001")'
-        assert ComputationalistAgent._extract_verdict_from_text(text) is None
-
-    def test_embedded_in_longer_text(self):
-        text = (
-            "The computation confirms the result.\n\n"
-            'call submit_verdict(claim="WH-001 — temperature", '
-            'method="spot checks", result="5/5 pass", '
-            'verdict="VERIFIED", notes="Confirmed.")\n'
-        )
-        result = ComputationalistAgent._extract_verdict_from_text(text)
-        assert result["verdict"] == "VERIFIED"
-        assert "temperature" in result["claim"]
-
-    def test_single_quoted_values(self):
-        text = "submit_verdict(claim='WH-002', verdict='INCONCLUSIVE', notes='unclear')"
-        result = ComputationalistAgent._extract_verdict_from_text(text)
-        assert result["verdict"] == "INCONCLUSIVE"
-        assert result["claim"] == "WH-002"
-
-
-class TestVerdictTextExtraction:
-    """Test that process_response uses text extraction as fallback."""
-
-    def test_process_response_extracts_verdict_from_text(self):
-        """Text containing submit_verdict syntax is extracted and formatted."""
-        agent = _make_agent()
-        agent.workspace.read_file.return_value = ""
-
-        result = AgentResult(
-            text=(
-                "The fidelity is confirmed.\n\n"
-                'call submit_verdict(claim="WH-001 — fidelity", '
-                'method="numerical", result="all pass", '
-                'verdict="VERIFIED", notes="Confirmed.")'
-            ),
-            tool_calls=[
-                ToolCall("execute_python", {"code": "print(1)"}, "1\n", False, 0.5),
-            ],
-            total_input_tokens=500,
-            total_output_tokens=200,
-            rounds=3,
-        )
-
-        task = Task(task_id="TASK-001", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify WH-001")
-        agent.process_response(result, task, iteration=1)
-
-        appended_text = agent.workspace.append_file.call_args[0][1]
-        assert "**VERDICT:** VERIFIED" in appended_text
-        assert "**CLAIM:** WH-001" in appended_text
-        assert "**METHOD:** numerical" in appended_text
-
-    def test_actual_tool_call_takes_priority_over_text_extraction(self):
-        """When both a real submit_verdict tool call and text syntax exist, tool wins."""
-        agent = _make_agent()
-        agent.workspace.read_file.return_value = ""
-
-        verdict_params = {
-            "claim": "WH-002 — real tool",
-            "method": "real method",
-            "result": "real result",
-            "verdict": "VERIFIED",
-            "notes": "From tool.",
-        }
-        result = AgentResult(
-            text='call submit_verdict(claim="WH-002", verdict="REFUTED", notes="from text")',
-            tool_calls=[
-                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
-            ],
-            total_input_tokens=300,
-            total_output_tokens=100,
-            rounds=1,
-        )
-
-        task = Task(task_id="COMP-060", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist")
-        agent.process_response(result, task, iteration=4)
-
-        appended_text = agent.workspace.append_file.call_args[0][1]
-        assert "**VERDICT:** VERIFIED" in appended_text
-        assert "real tool" in appended_text
-        assert "REFUTED" not in appended_text
-
-    def test_text_without_verdict_syntax_passes_through(self):
-        """Regular text without submit_verdict syntax is used as-is."""
+    def test_text_without_verdict_passes_through(self):
+        """Regular text without submit_verdict is used as-is."""
         agent = _make_agent()
         agent.workspace.read_file.return_value = ""
 

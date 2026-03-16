@@ -18,15 +18,6 @@ if TYPE_CHECKING:
 
 _ER_WH_ID_RE = re.compile(r"(?:ER|WH)-\d+")
 
-_VERDICT_TEXT_RE = re.compile(
-    r'(?:call\s+)?submit_verdict\s*\(',
-    re.IGNORECASE,
-)
-
-_VERDICT_KWARG_RE = re.compile(
-    r"""(\w+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""",
-)
-
 
 class ComputationalistAgent(BaseAgent):
     name = "computationalist"
@@ -63,16 +54,6 @@ class ComputationalistAgent(BaseAgent):
                 "submit_verdict_used",
                 f"verdict={verdict_tc.tool_input.get('verdict', '?')}",
             )
-        elif text:
-            # Check if model wrote submit_verdict as text instead of calling the tool
-            extracted = self._extract_verdict_from_text(text)
-            if extracted:
-                text = self._format_verdict(extracted, task)
-                log_scaffold_event(
-                    self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION,
-                    "submit_verdict_text_extracted",
-                    f"verdict={extracted.get('verdict', '?')}",
-                )
         elif not text:
             log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "empty_response_stub", "")
             # Extract claim IDs from task body so stall detection can match
@@ -127,23 +108,6 @@ class ComputationalistAgent(BaseAgent):
             f"**VERDICT:** {verdict}\n"
             f"**NOTES:** {notes}"
         )
-
-    @staticmethod
-    def _extract_verdict_from_text(text: str) -> dict | None:
-        """Try to extract submit_verdict params from text when model wrote it as prose."""
-        m = _VERDICT_TEXT_RE.search(text)
-        if not m:
-            return None
-        rest = text[m.start():]
-        params = {}
-        for kwm in _VERDICT_KWARG_RE.finditer(rest):
-            key = kwm.group(1)
-            value = kwm.group(2) if kwm.group(2) is not None else kwm.group(3)
-            if key in ("claim", "method", "result", "verdict", "notes"):
-                params[key] = value
-        if "verdict" not in params:
-            return None
-        return params
 
     def _update_computation_metadata(self):
         """Update COMPUTATION_LOG.md frontmatter with counts.

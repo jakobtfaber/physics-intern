@@ -11,7 +11,6 @@ from sciralph.markdown import (
     insert_into_active_critiques,
     resolve_critique,
     filter_self_retracted_critiques,
-    extract_resolved_critique_ids,
     recount_critique_metadata,
     _parse_comp_entries,
     _format_failure_excerpt,
@@ -377,76 +376,6 @@ def test_filter_critique_nnn_drift_tolerance():
     assert "[WITHDRAWN]" in filtered
     assert len(retracted) == 1
     assert "CRITIQUE-015" in retracted[0]
-
-
-# --- Tests for extract_resolved_critique_ids ---
-
-
-def test_extract_resolved_via_list():
-    text = "resolved_critiques: [CRIT-001, CRIT-003]\nSome other text."
-    ids = extract_resolved_critique_ids(text)
-    assert ids == {"CRIT-001", "CRIT-003"}
-
-
-def test_extract_resolved_via_prose():
-    text = "CRIT-002 has been addressed by new derivation."
-    ids = extract_resolved_critique_ids(text)
-    assert "CRIT-002" in ids
-
-
-def test_extract_resolved_via_reverse_prose():
-    text = "The issue was resolved for CRIT-005 in iteration 7."
-    ids = extract_resolved_critique_ids(text)
-    assert "CRIT-005" in ids
-
-
-def test_extract_resolved_empty():
-    ids = extract_resolved_critique_ids("No critiques mentioned here.")
-    assert ids == set()
-
-
-def test_extract_resolved_critique_prefix():
-    text = "resolved_critiques: [CRITIQUE-010]"
-    ids = extract_resolved_critique_ids(text)
-    assert "CRITIQUE-010" in ids
-
-
-def test_extract_resolved_via_yaml_mapping():
-    text = "resolved_critiques:\n  CRIT-001: verified by computation\n  CRIT-002: addressed in derivation\n"
-    ids = extract_resolved_critique_ids(text)
-    assert ids >= {"CRIT-001", "CRIT-002"}
-
-
-def test_extract_resolved_via_yaml_mapping_multiline():
-    text = (
-        "resolved_critiques:\n"
-        "  CRIT-003: |\n"
-        "    Multi-line resolution note\n"
-        "    spanning two lines\n"
-        "  CRIT-004: short note\n"
-    )
-    ids = extract_resolved_critique_ids(text)
-    assert ids >= {"CRIT-003", "CRIT-004"}
-
-
-def test_extract_resolved_via_yaml_mapping_in_frontmatter():
-    text = (
-        "---\n"
-        "problem_id: test\n"
-        "resolved_critiques:\n"
-        "  CRIT-001: verified\n"
-        "  CRIT-005: addressed\n"
-        "---\n"
-        "\n# Working Hypotheses (WH) and Established Results (ER)\n"
-    )
-    ids = extract_resolved_critique_ids(text)
-    assert ids >= {"CRIT-001", "CRIT-005"}
-
-
-def test_extract_resolved_via_yaml_mapping_critique_prefix():
-    text = "resolved_critiques:\n  CRITIQUE-010: resolved via analysis\n"
-    ids = extract_resolved_critique_ids(text)
-    assert "CRITIQUE-010" in ids
 
 
 # --- Tests for recount_critique_metadata ---

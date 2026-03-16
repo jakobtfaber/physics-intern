@@ -9,16 +9,11 @@ from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..markdown import (
     parse_frontmatter,
     render_frontmatter,
-    count_unresolved_critiques,
-    resolve_critique,
-    extract_resolved_critique_ids,
-    ensure_critique_metadata_consistent,
     detect_computation_stalls,
     count_er_sections,
     count_wh_sections,
     normalize_er_wh_headers,
     flatten_unverified_brackets,
-    CRIT_ID_RE,
 )
 from ..orchestrator_tools import OrchestratorToolExecutor
 from ..task import Task, TaskType
@@ -26,9 +21,6 @@ from ..tools import ToolCall
 from .base import BaseAgent
 from ..categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event
-
-DELIM_RESEARCH = "=== RESEARCH_STATE.md ==="
-DELIM_TASK = "=== CURRENT_TASK.md ==="
 
 # Agent routing for set_next_task fallback
 _TASK_TYPE_AGENT_DEFAULTS = {
@@ -180,48 +172,30 @@ class OrchestratorAgent(BaseAgent):
         return result
 
     def process_response(self, response: LLMResponse | AgentResult, task: Task, iteration: int):
-        """Process orchestrator output — tool-based mutations or legacy text format."""
-        text = response.text.strip() if response.text else ""
-
-        # Path A: Tool-based mutations were applied
-        if self._tool_executor and self._tool_executor.mutations_applied:
-            # Post-processing on RESEARCH_STATE.md (same as legacy path)
-            state_text = self.workspace.read_file("RESEARCH_STATE.md")
-            before = state_text
-            state_text = self._enforce_problem_statement(state_text)
-            if state_text != before:
-                log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "problem_statement_enforced", "")
-            before = state_text
-            state_text = normalize_er_wh_headers(state_text)
-            if state_text != before:
-                log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "header_normalized", "")
-            self.workspace.write_file("RESEARCH_STATE.md", state_text)
-            self.workspace.delete_file("PROPOSED_CHANGES.md")
-
-            # Write CURRENT_TASK.md from set_next_task tool call
-            if self._tool_executor.task_data:
-                task_obj = self._task_from_tool_data(self._tool_executor.task_data, iteration)
-                self.workspace.write_file("CURRENT_TASK.md", task_obj.to_markdown())
-            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION,
-                               "orchestrator_tool_mutations",
-                               f"mutations=True, task={'set' if self._tool_executor.task_data else 'missing'}")
+        """Process orchestrator output — tool-based mutations."""
+        if not (self._tool_executor and self._tool_executor.mutations_applied):
             return
 
-        # Path B: Legacy text-based format (fallback or provider without tool support)
-        research_state, task_text = _split_response(text)
-        if research_state is not None:
-            before = research_state
-            research_state = self._enforce_problem_statement(research_state)
-            if research_state != before:
-                log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "problem_statement_enforced", "")
-            before = research_state
-            research_state = normalize_er_wh_headers(research_state)
-            if research_state != before:
-                log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "header_normalized", "")
-            self.workspace.write_file("RESEARCH_STATE.md", research_state)
-            self.workspace.delete_file("PROPOSED_CHANGES.md")
-            self._resolve_critiques(text, iteration)
-        self.workspace.write_file("CURRENT_TASK.md", task_text)
+        # Post-processing on RESEARCH_STATE.md
+        state_text = self.workspace.read_file("RESEARCH_STATE.md")
+        before = state_text
+        state_text = self._enforce_problem_statement(state_text)
+        if state_text != before:
+            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "problem_statement_enforced", "")
+        before = state_text
+        state_text = normalize_er_wh_headers(state_text)
+        if state_text != before:
+            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "header_normalized", "")
+        self.workspace.write_file("RESEARCH_STATE.md", state_text)
+        self.workspace.delete_file("PROPOSED_CHANGES.md")
+
+        # Write CURRENT_TASK.md from set_next_task tool call
+        if self._tool_executor.task_data:
+            task_obj = self._task_from_tool_data(self._tool_executor.task_data, iteration)
+            self.workspace.write_file("CURRENT_TASK.md", task_obj.to_markdown())
+        log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION,
+                           "orchestrator_tool_mutations",
+                           f"mutations=True, task={'set' if self._tool_executor.task_data else 'missing'}")
 
     def _task_from_tool_data(self, data: dict, iteration: int) -> Task:
         """Build a Task from set_next_task tool arguments."""
@@ -254,85 +228,9 @@ class OrchestratorAgent(BaseAgent):
             flags=re.DOTALL,
         )
 
-    @staticmethod
-    def _validate_resolution_note(note: str, crit_id: str, iteration: int) -> str:
-        _SYSTEM_MARKERS = ("[error]", "phantom", ":unverified]", ">>> ", "<<<")
-        if len(note) < 20:
-            return f"Resolved via computation/analysis at iteration {iteration}."
-        if any(marker in note.lower() for marker in _SYSTEM_MARKERS):
-            return f"Resolved via computation/analysis at iteration {iteration}."
-        return note
-
-    def _resolve_critiques(self, response_text: str, iteration: int):
-        """Scan orchestrator output for resolved critique IDs (legacy path)."""
-        resolved_ids = extract_resolved_critique_ids(response_text)
-
-        state_text = self.workspace.read_file("RESEARCH_STATE.md")
-        if state_text:
-            state_meta, _ = parse_frontmatter(state_text)
-            rc = state_meta.get("resolved_critiques")
-            if isinstance(rc, dict):
-                for key in rc:
-                    for m in CRIT_ID_RE.finditer(str(key)):
-                        resolved_ids.add(m.group())
-            elif isinstance(rc, list):
-                for item in rc:
-                    for m in CRIT_ID_RE.finditer(str(item)):
-                        resolved_ids.add(m.group())
-
-        if not resolved_ids:
-            return
-
-        resolution_notes = {}
-        for crit_id in resolved_ids:
-            note_match = re.search(
-                rf'{re.escape(crit_id)}[\s:—\-]+(.+?)(?=\n\n|\nCRIT(?:IQUE)?-\d|$)',
-                response_text,
-                re.DOTALL,
-            )
-            if note_match:
-                note = note_match.group(1).strip()
-                note = " ".join(note.split())
-                if len(note) > 300:
-                    cut = note[:300].rfind('.')
-                    note = note[:cut + 1] if cut > 50 else note[:300] + "..."
-                resolution_notes[crit_id] = note
-
-        content = self.workspace.read_file("CRITIQUE_LOG.md")
-        for crit_id in sorted(resolved_ids):
-            note = resolution_notes.get(
-                crit_id,
-                f"Addressed by orchestrator integration at iteration {iteration}.",
-            )
-            note = self._validate_resolution_note(note, crit_id, iteration)
-            content = resolve_critique(content, crit_id, note)
-            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "critique_resolved",
-                               f"crit_id={crit_id}")
-
-        self.workspace.write_file("CRITIQUE_LOG.md", ensure_critique_metadata_consistent(content))
-
     def parse_task(self, text: str, iteration: int = 0) -> Task:
-        """Parse task — from tool executor if available, else from text."""
-        # Prefer tool-based task
+        """Parse task from tool executor."""
         if self._tool_executor and self._tool_executor.task_data:
             return self._task_from_tool_data(self._tool_executor.task_data, iteration)
-        # Legacy: parse from text
-        _, task_text = _split_response(text)
-        return Task.from_frontmatter(task_text, fallback_iteration=iteration)
-
-
-def _split_response(text: str) -> tuple[str | None, str]:
-    """Split orchestrator response into (research_state, task_text).
-
-    Returns (None, text) if no section delimiters are found (backward compat).
-    """
-    if DELIM_TASK not in text:
-        return None, text.strip()
-
-    if DELIM_RESEARCH in text:
-        after_research = text.split(DELIM_RESEARCH, 1)[1]
-        research_state, rest = after_research.split(DELIM_TASK, 1)
-        return research_state.strip(), rest.strip()
-
-    task_text = text.split(DELIM_TASK, 1)[1]
-    return None, task_text.strip()
+        # Fallback: parse from text frontmatter
+        return Task.from_frontmatter(text, fallback_iteration=iteration)

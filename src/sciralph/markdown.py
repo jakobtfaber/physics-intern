@@ -252,48 +252,6 @@ def resolve_critique(text: str, crit_id: str, resolution_note: str) -> str:
         )
 
 
-def extract_resolved_critique_ids(text: str) -> set[str]:
-    """Extract critique IDs that appear to be resolved in the given text.
-
-    Detects three patterns:
-    1. resolved_critiques: [CRIT-001, CRIT-002] in YAML
-    2. CRIT-NNN near "resolved"/"addressed"/"incorporated"/"verified" in prose
-    3. Reverse: "resolved"/"addressed"/etc. near CRIT-NNN
-    """
-    resolved_ids: set[str] = set()
-
-    # Pattern 1: resolved_critiques list
-    list_match = re.search(r'resolved_critiques:\s*\[([^\]]+)\]', text)
-    if list_match:
-        for crit in CRIT_ID_RE.findall(list_match.group(1)):
-            resolved_ids.add(crit)
-
-    # Pattern 1b: resolved_critiques as YAML mapping (keys are CRIT-NNN)
-    mapping_match = re.search(
-        r'resolved_critiques:\s*\n((?:[ \t]+\S[^\n]*\n?)+)',
-        text,
-    )
-    if mapping_match:
-        for crit in CRIT_ID_RE.findall(mapping_match.group(1)):
-            resolved_ids.add(crit)
-
-    # Pattern 2: CRIT-NNN near resolution keywords
-    for match in re.finditer(
-        r'(CRIT(?:IQUE)?-\d+)\b[^.\n]{0,80}\b(?:resolved|addressed|incorporated|verified)',
-        text, re.IGNORECASE,
-    ):
-        resolved_ids.add(match.group(1))
-
-    # Pattern 3: resolution keywords near CRIT-NNN
-    for match in re.finditer(
-        r'(?:resolved|addressed|incorporated|verified)\b[^.\n]{0,80}\b(CRIT(?:IQUE)?-\d+)',
-        text, re.IGNORECASE,
-    ):
-        resolved_ids.add(match.group(1))
-
-    return resolved_ids
-
-
 def count_withdrawn_critiques(text: str) -> int:
     """Count critiques marked as WITHDRAWN."""
     return len(CRIT_WITHDRAWN_RE.findall(text))
