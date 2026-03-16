@@ -413,9 +413,10 @@ class OrchestratorToolExecutor:
             parse_frontmatter,
             render_frontmatter,
             _parse_comp_entries,
-            count_unresolved_critiques,
             _ER_WH_ID_RE,
         )
+        from .computation_index import read_computation_index, find_verified_target_ids, find_refuted_target_ids
+        from .critique_index import read_critique_index, has_unresolved_high_for_target
 
         wh_id = args["id"]
         justification = args.get("justification", "")
@@ -432,18 +433,24 @@ class OrchestratorToolExecutor:
         num = wh_id.split("-")[1]
         er_id = f"ER-{num}"
 
-        # Guardrail: REFUTED block
-        has_refuted = False
-        has_verified = False
-        if self.research_state:
+        # Guardrail: REFUTED block — prefer JSONL, fall back to research_state + markdown
+        comp_entries = read_computation_index(self.workspace)
+        verified_targets = find_verified_target_ids(comp_entries) if comp_entries else set()
+        refuted_targets = find_refuted_target_ids(comp_entries) if comp_entries else set()
+
+        has_refuted = wh_id in refuted_targets or er_id in refuted_targets
+        has_verified = wh_id in verified_targets or er_id in verified_targets
+
+        if self.research_state and (not has_refuted or not has_verified):
             for c in self.research_state.computations.values():
                 if c.target_hypothesis in (wh_id, er_id):
                     if c.verdict.value == "REFUTED":
                         has_refuted = True
                     if c.verdict.value == "VERIFIED":
                         has_verified = True
+
         if not has_refuted or not has_verified:
-            # Fallback: check computation log
+            # Fallback: check computation log markdown
             comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
             entries = _parse_comp_entries(comp_log)
             for e in entries:
@@ -453,37 +460,45 @@ class OrchestratorToolExecutor:
                         has_refuted = True
                     if e["verdict"] == "VERIFIED":
                         has_verified = True
+
         if has_refuted and not has_verified:
             return (
                 f"Error: Cannot promote {wh_id} — a REFUTED computation exists "
                 "with no superseding VERIFIED computation."
             )
 
-        # Guardrail: unresolved HIGH critique block
-        critique_log = self.workspace.read_file("CRITIQUE_LOG.md")
-        if critique_log:
-            # Check if any unresolved HIGH critique mentions this WH
-            active_idx = critique_log.find("# Active Critiques")
-            resolved_idx = critique_log.find("# Resolved Critiques")
-            if active_idx != -1:
-                end = resolved_idx if resolved_idx > active_idx else len(critique_log)
-                active_section = critique_log[active_idx:end]
-                # Find HIGH UNRESOLVED critiques that mention this WH
-                _ACTIVE_CRIT_RE = re.compile(
-                    r'^##\s+(CRIT(?:IQUE)?-\d+)\s.*?\[HIGH\].*?\[UNRESOLVED\]',
-                    re.MULTILINE | re.IGNORECASE,
+        # Guardrail: unresolved HIGH critique block — prefer JSONL, fall back to markdown
+        crit_entries = read_critique_index(self.workspace)
+        if crit_entries:
+            if has_unresolved_high_for_target(crit_entries, wh_id):
+                return (
+                    f"Error: Cannot promote {wh_id} — unresolved HIGH "
+                    f"critique targets this claim (per CRITIQUE_INDEX)."
                 )
-                headers = list(_ACTIVE_CRIT_RE.finditer(active_section))
-                for i, match in enumerate(headers):
-                    start = match.end()
-                    end_pos = headers[i + 1].start() if i + 1 < len(headers) else len(active_section)
-                    body = active_section[start:end_pos]
-                    if wh_id in body or er_id in body:
-                        crit_id = match.group(1)
-                        return (
-                            f"Error: Cannot promote {wh_id} — unresolved HIGH "
-                            f"critique {crit_id} targets this claim."
-                        )
+        else:
+            # Fallback: regex on markdown
+            critique_log = self.workspace.read_file("CRITIQUE_LOG.md")
+            if critique_log:
+                active_idx = critique_log.find("# Active Critiques")
+                resolved_idx = critique_log.find("# Resolved Critiques")
+                if active_idx != -1:
+                    end = resolved_idx if resolved_idx > active_idx else len(critique_log)
+                    active_section = critique_log[active_idx:end]
+                    _ACTIVE_CRIT_RE = re.compile(
+                        r'^##\s+(CRIT(?:IQUE)?-\d+)\s.*?\[HIGH\].*?\[UNRESOLVED\]',
+                        re.MULTILINE | re.IGNORECASE,
+                    )
+                    headers = list(_ACTIVE_CRIT_RE.finditer(active_section))
+                    for i, match in enumerate(headers):
+                        start = match.end()
+                        end_pos = headers[i + 1].start() if i + 1 < len(headers) else len(active_section)
+                        body = active_section[start:end_pos]
+                        if wh_id in body or er_id in body:
+                            crit_id = match.group(1)
+                            return (
+                                f"Error: Cannot promote {wh_id} — unresolved HIGH "
+                                f"critique {crit_id} targets this claim."
+                            )
 
         # Perform promotion: rename header WH-NNN → ER-NNN
         state_text = re.sub(
