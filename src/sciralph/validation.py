@@ -47,14 +47,20 @@ class Violation:
 # ---------------------------------------------------------------------------
 
 _AGENT_ALIASES = {
-    "compute": "computationalist",
-    "compute_explore": "computationalist",
-    "compute_verify": "computationalist",
+    "compute": "compute_verify",
+    "compute_explore": "compute_explore",
+    "compute_verify": "compute_verify",
+    "research_verify": "research_verify",
     "research": "researcher",
     "critique": "deep_critic",
     "review": "deep_critic",
+    "computationalist": "compute_verify",  # backward compat
 }
-_VALID_AGENTS = {"orchestrator", "researcher", "computationalist", "deep_critic", "compressor"}
+_VALID_AGENTS = {
+    "orchestrator", "researcher", "computationalist",
+    "compute_verify", "compute_explore", "research_verify",
+    "deep_critic", "compressor",
+}
 
 
 # ---------------------------------------------------------------------------

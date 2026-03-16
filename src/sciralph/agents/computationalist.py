@@ -144,6 +144,7 @@ class ComputationalistAgent(BaseAgent):
         result = params.get("result", "No results")
         verdict_str = params.get("verdict", "INCONCLUSIVE")
         notes = params.get("notes", "No notes")
+        kind = "research_verify" if task.task_type == TaskType.RESEARCH_VERIFY else "verify"
 
         try:
             verdict = Verdict(verdict_str)
@@ -157,7 +158,7 @@ class ComputationalistAgent(BaseAgent):
             claim=claim,
             method=method,
             result=result,
-            kind="verify",
+            kind=kind,
             notes=notes,
             failure_detail=notes if verdict != Verdict.VERIFIED else "",
             iteration=iteration,
@@ -165,7 +166,7 @@ class ComputationalistAgent(BaseAgent):
 
         jsonl_entry = {
             "id": task_id,
-            "kind": "verify",
+            "kind": kind,
             "iteration": iteration,
             "target_id": target_id,
             "claim": claim,
@@ -184,7 +185,12 @@ class ComputationalistAgent(BaseAgent):
         task_id = task.task_id or f"TASK-{iteration:03d}"
         target_ids = _ER_WH_ID_RE.findall(task.body or "")
         target_id = target_ids[0] if target_ids else ""
-        kind = "explore" if task.task_type == TaskType.COMPUTE_EXPLORE else "verify"
+        if task.task_type == TaskType.COMPUTE_EXPLORE:
+            kind = "explore"
+        elif task.task_type == TaskType.RESEARCH_VERIFY:
+            kind = "research_verify"
+        else:
+            kind = "verify"
         zero_output = not response.text.strip() or response.stop_reason == "max_rounds_forced"
 
         if zero_output:

@@ -201,6 +201,10 @@ class ToolExecutor:
         _SUBMIT_RESULT_DEF,
         _REPORT_PROGRESS_DEF,
     ]
+    RESEARCH_VERIFY_TOOLS: ClassVar[list[dict]] = [
+        _SUBMIT_VERDICT_DEF,
+        _REPORT_PROGRESS_DEF,
+    ]
 
     @classmethod
     def tools_for_task_type(cls, task_type: "TaskType") -> list[dict]:
@@ -209,6 +213,8 @@ class ToolExecutor:
             return cls.EXPLORE_TOOLS
         if task_type == TaskType.COMPUTE_VERIFY:
             return cls.VERIFY_TOOLS
+        if task_type == TaskType.RESEARCH_VERIFY:
+            return cls.RESEARCH_VERIFY_TOOLS
         return cls.TOOL_DEFINITIONS  # COMPUTE (legacy)
 
     def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000,

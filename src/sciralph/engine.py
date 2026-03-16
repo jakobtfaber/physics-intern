@@ -22,6 +22,9 @@ from .workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
 from .agents.researcher import ResearcherAgent
 from .agents.computationalist import ComputationalistAgent
+from .agents.compute_verify import ComputeVerifyAgent
+from .agents.compute_explore import ComputeExploreAgent
+from .agents.research_verify import ResearchVerifyAgent
 from .agents.critic import CriticAgent
 from .agents.compressor import CompressorAgent
 from .agents.formatter import FormatterAgent
@@ -67,6 +70,9 @@ class SciRalph:
         self.orchestrator = OrchestratorAgent(self.config, self.workspace, self.metrics)
         self.researcher = ResearcherAgent(self.config, self.workspace, self.metrics)
         self.computationalist = ComputationalistAgent(self.config, self.workspace, self.metrics)
+        self.compute_verify = ComputeVerifyAgent(self.config, self.workspace, self.metrics)
+        self.compute_explore = ComputeExploreAgent(self.config, self.workspace, self.metrics)
+        self.research_verify = ResearchVerifyAgent(self.config, self.workspace, self.metrics)
         self.critic = CriticAgent(self.config, self.workspace, self.metrics)
         self.compressor = CompressorAgent(self.config, self.workspace, self.metrics)
         self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
@@ -104,7 +110,7 @@ class SciRalph:
                 self._state.pending_violations.extend(violations)
 
             # 3. Enrichment for compute tasks
-            if task.task_type in (TaskType.COMPUTE, TaskType.COMPUTE_VERIFY):
+            if task.task_type in (TaskType.COMPUTE, TaskType.COMPUTE_VERIFY, TaskType.COMPUTE_EXPLORE, TaskType.RESEARCH_VERIFY):
                 self._enrich_compute_task_with_prior_failures(task)
 
             # 4. Termination gate
@@ -155,7 +161,7 @@ class SciRalph:
             self._record_agent_failures(task, agent_name, agent_result)
 
             # 6. Post-dispatch checks
-            if task.task_type in (TaskType.COMPUTE, TaskType.COMPUTE_EXPLORE, TaskType.COMPUTE_VERIFY):
+            if task.task_type in (TaskType.COMPUTE, TaskType.COMPUTE_EXPLORE, TaskType.COMPUTE_VERIFY, TaskType.RESEARCH_VERIFY):
                 self._track_computation(task)
 
             # 6b. Post-dispatch phantom check — catch refs introduced by agents
@@ -289,7 +295,9 @@ class SciRalph:
         expected_agent = TASK_TYPE_AGENT_MAP.get(task.task_type)
         if expected_agent:
             if not task.assigned_to or task.assigned_to not in (
-                "orchestrator", "researcher", "computationalist", "deep_critic", "compressor", "formatter"
+                "orchestrator", "researcher", "computationalist",
+                "compute_verify", "compute_explore", "research_verify",
+                "deep_critic", "compressor", "formatter",
             ):
                 self.metrics.alert(
                     self.iteration,
@@ -317,13 +325,26 @@ class SciRalph:
             self._state.last_content_iteration = self.iteration
             return "researcher", result
 
-        elif tt in (TaskType.COMPUTE, TaskType.COMPUTE_EXPLORE, TaskType.COMPUTE_VERIFY):
-            mode = "exploring" if tt == TaskType.COMPUTE_EXPLORE else "verifying"
-            console.print(f"[magenta]Computationalist[/magenta] {mode}...")
-            self.computationalist.research_state = self.research_state
-            result = self.computationalist.run(task, self.iteration, on_round=self._on_compute_round)
+        elif tt in (TaskType.COMPUTE, TaskType.COMPUTE_VERIFY):
+            console.print("[magenta]ComputeVerify[/magenta] verifying...")
+            self.compute_verify.research_state = self.research_state
+            result = self.compute_verify.run(task, self.iteration, on_round=self._on_compute_round)
             self._state.last_content_iteration = self.iteration
-            return "computationalist", result
+            return "compute_verify", result
+
+        elif tt == TaskType.COMPUTE_EXPLORE:
+            console.print("[magenta]ComputeExplore[/magenta] exploring...")
+            self.compute_explore.research_state = self.research_state
+            result = self.compute_explore.run(task, self.iteration, on_round=self._on_compute_round)
+            self._state.last_content_iteration = self.iteration
+            return "compute_explore", result
+
+        elif tt == TaskType.RESEARCH_VERIFY:
+            console.print("[magenta]ResearchVerify[/magenta] verifying analytically...")
+            self.research_verify.research_state = self.research_state
+            result = self.research_verify.run(task, self.iteration, on_round=self._on_compute_round)
+            self._state.last_content_iteration = self.iteration
+            return "research_verify", result
 
         elif tt == TaskType.FORMAT:
             console.print("[cyan]Formatter[/cyan] producing ANSWER.md...")

@@ -374,9 +374,9 @@ class TestCheckTaskAgentRouting:
         assert len(violations) == 1
         assert violations[0].severity == ViolationSeverity.WARNING
         assert "'compute'" in violations[0].message
-        assert "'computationalist'" in violations[0].message
+        assert "'compute_verify'" in violations[0].message
         # File rewritten with correct agent
-        assert "computationalist" in ws.read_file("CURRENT_TASK.md")
+        assert "compute_verify" in ws.read_file("CURRENT_TASK.md")
 
     def test_alias_critique_resolved(self):
         ws = MockWorkspace({

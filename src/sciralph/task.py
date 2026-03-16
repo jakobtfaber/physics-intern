@@ -19,6 +19,7 @@ class TaskType(StrEnum):
     CRITIQUE = "critique"
     RESOLVE = "resolve"
     SYNTHESIZE = "synthesize"
+    RESEARCH_VERIFY = "research_verify"
     TERMINATE = "terminate"
     FORMAT = "format"
 
@@ -26,9 +27,10 @@ class TaskType(StrEnum):
 TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
     TaskType.RESEARCH: "researcher",
     TaskType.DERIVE: "researcher",
-    TaskType.COMPUTE: "computationalist",
-    TaskType.COMPUTE_EXPLORE: "computationalist",
-    TaskType.COMPUTE_VERIFY: "computationalist",
+    TaskType.COMPUTE: "compute_verify",
+    TaskType.COMPUTE_EXPLORE: "compute_explore",
+    TaskType.COMPUTE_VERIFY: "compute_verify",
+    TaskType.RESEARCH_VERIFY: "research_verify",
     TaskType.CRITIQUE: "deep_critic",
     TaskType.RESOLVE: "researcher",
     TaskType.SYNTHESIZE: "researcher",

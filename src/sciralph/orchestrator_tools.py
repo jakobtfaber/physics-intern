@@ -202,6 +202,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         "enum": [
                             "research", "derive", "compute",
                             "compute_explore", "compute_verify",
+                            "research_verify",
                             "critique", "resolve", "synthesize", "terminate",
                         ],
                     },

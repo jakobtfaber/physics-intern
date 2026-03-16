@@ -301,6 +301,69 @@ class TestZeroOutputOnMaxRoundsForced:
         assert comp.zero_output is True
 
 
+class TestNewAgentClasses:
+    """Test the new split agent classes (Phase 4a)."""
+
+    def test_compute_verify_has_correct_tools(self):
+        from sciralph.agents.compute_verify import ComputeVerifyAgent
+        names = {t["function"]["name"] for t in ComputeVerifyAgent.tools}
+        assert names == {"execute_python", "submit_verdict", "report_progress"}
+
+    def test_compute_explore_has_correct_tools(self):
+        from sciralph.agents.compute_explore import ComputeExploreAgent
+        names = {t["function"]["name"] for t in ComputeExploreAgent.tools}
+        assert names == {"execute_python", "submit_result", "report_progress"}
+
+    def test_research_verify_has_correct_tools(self):
+        from sciralph.agents.research_verify import ResearchVerifyAgent
+        names = {t["function"]["name"] for t in ResearchVerifyAgent.tools}
+        assert names == {"submit_verdict", "report_progress"}
+
+    def test_research_verify_no_execute_python(self):
+        from sciralph.agents.research_verify import ResearchVerifyAgent
+        names = {t["function"]["name"] for t in ResearchVerifyAgent.tools}
+        assert "execute_python" not in names
+
+    def test_research_verify_creates_research_verify_computation(self):
+        """ResearchVerifyAgent.process_response sets kind='research_verify'."""
+        from sciralph.agents.research_verify import ResearchVerifyAgent
+        from sciralph.research_state import ResearchState
+
+        agent = ResearchVerifyAgent(
+            config=MagicMock(), workspace=MagicMock(), metrics=MagicMock(),
+        )
+        agent.research_state = ResearchState()
+
+        verdict_params = {
+            "target_id": "WH-001",
+            "claim": "dimensional consistency",
+            "method": "dimensional analysis",
+            "result": "All dimensions match",
+            "verdict": "VERIFIED",
+            "notes": "Confirmed by analysis.",
+        }
+        result = AgentResult(
+            text="",
+            tool_calls=[
+                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
+            ],
+            total_input_tokens=500,
+            total_output_tokens=200,
+            rounds=1,
+        )
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH_VERIFY,
+                    assigned_to="research_verify", body="Verify WH-001")
+        agent.process_response(result, task, iteration=5)
+
+        comp = agent.research_state.computations["TASK-005"]
+        assert comp.kind == "research_verify"
+        assert comp.verdict.value == "VERIFIED"
+
+    def test_tools_for_task_type_research_verify(self):
+        names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.RESEARCH_VERIFY)}
+        assert names == {"submit_verdict", "report_progress"}
+
+
 class TestFreeTextFallthrough:
     """Free text without submit_verdict results in INCONCLUSIVE."""
 

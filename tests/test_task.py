@@ -116,7 +116,7 @@ class TestTaskTypeAgentMap:
             assert tt in TASK_TYPE_AGENT_MAP, f"TaskType.{tt} not in TASK_TYPE_AGENT_MAP"
 
     def test_compute_maps_to_computationalist(self):
-        assert TASK_TYPE_AGENT_MAP[TaskType.COMPUTE] == "computationalist"
+        assert TASK_TYPE_AGENT_MAP[TaskType.COMPUTE] == "compute_verify"
 
     def test_critique_maps_to_deep_critic(self):
         assert TASK_TYPE_AGENT_MAP[TaskType.CRITIQUE] == "deep_critic"

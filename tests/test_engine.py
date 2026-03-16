@@ -547,7 +547,9 @@ class TestDispatchRoutingValidation:
             engine._state = LoopState(last_content_iteration=5)
             engine.research_state = ResearchState()
             engine.researcher = MagicMock()
-            engine.computationalist = MagicMock()
+            engine.compute_verify = MagicMock()
+            engine.compute_explore = MagicMock()
+            engine.research_verify = MagicMock()
             engine.critic = MagicMock()
         return engine
 
@@ -560,7 +562,7 @@ class TestDispatchRoutingValidation:
             iteration=5, body="Verify something.",
         )
         agent_name, _ = engine._dispatch(task)
-        assert agent_name == "computationalist"
+        assert agent_name == "compute_verify"
         engine.metrics.alert.assert_called()
         alert_msg = engine.metrics.alert.call_args[0][1]
         assert "Routing conflict" in alert_msg
@@ -578,6 +580,62 @@ class TestDispatchRoutingValidation:
         engine.metrics.alert.assert_called()
         alert_msg = engine.metrics.alert.call_args[0][1]
         assert "Routing fix" in alert_msg
+
+
+class TestDispatchNewAgents:
+    """Test dispatch routing to new split agents (Phase 4a)."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 5
+            engine._state = LoopState(last_content_iteration=5)
+            engine.research_state = ResearchState()
+            engine.researcher = MagicMock()
+            engine.compute_verify = MagicMock()
+            engine.compute_explore = MagicMock()
+            engine.research_verify = MagicMock()
+            engine.critic = MagicMock()
+            engine.formatter = MagicMock()
+        return engine
+
+    def test_compute_verify_dispatch(self):
+        engine = self._make_engine()
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", iteration=5, body="Verify WH-001")
+        name, _ = engine._dispatch(task)
+        assert name == "compute_verify"
+
+    def test_compute_explore_dispatch(self):
+        engine = self._make_engine()
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_EXPLORE,
+                    assigned_to="compute_explore", iteration=5, body="Explore WH-001")
+        name, _ = engine._dispatch(task)
+        assert name == "compute_explore"
+
+    def test_research_verify_dispatch(self):
+        engine = self._make_engine()
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH_VERIFY,
+                    assigned_to="research_verify", iteration=5, body="Verify WH-001 analytically")
+        name, _ = engine._dispatch(task)
+        assert name == "research_verify"
+
+    def test_legacy_compute_routes_to_verify(self):
+        engine = self._make_engine()
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="compute_verify", iteration=5, body="Verify something")
+        name, _ = engine._dispatch(task)
+        assert name == "compute_verify"
 
 
 class TestUpdateResearchIteration:
@@ -690,7 +748,9 @@ class TestDispatchFailureRecovery:
 
             engine.orchestrator = MagicMock()
             engine.researcher = MagicMock()
-            engine.computationalist = MagicMock()
+            engine.compute_verify = MagicMock()
+            engine.compute_explore = MagicMock()
+            engine.research_verify = MagicMock()
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()
@@ -719,7 +779,7 @@ class TestDispatchFailureRecovery:
             assigned_to="orchestrator", iteration=2,
         )
         engine.orchestrator.parse_task = MagicMock(side_effect=[task, task_terminate])
-        engine.computationalist.run = MagicMock(side_effect=exc_504)
+        engine.compute_verify.run = MagicMock(side_effect=exc_504)
 
         engine.run()
 
@@ -727,8 +787,8 @@ class TestDispatchFailureRecovery:
         engine.metrics.alert.assert_any_call(
             1, unittest_any_string_containing("Dispatch failed")
         )
-        # Computationalist was called once (failed), then orchestrator terminated
-        assert engine.computationalist.run.call_count == 1
+        # compute_verify was called once (failed), then orchestrator terminated
+        assert engine.compute_verify.run.call_count == 1
         assert engine.iteration == 2
 
     def test_non_transient_error_propagates(self):
@@ -765,7 +825,7 @@ class TestDispatchFailureRecovery:
             assigned_to="orchestrator", iteration=2,
         )
         engine.orchestrator.parse_task = MagicMock(side_effect=[task, task_terminate])
-        engine.computationalist.run = MagicMock(side_effect=exc_timeout)
+        engine.compute_verify.run = MagicMock(side_effect=exc_timeout)
 
         engine.run()
 
