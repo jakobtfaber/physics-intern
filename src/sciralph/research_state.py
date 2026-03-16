@@ -61,6 +61,8 @@ class Hypothesis:
     critiques: list[str] = field(default_factory=list)
     iteration_created: int = 0
     iteration_modified: int = 0
+    depends_on: list[str] = field(default_factory=list)
+    promotion_justification: str = ""
 
 
 @dataclass
@@ -192,6 +194,17 @@ class ResearchState:
                 result.append(h)
         return result
 
+    def unestablished_dependencies(self, hypothesis_id: str) -> list[str]:
+        """Return dependency IDs that are not yet ESTABLISHED."""
+        if hypothesis_id not in self.hypotheses:
+            return []
+        deps = self.hypotheses[hypothesis_id].depends_on
+        return [
+            d for d in deps
+            if d not in self.hypotheses
+            or self.hypotheses[d].status != HypothesisStatus.ESTABLISHED
+        ]
+
     def refuted_targets(self) -> set[str]:
         """Set of hypothesis IDs with at least one REFUTED computation."""
         return {
@@ -307,6 +320,13 @@ class ResearchState:
             if num in id_by_num and id_by_num[num] != target:
                 comp.target_hypothesis = id_by_num[num]
 
+        # Update depends_on references to current form
+        for h in self.hypotheses.values():
+            h.depends_on = [
+                id_by_num.get(dep.split("-")[1], dep) if "-" in dep else dep
+                for dep in h.depends_on
+            ]
+
         # Rebuild supporting_comps from scratch
         for h in self.hypotheses.values():
             h.supporting_comps = []
@@ -343,6 +363,8 @@ class ResearchState:
                 critiques=hdata.get("critiques", []),
                 iteration_created=hdata.get("iteration_created", 0),
                 iteration_modified=hdata.get("iteration_modified", 0),
+                depends_on=hdata.get("depends_on", []),
+                promotion_justification=hdata.get("promotion_justification", ""),
             )
         for cid, cdata in data.get("computations", {}).items():
             state.computations[cid] = Computation(

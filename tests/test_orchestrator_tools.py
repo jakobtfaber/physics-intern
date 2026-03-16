@@ -443,3 +443,62 @@ class TestNoResearchState:
         assert not tc.is_error
         assert ex.task_data is not None
         assert ex.stop_after_round
+
+
+class TestDependencyGraph:
+    """Tests for depends_on in add_hypothesis and promotion dependency guardrail (B4)."""
+
+    def test_add_hypothesis_with_depends_on(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("add_hypothesis", {
+            "statement": "Depends on WH-001",
+            "depends_on": ["WH-001"],
+        })
+        assert not tc.is_error
+        new_id = "WH-003"
+        assert new_id in state.hypotheses
+        assert state.hypotheses[new_id].depends_on == ["WH-001"]
+
+    def test_promotion_blocked_by_unestablished_dependency(self):
+        ws = _make_workspace()
+        state = _make_state_with_verified("WH-002")
+        state.hypotheses["WH-002"].depends_on = ["WH-001"]
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-002",
+            "justification": "Evidence from COMP-001",
+        })
+        assert tc.is_error or "unestablished" in tc.output.lower()
+        assert "WH-002" in state.hypotheses  # not promoted
+
+    def test_promotion_allowed_when_dependency_established(self):
+        ws = _make_workspace()
+        state = _make_state_with_verified("WH-002")
+        # Promote WH-001 to ER-001 first
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        del state.hypotheses["WH-001"]
+        state.hypotheses["WH-002"].depends_on = ["ER-001"]
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-002",
+            "justification": "Verified by COMP-001, dependency ER-001 established",
+        })
+        assert not tc.is_error
+        assert "ER-002" in state.hypotheses
+        assert state.hypotheses["ER-002"].promotion_justification == "Verified by COMP-001, dependency ER-001 established"
+
+    def test_promotion_stores_justification(self):
+        ws = _make_workspace()
+        state = _make_state_with_verified("WH-001")
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "Strong evidence from COMP-001",
+        })
+        assert not tc.is_error
+        assert "ER-001" in state.hypotheses
+        assert state.hypotheses["ER-001"].promotion_justification == "Strong evidence from COMP-001"

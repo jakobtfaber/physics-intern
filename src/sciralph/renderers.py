@@ -65,6 +65,10 @@ def render_research_state_md(state: ResearchState) -> str:
             continue  # abandoned go in Dead Ends
         statement_part = f" — {h.statement}" if h.statement else ""
         parts.append(f"## {h.id}{statement_part}\n")
+        if h.depends_on:
+            parts.append(f"**Depends on:** {', '.join(h.depends_on)}\n")
+        if h.promotion_justification:
+            parts.append(f"**Promotion justification:** {h.promotion_justification}\n")
         if h.derivation:
             parts.append(h.derivation)
             parts.append("")

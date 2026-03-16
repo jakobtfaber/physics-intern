@@ -42,6 +42,14 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         "type": "string",
                         "description": "Full reasoning or derivation (Markdown).",
                     },
+                    "depends_on": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "IDs of hypotheses this claim depends on "
+                            "(e.g. ['ER-001', 'WH-002']). Optional."
+                        ),
+                    },
                 },
                 "required": ["statement"],
             },
@@ -287,12 +295,14 @@ class OrchestratorToolExecutor:
         new_id = f"WH-{num:03d}"
         statement = args.get("statement", "Untitled")
         derivation = args.get("derivation", "")
+        depends_on = args.get("depends_on", [])
 
         state.hypotheses[new_id] = Hypothesis(
             id=new_id,
             statement=statement,
             status=HypothesisStatus.WORKING,
             derivation=derivation,
+            depends_on=depends_on,
             iteration_created=self.iteration,
             iteration_modified=self.iteration,
         )
@@ -385,10 +395,19 @@ class OrchestratorToolExecutor:
                     f"critique {c.id} targets this claim."
                 )
 
+        # Guardrail: check for unestablished dependencies
+        unestablished = state.unestablished_dependencies(wh_id)
+        if unestablished:
+            return (
+                f"Error: Cannot promote {wh_id} — unestablished dependencies: "
+                f"{', '.join(unestablished)}. Promote or resolve them first."
+            )
+
         # Perform promotion in state
         h = state.hypotheses.pop(wh_id)
         h.id = er_id
         h.status = HypothesisStatus.ESTABLISHED
+        h.promotion_justification = justification
         h.iteration_modified = self.iteration
         state.hypotheses[er_id] = h
         state.normalize_references()

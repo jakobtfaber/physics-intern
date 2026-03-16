@@ -268,6 +268,29 @@ class TestRenderResearchStateMd:
         md = render_research_state_md(populated_state)
         assert "Surface gravity kappa = 1/(4M)" in md
 
+    def test_depends_on_rendered(self):
+        state = ResearchState(problem_statement="Test")
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Depends on ER-001",
+            depends_on=["ER-001", "WH-003"],
+        )
+        md = render_research_state_md(state)
+        assert "**Depends on:** ER-001, WH-003" in md
+
+    def test_depends_on_omitted_when_empty(self, populated_state):
+        md = render_research_state_md(populated_state)
+        assert "**Depends on:**" not in md
+
+    def test_promotion_justification_rendered(self):
+        state = ResearchState(problem_statement="Test")
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", statement="Established result",
+            status=HypothesisStatus.ESTABLISHED,
+            promotion_justification="Verified by COMP-001.",
+        )
+        md = render_research_state_md(state)
+        assert "**Promotion justification:** Verified by COMP-001." in md
+
 
 # ===========================================================================
 # render_computation_log_md

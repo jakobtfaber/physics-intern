@@ -24,9 +24,14 @@ Use update_hypothesis to integrate accepted corrections into existing
 hypotheses. Use add_hypothesis for genuinely new results. Do NOT
 re-derive — just integrate the researcher's output.
 
+DEPENDENCIES:
+When adding a hypothesis that logically depends on earlier claims, use
+the depends_on parameter (e.g. depends_on: ["ER-001"]). The system
+will block promotion of a WH whose dependencies are not yet established.
+
 PROMOTION:
 Call promote_hypothesis when evidence is sufficient. The system rejects
-invalid promotions and tells you why.
+invalid promotions and tells you why (including unestablished dependencies).
 
 TASK PLANNING — VERIFY-FIRST:
 When a new WH lacks supporting evidence, your FIRST action SHOULD be

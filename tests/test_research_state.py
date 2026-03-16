@@ -1216,3 +1216,104 @@ class TestBuildFromWorkspaceJsonlEnrichment:
         # Defaults preserved
         assert state.computations["COMP-001"].kind == "verify"
         assert state.computations["COMP-001"].confidence == ""
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Justification graph (B4) tests
+# ---------------------------------------------------------------------------
+
+class TestHypothesisDependsOn:
+    """Tests for depends_on and promotion_justification fields."""
+
+    def test_json_round_trip_new_fields(self):
+        """New fields survive JSON serialization round-trip."""
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="A depends on B",
+            depends_on=["ER-001", "WH-002"],
+        )
+        state.hypotheses["ER-002"] = Hypothesis(
+            id="ER-002", statement="Promoted result",
+            status=HypothesisStatus.ESTABLISHED,
+            promotion_justification="Verified by COMP-001.",
+        )
+        json_str = state.to_json()
+        restored = ResearchState.from_json(json_str)
+
+        assert restored.hypotheses["WH-001"].depends_on == ["ER-001", "WH-002"]
+        assert restored.hypotheses["ER-002"].promotion_justification == "Verified by COMP-001."
+
+    def test_json_backward_compat_missing_fields(self):
+        """Old JSON without depends_on/promotion_justification loads with defaults."""
+        data = {
+            "hypotheses": {
+                "WH-001": {"id": "WH-001", "statement": "Old hypothesis"},
+            },
+        }
+        state = ResearchState.from_json(json.dumps(data))
+        assert state.hypotheses["WH-001"].depends_on == []
+        assert state.hypotheses["WH-001"].promotion_justification == ""
+
+
+class TestNormalizeReferencesDependsOn:
+    """Tests for normalize_references remapping depends_on entries."""
+
+    def test_depends_on_remapped_on_promotion(self):
+        """When WH-001 is promoted to ER-001, depends_on entries are remapped."""
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", depends_on=["WH-001"],
+        )
+        state.normalize_references()
+        assert state.hypotheses["WH-002"].depends_on == ["ER-001"]
+
+    def test_depends_on_unchanged_when_no_rename(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", depends_on=["WH-001"],
+        )
+        state.normalize_references()
+        assert state.hypotheses["WH-002"].depends_on == ["WH-001"]
+
+
+class TestUnestablishedDependencies:
+    """Tests for unestablished_dependencies query."""
+
+    def test_returns_working_dependency(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", depends_on=["WH-001"],
+        )
+        assert state.unestablished_dependencies("WH-002") == ["WH-001"]
+
+    def test_returns_empty_when_dependency_established(self):
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", depends_on=["ER-001"],
+        )
+        assert state.unestablished_dependencies("WH-002") == []
+
+    def test_returns_empty_for_no_dependencies(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        assert state.unestablished_dependencies("WH-001") == []
+
+    def test_returns_missing_dependency(self):
+        """Dependency pointing to non-existent ID is unestablished."""
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", depends_on=["WH-099"],
+        )
+        assert state.unestablished_dependencies("WH-001") == ["WH-099"]
+
+    def test_returns_empty_for_unknown_hypothesis(self):
+        state = ResearchState()
+        assert state.unestablished_dependencies("WH-999") == []
