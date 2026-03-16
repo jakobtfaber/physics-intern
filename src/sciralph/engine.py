@@ -43,7 +43,6 @@ class LoopState:
     # Consumed-once feedback accumulators (cleared after orchestrator reads them)
     pending_violations: list = field(default_factory=list)
     pending_termination_blockers: list[str] = field(default_factory=list)
-    displaced_tasks: list[dict] = field(default_factory=list)
     agent_failures: list[dict] = field(default_factory=list)
 
 
@@ -60,24 +59,6 @@ class Override:
 # Override condition/action functions
 # ---------------------------------------------------------------------------
 
-def _p3_forced_critic_condition(engine: "SciRalph", task: Task) -> bool:
-    return (engine._critic_overdue()
-            and task.task_type not in (TaskType.CRITIQUE, TaskType.SYNTHESIZE, TaskType.TERMINATE))
-
-
-def _p3_forced_critic_action(engine: "SciRalph", task: Task) -> Task:
-    console.print(
-        f"[yellow]Forcing critic pass (overdue: last critic at "
-        f"iter {engine.metrics.last_critic_iteration}, "
-        f"threshold {engine.config.critic_every_n}).[/yellow]"
-    )
-    engine._log_displacement(task, "forced_critic")
-    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
-                       "p3_forced_critic",
-                       f"last_critic={engine.metrics.last_critic_iteration}")
-    return engine._make_forced_critic_task()
-
-
 def _p4_refuted_recompute_condition(engine: "SciRalph", task: Task) -> bool:
     """Pure check — no side effects."""
     if not engine._state.pending_recompute_claim:
@@ -92,7 +73,6 @@ def _p4_refuted_recompute_action(engine: "SciRalph", task: Task) -> Task:
     engine._state.pending_recompute_claim = None
     engine._state.pending_recompute_verdict = None
     console.print(f"[yellow]Forcing recompute after {verdict} verdict.[/yellow]")
-    engine._log_displacement(task, "refuted_recompute")
     log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
                        "p4_refuted_recompute",
                        f"claim={claim[:80]}, verdict={verdict}")
@@ -104,7 +84,6 @@ def _p4_refuted_recompute_action(engine: "SciRalph", task: Task) -> Task:
 
 
 _OVERRIDE_CHAIN: list[Override] = [
-    Override("forced_critic", 3, _p3_forced_critic_condition, _p3_forced_critic_action),
     Override("refuted_recompute", 6, _p4_refuted_recompute_condition, _p4_refuted_recompute_action),
 ]
 
@@ -145,8 +124,19 @@ class SciRalph:
             console.rule(f"[bold]ITERATION {self.iteration}[/bold]")
             self._update_research_iteration()
 
-            # 1. Orchestrator pass -> CURRENT_TASK.md
-            task = self._run_orchestrator()
+            # 1. Forced critic or orchestrator pass
+            if self._critic_overdue():
+                console.print(
+                    f"[yellow]Forced critic (last at iter "
+                    f"{self.metrics.last_critic_iteration}, "
+                    f"threshold {self.config.critic_every_n})[/yellow]"
+                )
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                                   "forced_critic",
+                                   f"last_critic={self.metrics.last_critic_iteration}")
+                task = self._make_forced_critic_task()
+            else:
+                task = self._run_orchestrator()
 
             # 2. Post-integration validation (Layer B hook -- stub returns [])
             violations = validate_post_integration(
@@ -250,22 +240,6 @@ class SciRalph:
         self._print_task(task)
         return task
 
-    def _log_displacement(self, original_task: Task, override_name: str):
-        """Record a task displacement for transparency."""
-        summary = {
-            "task_id": original_task.task_id,
-            "task_type": str(original_task.task_type),
-            "body_summary": original_task.body[:80].replace("\n", " "),
-            "override": override_name,
-            "iteration": self.iteration,
-        }
-        self._state.displaced_tasks.append(summary)
-        self.metrics.alert(
-            self.iteration,
-            f"task_displaced: {original_task.task_id} ({original_task.task_type}) "
-            f"displaced by {override_name}",
-        )
-
     def _record_agent_failures(self, task: Task, agent_name: str, result):
         """Inspect agent result for failure signals and record for orchestrator context."""
         from .llm import AgentResult
@@ -302,7 +276,7 @@ class SciRalph:
                                f"task={task.task_id}, agent={agent_name}, rounds={result.rounds}")
 
     def _build_context_prefix(self) -> str:
-        """Build prefix for orchestrator context with violations, blockers, and displaced tasks."""
+        """Build prefix for orchestrator context with violations, blockers, and agent failures."""
         lines = []
         if self._state.pending_violations:
             lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
@@ -321,17 +295,6 @@ class SciRalph:
             )
             lines.append(">>> END TERMINATION BLOCKERS <<<\n")
             self._state.pending_termination_blockers.clear()
-        if self._state.displaced_tasks:
-            lines.append(">>> DISPLACED TASKS (from previous iteration overrides) <<<")
-            lines.append("Consider re-scheduling if still needed:")
-            for d in self._state.displaced_tasks:
-                lines.append(
-                    f"  - {d['task_id']} ({d['task_type']}): displaced by "
-                    f"{d['override']} at iteration {d['iteration']}. "
-                    f"Summary: {d['body_summary']}"
-                )
-            lines.append(">>> END DISPLACED TASKS <<<\n")
-            self._state.displaced_tasks.clear()
         if self._state.agent_failures:
             lines.append(">>> AGENT FAILURES (previous iteration) <<<")
             for f in self._state.agent_failures:

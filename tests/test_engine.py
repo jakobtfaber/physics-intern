@@ -532,21 +532,6 @@ class TestApplyOverrides:
             )
         return engine, written
 
-    def test_forced_critic_overrides_task(self):
-        """Forced critic (P3) replaces non-critique task when overdue."""
-        engine, written = self._make_engine(
-            max_iterations=20, current_iteration=8,
-            last_critic_iteration=0, critic_every_n=4,
-        )
-        task = Task(
-            task_id="TASK-008", task_type=TaskType.RESEARCH,
-            assigned_to="researcher", iteration=8,
-        )
-        result = engine._apply_overrides(task)
-
-        assert result.task_type == TaskType.CRITIQUE
-        assert result.assigned_to == "deep_critic"
-
     def test_refuted_recompute_when_applicable(self):
         """REFUTED recompute (P4) replaces non-terminal tasks."""
         engine, written = self._make_engine(
@@ -760,102 +745,6 @@ class TestCheckStatusField:
     def test_empty_state(self):
         engine = self._make_engine("")
         assert engine._check_status_field() is False
-
-
-class TestDisplacedTaskLogging:
-    """Tests for displaced task logging."""
-
-    def _make_engine(self, max_iterations=20, current_iteration=5,
-                     last_critic_iteration=0, critic_every_n=4,
-                     pending_recompute=None):
-        """Create a SciRalph instance for displacement testing."""
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
-            written = {}
-
-            def capture_write(filename, content):
-                written[filename] = content
-            ws.write_file = MagicMock(side_effect=capture_write)
-            ws.read_file = MagicMock(return_value="")
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config(
-                max_iterations=max_iterations,
-                critic_every_n=critic_every_n,
-            )
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.metrics.last_critic_iteration = last_critic_iteration
-            engine.iteration = current_iteration
-            engine._state = LoopState(
-                pending_recompute_claim=pending_recompute,
-                last_content_iteration=current_iteration,
-            )
-        return engine, written
-
-    def test_forced_critic_logs_displacement(self):
-        """Forced critic logs the displaced task."""
-        engine, written = self._make_engine(
-            max_iterations=20, current_iteration=8,
-            last_critic_iteration=0, critic_every_n=4,
-        )
-        task = Task(
-            task_id="TASK-008", task_type=TaskType.RESEARCH,
-            assigned_to="researcher", iteration=8,
-            body="Research something.",
-        )
-        result = engine._apply_overrides(task)
-        assert result.task_type == TaskType.CRITIQUE
-        assert len(engine._state.displaced_tasks) == 1
-        assert engine._state.displaced_tasks[0]["override"] == "forced_critic"
-
-    def test_displacement_injected_into_context_prefix(self):
-        """Displaced tasks appear in context prefix."""
-        engine, written = self._make_engine()
-        engine._state.displaced_tasks = [{
-            "task_id": "TASK-004",
-            "task_type": "compute",
-            "body_summary": "Verify something",
-            "override": "forced_critic",
-            "iteration": 4,
-        }]
-        prefix = engine._build_context_prefix()
-        assert "DISPLACED TASKS" in prefix
-        assert "TASK-004" in prefix
-        assert "forced_critic" in prefix
-
-    def test_displacement_cleared_after_prefix(self):
-        """Displaced tasks list is cleared after building prefix."""
-        engine, written = self._make_engine()
-        engine._state.displaced_tasks = [{
-            "task_id": "TASK-004",
-            "task_type": "compute",
-            "body_summary": "Verify something",
-            "override": "forced_critic",
-            "iteration": 4,
-        }]
-        engine._build_context_prefix()
-        assert len(engine._state.displaced_tasks) == 0
-
-    def test_no_displacement_when_not_overridden(self):
-        """No displacement recorded when task passes through unchanged."""
-        engine, written = self._make_engine(
-            max_iterations=20, current_iteration=5,
-            last_critic_iteration=4,  # critic not overdue
-        )
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.RESEARCH,
-            assigned_to="researcher", iteration=5,
-            body="Research something.",
-        )
-        result = engine._apply_overrides(task)
-        assert result.task_type == TaskType.RESEARCH
-        assert len(engine._state.displaced_tasks) == 0
 
 
 class TestZeroOutputStallHandling:
@@ -1336,15 +1225,12 @@ class TestAgentFailureRouting:
         assert engine._state.pending_violations[0].check == "computation_stall"
 
     def test_context_prefix_ordering(self):
-        """Agent failures appear after displaced tasks in context prefix."""
+        """Violations appear before agent failures in context prefix."""
         engine = self._make_engine()
-        engine._state.displaced_tasks = [{
-            "task_id": "TASK-003",
-            "task_type": "compute",
-            "body_summary": "Verify something",
-            "override": "forced_critic",
-            "iteration": 4,
-        }]
+        engine._state.pending_violations = [
+            Violation(check="test", severity=ViolationSeverity.WARNING,
+                      message="test violation", file="TEST.md"),
+        ]
         engine._state.agent_failures = [{
             "task_id": "TASK-003",
             "agent": "computationalist",
@@ -1354,9 +1240,9 @@ class TestAgentFailureRouting:
         }]
         prefix = engine._build_context_prefix()
 
-        displaced_pos = prefix.index("DISPLACED TASKS")
+        violations_pos = prefix.index("VIOLATIONS")
         failures_pos = prefix.index("AGENT FAILURES")
-        assert displaced_pos < failures_pos
+        assert violations_pos < failures_pos
 
 
 class TestP4RecomputeEnrichment:
