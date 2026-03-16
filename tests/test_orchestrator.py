@@ -275,31 +275,48 @@ total_computations: 1
 """
 
     def test_stall_banner_in_context(self, workspace):
-        """COMPUTATION_LOG with 3 failures (>= stall_threshold=2) -> banner in context."""
+        """3 consecutive INCONCLUSIVE (>= stall_threshold=2) -> banner in context."""
+        from sciralph.research_state import ResearchState, Computation, Verdict
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
+        # Set up research state with stalled computations
+        rs = ResearchState()
+        for i in range(1, 4):
+            rs.computations[f"COMP-{i:03d}"] = Computation(
+                id=f"COMP-{i:03d}", target_hypothesis="WH-002",
+                verdict=Verdict.INCONCLUSIVE, kind="verify",
+                claim="Verify WH-002 partition function", iteration=i,
+            )
+        orch._research_state_ref = rs
         workspace.write_file("RESEARCH_STATE.md", "---\nstatus: in_progress\n---\n\nNothing yet.\n")
         workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
         workspace.write_file("COMPUTATION_LOG.md", self.COMP_LOG_WITH_STALL)
         workspace.write_file("METRICS.md", "---\n---\n")
 
-        context = orch.build_context(_EMPTY_TASK,iteration=5)
+        context = orch.build_context(_EMPTY_TASK, iteration=5)
         assert "COMPUTATION STALL" in context
         assert "WH-002" in context
         assert "3 consecutive failures" in context
 
     def test_no_stall_banner_below_threshold(self, workspace):
         """1 failure (< stall_threshold=2) -> no banner."""
+        from sciralph.research_state import ResearchState, Computation, Verdict
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
+        rs = ResearchState()
+        rs.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-002",
+            verdict=Verdict.INCONCLUSIVE, kind="verify", iteration=1,
+        )
+        orch._research_state_ref = rs
         workspace.write_file("RESEARCH_STATE.md", "---\nstatus: in_progress\n---\n\nNothing yet.\n")
         workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
         workspace.write_file("COMPUTATION_LOG.md", self.COMP_LOG_BELOW_THRESHOLD)
         workspace.write_file("METRICS.md", "---\n---\n")
 
-        context = orch.build_context(_EMPTY_TASK,iteration=5)
+        context = orch.build_context(_EMPTY_TASK, iteration=5)
         assert "COMPUTATION STALL" not in context
 
 

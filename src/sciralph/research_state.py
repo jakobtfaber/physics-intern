@@ -1,8 +1,8 @@
 """Formal research state tracking.
 
 Structured representation of hypotheses, computations, critiques, and their
-relationships.  Phase 1 (shadow state) builds this from existing Markdown
-files after each iteration; the Markdown files remain authoritative.
+relationships.  Transitioning from shadow state (built from Markdown) to
+authoritative source of truth (agents mutate state, Markdown rendered from it).
 """
 
 from __future__ import annotations
@@ -74,6 +74,11 @@ class Computation:
     code_path: str = ""
     failure_detail: str = ""
     iteration: int = 0
+    kind: str = "verify"  # "explore" or "verify"
+    zero_output: bool = False
+    confidence: str = ""  # explore only: exact/approximate/partial
+    notes: str = ""
+    result: str = ""
 
 
 @dataclass
@@ -113,6 +118,11 @@ class ResearchState:
     critiques: dict[str, Critique] = field(default_factory=dict)
     failed_approaches: list[FailedApproach] = field(default_factory=list)
     iteration: int = 0
+    problem_statement: str = ""
+    conventions: str = ""
+    open_questions: str = ""
+    status: str = "in_progress"
+    title: str = ""
 
     # --- Query methods ---
 
@@ -167,6 +177,109 @@ class ResearchState:
             if hypothesis_id in fa.description or hypothesis_id in " ".join(fa.related_comps)
         ]
 
+    def explore_only_hypotheses(self) -> list[Hypothesis]:
+        """Working hypotheses with explore results but no verify-type VERIFIED."""
+        result = []
+        for h in self.hypotheses.values():
+            if h.status != HypothesisStatus.WORKING:
+                continue
+            comps = self.comps_for_hypothesis(h.id)
+            has_explore = any(c.kind == "explore" for c in comps)
+            has_verified = any(
+                c.kind == "verify" and c.verdict == Verdict.VERIFIED for c in comps
+            )
+            if has_explore and not has_verified:
+                result.append(h)
+        return result
+
+    def refuted_targets(self) -> set[str]:
+        """Set of hypothesis IDs with at least one REFUTED computation."""
+        return {
+            c.target_hypothesis for c in self.computations.values()
+            if c.verdict == Verdict.REFUTED and c.target_hypothesis
+        }
+
+    def demote_hypothesis(self, hid: str) -> str | None:
+        """Demote ER→WH: update status, rename key, fix computation target refs.
+
+        Returns the new ID (e.g. 'WH-002') or None if hid not found / not ER.
+        """
+        if hid not in self.hypotheses or not hid.startswith("ER-"):
+            return None
+        num = hid.split("-")[1]
+        new_id = f"WH-{num}"
+        h = self.hypotheses.pop(hid)
+        h.id = new_id
+        h.status = HypothesisStatus.WORKING
+        self.hypotheses[new_id] = h
+        self.normalize_references()
+        return new_id
+
+    def next_hypothesis_num(self) -> int:
+        """Max existing hypothesis number + 1."""
+        nums = []
+        for hid in self.hypotheses:
+            parts = hid.split("-")
+            if len(parts) == 2:
+                try:
+                    nums.append(int(parts[1]))
+                except ValueError:
+                    pass
+        return max(nums, default=0) + 1
+
+    def next_computation_num(self) -> int:
+        """Max existing COMP number + 1."""
+        nums = []
+        for cid in self.computations:
+            parts = cid.split("-")
+            if len(parts) == 2 and parts[0] == "COMP":
+                try:
+                    nums.append(int(parts[1]))
+                except ValueError:
+                    pass
+        return max(nums, default=0) + 1
+
+    def next_critique_num(self) -> int:
+        """Max existing CRIT number + 1."""
+        nums = []
+        for cid in self.critiques:
+            parts = cid.split("-")
+            if len(parts) == 2 and parts[0] == "CRIT":
+                try:
+                    nums.append(int(parts[1]))
+                except ValueError:
+                    pass
+        return max(nums, default=0) + 1
+
+    def detect_computation_stalls(self, threshold: int = 3) -> list[dict]:
+        """Find claims with consecutive non-VERIFIED verify computations."""
+        from collections import defaultdict
+        from .research_state import Verdict  # noqa: F811
+        # Group verify comps by target, sorted by iteration
+        by_target: dict[str, list[Computation]] = defaultdict(list)
+        for c in self.computations.values():
+            if c.kind == "verify" and c.target_hypothesis:
+                by_target[c.target_hypothesis].append(c)
+        stalls = []
+        for target, comps in by_target.items():
+            comps_sorted = sorted(comps, key=lambda c: (c.iteration, c.id))
+            consecutive = 0
+            verdicts = []
+            for c in comps_sorted:
+                if c.verdict != Verdict.VERIFIED:
+                    consecutive += 1
+                    verdicts.append(c.verdict.value)
+                else:
+                    consecutive = 0
+                    verdicts = []
+            if consecutive >= threshold:
+                stalls.append({
+                    "claim": target,
+                    "count": consecutive,
+                    "verdicts": verdicts[-threshold:],
+                })
+        return stalls
+
     # --- Reference normalization ---
 
     def normalize_references(self):
@@ -212,7 +325,14 @@ class ResearchState:
     @classmethod
     def from_json(cls, text: str) -> ResearchState:
         data = json.loads(text)
-        state = cls(iteration=data.get("iteration", 0))
+        state = cls(
+            iteration=data.get("iteration", 0),
+            problem_statement=data.get("problem_statement", ""),
+            conventions=data.get("conventions", ""),
+            open_questions=data.get("open_questions", ""),
+            status=data.get("status", "in_progress"),
+            title=data.get("title", ""),
+        )
         for hid, hdata in data.get("hypotheses", {}).items():
             state.hypotheses[hid] = Hypothesis(
                 id=hdata["id"],
@@ -235,6 +355,11 @@ class ResearchState:
                 code_path=cdata.get("code_path", ""),
                 failure_detail=cdata.get("failure_detail", ""),
                 iteration=cdata.get("iteration", 0),
+                kind=cdata.get("kind", "verify"),
+                zero_output=cdata.get("zero_output", False),
+                confidence=cdata.get("confidence", ""),
+                notes=cdata.get("notes", ""),
+                result=cdata.get("result", ""),
             )
         for crid, crdata in data.get("critiques", {}).items():
             state.critiques[crid] = Critique(
@@ -271,6 +396,23 @@ class ResearchState:
 # ---------------------------------------------------------------------------
 # Shadow-state builder (Phase 1: parse from Markdown)
 # ---------------------------------------------------------------------------
+
+_H1_SECTION_RE = re.compile(r"^# (.+)", re.MULTILINE)
+
+
+def _extract_h1_section(body: str, heading: str) -> str:
+    """Extract the content of an H1 section by heading name."""
+    pattern = re.compile(rf"^# {re.escape(heading)}\s*$", re.MULTILINE)
+    m = pattern.search(body)
+    if not m:
+        return ""
+    start = m.end()
+    # Find next H1
+    rest = body[start:]
+    next_h1 = _H1_SECTION_RE.search(rest)
+    end = start + next_h1.start() if next_h1 else len(body)
+    return body[start:end].strip()
+
 
 def _extract_hypothesis_sections(body: str) -> list[tuple[str, str, str]]:
     """Extract (id, title, body_text) for each ## WH-NNN / ## ER-NNN section."""
@@ -309,11 +451,19 @@ def build_from_workspace(workspace: WorkspaceManager) -> ResearchState:
 
     state = ResearchState()
 
-    # --- Hypotheses from RESEARCH_STATE.md ---
+    # --- Hypotheses + top-level fields from RESEARCH_STATE.md ---
     research_text = workspace.read_file("RESEARCH_STATE.md")
     if research_text:
         meta, body = parse_frontmatter(research_text)
         state.iteration = meta.get("iteration", 0)
+        state.status = meta.get("status", "in_progress")
+        state.title = meta.get("title", "")
+
+        # Extract top-level sections
+        state.problem_statement = _extract_h1_section(body, "Problem Statement")
+        state.conventions = _extract_h1_section(body, "Conventions")
+        state.open_questions = _extract_h1_section(body, "Open Questions")
+
         for hid, title, section_body in _extract_hypothesis_sections(body):
             status = (HypothesisStatus.ESTABLISHED if hid.startswith("ER-")
                       else HypothesisStatus.WORKING)
@@ -352,6 +502,8 @@ def build_from_workspace(workspace: WorkspaceManager) -> ResearchState:
                 claim=claim,
                 method=entry.get("method", ""),
                 failure_detail=entry.get("notes", "") if verdict != Verdict.VERIFIED else "",
+                notes=entry.get("notes", ""),
+                result=entry.get("result", ""),
             )
             state.computations[comp_id] = comp
 
@@ -428,5 +580,28 @@ def build_from_workspace(workspace: WorkspaceManager) -> ResearchState:
                 if t in state.hypotheses:
                     if crit_id not in state.hypotheses[t].critiques:
                         state.hypotheses[t].critiques.append(crit_id)
+
+    # --- Enrich computations from COMPUTATION_INDEX.jsonl ---
+    jsonl_text = workspace.read_file("COMPUTATION_INDEX.jsonl")
+    if jsonl_text:
+        for line in jsonl_text.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            comp_id = entry.get("id", "")
+            if comp_id in state.computations:
+                comp = state.computations[comp_id]
+                comp.kind = entry.get("kind", comp.kind)
+                comp.confidence = entry.get("confidence", comp.confidence)
+                if entry.get("notes"):
+                    comp.notes = entry["notes"]
+                if entry.get("result"):
+                    comp.result = entry["result"]
+                if "no exit tool call" in entry.get("notes", ""):
+                    comp.zero_output = True
 
     return state

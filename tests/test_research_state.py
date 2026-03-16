@@ -17,6 +17,7 @@ from sciralph.research_state import (
     FailedApproach,
     build_from_workspace,
     _extract_hypothesis_sections,
+    _extract_h1_section,
 )
 
 
@@ -569,3 +570,649 @@ class TestNormalizeReferences:
         )
         state.normalize_references()
         assert state.computations["COMP-001"].target_hypothesis == "WH-099"
+
+
+# ---------------------------------------------------------------------------
+# New ResearchState fields
+# ---------------------------------------------------------------------------
+
+class TestNewResearchStateFields:
+
+    def test_defaults(self):
+        state = ResearchState()
+        assert state.problem_statement == ""
+        assert state.conventions == ""
+        assert state.open_questions == ""
+        assert state.status == "in_progress"
+        assert state.title == ""
+
+    def test_json_round_trip(self):
+        state = ResearchState(
+            iteration=3,
+            problem_statement="Derive Hawking temperature.",
+            conventions="Natural units: hbar = c = k_B = 1.",
+            open_questions="What about grey-body factors?",
+            status="complete",
+            title="Hawking Temperature",
+        )
+        restored = ResearchState.from_json(state.to_json())
+        assert restored.problem_statement == "Derive Hawking temperature."
+        assert restored.conventions == "Natural units: hbar = c = k_B = 1."
+        assert restored.open_questions == "What about grey-body factors?"
+        assert restored.status == "complete"
+        assert restored.title == "Hawking Temperature"
+
+    def test_backward_compat_missing_fields(self):
+        """Loading old JSON without new fields should use defaults."""
+        old_json = json.dumps({
+            "iteration": 5,
+            "hypotheses": {},
+            "computations": {},
+            "critiques": {},
+            "failed_approaches": [],
+        })
+        state = ResearchState.from_json(old_json)
+        assert state.iteration == 5
+        assert state.problem_statement == ""
+        assert state.conventions == ""
+        assert state.open_questions == ""
+        assert state.status == "in_progress"
+        assert state.title == ""
+
+
+# ---------------------------------------------------------------------------
+# New Computation fields
+# ---------------------------------------------------------------------------
+
+class TestNewComputationFields:
+
+    def test_defaults(self):
+        comp = Computation(id="COMP-001")
+        assert comp.kind == "verify"
+        assert comp.zero_output is False
+        assert comp.confidence == ""
+        assert comp.notes == ""
+        assert comp.result == ""
+
+    def test_json_round_trip(self):
+        state = ResearchState()
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001",
+            target_hypothesis="WH-001",
+            verdict=Verdict.VERIFIED,
+            kind="explore",
+            zero_output=True,
+            confidence="approximate",
+            notes="Ran 1000 iterations.",
+            result="pi/4 ~ 0.785",
+        )
+        restored = ResearchState.from_json(state.to_json())
+        comp = restored.computations["COMP-001"]
+        assert comp.kind == "explore"
+        assert comp.zero_output is True
+        assert comp.confidence == "approximate"
+        assert comp.notes == "Ran 1000 iterations."
+        assert comp.result == "pi/4 ~ 0.785"
+
+    def test_backward_compat_missing_fields(self):
+        """Old JSON without new Computation fields uses defaults."""
+        old_json = json.dumps({
+            "iteration": 1,
+            "hypotheses": {},
+            "computations": {
+                "COMP-001": {
+                    "id": "COMP-001",
+                    "target_hypothesis": "WH-001",
+                    "verdict": "VERIFIED",
+                }
+            },
+            "critiques": {},
+            "failed_approaches": [],
+        })
+        state = ResearchState.from_json(old_json)
+        comp = state.computations["COMP-001"]
+        assert comp.kind == "verify"
+        assert comp.zero_output is False
+        assert comp.confidence == ""
+        assert comp.notes == ""
+        assert comp.result == ""
+
+
+# ---------------------------------------------------------------------------
+# explore_only_hypotheses
+# ---------------------------------------------------------------------------
+
+class TestExploreOnlyHypotheses:
+
+    def test_returns_wh_with_explore_but_no_verified(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001",
+            verdict=Verdict.VERIFIED, kind="explore",
+        )
+        result = state.explore_only_hypotheses()
+        assert len(result) == 1
+        assert result[0].id == "WH-001"
+
+    def test_excludes_wh_with_verified_verify(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001",
+            verdict=Verdict.VERIFIED, kind="explore",
+        )
+        state.computations["COMP-002"] = Computation(
+            id="COMP-002", target_hypothesis="WH-001",
+            verdict=Verdict.VERIFIED, kind="verify",
+        )
+        result = state.explore_only_hypotheses()
+        assert result == []
+
+    def test_excludes_er_hypotheses(self):
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="ER-001",
+            verdict=Verdict.VERIFIED, kind="explore",
+        )
+        assert state.explore_only_hypotheses() == []
+
+    def test_excludes_wh_without_explore(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001",
+            verdict=Verdict.INCONCLUSIVE, kind="verify",
+        )
+        assert state.explore_only_hypotheses() == []
+
+    def test_empty_state(self):
+        state = ResearchState()
+        assert state.explore_only_hypotheses() == []
+
+
+# ---------------------------------------------------------------------------
+# refuted_targets
+# ---------------------------------------------------------------------------
+
+class TestRefutedTargets:
+
+    def test_returns_refuted_ids(self):
+        state = ResearchState()
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001", verdict=Verdict.REFUTED,
+        )
+        state.computations["COMP-002"] = Computation(
+            id="COMP-002", target_hypothesis="WH-002", verdict=Verdict.VERIFIED,
+        )
+        state.computations["COMP-003"] = Computation(
+            id="COMP-003", target_hypothesis="WH-001", verdict=Verdict.INCONCLUSIVE,
+        )
+        assert state.refuted_targets() == {"WH-001"}
+
+    def test_multiple_refuted(self):
+        state = ResearchState()
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001", verdict=Verdict.REFUTED,
+        )
+        state.computations["COMP-002"] = Computation(
+            id="COMP-002", target_hypothesis="WH-002", verdict=Verdict.REFUTED,
+        )
+        assert state.refuted_targets() == {"WH-001", "WH-002"}
+
+    def test_empty_target_excluded(self):
+        state = ResearchState()
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="", verdict=Verdict.REFUTED,
+        )
+        assert state.refuted_targets() == set()
+
+    def test_empty_state(self):
+        state = ResearchState()
+        assert state.refuted_targets() == set()
+
+
+# ---------------------------------------------------------------------------
+# demote_hypothesis
+# ---------------------------------------------------------------------------
+
+class TestDemoteHypothesis:
+
+    def test_demotes_er_to_wh(self):
+        state = ResearchState()
+        state.hypotheses["ER-002"] = Hypothesis(
+            id="ER-002", statement="Energy conserved",
+            status=HypothesisStatus.ESTABLISHED,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="ER-002", verdict=Verdict.VERIFIED,
+        )
+        new_id = state.demote_hypothesis("ER-002")
+        assert new_id == "WH-002"
+        assert "ER-002" not in state.hypotheses
+        assert "WH-002" in state.hypotheses
+        assert state.hypotheses["WH-002"].status == HypothesisStatus.WORKING
+        assert state.hypotheses["WH-002"].statement == "Energy conserved"
+
+    def test_fixes_computation_references(self):
+        state = ResearchState()
+        state.hypotheses["ER-002"] = Hypothesis(
+            id="ER-002", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="ER-002", verdict=Verdict.VERIFIED,
+        )
+        state.demote_hypothesis("ER-002")
+        assert state.computations["COMP-001"].target_hypothesis == "WH-002"
+        assert "COMP-001" in state.hypotheses["WH-002"].supporting_comps
+
+    def test_returns_none_for_wh(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+        )
+        assert state.demote_hypothesis("WH-001") is None
+        # WH-001 should be unchanged
+        assert "WH-001" in state.hypotheses
+        assert state.hypotheses["WH-001"].status == HypothesisStatus.WORKING
+
+    def test_returns_none_for_missing(self):
+        state = ResearchState()
+        assert state.demote_hypothesis("ER-999") is None
+
+    def test_preserves_other_hypotheses(self):
+        state = ResearchState()
+        state.hypotheses["ER-002"] = Hypothesis(
+            id="ER-002", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+        )
+        state.demote_hypothesis("ER-002")
+        assert "WH-001" in state.hypotheses
+        assert state.hypotheses["WH-001"].status == HypothesisStatus.WORKING
+
+
+# ---------------------------------------------------------------------------
+# next_*_num methods
+# ---------------------------------------------------------------------------
+
+class TestNextNumMethods:
+
+    def test_next_hypothesis_num_basic(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        state.hypotheses["ER-003"] = Hypothesis(id="ER-003")
+        assert state.next_hypothesis_num() == 4
+
+    def test_next_hypothesis_num_empty(self):
+        state = ResearchState()
+        assert state.next_hypothesis_num() == 1
+
+    def test_next_hypothesis_num_gap(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        state.hypotheses["WH-005"] = Hypothesis(id="WH-005")
+        assert state.next_hypothesis_num() == 6
+
+    def test_next_computation_num_basic(self):
+        state = ResearchState()
+        state.computations["COMP-001"] = Computation(id="COMP-001")
+        state.computations["COMP-002"] = Computation(id="COMP-002")
+        assert state.next_computation_num() == 3
+
+    def test_next_computation_num_empty(self):
+        state = ResearchState()
+        assert state.next_computation_num() == 1
+
+    def test_next_computation_num_gap(self):
+        state = ResearchState()
+        state.computations["COMP-001"] = Computation(id="COMP-001")
+        state.computations["COMP-010"] = Computation(id="COMP-010")
+        assert state.next_computation_num() == 11
+
+    def test_next_critique_num_basic(self):
+        state = ResearchState()
+        state.critiques["CRIT-001"] = Critique(id="CRIT-001")
+        state.critiques["CRIT-002"] = Critique(id="CRIT-002")
+        assert state.next_critique_num() == 3
+
+    def test_next_critique_num_empty(self):
+        state = ResearchState()
+        assert state.next_critique_num() == 1
+
+    def test_next_critique_num_non_sequential(self):
+        state = ResearchState()
+        state.critiques["CRIT-003"] = Critique(id="CRIT-003")
+        state.critiques["CRIT-007"] = Critique(id="CRIT-007")
+        assert state.next_critique_num() == 8
+
+
+# ---------------------------------------------------------------------------
+# _extract_h1_section
+# ---------------------------------------------------------------------------
+
+class TestExtractH1Section:
+
+    MULTI_SECTION_DOC = """\
+# Problem Statement
+
+Derive the Hawking temperature from first principles.
+
+# Conventions
+
+Natural units: hbar = c = k_B = 1.
+
+# Working Hypotheses (WH) and Established Results (ER)
+
+## WH-001 — Something
+
+Details here.
+
+# Open Questions
+
+What about grey-body factors?
+
+# Dead Ends
+
+Nothing yet.
+"""
+
+    def test_extracts_problem_statement(self):
+        result = _extract_h1_section(self.MULTI_SECTION_DOC, "Problem Statement")
+        assert "Hawking temperature" in result
+        assert "Conventions" not in result
+
+    def test_extracts_conventions(self):
+        result = _extract_h1_section(self.MULTI_SECTION_DOC, "Conventions")
+        assert "Natural units" in result
+        assert "Working Hypotheses" not in result
+
+    def test_extracts_open_questions(self):
+        result = _extract_h1_section(self.MULTI_SECTION_DOC, "Open Questions")
+        assert "grey-body factors" in result
+        assert "Dead Ends" not in result
+
+    def test_extracts_last_section(self):
+        result = _extract_h1_section(self.MULTI_SECTION_DOC, "Dead Ends")
+        assert "Nothing yet." in result
+
+    def test_missing_section_returns_empty(self):
+        result = _extract_h1_section(self.MULTI_SECTION_DOC, "Nonexistent")
+        assert result == ""
+
+    def test_empty_body_returns_empty(self):
+        result = _extract_h1_section("", "Problem Statement")
+        assert result == ""
+
+    def test_single_section(self):
+        doc = "# Problem Statement\n\nJust one section."
+        result = _extract_h1_section(doc, "Problem Statement")
+        assert result == "Just one section."
+
+
+# ---------------------------------------------------------------------------
+# build_from_workspace: new top-level fields
+# ---------------------------------------------------------------------------
+
+SAMPLE_RESEARCH_STATE_FULL = """\
+---
+problem_id: research-session
+title: Hawking Temperature
+status: in_progress
+iteration: 7
+---
+
+# Problem Statement
+
+Derive the Hawking temperature for a Schwarzschild black hole.
+
+# Conventions
+
+Natural units: hbar = c = k_B = 1.
+Signature: (-,+,+,+).
+
+# Working Hypotheses (WH) and Established Results (ER)
+
+## WH-001 — Surface gravity approach
+
+Use surface gravity kappa to derive T_H = kappa / (2 pi).
+
+## ER-002 — Unruh effect analogy
+
+The Unruh effect gives T = a / (2 pi) in Rindler space.
+
+# Open Questions
+
+How do grey-body factors modify the spectrum?
+
+# Dead Ends
+
+Nothing yet.
+"""
+
+
+class TestBuildFromWorkspaceNewFields:
+
+    def _make_workspace(self, files: dict[str, str]):
+        ws = MagicMock()
+        ws.read_file = MagicMock(side_effect=lambda f: files.get(f, ""))
+        return ws
+
+    def test_populates_title(self):
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE_FULL,
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        state = build_from_workspace(ws)
+        assert state.title == "Hawking Temperature"
+
+    def test_populates_status(self):
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE_FULL,
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        state = build_from_workspace(ws)
+        assert state.status == "in_progress"
+
+    def test_populates_problem_statement(self):
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE_FULL,
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        state = build_from_workspace(ws)
+        assert "Schwarzschild black hole" in state.problem_statement
+
+    def test_populates_conventions(self):
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE_FULL,
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        state = build_from_workspace(ws)
+        assert "Natural units" in state.conventions
+        assert "Signature" in state.conventions
+
+    def test_populates_open_questions(self):
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE_FULL,
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        state = build_from_workspace(ws)
+        assert "grey-body factors" in state.open_questions
+
+    def test_missing_sections_default_empty(self):
+        """RESEARCH_STATE without Conventions/Open Questions sections."""
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,  # original fixture, no Conventions/OQ
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        state = build_from_workspace(ws)
+        assert state.problem_statement == "Some problem."
+        assert state.conventions == ""
+        assert state.open_questions == ""
+
+    def test_existing_fixture_title_and_status(self):
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        state = build_from_workspace(ws)
+        assert state.title == "Test problem"
+        assert state.status == "not_started"
+
+
+# ---------------------------------------------------------------------------
+# build_from_workspace: COMPUTATION_INDEX.jsonl enrichment
+# ---------------------------------------------------------------------------
+
+class TestBuildFromWorkspaceJsonlEnrichment:
+
+    def _make_workspace(self, files: dict[str, str]):
+        ws = MagicMock()
+        ws.read_file = MagicMock(side_effect=lambda f: files.get(f, ""))
+        return ws
+
+    def test_enriches_kind_from_jsonl(self):
+        jsonl = json.dumps({"id": "COMP-001", "kind": "explore", "verdict": "VERIFIED"})
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": SAMPLE_COMPUTATION_LOG,
+            "CRITIQUE_LOG.md": "",
+            "COMPUTATION_INDEX.jsonl": jsonl,
+        })
+        state = build_from_workspace(ws)
+        assert state.computations["COMP-001"].kind == "explore"
+        # COMP-002 not in JSONL, keeps default
+        assert state.computations["COMP-002"].kind == "verify"
+
+    def test_enriches_confidence_from_jsonl(self):
+        jsonl = json.dumps({
+            "id": "COMP-001", "kind": "explore",
+            "confidence": "approximate", "verdict": "VERIFIED",
+        })
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": SAMPLE_COMPUTATION_LOG,
+            "CRITIQUE_LOG.md": "",
+            "COMPUTATION_INDEX.jsonl": jsonl,
+        })
+        state = build_from_workspace(ws)
+        assert state.computations["COMP-001"].confidence == "approximate"
+
+    def test_enriches_notes_from_jsonl(self):
+        jsonl = json.dumps({
+            "id": "COMP-001", "kind": "verify",
+            "notes": "JSONL override notes", "verdict": "VERIFIED",
+        })
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": SAMPLE_COMPUTATION_LOG,
+            "CRITIQUE_LOG.md": "",
+            "COMPUTATION_INDEX.jsonl": jsonl,
+        })
+        state = build_from_workspace(ws)
+        assert state.computations["COMP-001"].notes == "JSONL override notes"
+
+    def test_enriches_result_from_jsonl(self):
+        jsonl = json.dumps({
+            "id": "COMP-001", "kind": "verify",
+            "result": "T_H = 1/(8*pi*M)", "verdict": "VERIFIED",
+        })
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": SAMPLE_COMPUTATION_LOG,
+            "CRITIQUE_LOG.md": "",
+            "COMPUTATION_INDEX.jsonl": jsonl,
+        })
+        state = build_from_workspace(ws)
+        assert state.computations["COMP-001"].result == "T_H = 1/(8*pi*M)"
+
+    def test_zero_output_from_no_exit_tool_call(self):
+        jsonl = json.dumps({
+            "id": "COMP-001", "kind": "verify",
+            "notes": "no exit tool call — forced partial output",
+            "verdict": "INCONCLUSIVE",
+        })
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": SAMPLE_COMPUTATION_LOG,
+            "CRITIQUE_LOG.md": "",
+            "COMPUTATION_INDEX.jsonl": jsonl,
+        })
+        state = build_from_workspace(ws)
+        assert state.computations["COMP-001"].zero_output is True
+
+    def test_ignores_unknown_comp_ids(self):
+        jsonl = json.dumps({"id": "COMP-999", "kind": "explore", "verdict": "VERIFIED"})
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": SAMPLE_COMPUTATION_LOG,
+            "CRITIQUE_LOG.md": "",
+            "COMPUTATION_INDEX.jsonl": jsonl,
+        })
+        state = build_from_workspace(ws)
+        assert "COMP-999" not in state.computations
+        # Existing comps unaffected
+        assert state.computations["COMP-001"].kind == "verify"
+
+    def test_handles_malformed_jsonl_lines(self):
+        jsonl_lines = [
+            json.dumps({"id": "COMP-001", "kind": "explore", "verdict": "VERIFIED"}),
+            "not valid json",
+            "",
+            json.dumps({"id": "COMP-002", "kind": "verify", "verdict": "REFUTED"}),
+        ]
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": SAMPLE_COMPUTATION_LOG,
+            "CRITIQUE_LOG.md": "",
+            "COMPUTATION_INDEX.jsonl": "\n".join(jsonl_lines),
+        })
+        state = build_from_workspace(ws)
+        assert state.computations["COMP-001"].kind == "explore"
+        assert state.computations["COMP-002"].kind == "verify"
+
+    def test_multiple_jsonl_entries(self):
+        jsonl_lines = [
+            json.dumps({"id": "COMP-001", "kind": "explore", "confidence": "exact", "verdict": "VERIFIED"}),
+            json.dumps({"id": "COMP-002", "kind": "verify", "notes": "spin check", "verdict": "REFUTED"}),
+        ]
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": SAMPLE_COMPUTATION_LOG,
+            "CRITIQUE_LOG.md": "",
+            "COMPUTATION_INDEX.jsonl": "\n".join(jsonl_lines),
+        })
+        state = build_from_workspace(ws)
+        assert state.computations["COMP-001"].kind == "explore"
+        assert state.computations["COMP-001"].confidence == "exact"
+        assert state.computations["COMP-002"].kind == "verify"
+        assert state.computations["COMP-002"].notes == "spin check"
+
+    def test_empty_jsonl(self):
+        ws = self._make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_RESEARCH_STATE,
+            "COMPUTATION_LOG.md": SAMPLE_COMPUTATION_LOG,
+            "CRITIQUE_LOG.md": "",
+            "COMPUTATION_INDEX.jsonl": "",
+        })
+        state = build_from_workspace(ws)
+        # Defaults preserved
+        assert state.computations["COMP-001"].kind == "verify"
+        assert state.computations["COMP-001"].confidence == ""

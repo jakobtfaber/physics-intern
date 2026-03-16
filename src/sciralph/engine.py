@@ -1,6 +1,5 @@
 """SciRalph main loop engine."""
 
-import json
 from dataclasses import dataclass, field
 
 from rich.console import Console
@@ -17,6 +16,7 @@ from .metrics import MetricsTracker
 from .task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from .categories import CompensationCategory as CC
 from .research_state import build_from_workspace as _build_research_state, ResearchState
+from .renderers import render_research_state_md, render_computation_log_md, render_critique_log_md
 from .validation import validate_post_integration, can_terminate, check_phantom_references, Violation, ViolationSeverity
 from .workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
@@ -317,6 +317,7 @@ class SciRalph:
         elif tt in (TaskType.COMPUTE, TaskType.COMPUTE_EXPLORE, TaskType.COMPUTE_VERIFY):
             mode = "exploring" if tt == TaskType.COMPUTE_EXPLORE else "verifying"
             console.print(f"[magenta]Computationalist[/magenta] {mode}...")
+            self.computationalist.research_state = self.research_state
             result = self.computationalist.run(task, self.iteration, on_round=self._on_compute_round)
             self._state.last_content_iteration = self.iteration
             return "computationalist", result
@@ -328,16 +329,16 @@ class SciRalph:
 
         elif tt == TaskType.CRITIQUE:
             console.print("[red]Deep Critic[/red] reviewing...")
+            self.critic.research_state = self.research_state
             response = self.critic.run(task, self.iteration)
-            if hasattr(response, 'text') and 'NO_CRITIQUES_FILED' in (response.text or ''):
+            if self.critic._no_critiques_filed:
                 console.print("[dim]Critic: no issues found[/dim]")
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "no_critiques_filed", "")
                 self._state.pending_violations.append(
                     Violation(
                         check="critic_clean",
                         severity=ViolationSeverity.WARNING,
                         message=(
-                            "Deep critic found NO issues (NO_CRITIQUES_FILED). "
+                            "Deep critic found NO issues. "
                             "Do NOT emit another critique task — proceed to "
                             "synthesize or terminate."
                         ),
@@ -379,38 +380,38 @@ class SciRalph:
 
     def _enrich_compute_task_with_prior_failures(self, task: Task):
         """Append prior failure context to CURRENT_TASK.md for compute retries."""
-        entries = self._read_computation_index()
-        # Extract target_id from task
-        import re
-        target_ids = set(re.findall(r'(?:ER|WH)-\d+', task.body or ""))
+        import re as _re
+        from .research_state import Verdict
+        target_ids = set(_re.findall(r'(?:ER|WH)-\d+', task.body or ""))
         if task.target_claim:
-            target_ids.update(re.findall(r'(?:ER|WH)-\d+', task.target_claim))
+            target_ids.update(_re.findall(r'(?:ER|WH)-\d+', task.target_claim))
         if not target_ids:
             return
 
-        # Find non-VERIFIED verify entries matching target
+        # Find non-VERIFIED verify computations matching target from state
         prior = [
-            e for e in entries
-            if e.get("kind") == "verify"
-            and e.get("verdict") != "VERIFIED"
-            and e.get("target_id") in target_ids
+            c for c in self.research_state.computations.values()
+            if c.kind == "verify"
+            and c.verdict != Verdict.VERIFIED
+            and c.target_hypothesis in target_ids
         ]
         if not prior:
             return
 
+        prior_sorted = sorted(prior, key=lambda c: (c.iteration, c.id))
         log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "compute_enrichment",
                            f"target={','.join(sorted(target_ids))}")
         task_text = self.workspace.read_file("CURRENT_TASK.md")
-        most_recent = prior[-1]
+        most_recent = prior_sorted[-1]
         excerpt_parts = []
-        if most_recent.get("verdict"):
-            excerpt_parts.append(f"**Verdict:** {most_recent['verdict']}")
-        if most_recent.get("method"):
-            excerpt_parts.append(f"**Method:** {most_recent['method']}")
-        if most_recent.get("result"):
-            excerpt_parts.append(f"**Result:** {most_recent['result']}")
-        if most_recent.get("notes"):
-            excerpt_parts.append(f"**Notes:** {most_recent['notes']}")
+        if most_recent.verdict:
+            excerpt_parts.append(f"**Verdict:** {most_recent.verdict}")
+        if most_recent.method:
+            excerpt_parts.append(f"**Method:** {most_recent.method}")
+        if most_recent.result:
+            excerpt_parts.append(f"**Result:** {most_recent.result}")
+        if most_recent.notes:
+            excerpt_parts.append(f"**Notes:** {most_recent.notes}")
         excerpt = "\n".join(excerpt_parts)[:self.config.prior_failure_excerpt_chars]
 
         addendum = (
@@ -421,9 +422,8 @@ class SciRalph:
             + excerpt
         )
         if len(prior) > 1:
-            addendum += f"\n\n({len(prior) - 1} earlier failure(s) in COMPUTATION_INDEX.jsonl)\n"
-        # Check for zero-output stall
-        has_zero_output = any("no exit tool call" in e.get("notes", "") for e in prior)
+            addendum += f"\n\n({len(prior) - 1} earlier failure(s))\n"
+        has_zero_output = any(c.zero_output for c in prior)
         if has_zero_output:
             addendum += (
                 "\n\n**ZERO-OUTPUT STALL DETECTED:** A prior attempt produced no text at all.\n"
@@ -433,69 +433,46 @@ class SciRalph:
             )
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
 
-    def _read_computation_index(self) -> list[dict]:
-        """Read all entries from COMPUTATION_INDEX.jsonl."""
-        raw = self.workspace.read_file("COMPUTATION_INDEX.jsonl")
-        entries = []
-        for line in raw.strip().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-        return entries
-
     def _track_computation(self, task: Task):
-        """After computationalist runs, read last JSONL entry and dispatch."""
-        entries = self._read_computation_index()
-        if not entries:
+        """After computationalist runs, find the new computation in state and dispatch."""
+        from .research_state import Verdict
+        # Find most recently added computation for this iteration
+        comps = [
+            c for c in self.research_state.computations.values()
+            if c.iteration == self.iteration
+        ]
+        if not comps:
             return
-        entry = entries[-1]
-        # Register in formal state
-        self._register_computation_from_index(entry, task)
+        comp = sorted(comps, key=lambda c: c.id)[-1]
 
-        if entry.get("kind") == "explore":
-            self._track_explore_result(task, entry)
+        if comp.kind == "explore":
+            self._state.pending_explore_results.append({
+                "target_id": comp.target_hypothesis,
+                "description": comp.claim[:200],
+                "result": comp.result[:200],
+                "confidence": comp.confidence or "partial",
+            })
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                               "explore_result_tracked",
+                               f"target={comp.target_hypothesis}")
         else:
-            self._track_verify_verdict(task, entry)
-
-    def _track_explore_result(self, task: Task, entry: dict):
-        """Signal orchestrator with the explore result. No failure counting."""
-        self._state.pending_explore_results.append({
-            "target_id": entry.get("target_id", ""),
-            "description": entry.get("description", "")[:200],
-            "result": entry.get("result", "")[:200],
-            "confidence": entry.get("confidence", "partial"),
-        })
-        log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                           "explore_result_tracked",
-                           f"target={entry.get('target_id', '?')}")
-
-    def _track_verify_verdict(self, task: Task, entry: dict):
-        """Existing logic: failure counting + verdict signal."""
-        verdict = entry.get("verdict", "INCONCLUSIVE")
-        key = entry.get("target_id", "")
-        if not key:
-            return
-
-        if verdict == "VERIFIED":
-            self._state.claim_failure_count.pop(key, None)
-            return
-
-        # Non-verified: count failures, signal orchestrator
-        count = self._state.claim_failure_count.get(key, 0) + 1
-        self._state.claim_failure_count[key] = count
-        self._state.pending_compute_verdicts.append({
-            "verdict": verdict,
-            "claim": key,
-            "attempt": count,
-        })
-        log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                           "compute_verdict_failed",
-                           f"target={key}, verdict={verdict}, "
-                           f"attempt={count}/{self.config.stall_recompute_limit}")
+            key = comp.target_hypothesis
+            if not key:
+                return
+            if comp.verdict == Verdict.VERIFIED:
+                self._state.claim_failure_count.pop(key, None)
+                return
+            count = self._state.claim_failure_count.get(key, 0) + 1
+            self._state.claim_failure_count[key] = count
+            self._state.pending_compute_verdicts.append({
+                "verdict": comp.verdict.value,
+                "claim": key,
+                "attempt": count,
+            })
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                               "compute_verdict_failed",
+                               f"target={key}, verdict={comp.verdict}, "
+                               f"attempt={count}/{self.config.stall_recompute_limit}")
 
     def _check_compression(self):
         """Check file sizes against thresholds, compress if needed."""
@@ -518,7 +495,9 @@ class SciRalph:
                     self.compressor.run(compress_task, self.iteration)
 
     def _update_research_iteration(self):
-        """Update the iteration field in RESEARCH_STATE.md frontmatter."""
+        """Update the iteration field in research state and RESEARCH_STATE.md frontmatter."""
+        self.research_state.iteration = self.iteration
+        # Also update markdown for agents that still read files
         text = self.workspace.read_file("RESEARCH_STATE.md")
         if not text:
             return
@@ -527,7 +506,8 @@ class SciRalph:
         self.workspace.write_file("RESEARCH_STATE.md", render_frontmatter(meta, body))
 
     def _set_research_status(self, status: str):
-        """Update the status field in RESEARCH_STATE.md frontmatter."""
+        """Update the status field in research state and RESEARCH_STATE.md frontmatter."""
+        self.research_state.status = status
         text = self.workspace.read_file("RESEARCH_STATE.md")
         if not text:
             return
@@ -551,84 +531,17 @@ class SciRalph:
 
     def _check_status_field(self) -> bool:
         """Check termination conditions beyond max_iterations."""
-        state = self.workspace.read_file("RESEARCH_STATE.md")
-        for status in ("completed", "abandoned", "partially_complete"):
-            if f'status: "{status}"' in state or f"status: {status}" in state:
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "status_field_exit",
-                                   f"status={status}")
-                return True
+        if self.research_state.status in ("completed", "abandoned", "partially_complete"):
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "status_field_exit",
+                               f"status={self.research_state.status}")
+            return True
         return False
 
-    def _register_computation_from_index(self, entry: dict, task: Task):
-        """Register a computation in the formal research state from JSONL entry."""
-        if not hasattr(self, "research_state"):
-            return
-        from .research_state import Computation, Verdict
-
-        comp_id = entry.get("id", "")
-        if not comp_id.startswith("COMP-"):
-            return  # Skip TASK-* stubs from forced-call bailouts
-
-        target = entry.get("target_id", "") or task.target_claim or ""
-
-        if entry.get("kind") == "explore":
-            # Explore entries don't have verdicts — record as INCONCLUSIVE
-            verdict = Verdict.INCONCLUSIVE
-        else:
-            verdict_str = entry.get("verdict", "INCONCLUSIVE")
-            try:
-                verdict = Verdict(verdict_str)
-            except ValueError:
-                verdict = Verdict.INCONCLUSIVE
-
-        self.research_state.computations[comp_id] = Computation(
-            id=comp_id,
-            target_hypothesis=target,
-            verdict=verdict,
-            claim=entry.get("claim", entry.get("description", "")),
-            method=entry.get("method", ""),
-            iteration=self.iteration,
-        )
-
     def _sync_research_state(self):
-        """Build structured ResearchState from Markdown and save to workspace.
+        """Save ResearchState to workspace as JSON.
 
-        Preserves authoritative target_hypothesis links registered via
-        _register_computation (which may use task.target_claim).
+        The state is now authoritative — no rebuild from markdown needed.
         """
-        # Save abandoned hypotheses (not visible in Markdown after removal)
-        from .research_state import HypothesisStatus
-        abandoned_hypotheses = {
-            hid: h for hid, h in self.research_state.hypotheses.items()
-            if h.status == HypothesisStatus.ABANDONED
-        }
-        # Save authoritative data before rebuilding
-        authoritative_targets = {
-            comp_id: comp.target_hypothesis
-            for comp_id, comp in self.research_state.computations.items()
-            if comp.target_hypothesis
-        }
-        authoritative_resolutions = {
-            cid: (c.iteration_resolved, c.resolution)
-            for cid, c in self.research_state.critiques.items()
-            if c.iteration_resolved is not None
-        }
-        self.research_state = _build_research_state(self.workspace)
-        # Restore authoritative targets that may be better than substring-derived ones
-        for comp_id, target in authoritative_targets.items():
-            if comp_id in self.research_state.computations:
-                self.research_state.computations[comp_id].target_hypothesis = target
-        # Restore authoritative critique resolution metadata
-        for cid, (iter_res, res_text) in authoritative_resolutions.items():
-            if cid in self.research_state.critiques:
-                self.research_state.critiques[cid].iteration_resolved = iter_res
-                if res_text:
-                    self.research_state.critiques[cid].resolution = res_text
-        # Restore abandoned hypotheses (removed from Markdown, kept in graph)
-        for hid, h in abandoned_hypotheses.items():
-            if hid not in self.research_state.hypotheses:
-                self.research_state.hypotheses[hid] = h
-        # Fix stale WH↔ER backlinks and rebuild supporting_comps
         self.research_state.normalize_references()
         self.research_state.save(self.workspace.root)
 

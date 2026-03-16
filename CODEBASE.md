@@ -226,7 +226,7 @@ The `tools` class attribute is the **single switch** between one-shot and agenti
 **Context (largest in the system):**
 - `context_prefix` from engine — violations, termination blockers, computation verdicts, agent failures
 - Completion analysis banner (if ER count sufficient, or budget ≤ 3) — includes inline synthesis instruction
-- Computation stall warnings (≥ threshold consecutive non-VERIFIED on same claim)
+- Computation stall warnings from `detect_computation_stalls()` (≥ threshold consecutive non-VERIFIED on same claim)
 - Full `RESEARCH_STATE.md`, `CRITIQUE_LOG.md`, tail of `COMPUTATION_LOG.md`, `METRICS.md`
 - `PROPOSED_CHANGES.md` (when present)
 
@@ -488,9 +488,8 @@ A hypothesis advances through this lifecycle:
 | `tool_output_limit` | 10000 | Chars per tool output before truncation |
 | `progress_check_interval` | 3 | Consecutive `execute_python` rounds before progress check injection |
 | `computation_token_alert` | 150000 | Cumulative input tokens before firing alert |
-| `stall_threshold` | 2 | Repeat failures on same claim before stall block |
-| `stall_recompute_limit` | 2 | Max consecutive non-VERIFIED verdicts before P4 recompute blocked |
-| `min_er_for_completion` | 3 | ERs needed before stale-loop backstop fires |
+| `stall_recompute_limit` | 2 | Max consecutive non-VERIFIED verdicts before orchestrator sees "STALLED" warning |
+| `min_er_for_completion` | 3 | ERs needed before orchestrator sees completion analysis hints |
 | `compress_threshold` | RS: 50K, CL: 30K, CompL: 40K | File size thresholds (chars) |
 | `api_retry_max` | 3 | Max retry attempts on transient API errors |
 | `api_retry_initial_delay` | 2.0 | Initial retry delay (seconds) |
@@ -507,7 +506,7 @@ This section catalogues every mechanism that compensates for LLM misbehaviour at
 
 - **`call_reliability`** — making each LLM call succeed: transport retry, tool-call fallback, agent loop bailouts, tool execution guards
 - **`state_invariants`** — keeping workspace files consistent: post-integration validation pipeline (7 checks)
-- **`loop_control`** — steering the main loop: override chain, dispatch guards, verdict tracking, termination gates
+- **`loop_control`** — steering the main loop: forced critic, dispatch guards, verdict tracking, compute enrichment, termination gates
 - **`output_normalization`** — cleaning agent output: per-agent response corrections, markdown parsing tolerance
 
 ### Event log (instrumentation)
@@ -532,7 +531,7 @@ Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter
 |----------|-----------|
 | `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `progress_check`, `forced_final_call`, `forced_final_call_failed`, `empty_end_turn_fallthrough`, `tool_timeout`, `tool_output_truncation` |
 | `state_invariants` | All `Violation.check` values from validation checks (e.g. `er_demotion_safety`, `phantom_references`, `phantom_labels`, `stale_unverified_labels`, `verified_frontmatter_backfill`, `task_agent_routing`, `id_consistency`, `critique_resolution_consistency`) |
-| `loop_control` | `p1_budget_override`, `p2_stale_loop_override`, `p3_forced_critic`, `p3b_redundant_critic_suppressed`, `p4_refuted_recompute`, `p4_recompute_enriched`, `p4_refuted_suppressed`, `p5_stall_block`, `p6_enrichment`, `stall_cleared_by_research`, `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `compute_verdict_stall_escalation`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry` |
+| `loop_control` | `forced_critic`, `compute_enrichment`, `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry` |
 | `output_normalization` | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened`, `preamble_stripped`, `critique_self_retracted`, `empty_response_stub`, `header_injected`, `claim_id_injected`, `submit_verdict_text_extracted` |
 
 **Quick analysis:**
@@ -604,19 +603,16 @@ All 7 checks run after every orchestrator pass. They are pure functions that mut
 | **Critique resolution consistency** | `check_critique_resolution_consistency()` | Checks that resolved critiques actually had their fixes applied: target ER/WH still exists in RESEARCH_STATE, no leftover dual WH/ER labels | LLM marking critiques "resolved" without applying the fix |
 | **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when VERIFIED computations exist, (2) zero unresolved HIGH critiques, (3) computation exists when `requires_numerical` | LLM trying to terminate prematurely |
 
-### loop_control — Engine override chain and dispatch guards (`engine.py`)
+### loop_control — Pre-dispatch hooks and dispatch guards (`engine.py`)
 
-#### Override chain (`_apply_overrides`)
+#### Pre-dispatch hooks
 
-| Override | Priority | Condition | Action | Failure compensated |
-|----------|----------|-----------|--------|---------------------|
-| Budget enforcement | P1 | ≤ 1 iter remaining | Force synthesize | Orchestrator scheduling research indefinitely |
-| Stale-loop backstop | P2 | ≥ 2 stale iters (ER ≥ min, WH = 0) | Force synthesize | Loop continuing after problem is solved |
-| Forced critic | P3 | Overdue AND new content exists | Force critique | Orchestrator skipping critic indefinitely |
-| Redundant critic suppression | P3b | Critique scheduled but no new content | Force synthesize | Infinite critic-no-critique loop |
-| Stall blocking | P5 | Compute targets claim with ≥ threshold failures | Force research with alternative-approach request | Infinite retries on same broken claim |
-| REFUTED recompute | P4 | Previous REFUTED/INCONCLUSIVE verdict, count < `stall_recompute_limit`. Condition is pure (no side effects); state consumed by action; unconsumed state cleaned up in `_apply_overrides` post-loop with `p4_refuted_suppressed` log event | Force compute on refuted claim | Orchestrator ignoring a REFUTED result |
-| Prior-failure enrichment | P6 | Compute task with prior failures on same claim | Append last failure's METHOD+RESULT+NOTES excerpt to task body; zero-output stall gets special "ZERO-OUTPUT STALL DETECTED" warning; also applied to P4 recompute tasks | Model repeating identical failing code |
+| Mechanism | Function | Condition | Action | Failure compensated |
+|-----------|----------|-----------|--------|---------------------|
+| Forced critic | `_critic_overdue()` + `_make_forced_critic_task()` | Overdue AND new content exists | Skip orchestrator, dispatch critic directly (saves an LLM call) | Orchestrator skipping critic indefinitely |
+| Compute enrichment | `_enrich_compute_task_with_prior_failures()` | COMPUTE task with prior failures on same claim | Append last failure's METHOD+RESULT+NOTES excerpt to task body | Model repeating identical failing code |
+
+Non-VERIFIED compute verdicts go to `pending_compute_verdicts` in `LoopState`, rendered as a COMPUTATION VERDICTS banner in `_build_context_prefix()`. The orchestrator decides how to respond (recompute, re-derive, or accept). No auto-recompute.
 
 #### Engine-level guards
 
@@ -629,11 +625,9 @@ All 7 checks run after every orchestrator pass. They are pure functions that mut
 | Status field safety-net exit | `_check_status_field()` | Reads RESEARCH_STATE for `status: completed/abandoned/partially_complete` → exits loop | Loop continuing past a declared terminal state |
 | Post-dispatch phantom check | `run()` | Runs `check_phantom_references()` after every agent dispatch | Phantoms introduced by non-orchestrator agents |
 | NO_CRITIQUES_FILED handling | `_dispatch()` | Detects `NO_CRITIQUES_FILED` in critic response → files `critic_clean` violation telling orchestrator to proceed to synthesize | Empty critic looping indefinitely |
-| Displaced-task transparency | `_log_displacement()` + `_build_context_prefix()` | Logs every overridden task and feeds the list to the orchestrator's next context: "Consider re-scheduling if still needed" | Orchestrator unaware that its planned task was overridden |
-| Dispatch-level verdict tracking | `_track_compute_verdict()` | Counter-based (authoritative path; text-scan removed). Counts consecutive non-VERIFIED verdicts per claim; below `stall_recompute_limit` sets `_state.pending_recompute_claim` and `_state.pending_recompute_verdict` (actual verdict), at/above limit escalates to `_state.stalled_claims` with violation. VERIFIED verdict clears the claim from `stalled_claims` | Infinite recompute loops on persistently failing claims |
-| Stall clearing on research | `_clear_stall_if_research_targets()` | Research/derive/resolve task targeting a stalled claim clears that claim from `_state.stalled_claims` and `_state.claim_failure_count`; emits `stall_cleared_by_research` event | Stalled claims stuck permanently even after alternative research approach |
+| Dispatch-level verdict tracking | `_track_compute_verdict()` | Counts consecutive non-VERIFIED verdicts per claim via `claim_failure_count`. Non-VERIFIED verdicts stored in `pending_compute_verdicts` for orchestrator context. VERIFIED verdict clears the claim's failure count | Orchestrator unaware of computation failures |
 | Agent failure routing | `_record_agent_failures()` + `_build_context_prefix()` | Records max_tokens truncation, max_rounds exhaustion, and non-VERIFIED compute verdicts; shows "AGENT FAILURES" banner to orchestrator on next pass | Orchestrator re-issuing identical failing tasks without awareness of prior failures |
-| Violations/blockers as context prefix | `_build_context_prefix()` | All pending violations (except ER demotion safety, which is enforced silently by state rewrite) and termination blockers serialised into orchestrator's next user message with explicit "Do NOT emit terminate again" instruction | Orchestrator ignoring validation failures |
+| Violations/blockers/verdicts as context prefix | `_build_context_prefix()` | 4 sections: violations (except ER demotion safety, enforced silently), termination blockers, computation verdicts (with stall warnings at limit), agent failures — serialised into orchestrator's next user message | Orchestrator ignoring validation failures or computation results |
 | Compression at soft threshold | `_check_compression()` | Compresses files exceeding `compress_soft_multiplier` × threshold (single tier) | Runaway file growth crashing context window |
 
 ### output_normalization — Agent-level corrections and parsing tolerance

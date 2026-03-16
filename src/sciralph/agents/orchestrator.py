@@ -5,18 +5,16 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from ..computation_index import read_computation_index, detect_computation_stalls as _jsonl_stall_detect
 from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..markdown import (
     parse_frontmatter,
     render_frontmatter,
-    detect_computation_stalls as _md_stall_detect,
     count_er_sections,
     count_wh_sections,
-    normalize_er_wh_headers,
     flatten_unverified_brackets,
 )
 from ..orchestrator_tools import OrchestratorToolExecutor
+from ..renderers import render_research_state_md, render_critique_log_md
 from ..task import Task, TaskType
 from ..tools import ToolCall
 from .base import BaseAgent
@@ -104,13 +102,9 @@ class OrchestratorAgent(BaseAgent):
                 "is still empty. Consider populating it with the unit system, "
                 "sign conventions, and variable definitions being used. <<<\n"
             )
-        # Computation stall detection (prefer JSONL, fall back to markdown)
-        index_entries = read_computation_index(self.workspace)
-        if index_entries:
-            stalls = _jsonl_stall_detect(index_entries, threshold=self.config.stall_threshold)
-        else:
-            comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
-            stalls = _md_stall_detect(comp_log, threshold=self.config.stall_threshold)
+        # Computation stall detection from research state
+        research_state = getattr(self, "_research_state_ref", None)
+        stalls = research_state.detect_computation_stalls(threshold=self.config.stall_threshold) if research_state else []
         for stall in stalls:
             parts.append(
                 f">>> COMPUTATION STALL: {stall['count']} consecutive failures "
@@ -179,21 +173,15 @@ class OrchestratorAgent(BaseAgent):
         return result
 
     def process_response(self, response: LLMResponse | AgentResult, task: Task, iteration: int):
-        """Process orchestrator output — tool-based mutations."""
+        """Process orchestrator output — render state to markdown after tool mutations."""
         if not (self._tool_executor and self._tool_executor.mutations_applied):
             return
 
-        # Post-processing on RESEARCH_STATE.md
-        state_text = self.workspace.read_file("RESEARCH_STATE.md")
-        before = state_text
-        state_text = self._enforce_problem_statement(state_text)
-        if state_text != before:
-            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "problem_statement_enforced", "")
-        before = state_text
-        state_text = normalize_er_wh_headers(state_text)
-        if state_text != before:
-            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "header_normalized", "")
-        self.workspace.write_file("RESEARCH_STATE.md", state_text)
+        research_state = self._tool_executor.research_state
+        if research_state:
+            # Render state to markdown files
+            self.workspace.write_file("RESEARCH_STATE.md", render_research_state_md(research_state))
+            self.workspace.write_file("CRITIQUE_LOG.md", render_critique_log_md(research_state))
         self.workspace.delete_file("PROPOSED_CHANGES.md")
 
         # Write CURRENT_TASK.md from set_next_task tool call
@@ -220,19 +208,6 @@ class OrchestratorAgent(BaseAgent):
             iteration=iteration,
             target_claim=data.get("target_claim", ""),
             body=data.get("description", ""),
-        )
-
-    def _enforce_problem_statement(self, research_state: str) -> str:
-        """Replace the Problem Statement section with the original from the problem YAML."""
-        original = getattr(self.workspace, "problem_statement", None)
-        if not original:
-            return research_state
-        return re.sub(
-            r"(# Problem Statement\s*\n).*?(?=\n# Conventions)",
-            lambda m: m.group(1) + "\n" + original + "\n",
-            research_state,
-            count=1,
-            flags=re.DOTALL,
         )
 
     def parse_task(self, text: str, iteration: int = 0) -> Task:
