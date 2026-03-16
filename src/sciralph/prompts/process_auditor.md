@@ -69,7 +69,8 @@ Look for:
 Use the Event Log Summary to evaluate:
 - API retries: frequency and distribution — are retries concentrated on one agent
   or spread across the run?
-- Override frequency: how often did P1–P5 overrides fire? Were they appropriate?
+- Forced critic frequency: how often did the scaffolding force a critic pass?
+- Compute verdict signals: how often did non-VERIFIED verdicts fire? Did the orchestrator respond appropriately?
 - Agent loop health: look for bailouts (zero-text, low-cumulative), forced final
   calls, and tool-call failures — these indicate the model struggled to produce
   useful output.

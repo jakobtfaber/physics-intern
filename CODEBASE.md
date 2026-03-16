@@ -74,7 +74,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | File | Lines | Purpose |
 |------|------:|---------|
 | `main.py` | 91 | CLI entry point, arg parsing, workspace naming (includes model label in dir name) |
-| `engine.py` | 790 | `SciRalph` class, `LoopState` dataclass, `Override` chain: main loop, dispatch, declarative overrides, compression, scaffolding log events |
+| `engine.py` | ~550 | `SciRalph` class, `LoopState` dataclass: main loop, dispatch, compression, scaffolding log events |
 | `categories.py` | 11 | `CompensationCategory` enum (call_reliability, state_invariants, loop_control, output_normalization) |
 | `validation.py` | 597 | Post-integration checks (7 checks), `can_terminate()` gates, `Violation` dataclass |
 | `config.py` | 155 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
@@ -115,23 +115,21 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │  1. UPDATE ITERATION COUNTER (scaffolding-maintained, not LLM)       │
 │     └─ _update_research_iteration(): write iteration: N to frontmatter│
 │                                                                      │
-│  2. ORCHESTRATOR PASS                                                │
-│     └─ context_prefix: violations/blockers/displaced tasks/agent failures│
-│     └─ Reads all state → integrates PROPOSED_CHANGES.md              │
-│     └─ Emits CURRENT_TASK.md                                         │
+│  2. FORCED CRITIC OR ORCHESTRATOR PASS                               │
+│     └─ If critic overdue → skip orchestrator, go straight to critic  │
+│        (saves an LLM call vs. old override chain)                    │
+│     └─ Otherwise: orchestrator pass                                  │
+│        └─ context_prefix: violations/blockers/verdicts/agent failures│
+│        └─ Reads all state → integrates PROPOSED_CHANGES.md           │
+│        └─ Emits CURRENT_TASK.md                                      │
 │                                                                      │
 │  3. POST-INTEGRATION VALIDATION                                      │
 │     └─ validate_post_integration(): 7 checks                        │
 │     └─ Violations queued for next orchestrator pass                  │
 │                                                                      │
-│  4. _apply_overrides() — consolidated priority chain                 │
-│     P1. Budget enforcement (≤1 iter left) → synthesize               │
-│     P2. Stale-loop backstop (≥2 stale iters) → synthesize            │
-│     P3. Forced critic (overdue) → critique                           │
-│     P3b. Redundant critic suppression → synthesize                   │
-│     P5. Stall block (stalled claim) → research                       │
-│     P4. REFUTED/INCONCLUSIVE recompute (gated, +P6 enrichment) → compute │
-│     P6. Enrichment (prior failure context, additive)                 │
+│  4. COMPUTE TASK ENRICHMENT (inline, before dispatch)                │
+│     └─ If COMPUTE task + prior failures on same claim → append       │
+│        failure excerpts to CURRENT_TASK.md body                      │
 │                                                                      │
 │  5. TERMINATION GATE                                                 │
 │     └─ TERMINATE → can_terminate() gate                              │
@@ -143,8 +141,7 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │     └─ _record_agent_failures(): capture max_tokens/max_rounds/etc.  │
 │                                                                      │
 │  7. POST-DISPATCH CHECKS                                             │
-│     └─ Verdict tracking with failure counter after COMPUTE           │
-│     └─ Stall clearing on research/derive/resolve targeting stalled   │
+│     └─ Verdict tracking (non-VERIFIED → pending_compute_verdicts)    │
 │     └─ Phantom reference check on agent output                       │
 │     └─ NO_CRITIQUES_FILED detection after CRITIQUE                   │
 │                                                                      │
@@ -160,32 +157,25 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Task override ordering
+### Pre-dispatch hooks
 
-All overrides are consolidated in `_apply_overrides()` with explicit priority:
+Two hooks run inline in `run()` before dispatch, replacing the old override chain:
 
-| Priority | Override | Condition | Result |
-|----------|----------|-----------|--------|
-| P1 | Budget enforcement | ≤ 1 iteration remaining | → synthesize |
-| P2 | Stale-loop backstop | ≥ 2 consecutive stale iters (ER ≥ min, WH = 0) | → synthesize |
-| P3 | Forced critic | > `critic_every_n` since last critic AND new content since last critic | → critique |
-| P3b | Redundant critic suppression | Scheduled critique but no new content since last critic | → synthesize |
-| P5 | Stall block | COMPUTE task targets a stalled claim (≥ threshold consecutive failures) | → research |
-| P4 | REFUTED/INCONCLUSIVE recompute | Previous REFUTED/INCONCLUSIVE verdict, count < `stall_recompute_limit`; pure condition, state consumed by action, unconsumed state cleaned up post-loop | → compute (P6 enrichment applied before return) |
-| P6 | Enrichment | COMPUTE task with prior failures on same claim | Mutates task body (additive) |
+| Hook | Condition | Action |
+|------|-----------|--------|
+| Forced critic | `_critic_overdue()` — more than `critic_every_n` since last critic AND new content exists | Skip orchestrator entirely, dispatch critic directly (saves an LLM call) |
+| Compute enrichment | `_enrich_compute_task_with_prior_failures()` — COMPUTE task with prior failures on same claim | Append failure excerpts (METHOD+RESULT+NOTES) to task body |
 
-Higher priority wins. Displaced tasks are logged and shown to orchestrator on next pass via `context_prefix`.
-P5 is checked before P4 so stalled claims cannot be force-recomputed.
+Non-VERIFIED compute verdicts are no longer auto-recomputed. Instead they are stored in `pending_compute_verdicts` and rendered as a COMPUTATION VERDICTS banner in the orchestrator's next context. The orchestrator decides what to do (recompute, re-derive, or accept provisionally). Stall warnings appear when attempts reach `stall_recompute_limit`.
 
 ### Termination paths
 
 | Path | Where | Condition |
 |------|-------|-----------|
 | Explicit terminate | Step 5 | Orchestrator emits `terminate` → `can_terminate()` gate passes |
-| Stale-loop backstop | Step 4 (P2) | Forces synthesize → next pass terminates |
 | Status field | Step 9 | Agent wrote `status: completed/abandoned/partially_complete` |
-| Budget exhaustion | Step 4 (P1) | Forces synthesize → next pass terminates |
 | Max iterations | Loop condition | `self.iteration >= self.config.max_iterations` |
+| Budget-aware synthesis | Orchestrator | Orchestrator sees budget pressure via `_completion_analysis()` context banner and chooses to synthesize/terminate |
 
 The `can_terminate()` gate requires: at least one VERIFIED computation triggers a mandatory critic pass, no unresolved HIGH critiques, and numerical verification when `requires_numerical: true` in problem YAML. If blocked, blockers are fed back to orchestrator.
 
@@ -234,7 +224,7 @@ The `tools` class attribute is the **single switch** between one-shot and agenti
 **Role:** Planning only. Reads all state, emits `CURRENT_TASK.md`, and integrates `PROPOSED_CHANGES.md` into `RESEARCH_STATE.md`.
 
 **Context (largest in the system):**
-- `context_prefix` from engine — violations, termination blockers, displaced tasks, agent failures
+- `context_prefix` from engine — violations, termination blockers, computation verdicts, agent failures
 - Completion analysis banner (if ER count sufficient, or budget ≤ 3) — includes inline synthesis instruction
 - Computation stall warnings (≥ threshold consecutive non-VERIFIED on same claim)
 - Full `RESEARCH_STATE.md`, `CRITIQUE_LOG.md`, tail of `COMPUTATION_LOG.md`, `METRICS.md`
