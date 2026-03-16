@@ -17,7 +17,7 @@ progress_check_interval: 3
 computation_token_alert: 150000
 tool_output_limit: 10000
 stall_threshold: 2
-# Max consecutive non-VERIFIED verdicts on same claim before P4 recompute is blocked
+# Max consecutive non-VERIFIED verdicts on same claim before stall escalation
 stall_recompute_limit: 2
 min_er_for_completion: 3
 api_retry_max: 10
@@ -29,11 +29,9 @@ api_timeout: 600.0
 # Multiplier relative to compress_threshold for triggering compression
 compress_soft_multiplier: 1.5
 
-# --- Budget & synthesis ---
+# --- Budget hints (orchestrator context) ---
 # Iterations remaining before orchestrator injects BUDGET SYNTHESIS banner
 budget_synthesis_margin: 3
-# Iterations remaining before engine P1 override forces synthesize
-budget_override_margin: 1
 
 # --- Orchestrator context ---
 # Number of COMPUTATION_LOG tail entries fed to orchestrator context

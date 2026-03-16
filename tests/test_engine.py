@@ -97,74 +97,6 @@ class TestSetResearchStatus:
             assert "Some content" in body
 
 
-class TestBudgetEnforcement:
-    """Test scaffold-level budget enforcement (item 6)."""
-
-    def _make_engine(self, max_iterations: int, current_iteration: int):
-        """Create a SciRalph instance with mocked workspace."""
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
-            written = {}
-
-            def capture_write(filename, content):
-                written[filename] = content
-            ws.write_file = MagicMock(side_effect=capture_write)
-            ws.read_file = MagicMock(return_value="")
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config(max_iterations=max_iterations)
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.iteration = current_iteration
-        return engine, written
-
-    def test_budget_enforcement_overrides(self):
-        """When <=1 iteration remaining, compute task -> overridden to synthesize."""
-        engine, written = self._make_engine(max_iterations=10, current_iteration=10)
-        task = Task(
-            task_id="TASK-010", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", priority="high",
-            iteration=10, body="Verify something.",
-        )
-        budget_remaining = engine.config.max_iterations - engine.iteration
-        assert budget_remaining <= 1
-
-        # Simulate budget enforcement logic
-        if budget_remaining <= 1 and task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-            task = engine._make_budget_synthesize_task()
-
-        assert task.task_type == TaskType.SYNTHESIZE
-        assert task.assigned_to == "researcher"
-        assert "CURRENT_TASK.md" in written
-        assert "Budget-Enforced Synthesis" in written["CURRENT_TASK.md"]
-
-    def test_budget_enforcement_allows_terminal(self):
-        """synthesize/terminate are not overridden even at budget limit."""
-        engine, _ = self._make_engine(max_iterations=10, current_iteration=10)
-        for tt in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-            task = Task(task_id="TASK-010", task_type=tt, assigned_to="researcher")
-            budget_remaining = engine.config.max_iterations - engine.iteration
-            if budget_remaining <= 1 and task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-                task = engine._make_budget_synthesize_task()
-            assert task.task_type == tt  # unchanged
-
-    def test_budget_enforcement_not_triggered_with_budget(self):
-        """Plenty of budget -> no override."""
-        engine, _ = self._make_engine(max_iterations=20, current_iteration=5)
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE, assigned_to="computationalist")
-        budget_remaining = engine.config.max_iterations - engine.iteration
-        assert budget_remaining > 1
-        # No override
-        if budget_remaining <= 1 and task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-            task = engine._make_budget_synthesize_task()
-        assert task.task_type == TaskType.COMPUTE  # unchanged
-
-
 class TestEnrichComputeTask:
     """Test compute task enrichment with prior failure context (item 5)."""
 
@@ -568,8 +500,7 @@ class TestApplyOverrides:
 
     def _make_engine(self, max_iterations=20, current_iteration=5,
                      last_critic_iteration=0, critic_every_n=4,
-                     pending_recompute=None, pending_recompute_verdict=None,
-                     stale_iterations=0, research_state=""):
+                     pending_recompute=None, pending_recompute_verdict=None):
         """Create a SciRalph instance with mocked workspace for override testing."""
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
@@ -582,7 +513,7 @@ class TestApplyOverrides:
             def capture_write(filename, content):
                 written[filename] = content
             ws.write_file = MagicMock(side_effect=capture_write)
-            ws.read_file = MagicMock(return_value=research_state)
+            ws.read_file = MagicMock(return_value="")
 
             from sciralph.engine import SciRalph
             engine = SciRalph.__new__(SciRalph)
@@ -595,49 +526,11 @@ class TestApplyOverrides:
             engine.metrics.last_critic_iteration = last_critic_iteration
             engine.iteration = current_iteration
             engine._state = LoopState(
-                stale_iterations=stale_iterations,
                 pending_recompute_claim=pending_recompute,
                 pending_recompute_verdict=pending_recompute_verdict,
                 last_content_iteration=current_iteration,
             )
         return engine, written
-
-    def test_budget_override_highest_priority(self):
-        """Budget enforcement (P1) overrides everything when <=1 iteration left."""
-        engine, written = self._make_engine(
-            max_iterations=10, current_iteration=10,
-            last_critic_iteration=0, critic_every_n=4,  # critic overdue too
-            pending_recompute="some claim",  # recompute pending too
-        )
-        task = Task(
-            task_id="TASK-010", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", iteration=10,
-        )
-        result = engine._apply_overrides(task)
-
-        assert result.task_type == TaskType.SYNTHESIZE
-        assert "CURRENT_TASK.md" in written
-        engine.metrics.alert.assert_called_once()
-
-    def test_stale_loop_forces_synthesize_not_break(self):
-        """Stale loop (P2) forces SYNTHESIZE instead of breaking."""
-        # Need ER count >= min_er_for_completion and WH count == 0
-        state_text = "## ER-001\nSome result\n\n## ER-002\nAnother result\n"
-        engine, written = self._make_engine(
-            max_iterations=20, current_iteration=5,
-            stale_iterations=1,  # already 1 stale, this will be 2nd
-            research_state=state_text,
-        )
-        engine.config.min_er_for_completion = 2
-
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.RESEARCH,
-            assigned_to="researcher", iteration=5,
-        )
-        result = engine._apply_overrides(task)
-
-        assert result.task_type == TaskType.SYNTHESIZE
-        assert engine._state.stale_iterations == 2
 
     def test_forced_critic_overrides_task(self):
         """Forced critic (P3) replaces non-critique task when overdue."""
@@ -672,7 +565,7 @@ class TestApplyOverrides:
         assert engine._state.pending_recompute_claim is None  # consumed
 
     def test_enrichment_non_overriding(self):
-        """P5 enrichment mutates task body without changing task type."""
+        """Enrichment mutates task body without changing task type."""
         engine, written = self._make_engine(
             max_iterations=20, current_iteration=5,
             last_critic_iteration=4,  # critic not overdue
@@ -700,65 +593,6 @@ class TestApplyOverrides:
         assert result.task_type == TaskType.COMPUTE
         assert result is task  # same object returned
 
-    def test_redundant_critic_blocked_when_no_new_content(self):
-        """P3b: Critique blocked when no new content since last critic pass."""
-        engine, written = self._make_engine(
-            max_iterations=20, current_iteration=15,
-            last_critic_iteration=14, critic_every_n=4,
-        )
-        # last_content_iteration < last_critic_iteration → redundant
-        engine._state.last_content_iteration = 13
-        engine._state.pending_violations = []
-        engine._state.pending_termination_blockers = []
-
-        task = Task(
-            task_id="TASK-015", task_type=TaskType.CRITIQUE,
-            assigned_to="deep_critic", iteration=15,
-        )
-        result = engine._apply_overrides(task)
-
-        assert result.task_type == TaskType.SYNTHESIZE
-        assert "Clean Review" in result.body
-        assert len(engine._state.displaced_tasks) == 1
-        assert engine._state.displaced_tasks[0]["override"] == "redundant_critic"
-
-    def test_critique_allowed_when_new_content_exists(self):
-        """P3b: Critique passes through when content was produced after last critic."""
-        engine, written = self._make_engine(
-            max_iterations=20, current_iteration=15,
-            last_critic_iteration=10, critic_every_n=4,
-        )
-        # last_content_iteration > last_critic_iteration → new content exists
-        engine._state.last_content_iteration = 14
-        engine._state.pending_violations = []
-        engine._state.pending_termination_blockers = []
-
-        task = Task(
-            task_id="TASK-015", task_type=TaskType.CRITIQUE,
-            assigned_to="deep_critic", iteration=15,
-        )
-        result = engine._apply_overrides(task)
-
-        assert result.task_type == TaskType.CRITIQUE
-
-    def test_first_critique_never_blocked(self):
-        """P3b: First critic pass (last_critic_iteration=0) is never blocked."""
-        engine, written = self._make_engine(
-            max_iterations=20, current_iteration=5,
-            last_critic_iteration=0, critic_every_n=4,
-        )
-        engine._state.last_content_iteration = 0
-        engine._state.pending_violations = []
-        engine._state.pending_termination_blockers = []
-
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.CRITIQUE,
-            assigned_to="deep_critic", iteration=5,
-        )
-        result = engine._apply_overrides(task)
-
-        assert result.task_type == TaskType.CRITIQUE
-
     def test_synthesize_never_overridden(self):
         """SYNTHESIZE tasks pass through all overrides unchanged."""
         engine, written = self._make_engine(
@@ -772,14 +606,13 @@ class TestApplyOverrides:
         )
         result = engine._apply_overrides(task)
 
-        # P1 doesn't trigger (budget OK), P2 resets stale, P3 skips critique tasks,
-        # P4 skips synthesize/terminate
+        # P3 skips synthesize, P4 skips synthesize/terminate
         assert result.task_type == TaskType.SYNTHESIZE
 
-    def test_terminate_never_overridden_by_budget_or_stale(self):
-        """TERMINATE tasks are not overridden by budget or stale checks."""
+    def test_terminate_never_overridden(self):
+        """TERMINATE tasks pass through all overrides unchanged."""
         engine, written = self._make_engine(
-            max_iterations=10, current_iteration=10,  # budget exhausted
+            max_iterations=10, current_iteration=10,
         )
         task = Task(
             task_id="TASK-010", task_type=TaskType.TERMINATE,
@@ -788,29 +621,6 @@ class TestApplyOverrides:
         result = engine._apply_overrides(task)
 
         assert result.task_type == TaskType.TERMINATE
-
-    def test_p5_blocks_p4_when_both_triggered(self):
-        """P5 stall block fires before P4 recompute and clears the pending recompute."""
-        engine, written = self._make_engine(
-            max_iterations=20, current_iteration=5,
-            last_critic_iteration=4,  # critic not overdue
-            pending_recompute="Verify WH-001 formula",
-        )
-        from sciralph.markdown import _normalize_claim_key
-        key = _normalize_claim_key("Verify WH-001 formula")
-        engine._state.stalled_claims = {key}
-        engine._state.pending_violations = []
-
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", iteration=5,
-            body="Verify WH-001 formula",
-        )
-        result = engine._apply_overrides(task)
-
-        assert result.task_type == TaskType.RESEARCH
-        assert "Alternative Approach" in result.body
-        assert engine._state.pending_recompute_claim is None  # cleared by P5
 
 
 class TestTerminationGate:
@@ -912,92 +722,6 @@ class TestTerminationGate:
         assert len(engine._state.pending_violations) == 0  # consumed
 
 
-class TestIsStaleLoop:
-    """Test the _is_stale_loop detection."""
-
-    def _make_engine(self, stale_iterations=0, research_state=""):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
-            ws.read_file = MagicMock(return_value=research_state)
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config(min_er_for_completion=2)
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.iteration = 5
-            engine._state = LoopState(stale_iterations=stale_iterations)
-        return engine
-
-    def test_synthesize_resets_stale_counter(self):
-        """SYNTHESIZE resets _state.stale_iterations to 0."""
-        engine = self._make_engine(stale_iterations=3)
-        task = Task(task_id="T", task_type=TaskType.SYNTHESIZE, assigned_to="researcher")
-
-        result = engine._is_stale_loop(task)
-
-        assert result is False
-        assert engine._state.stale_iterations == 0
-
-    def test_terminate_resets_stale_counter(self):
-        """TERMINATE resets _state.stale_iterations to 0."""
-        engine = self._make_engine(stale_iterations=3)
-        task = Task(task_id="T", task_type=TaskType.TERMINATE, assigned_to="orchestrator")
-
-        result = engine._is_stale_loop(task)
-
-        assert result is False
-        assert engine._state.stale_iterations == 0
-
-    def test_stale_detected_after_two_iterations(self):
-        """Stale loop detected when 2+ iterations with complete-looking state."""
-        state = "## ER-001\nResult 1\n\n## ER-002\nResult 2\n"
-        engine = self._make_engine(stale_iterations=1, research_state=state)
-
-        task = Task(task_id="T", task_type=TaskType.RESEARCH, assigned_to="researcher")
-        result = engine._is_stale_loop(task)
-
-        assert result is True
-        assert engine._state.stale_iterations == 2
-
-    def test_not_stale_on_first_iteration(self):
-        """Not stale after just one iteration of complete-looking state."""
-        state = "## ER-001\nResult 1\n\n## ER-002\nResult 2\n"
-        engine = self._make_engine(stale_iterations=0, research_state=state)
-
-        task = Task(task_id="T", task_type=TaskType.RESEARCH, assigned_to="researcher")
-        result = engine._is_stale_loop(task)
-
-        assert result is False
-        assert engine._state.stale_iterations == 1
-
-    def test_not_stale_when_wh_present(self):
-        """Not stale when Working Hypotheses remain."""
-        state = "## ER-001\nResult 1\n\n## ER-002\nResult 2\n\n## WH-001\nHypothesis\n"
-        engine = self._make_engine(stale_iterations=5, research_state=state)
-
-        task = Task(task_id="T", task_type=TaskType.RESEARCH, assigned_to="researcher")
-        result = engine._is_stale_loop(task)
-
-        assert result is False
-        assert engine._state.stale_iterations == 0  # reset
-
-    def test_not_stale_when_insufficient_er(self):
-        """Not stale when fewer ERs than min_er_for_completion."""
-        state = "## ER-001\nResult 1\n"
-        engine = self._make_engine(stale_iterations=5, research_state=state)
-
-        task = Task(task_id="T", task_type=TaskType.RESEARCH, assigned_to="researcher")
-        result = engine._is_stale_loop(task)
-
-        assert result is False
-        assert engine._state.stale_iterations == 0  # reset
-
-
 class TestCheckStatusField:
     """Test the renamed _check_status_field (formerly _should_terminate)."""
 
@@ -1038,84 +762,12 @@ class TestCheckStatusField:
         assert engine._check_status_field() is False
 
 
-class TestStallDetection:
-    """Test stall detection and blocking in _apply_overrides."""
-
-    COMP_LOG_STALLED = """\
----
-total_computations: 3
----
-
-# Computations
-
-## COMP-001: Check WH-001
-**CLAIM**: Verify WH-001 formula
-**VERDICT**: INCONCLUSIVE
-
-## COMP-002: Check WH-001 retry
-**CLAIM**: Verify WH-001 formula
-**VERDICT**: INCONCLUSIVE
-
-## COMP-003: Check WH-001 third try
-**CLAIM**: Verify WH-001 formula
-**VERDICT**: REFUTED
-"""
-
-    def _make_engine(self, comp_log: str = ""):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
-            written = {}
-            def capture_write(filename, content):
-                written[filename] = content
-            ws.write_file = MagicMock(side_effect=capture_write)
-            ws.read_file = MagicMock(return_value=comp_log)
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config()
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.metrics.last_critic_iteration = 4
-            engine.iteration = 5
-            engine._state = LoopState(last_content_iteration=5)
-            engine.problem_meta = {}
-        return engine
-
-    def test_stalled_claim_blocked_in_overrides(self):
-        engine = self._make_engine()
-        engine._state.stalled_claims = {"WH-001"}
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", iteration=5,
-            body="Verify WH-001 formula",
-        )
-        result = engine._apply_overrides(task)
-        assert result.task_type == TaskType.RESEARCH
-        assert "Alternative Approach" in result.body
-
-    def test_non_stalled_compute_passes_through(self):
-        engine = self._make_engine()
-        engine._state.stalled_claims = {"WH-001"}
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", iteration=5,
-            body="Verify WH-099 different formula",
-        )
-        result = engine._apply_overrides(task)
-        assert result.task_type == TaskType.COMPUTE
-
-
 class TestDisplacedTaskLogging:
-    """Tests for displaced task logging (Improvement 3)."""
+    """Tests for displaced task logging."""
 
     def _make_engine(self, max_iterations=20, current_iteration=5,
                      last_critic_iteration=0, critic_every_n=4,
-                     pending_recompute=None, stale_iterations=0,
-                     research_state=""):
+                     pending_recompute=None):
         """Create a SciRalph instance for displacement testing."""
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
@@ -1128,7 +780,7 @@ class TestDisplacedTaskLogging:
             def capture_write(filename, content):
                 written[filename] = content
             ws.write_file = MagicMock(side_effect=capture_write)
-            ws.read_file = MagicMock(return_value=research_state)
+            ws.read_file = MagicMock(return_value="")
 
             from sciralph.engine import SciRalph
             engine = SciRalph.__new__(SciRalph)
@@ -1141,27 +793,10 @@ class TestDisplacedTaskLogging:
             engine.metrics.last_critic_iteration = last_critic_iteration
             engine.iteration = current_iteration
             engine._state = LoopState(
-                stale_iterations=stale_iterations,
                 pending_recompute_claim=pending_recompute,
                 last_content_iteration=current_iteration,
             )
         return engine, written
-
-    def test_budget_override_logs_displacement(self):
-        """Budget enforcement logs the displaced task."""
-        engine, written = self._make_engine(
-            max_iterations=10, current_iteration=10,
-        )
-        task = Task(
-            task_id="TASK-010", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", iteration=10,
-            body="Verify something important.",
-        )
-        result = engine._apply_overrides(task)
-        assert result.task_type == TaskType.SYNTHESIZE
-        assert len(engine._state.displaced_tasks) == 1
-        assert engine._state.displaced_tasks[0]["override"] == "budget_enforcement"
-        assert engine._state.displaced_tasks[0]["task_type"] == "compute"
 
     def test_forced_critic_logs_displacement(self):
         """Forced critic logs the displaced task."""
@@ -1178,23 +813,6 @@ class TestDisplacedTaskLogging:
         assert result.task_type == TaskType.CRITIQUE
         assert len(engine._state.displaced_tasks) == 1
         assert engine._state.displaced_tasks[0]["override"] == "forced_critic"
-
-    def test_stall_block_logs_displacement(self):
-        """Stall blocking logs the displaced task."""
-        engine, written = self._make_engine(
-            max_iterations=20, current_iteration=5,
-            last_critic_iteration=4,
-        )
-        engine._state.stalled_claims = {"WH-001"}
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", iteration=5,
-            body="Verify WH-001 formula",
-        )
-        result = engine._apply_overrides(task)
-        assert result.task_type == TaskType.RESEARCH
-        assert len(engine._state.displaced_tasks) == 1
-        assert engine._state.displaced_tasks[0]["override"] == "stall_block"
 
     def test_displacement_injected_into_context_prefix(self):
         """Displaced tasks appear in context prefix."""

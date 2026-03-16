@@ -15,8 +15,6 @@ from .markdown import (
     find_prior_failures_for_claim,
     _parse_comp_entries,
     _normalize_claim_key,
-    count_er_sections,
-    count_wh_sections,
 )
 from .metrics import MetricsTracker
 from .task import Task, TaskType, TASK_TYPE_AGENT_MAP
@@ -37,7 +35,6 @@ console = Console()
 @dataclass
 class LoopState:
     """Inter-iteration state for the main research loop."""
-    stale_iterations: int = 0
     pending_recompute_claim: str | None = None
     pending_recompute_verdict: str | None = None
     stalled_claims: set[str] = field(default_factory=set)
@@ -63,36 +60,6 @@ class Override:
 # Override condition/action functions
 # ---------------------------------------------------------------------------
 
-def _p1_budget_condition(engine: "SciRalph", task: Task) -> bool:
-    budget_remaining = engine.config.max_iterations - engine.iteration
-    return (budget_remaining <= engine.config.budget_override_margin
-            and task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE))
-
-
-def _p1_budget_action(engine: "SciRalph", task: Task) -> Task:
-    budget_remaining = engine.config.max_iterations - engine.iteration
-    console.print(
-        f"[yellow]Budget enforcement: {budget_remaining} iteration(s) left, "
-        f"overriding '{task.task_type}' -> 'synthesize'.[/yellow]"
-    )
-    engine._log_displacement(task, "budget_enforcement")
-    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
-                       "p1_budget_override", f"{task.task_type.value} -> synthesize")
-    return engine._make_budget_synthesize_task()
-
-
-def _p2_stale_loop_condition(engine: "SciRalph", task: Task) -> bool:
-    return engine._is_stale_loop(task)
-
-
-def _p2_stale_loop_action(engine: "SciRalph", task: Task) -> Task:
-    engine._log_displacement(task, "stale_loop")
-    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
-                       "p2_stale_loop_override",
-                       f"stale_iterations={engine._state.stale_iterations}")
-    return engine._make_budget_synthesize_task()
-
-
 def _p3_forced_critic_condition(engine: "SciRalph", task: Task) -> bool:
     return (engine._critic_overdue()
             and task.task_type not in (TaskType.CRITIQUE, TaskType.SYNTHESIZE, TaskType.TERMINATE))
@@ -109,65 +76,6 @@ def _p3_forced_critic_action(engine: "SciRalph", task: Task) -> Task:
                        "p3_forced_critic",
                        f"last_critic={engine.metrics.last_critic_iteration}")
     return engine._make_forced_critic_task()
-
-
-def _p3b_redundant_critic_condition(engine: "SciRalph", task: Task) -> bool:
-    return (task.task_type == TaskType.CRITIQUE
-            and engine.metrics.last_critic_iteration > 0
-            and engine.metrics.last_critic_iteration >= engine._state.last_content_iteration)
-
-
-def _p3b_redundant_critic_action(engine: "SciRalph", task: Task) -> Task:
-    console.print(
-        "[yellow]Skipping redundant critic — no new content since "
-        f"iteration {engine.metrics.last_critic_iteration} review.[/yellow]"
-    )
-    engine._log_displacement(task, "redundant_critic")
-    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
-                       "p3b_redundant_critic_suppressed", "")
-    return engine._make_post_critic_synthesize_task()
-
-
-def _p5_stall_block_condition(engine: "SciRalph", task: Task) -> bool:
-    if task.task_type != TaskType.COMPUTE:
-        return False
-    claim_key = _normalize_claim_key(task.body)
-    return claim_key in engine._state.stalled_claims
-
-
-def _p5_stall_block_action(engine: "SciRalph", task: Task) -> Task:
-    claim_key = _normalize_claim_key(task.body)
-    engine._state.pending_violations.append(
-        Violation(
-            check="stall_detection",
-            severity=ViolationSeverity.WARNING,
-            message=f"Stalled claim blocked: {claim_key[:80]}",
-            file="COMPUTATION_LOG.md",
-            detail=claim_key,
-        )
-    )
-    # Defense-in-depth: clear pending recompute if it targets the same claim
-    if engine._state.pending_recompute_claim:
-        pending_key = _normalize_claim_key(engine._state.pending_recompute_claim)
-        if pending_key == claim_key:
-            engine._state.pending_recompute_claim = None
-            engine._state.pending_recompute_verdict = None
-    engine._log_displacement(task, "stall_block")
-    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
-                       "p5_stall_block", f"claim={claim_key[:80]}")
-    return Task(
-        task_id=task.task_id,
-        task_type=TaskType.RESEARCH,
-        assigned_to="researcher",
-        priority=task.priority,
-        iteration=task.iteration,
-        body=(
-            "# Alternative Approach Needed\n\n"
-            f"Computation stalled on: {claim_key[:200]}\n"
-            "Multiple attempts have failed. Consider an alternative derivation "
-            "or analytical approach.\n"
-        ),
-    )
 
 
 def _p4_refuted_recompute_condition(engine: "SciRalph", task: Task) -> bool:
@@ -196,11 +104,7 @@ def _p4_refuted_recompute_action(engine: "SciRalph", task: Task) -> Task:
 
 
 _OVERRIDE_CHAIN: list[Override] = [
-    Override("budget_enforcement", 1, _p1_budget_condition, _p1_budget_action),
-    Override("stale_loop", 2, _p2_stale_loop_condition, _p2_stale_loop_action),
     Override("forced_critic", 3, _p3_forced_critic_condition, _p3_forced_critic_action),
-    Override("redundant_critic", 4, _p3b_redundant_critic_condition, _p3b_redundant_critic_action),
-    Override("stall_block", 5, _p5_stall_block_condition, _p5_stall_block_action),
     Override("refuted_recompute", 6, _p4_refuted_recompute_condition, _p4_refuted_recompute_action),
 ]
 
@@ -461,27 +365,6 @@ class SciRalph:
 
         return task
 
-    def _is_stale_loop(self, task: Task) -> bool:
-        """Detect stale loop when research appears complete but orchestrator didn't terminate."""
-        if task.task_type in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-            self._state.stale_iterations = 0
-            return False
-        state = self.workspace.read_file("RESEARCH_STATE.md")
-        er_count = count_er_sections(state)
-        wh_count = count_wh_sections(state)
-        if er_count >= self.config.min_er_for_completion and wh_count == 0:
-            self._state.stale_iterations += 1
-            if self._state.stale_iterations >= 2:
-                console.print(
-                    "[yellow]Backstop: research appears complete but orchestrator "
-                    "did not terminate. Forcing synthesize.[/yellow]"
-                )
-                self.metrics.alert(self.iteration, "Stale loop detected — forcing synthesize")
-                return True
-        else:
-            self._state.stale_iterations = 0
-        return False
-
     def _dispatch(self, task: Task) -> tuple[str, "LLMResponse | AgentResult"]:
         """Route task to the correct agent. Returns (agent_name, result)."""
         from .llm import AgentResult, LLMResponse  # noqa: F811
@@ -595,43 +478,6 @@ class SciRalph:
                 "# Task Description\n\n"
                 "Mandatory periodic review. Perform a thorough critique of all Working\n"
                 "Hypotheses and recent Established Results in RESEARCH_STATE.md.\n"
-            ),
-        )
-        self.workspace.write_file("CURRENT_TASK.md", task.to_markdown())
-        return task
-
-    def _make_budget_synthesize_task(self) -> Task:
-        """Create a forced synthesize task due to budget exhaustion."""
-        task = Task(
-            task_id=f"TASK-{self.iteration:03d}",
-            task_type=TaskType.SYNTHESIZE,
-            assigned_to="researcher",
-            priority="high",
-            iteration=self.iteration,
-            body=(
-                "# Budget-Enforced Synthesis\n\n"
-                "Iteration budget nearly exhausted. Synthesize ALL Established Results into\n"
-                "a final answer. Note unresolved items as limitations. Set status to\n"
-                "'partially_complete' if gaps remain.\n"
-            ),
-        )
-        self.workspace.write_file("CURRENT_TASK.md", task.to_markdown())
-        return task
-
-    def _make_post_critic_synthesize_task(self) -> Task:
-        """Create a synthesize task when critic found no issues and no new content exists."""
-        task = Task(
-            task_id=f"TASK-{self.iteration:03d}",
-            task_type=TaskType.SYNTHESIZE,
-            assigned_to="researcher",
-            priority="high",
-            iteration=self.iteration,
-            body=(
-                "# Synthesis After Clean Review\n\n"
-                "The deep critic found no issues on its last pass and no new research\n"
-                "content has been produced since. Synthesize ALL Established Results into\n"
-                "a final answer. Note unresolved items as limitations. Set status to\n"
-                "'partially_complete' if gaps remain.\n"
             ),
         )
         self.workspace.write_file("CURRENT_TASK.md", task.to_markdown())

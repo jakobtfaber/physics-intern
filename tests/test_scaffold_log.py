@@ -5,7 +5,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 from sciralph.config import Config
-from sciralph.engine import LoopState
 from sciralph.markdown import render_frontmatter
 from sciralph.task import Task, TaskType
 from sciralph.workspace import log_llm_call, log_scaffold_event
@@ -72,50 +71,6 @@ class TestValidatePostIntegrationLogs:
         assert len(state_inv) > 0
         assert any(e["event"] == "phantom_references" for e in state_inv)
         assert all(e["iter"] == 3 for e in state_inv)
-
-
-class TestBudgetOverrideLogs:
-    """Integration test: P1 budget override writes loop_control event."""
-
-    def test_budget_override_logs_event(self, tmp_path):
-        ws_dir = tmp_path / "ws"
-        ws_dir.mkdir()
-
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = ws_dir
-            ws.logs_dir = str(tmp_path / "logs")
-            written = {}
-
-            def capture_write(filename, content):
-                written[filename] = content
-            ws.write_file = MagicMock(side_effect=capture_write)
-            ws.read_file = MagicMock(return_value="")
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config(max_iterations=10)
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.iteration = 10
-            engine._state = LoopState()
-
-            task = Task(
-                task_id="TASK-010", task_type=TaskType.COMPUTE,
-                assigned_to="computationalist", priority="high",
-                iteration=10, body="Verify something.",
-            )
-            result = engine._apply_overrides(task)
-
-        assert result.task_type == TaskType.SYNTHESIZE
-
-        logfile = ws_dir / "EVENT_LOG.jsonl"
-        assert logfile.exists()
-        entry = json.loads(logfile.read_text().strip())
-        assert entry["category"] == "loop_control"
-        assert entry["event"] == "p1_budget_override"
-        assert "compute -> synthesize" in entry["detail"]
 
 
 class TestLogLlmCall:
