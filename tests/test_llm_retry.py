@@ -475,19 +475,19 @@ class TestPenultimateRoundMessage:
                             assert "CRITICAL" not in block.get("text", ""), \
                                 "CRITICAL should not appear when max_rounds < 4"
 
-    def test_forced_final_call_failure_falls_back_to_synthesis(self):
-        """When the forced final call raises, synthesis from tool history is used."""
+    def test_forced_final_call_exception_returns_empty_text(self):
+        """When the forced final call raises, result.text is empty (honest failure)."""
         from sciralph.llm import run_agent_loop
         from sciralph.tools import ToolExecutor, ToolCall
 
         max_rounds = 3
         provider = MagicMock()
-        # Rounds 1..3 return tool_use, forced final call + retry both raise
+        # Rounds 1..3 return tool_use, forced final call raises
         tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
         forced_exc = Exception("output_parse_failed - model gibberish")
         forced_exc.status_code = 400
 
-        provider.call = MagicMock(side_effect=tool_responses + [forced_exc, forced_exc])
+        provider.call = MagicMock(side_effect=tool_responses + [forced_exc])
         provider.format_assistant_message = MagicMock(return_value={"role": "assistant", "content": "tool"})
         provider.build_tool_result_messages = MagicMock(return_value=[{"role": "user", "content": "result"}])
 
@@ -512,10 +512,11 @@ class TestPenultimateRoundMessage:
                 max_rounds=max_rounds,
             )
 
-        # Should have synthesized from tool history instead of crashing
+        # Honest failure: empty text, no synthetic recovery
         assert result.stop_reason == "max_rounds_forced"
-        assert "COMP-000" in result.text
-        assert "INCONCLUSIVE" in result.text
+        assert result.text == ""
+        # Single forced call attempt (no retry)
+        assert provider.call.call_count == max_rounds + 1
 
     def test_progress_check_does_not_break_loop(self):
         """Progress check injection does not break the agent loop."""
@@ -602,8 +603,8 @@ class TestPenultimateRoundMessage:
         final_call = provider.call.call_args_list[-1]
         assert "tools" not in final_call.kwargs
 
-    def test_forced_final_prompt_contains_template(self):
-        """The forced text-only system prompt contains the verdict template."""
+    def test_forced_final_call_uses_user_message_not_system_mutation(self):
+        """The forced text-only call uses a user message, not a mutated system prompt."""
         from sciralph.llm import run_agent_loop
         from sciralph.tools import ToolExecutor, ToolCall
 
@@ -631,17 +632,25 @@ class TestPenultimateRoundMessage:
 
         with patch("sciralph.llm._get_provider", return_value=provider):
             run_agent_loop(
-                system="test", user_content="test", config=config,
+                system="test_system", user_content="test", config=config,
                 tool_executor=tool_executor,
                 tools=[{"type": "function", "function": {"name": "execute_python"}}],
                 max_rounds=max_rounds,
             )
 
-        # The last call is the forced text-only call — check its system prompt
+        # The last call is the forced text-only call
         final_call = provider.call.call_args_list[-1]
+        # System prompt should be UNCHANGED (no mutation)
         final_system = final_call.kwargs.get("system", "")
-        assert "**VERDICT:** INCONCLUSIVE" in final_system
-        assert "Incomplete verification" in final_system
+        assert final_system == "test_system"
+        # The forced exit instruction is delivered as a user message
+        final_messages = final_call.kwargs.get("messages", [])
+        forced_user_msgs = [m for m in final_messages
+                            if isinstance(m, dict) and m.get("role") == "user"
+                            and isinstance(m.get("content"), str)
+                            and "You cannot call any more tools" in m["content"]]
+        assert len(forced_user_msgs) == 1
+        assert "final output as text" in forced_user_msgs[0]["content"]
 
 
 # ---------------------------------------------------------------------------

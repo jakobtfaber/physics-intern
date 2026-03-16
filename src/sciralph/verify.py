@@ -525,8 +525,7 @@ def _summarize_event_log(raw_text: str, max_chars: int = 4096) -> str:
         "tool_call_failure_fallback", "p1_budget_override", "p2_stale_loop_override",
         "p3_forced_critic", "p4_refuted_recompute", "p5_stall_block",
         "compute_verdict_failed", "compute_verdict_stall_escalation",
-        "termination_blocked", "dispatch_failure", "forced_call_retry",
-        "tool_history_synthesis",
+        "termination_blocked", "dispatch_failure",
     }
     key_events = [e for e in scaffold_events if e.get("event", "") in key_event_types]
     if key_events:

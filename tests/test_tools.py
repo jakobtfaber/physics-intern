@@ -362,13 +362,15 @@ class TestForcedPartialOutput:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=2,
         )
 
-        # Verify the last call had no tools parameter (tools=None by default)
+        # Verify the last call had no tools parameter and system prompt is unchanged
         calls = provider.call.call_args_list
         assert len(calls) == 3
         # First two calls should have tools
         assert calls[0].kwargs.get("tools") is not None
         # Last call should NOT have tools
         assert calls[2].kwargs.get("tools") is None
+        # System prompt is unchanged (no mutation)
+        assert calls[2].kwargs.get("system") == "sys"
 
     @patch("sciralph.llm._get_provider")
     def test_forced_call_text_in_result(self, mock_get_provider):
@@ -503,70 +505,6 @@ class TestEmptyTextFallthrough:
         assert provider.call.call_count == 2  # no forced call
 
 
-class TestForcedCallRetry:
-    """Test Gap B: forced final call produces empty text."""
-
-    @patch("sciralph.llm._get_provider")
-    def test_forced_call_retry_on_empty(self, mock_get_provider):
-        """Empty forced final call triggers one retry; retry text is used."""
-        provider = _mock_provider()
-        mock_get_provider.return_value = provider
-
-        tool_response = _mock_provider_response(
-            "", "tool_use", 100, 50,
-            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
-        )
-        # Forced final call: empty text
-        empty_response = _mock_provider_response("", "end_turn", 150, 0)
-        # Retry: produces text
-        retry_response = _mock_provider_response(
-            "## COMP-001: Retry result\n**VERDICT:** INCONCLUSIVE", "end_turn", 200, 80
-        )
-        provider.call.side_effect = [tool_response, empty_response, retry_response]
-
-        executor = _make_executor()
-        result = run_agent_loop(
-            system="sys", user_content="question",
-            config=_make_config(), tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
-        )
-
-        assert "COMP-001" in result.text
-        assert "Retry result" in result.text
-        assert result.stop_reason == "max_rounds_forced"
-        # 1 tool round + 1 forced (empty) + 1 retry = 3 calls
-        assert provider.call.call_count == 3
-        # Tokens from retry are accumulated
-        assert result.total_input_tokens == 100 + 150 + 200
-        assert result.total_output_tokens == 50 + 0 + 80
-
-    @patch("sciralph.llm._get_provider")
-    def test_forced_call_stub_on_double_empty(self, mock_get_provider):
-        """Both forced call and retry return empty — engine-generated stub is used."""
-        provider = _mock_provider()
-        mock_get_provider.return_value = provider
-
-        tool_response = _mock_provider_response(
-            "", "tool_use", 100, 50,
-            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
-        )
-        # Both forced final call and retry: empty text
-        empty1 = _mock_provider_response("", "end_turn", 150, 0)
-        empty2 = _mock_provider_response("   ", "end_turn", 120, 0)
-        provider.call.side_effect = [tool_response, empty1, empty2]
-
-        executor = _make_executor()
-        result = run_agent_loop(
-            system="sys", user_content="question",
-            config=_make_config(), tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
-        )
-
-        assert "COMP-000: Incomplete verification" in result.text
-        assert "**VERDICT:** INCONCLUSIVE" in result.text
-        assert result.stop_reason == "max_rounds_forced"
-        assert provider.call.call_count == 3
-
 
 class TestProgressCheckInLoop:
     """Test progress check injection after consecutive execute_python calls."""
@@ -684,71 +622,6 @@ class TestProgressCheckInLoop:
         )
         assert progress_count == 1
 
-
-class TestToolHistorySynthesis:
-    """Test _synthesize_from_tool_history helper."""
-
-    def test_successful_calls(self):
-        from sciralph.llm import _synthesize_from_tool_history
-        tc = ToolCall(
-            tool_name="execute_python",
-            tool_input={"code": "print(42)"},
-            output="42",
-            is_error=False,
-            duration=0.1,
-        )
-        result = _synthesize_from_tool_history([tc])
-        assert "COMP-000" in result
-        assert "INCONCLUSIVE" in result
-        assert "print(42)" in result
-        assert "42" in result
-
-    def test_errored_calls(self):
-        from sciralph.llm import _synthesize_from_tool_history
-        tc = ToolCall(
-            tool_name="execute_python",
-            tool_input={"code": "1/0"},
-            output="ZeroDivisionError: division by zero",
-            is_error=True,
-            duration=0.1,
-        )
-        result = _synthesize_from_tool_history([tc])
-        assert "COMP-000" in result
-        assert "all errored" in result
-        assert "ZeroDivisionError" in result
-
-    def test_empty_calls(self):
-        from sciralph.llm import _synthesize_from_tool_history
-        result = _synthesize_from_tool_history([])
-        assert "COMP-000" in result
-        assert "no tool output" in result.lower()
-
-    @patch("sciralph.llm._get_provider")
-    def test_synthesis_replaces_old_stub(self, mock_get_provider):
-        """Double-empty forced call now uses tool-history synthesis."""
-        provider = _mock_provider()
-        mock_get_provider.return_value = provider
-
-        tool_response = _mock_provider_response(
-            "", "tool_use", 100, 50,
-            tool_calls=[{"id": "t1", "name": "execute_python",
-                         "input": {"code": "import numpy; print(numpy.pi)"}}],
-        )
-        empty1 = _mock_provider_response("", "end_turn", 150, 0)
-        empty2 = _mock_provider_response("", "end_turn", 120, 0)
-        provider.call.side_effect = [tool_response, empty1, empty2]
-
-        executor = _make_executor()
-        result = run_agent_loop(
-            system="sys", user_content="q",
-            config=_make_config(), tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
-        )
-
-        assert "COMP-000" in result.text
-        assert "INCONCLUSIVE" in result.text
-        # Should contain actual code from tool history
-        assert "numpy" in result.text
 
 
 class TestSubmitVerdictInLoop:

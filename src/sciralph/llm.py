@@ -190,40 +190,6 @@ def call_llm(system: str, user_content: str, config: Config,
     return llm_response
 
 
-def _synthesize_from_tool_history(all_tool_calls: list[ToolCall]) -> str:
-    """Build a COMP entry from tool execution history when the model produced no text."""
-    successful = [tc for tc in all_tool_calls if not tc.is_error]
-    errored = [tc for tc in all_tool_calls if tc.is_error]
-
-    if successful:
-        last = successful[-1]
-        code_excerpt = (last.tool_input.get("code", "") if isinstance(last.tool_input, dict)
-                        else "")[:500]
-        output_excerpt = last.output[:500]
-        method = f"Executed {len(successful)} script(s); last code:\n```python\n{code_excerpt}\n```"
-        result = f"Last output:\n```\n{output_excerpt}\n```"
-        if errored:
-            result += f"\n({len(errored)} execution(s) errored)"
-    elif errored:
-        last_err = errored[-1]
-        err_excerpt = last_err.output[:500]
-        method = f"Attempted {len(errored)} script(s), all errored"
-        result = f"Last error:\n```\n{err_excerpt}\n```"
-    else:
-        method = "Agent produced no tool output"
-        result = "No results obtained"
-
-    return (
-        "## COMP-000: Incomplete verification\n"
-        f"**CLAIM:** (unable to extract)\n"
-        f"**METHOD:** {method}\n"
-        f"**RESULT:** {result}\n"
-        "**VERDICT:** INCONCLUSIVE\n"
-        "**NOTES:** Agent completed tool calls but failed to produce "
-        "written output after forced retry.\n"
-    )
-
-
 def run_agent_loop(
     system: str,
     user_content: str,
@@ -457,12 +423,10 @@ def run_agent_loop(
             # Final warning near end of loop
             if round_num == max_rounds - 2 and max_rounds >= 5:
                 _final_warn_msg = (
-                    "FINAL WARNING: You have 2 rounds left before forced "
-                    "termination. Call `submit_verdict` with your findings NOW. "
-                    "If you need one more tool call, make it in your next "
-                    "response, but you MUST call `submit_verdict` or include "
-                    "your verdict text in that same response. Do not defer "
-                    "to the final round."
+                    "WARNING: You have 2 rounds left before your session ends. "
+                    "Wrap up your work and prepare your final output. "
+                    "If you have a structured exit tool (e.g. submit_verdict, "
+                    "set_next_task), call it now."
                 )
                 messages.append({"role": "user", "content": _final_warn_msg})
                 round_log.append({
@@ -474,20 +438,9 @@ def run_agent_loop(
             if round_num == max_rounds - 1 and max_rounds >= 4:
                 _crit_msg = (
                     "CRITICAL: This is your LAST round with tool access. "
-                    "You MUST call `submit_verdict` NOW with your findings. "
-                    "If you cannot use `submit_verdict`, write your "
-                    "## COMP-NNN verdict text in THIS response instead. "
-                    "If you only call `execute_python` without a verdict, "
-                    "your output will be recorded as INCONCLUSIVE.\n\n"
-                    "Preferred: call `submit_verdict` with claim, method, "
-                    "result, verdict, and notes.\n\n"
-                    "Alternative — write free text:\n"
-                    "## COMP-NNN: [description]\n"
-                    "**CLAIM:** [claim]\n"
-                    "**METHOD:** [method]\n"
-                    "**RESULT:** [results]\n"
-                    "**VERDICT:** [VERIFIED / REFUTED / INCONCLUSIVE]\n"
-                    "**NOTES:** [notes]"
+                    "You MUST conclude now. Use your structured exit tool "
+                    "if available, or write your final output as text in "
+                    "this response."
                 )
                 messages.append({"role": "user", "content": _crit_msg})
                 round_log.append({
@@ -495,41 +448,30 @@ def run_agent_loop(
                     "label": "critical_warning", "content": _crit_msg,
                 })
 
-    # Exhausted max_rounds or tool-failure — force one final text-only call
+    # --- Post-loop: one forced text-only final call ---
     if tool_call_failure:
-        reason = (
-            "IMPORTANT: The tool-calling interface is unavailable due to a "
-            "provider error. You cannot call any tools. "
-        )
+        reason = "The tool-calling interface is unavailable due to a provider error."
     else:
-        reason = (
-            "IMPORTANT: You have reached the maximum number of tool-use rounds. "
-        )
+        reason = "You have reached the maximum number of tool-use rounds."
+
     _reason = "tool_call_failure" if tool_call_failure else "max_rounds"
     if config.workspace_dir:
         log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "forced_final_call", _reason)
 
-    forced_system = (
-        system + "\n\n"
-        + reason
-        + "You cannot call any more tools. You MUST now write your final "
-        "COMP-NNN entry with whatever results you have so far.\n\n"
-        "Use this exact format:\n\n"
-        "## COMP-NNN: [description]\n"
-        "**CLAIM:** [claim being verified]\n"
-        "**METHOD:** [approach used]\n"
-        "**RESULT:** [numerical results or observations]\n"
-        "**VERDICT:** INCONCLUSIVE\n"
-        "**NOTES:** [what was computed and what remains]\n\n"
-        "If you have no results at all, write:\n"
-        "## COMP-NNN: Incomplete verification\n"
-        "**CLAIM:** [original claim]\n"
-        "**METHOD:** Attempted numerical verification\n"
-        "**RESULT:** No conclusive results obtained within round limit.\n"
-        "**VERDICT:** INCONCLUSIVE\n"
-        "**NOTES:** Verification incomplete — ran out of tool-use rounds.\n"
+    # Agent-agnostic forced exit message (delivered as user message, not system prompt mutation).
+    # Each agent's process_response() handles format normalization for its own output.
+    forced_msg = (
+        f"IMPORTANT: {reason}\n\n"
+        "You cannot call any more tools. You MUST now write your final output as text.\n"
+        "Summarize what you have accomplished and provide your conclusions.\n"
     )
+    messages.append({"role": "user", "content": forced_msg})
 
+    # Log the injection in conversation log
+    round_log.append({"kind": "scaffold_injection", "round": round_num + 1,
+                       "label": "forced_final_message", "content": forced_msg})
+
+    # Single call, no retry
     final_text = ""
     final_in = final_out = final_reasoning = final_answer = 0
     final_dur = 0.0
@@ -541,61 +483,30 @@ def run_agent_loop(
             iteration=iteration,
             model=config.model_id,
             max_tokens=config.max_tokens,
-            system=forced_system,
-            messages=messages,
-            # No tools — forces text-only response
+            system=system,       # UNCHANGED system prompt
+            messages=messages,   # includes forced user message
+            # No tools parameter — forces text-only response
         )
         final_dur = time.time() - start
         final_in = final_resp.input_tokens
         final_out = final_resp.output_tokens
         final_reasoning = final_resp.reasoning_tokens
         final_answer = final_resp.answer_tokens
-        total_input += final_in
-        total_output += final_out
-        total_reasoning += final_reasoning
-        total_answer += final_answer
         final_text = final_resp.text.strip()
     except Exception as exc:
         console.print(
-            f"[yellow]Forced final call failed: {type(exc).__name__}: {exc} "
-            f"— synthesizing from tool history[/yellow]"
+            f"[yellow]Forced final call failed: {type(exc).__name__}: {exc}[/yellow]"
         )
         if config.workspace_dir:
             log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
                                "forced_final_call_failed",
                                f"{type(exc).__name__}: {str(exc)[:200]}")
 
-    if not final_text:
-        # Forced call produced nothing or failed — retry once with minimal prompt
-        if config.workspace_dir:
-            log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
-                               "forced_call_retry", "empty forced final call")
-        try:
-            retry_resp = _call_provider_with_retry(
-                provider, config,
-                workspace_dir=config.workspace_dir,
-                iteration=iteration,
-                model=config.model_id,
-                max_tokens=config.max_tokens,
-                system=forced_system,
-                messages=messages + [{"role": "assistant", "content": ""},
-                                     {"role": "user", "content": "Write ONLY a COMP entry with VERDICT: INCONCLUSIVE. Nothing else."}],
-            )
-            final_text = retry_resp.text.strip()
-            total_input += retry_resp.input_tokens
-            total_output += retry_resp.output_tokens
-            total_reasoning += retry_resp.reasoning_tokens
-            total_answer += retry_resp.answer_tokens
-        except Exception:
-            final_text = ""
-
-        if not final_text:
-            # Still nothing — synthesize from tool history so the entry exists
-            if config.workspace_dir:
-                log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
-                                   "tool_history_synthesis",
-                                   f"tool_calls={len(all_tool_calls)}")
-            final_text = _synthesize_from_tool_history(all_tool_calls)
+    # Token accumulation AFTER try/except (correct for both success and failure)
+    total_input += final_in
+    total_output += final_out
+    total_reasoning += final_reasoning
+    total_answer += final_answer
 
     if on_round:
         on_round(round_num + 1, "forced_partial", [], total_input, total_output)
@@ -612,11 +523,12 @@ def run_agent_loop(
         log_llm_call(
             config.workspace_dir, agent_name, iteration, config.model,
             final_in, final_out, "forced_partial",
-            _round_num(final_dur, 2), len(forced_system), len(user_content),
+            _round_num(final_dur, 2), len(system), len(user_content),
             len(final_text), reasoning_tokens=final_reasoning,
             answer_tokens=final_answer, round=round_num + 1,
         )
 
+    # Return result — empty text is an honest failure
     result = AgentResult(
         text=final_text,
         tool_calls=all_tool_calls,

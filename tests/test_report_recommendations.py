@@ -215,11 +215,11 @@ class TestFinalWarning:
         calls = provider.call.call_args_list
         round9_messages = calls[8].kwargs["messages"]
         warning_found = any(
-            isinstance(msg.get("content"), str) and "FINAL WARNING" in msg["content"]
+            isinstance(msg.get("content"), str) and "You have 2 rounds left" in msg["content"]
             for msg in round9_messages
             if isinstance(msg, dict) and msg.get("role") == "user"
         )
-        assert warning_found, "FINAL WARNING should be injected after round 8 (max_rounds-2)"
+        assert warning_found, "WARNING should be injected after round 8 (max_rounds-2)"
 
     @patch("sciralph.llm._get_provider")
     def test_no_final_warning_for_short_loops(self, mock_get_provider):
@@ -242,12 +242,12 @@ class TestFinalWarning:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=4,
         )
 
-        # No FINAL WARNING should appear in any call
+        # No warning should appear in any call
         for call in provider.call.call_args_list:
             msgs = call.kwargs.get("messages", [])
             for msg in msgs:
                 if isinstance(msg, dict) and isinstance(msg.get("content"), str):
-                    assert "FINAL WARNING" not in msg["content"]
+                    assert "You have 2 rounds left" not in msg["content"]
 
 
 # ---------------------------------------------------------------------------
