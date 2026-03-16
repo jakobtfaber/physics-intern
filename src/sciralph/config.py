@@ -50,7 +50,6 @@ class Config:
     api_retry_max_delay: float = DEFAULTS["api_retry_max_delay"]
     api_timeout: float = DEFAULTS["api_timeout"]
     compress_soft_multiplier: float = DEFAULTS["compress_soft_multiplier"]
-    compress_hard_multiplier: float = DEFAULTS["compress_hard_multiplier"]
     budget_synthesis_margin: int = DEFAULTS["budget_synthesis_margin"]
     budget_override_margin: int = DEFAULTS["budget_override_margin"]
     orchestrator_comp_log_tail: int = DEFAULTS["orchestrator_comp_log_tail"]
@@ -95,7 +94,7 @@ _YAML_CONFIG_FIELDS = frozenset({
     "computation_token_alert", "tool_output_limit", "stall_threshold", "stall_recompute_limit",
     "min_er_for_completion", "api_retry_max", "api_retry_initial_delay",
     "api_retry_max_delay", "api_timeout",
-    "compress_soft_multiplier", "compress_hard_multiplier",
+    "compress_soft_multiplier",
     "budget_synthesis_margin", "budget_override_margin",
     "orchestrator_comp_log_tail",
     "prior_failure_excerpt_chars", "thinking_token_headroom",

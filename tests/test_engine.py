@@ -51,7 +51,8 @@ class TestCheckCompression:
         task_arg = engine.compressor.run.call_args[0][0]
         assert task_arg.target_file == "TEST.md"
 
-    def test_force_compression_at_2x(self):
+    def test_compression_at_2x_still_compresses(self):
+        """2.5x exceeds soft multiplier, so compression triggers."""
         engine = self._make_engine({"TEST.md": 25_000})  # 2.5x
         engine._check_compression()
         engine.metrics.alert.assert_called_once()
@@ -436,8 +437,8 @@ class TestComputeVerdictTracking:
         assert key not in engine._state.claim_failure_count
         assert engine._state.pending_recompute_claim is None
 
-    def test_verified_does_not_unstall(self):
-        """VERIFIED resets counter but does NOT remove from _state.stalled_claims."""
+    def test_verified_clears_stalled_claim(self):
+        """VERIFIED resets counter AND removes from _state.stalled_claims."""
         engine, ws, _ = self._make_engine(self.COMP_LOG_VERIFIED)
         from sciralph.markdown import _normalize_claim_key
         key = _normalize_claim_key("Verify formula X = Y")
@@ -449,7 +450,7 @@ class TestComputeVerdictTracking:
         engine._track_compute_verdict(task)
 
         assert key not in engine._state.claim_failure_count
-        assert key in engine._state.stalled_claims  # stays stalled
+        assert key not in engine._state.stalled_claims  # cleared on VERIFIED
 
     def test_different_claims_tracked_independently(self):
         """Two different WH IDs have separate counters."""
@@ -1084,12 +1085,6 @@ total_computations: 3
             engine.problem_meta = {}
         return engine
 
-    def test_stall_detected_after_threshold(self):
-        engine = self._make_engine(self.COMP_LOG_STALLED)
-        engine._update_stall_tracking()
-        assert len(engine._state.stalled_claims) > 0
-        assert any("WH-001" in c for c in engine._state.stalled_claims)
-
     def test_stalled_claim_blocked_in_overrides(self):
         engine = self._make_engine()
         engine._state.stalled_claims = {"WH-001"}
@@ -1284,42 +1279,6 @@ Agent produced no text output. Writing INCONCLUSIVE stub.
             engine.iteration = 5
             engine._state = LoopState(last_content_iteration=5)
         return engine, ws, written
-
-    def test_single_zero_output_does_not_block(self):
-        """A single zero-output INCONCLUSIVE should NOT add to _state.stalled_claims.
-
-        One failure deserves a retry; only threshold (2) consecutive failures block.
-        """
-        engine, ws, _ = self._make_engine()
-        ws.read_file = MagicMock(return_value=self.COMP_LOG_ZERO_OUTPUT)
-        engine._update_stall_tracking()
-        assert not any("WH-001" in c for c in engine._state.stalled_claims)
-
-    def test_two_zero_output_stalls_block(self):
-        """Two consecutive zero-output INCONCLUSIVEs on the same claim DO block."""
-        comp_log_two_failures = """\
----
-total_computations: 2
----
-
-# Computations
-
-## COMP-001: Check WH-001
-**CLAIM**: Verify WH-001 formula
-**VERDICT**: INCONCLUSIVE
-
-Agent produced no text output. Writing INCONCLUSIVE stub.
-
-## COMP-002: Check WH-001
-**CLAIM**: Verify WH-001 formula
-**VERDICT**: INCONCLUSIVE
-
-Agent produced no text output. Writing INCONCLUSIVE stub.
-"""
-        engine, ws, _ = self._make_engine()
-        ws.read_file = MagicMock(return_value=comp_log_two_failures)
-        engine._update_stall_tracking()
-        assert any("WH-001" in c for c in engine._state.stalled_claims)
 
     def test_enrich_flags_zero_output_stall(self):
         """Enrichment adds ZERO-OUTPUT STALL instructions when prior has no-text marker."""
@@ -1999,3 +1958,122 @@ class TestCallWithRetryNoRetry:
         assert kwargs["category"] == "loop_control"
         assert kwargs["event"] == "max_tokens_no_retry"
         assert "test_agent" in kwargs["detail"]
+
+
+class TestResearchTaskClearsStall:
+    """Test _clear_stall_for_research_task mechanism."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 5
+            engine._state = LoopState()
+        return engine
+
+    def test_research_task_clears_stall(self):
+        """Research task targeting WH-001 clears stall for that claim."""
+        engine = self._make_engine()
+        from sciralph.markdown import _normalize_claim_key
+        key = _normalize_claim_key("Verify WH-001 formula")
+        engine._state.stalled_claims = {key}
+        engine._state.claim_failure_count[key] = 3
+
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH,
+                    assigned_to="researcher", iteration=5,
+                    body="Alternative approach for WH-001 formula")
+        engine._clear_stall_for_research_task(task)
+
+        assert key not in engine._state.stalled_claims
+        assert key not in engine._state.claim_failure_count
+
+    def test_compute_task_does_not_clear_stall(self):
+        """Compute tasks do not trigger stall clearing."""
+        engine = self._make_engine()
+        from sciralph.markdown import _normalize_claim_key
+        key = _normalize_claim_key("Verify WH-001 formula")
+        engine._state.stalled_claims = {key}
+
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist", iteration=5,
+                    body="Verify WH-001 formula")
+        engine._clear_stall_for_research_task(task)
+
+        assert key in engine._state.stalled_claims
+
+    def test_no_matching_ids_no_clear(self):
+        """Research task not mentioning stalled claim doesn't clear it."""
+        engine = self._make_engine()
+        from sciralph.markdown import _normalize_claim_key
+        key = _normalize_claim_key("Verify WH-001 formula")
+        engine._state.stalled_claims = {key}
+
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH,
+                    assigned_to="researcher", iteration=5,
+                    body="Research WH-099 something unrelated")
+        engine._clear_stall_for_research_task(task)
+
+        assert key in engine._state.stalled_claims
+
+
+class TestP4PureCondition:
+    """Test P4 condition is pure (no side effects)."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.metrics.last_critic_iteration = 4
+            engine.iteration = 5
+            engine._state = LoopState(last_content_iteration=5)
+        return engine
+
+    def test_p4_condition_is_pure_on_synthesize(self):
+        """P4 condition returns False for SYNTHESIZE but does NOT consume pending state."""
+        from sciralph.engine import _p4_refuted_recompute_condition
+        engine = self._make_engine()
+        engine._state.pending_recompute_claim = "Verify WH-001"
+        engine._state.pending_recompute_verdict = "REFUTED"
+
+        task = Task(task_id="TASK-005", task_type=TaskType.SYNTHESIZE,
+                    assigned_to="researcher", iteration=5)
+        result = _p4_refuted_recompute_condition(engine, task)
+
+        assert result is False
+        # State NOT consumed by condition
+        assert engine._state.pending_recompute_claim == "Verify WH-001"
+        assert engine._state.pending_recompute_verdict == "REFUTED"
+
+    def test_p4_suppressed_consumed_in_apply_overrides(self):
+        """_apply_overrides consumes pending recompute when P4 condition is False (SYNTHESIZE)."""
+        engine = self._make_engine()
+        engine._state.pending_recompute_claim = "Verify WH-001"
+        engine._state.pending_recompute_verdict = "REFUTED"
+
+        task = Task(task_id="TASK-005", task_type=TaskType.SYNTHESIZE,
+                    assigned_to="researcher", iteration=5)
+        result = engine._apply_overrides(task)
+
+        # Task passes through unchanged
+        assert result.task_type == TaskType.SYNTHESIZE
+        # Pending state consumed
+        assert engine._state.pending_recompute_claim is None
+        assert engine._state.pending_recompute_verdict is None

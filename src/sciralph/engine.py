@@ -14,7 +14,6 @@ from .markdown import (
     render_frontmatter,
     find_prior_failures_for_claim,
     _parse_comp_entries,
-    detect_computation_stalls,
     _normalize_claim_key,
     count_er_sections,
     count_wh_sections,
@@ -172,30 +171,18 @@ def _p5_stall_block_action(engine: "SciRalph", task: Task) -> Task:
 
 
 def _p4_refuted_recompute_condition(engine: "SciRalph", task: Task) -> bool:
-    """Check for pending recompute. Always consumes the pending claim (side effect)."""
+    """Pure check — no side effects."""
     if not engine._state.pending_recompute_claim:
         return False
-    # Consume the pending claim — even if we don't override, it's been processed
+    return task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE)
+
+
+def _p4_refuted_recompute_action(engine: "SciRalph", task: Task) -> Task:
+    # Consume pending state (moved from condition)
     claim = engine._state.pending_recompute_claim
     verdict = engine._state.pending_recompute_verdict or "REFUTED"
     engine._state.pending_recompute_claim = None
     engine._state.pending_recompute_verdict = None
-    if task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE):
-        # Store for action to use
-        engine._p4_claim = claim
-        engine._p4_verdict = verdict
-        return True
-    # Suppressed: log but don't override
-    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
-                       "p4_refuted_suppressed",
-                       f"claim={claim[:80]}, task={task.task_type.value}")
-    return False
-
-
-def _p4_refuted_recompute_action(engine: "SciRalph", task: Task) -> Task:
-    claim = engine._p4_claim
-    verdict = engine._p4_verdict
-    del engine._p4_claim, engine._p4_verdict
     console.print(f"[yellow]Forcing recompute after {verdict} verdict.[/yellow]")
     engine._log_displacement(task, "refuted_recompute")
     log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
@@ -318,7 +305,6 @@ class SciRalph:
             # 6. Post-dispatch checks
             if task.task_type == TaskType.COMPUTE:
                 self._track_compute_verdict(task)
-                self._update_stall_tracking()
 
             # 6b. Post-dispatch phantom check — catch refs introduced by agents
             post_phantoms = check_phantom_references(self.workspace)
@@ -460,6 +446,15 @@ class SciRalph:
             if override.condition(self, task):
                 return override.action(self, task)
 
+        # Consume unconsumed pending recompute (suppressed by SYNTHESIZE/TERMINATE)
+        if self._state.pending_recompute_claim:
+            claim = self._state.pending_recompute_claim
+            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                               "p4_refuted_suppressed",
+                               f"claim={claim[:80]}, task={task.task_type.value}")
+            self._state.pending_recompute_claim = None
+            self._state.pending_recompute_verdict = None
+
         # P6: Enrichment (non-overriding, mutates task body)
         if task.task_type == TaskType.COMPUTE:
             self._enrich_compute_task_with_prior_failures(task)
@@ -521,6 +516,7 @@ class SciRalph:
             console.print(f"[green]Researcher[/green] working on: {tt}")
             result = self.researcher.run(task, self.iteration)
             self._state.last_content_iteration = self.iteration
+            self._clear_stall_for_research_task(task)
             return "researcher", result
 
         elif tt == TaskType.COMPUTE:
@@ -558,6 +554,25 @@ class SciRalph:
             console.print(f"[yellow]Unknown task type '{tt}', defaulting to researcher[/yellow]")
             result = self.researcher.run(task, self.iteration)
             return "researcher", result
+
+    def _clear_stall_for_research_task(self, task: Task):
+        """Clear stall state when a research task addresses a stalled claim."""
+        if task.task_type not in (TaskType.RESEARCH, TaskType.DERIVE, TaskType.RESOLVE):
+            return
+        from .markdown import _ER_WH_ID_RE
+        task_ids = set(_ER_WH_ID_RE.findall(task.body))
+        if task.target_claim:
+            task_ids.update(_ER_WH_ID_RE.findall(task.target_claim))
+        if not task_ids:
+            return
+        for stalled_key in list(self._state.stalled_claims):
+            key_ids = set(_ER_WH_ID_RE.findall(stalled_key))
+            if key_ids & task_ids:
+                self._state.stalled_claims.discard(stalled_key)
+                self._state.claim_failure_count.pop(stalled_key, None)
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                                   "stall_cleared_by_research",
+                                   f"claim={stalled_key[:80]}")
 
     def _critic_overdue(self) -> bool:
         """Check if more than N iterations since last critic pass."""
@@ -685,6 +700,7 @@ class SciRalph:
 
         if verdict == "VERIFIED":
             self._state.claim_failure_count.pop(key, None)
+            self._state.stalled_claims.discard(key)  # unblock on successful verification
             return
 
         # Record failure in formal state
@@ -739,13 +755,6 @@ class SciRalph:
                                "compute_verdict_stall_escalation",
                                f"claim={key[:80]}, verdict={verdict}, count={count}")
 
-    def _update_stall_tracking(self):
-        """Update stall tracking after compute dispatch."""
-        comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
-        stalls = detect_computation_stalls(comp_log, threshold=self.config.stall_threshold)
-        for stall in stalls:
-            self._state.stalled_claims.add(stall["claim"])
-
     def _make_recompute_task(self, claim: str, verdict: str = "REFUTED") -> Task:
         """Create a forced compute task to re-verify a claim after a non-VERIFIED verdict."""
         # Extract target WH/ER ID from claim for formal linking
@@ -780,18 +789,8 @@ class SciRalph:
                     self.iteration,
                     f"{filename} size ({size}) exceeds threshold ({threshold})."
                 )
-                if size > threshold * self.config.compress_hard_multiplier:
-                    console.print(f"[yellow]Force-compressing {filename}[/yellow]")
-                    compress_task = Task(
-                        task_id=f"COMPRESS-{self.iteration:03d}",
-                        task_type=TaskType.RESEARCH,
-                        assigned_to="compressor",
-                        iteration=self.iteration,
-                        target_file=filename,
-                    )
-                    self.compressor.run(compress_task, self.iteration)
-                elif size > threshold * self.config.compress_soft_multiplier:
-                    console.print(f"[yellow]Compressing {filename}[/yellow]")
+                if size > threshold * self.config.compress_soft_multiplier:
+                    console.print(f"[yellow]Compressing {filename} ({size}/{threshold})[/yellow]")
                     compress_task = Task(
                         task_id=f"COMPRESS-{self.iteration:03d}",
                         task_type=TaskType.RESEARCH,
