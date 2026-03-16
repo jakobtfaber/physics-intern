@@ -14,6 +14,8 @@ class TaskType(StrEnum):
     RESEARCH = "research"
     DERIVE = "derive"
     COMPUTE = "compute"
+    COMPUTE_EXPLORE = "compute_explore"
+    COMPUTE_VERIFY = "compute_verify"
     CRITIQUE = "critique"
     RESOLVE = "resolve"
     SYNTHESIZE = "synthesize"
@@ -25,6 +27,8 @@ TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
     TaskType.RESEARCH: "researcher",
     TaskType.DERIVE: "researcher",
     TaskType.COMPUTE: "computationalist",
+    TaskType.COMPUTE_EXPLORE: "computationalist",
+    TaskType.COMPUTE_VERIFY: "computationalist",
     TaskType.CRITIQUE: "deep_critic",
     TaskType.RESOLVE: "researcher",
     TaskType.SYNTHESIZE: "researcher",

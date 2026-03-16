@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from .sandbox import execute_python
+from .task import TaskType
 
 
 @dataclass
@@ -25,116 +26,190 @@ class ToolExecutor:
     ToolExecutor writes it to computations/tool_exec_NNN.py.
     """
 
+    _EXECUTE_PYTHON_DEF: ClassVar[dict] = {
+        "type": "function",
+        "function": {
+            "name": "execute_python",
+            "description": (
+                "Execute a Python script and return its stdout/stderr. "
+                "Available packages: Python 3.12+, NumPy >= 2.0, SciPy >= 1.14, "
+                "SymPy >= 1.13, matplotlib >= 3.9, standard library.\n\n"
+                "BANNED APIs (will crash):\n"
+                "- scipy.misc.derivative -> manual finite differences\n"
+                "- numpy.trapz -> numpy.trapezoid\n"
+                "- numpy.math -> math (stdlib)\n"
+                "- scipy.integrate.simps -> scipy.integrate.simpson\n\n"
+                "The script must be self-contained. Never call plt.show() "
+                "(use plt.savefig() then plt.close()). "
+                "Timeout: scripts are killed after the configured timeout "
+                "(default 60s). If you hit a timeout, simplify your approach: "
+                "reduce grid sizes, use fewer iterations, or switch to "
+                "analytical methods."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "purpose": {
+                        "type": "string",
+                        "description": (
+                            "Brief explanation of what this computation will determine "
+                            "and why it is needed beyond previous results."
+                        ),
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "The complete Python script to execute.",
+                    },
+                },
+                "required": ["purpose", "code"],
+            },
+        },
+    }
+
+    _SUBMIT_VERDICT_DEF: ClassVar[dict] = {
+        "type": "function",
+        "function": {
+            "name": "submit_verdict",
+            "description": (
+                "Submit your final verification verdict. Call this ONCE when you "
+                "have enough evidence to conclude. This immediately ends your "
+                "session. Do NOT call execute_python in the same response as "
+                "submit_verdict."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_id": {
+                        "type": "string",
+                        "description": "The WH/ER ID being verified (e.g. 'WH-002').",
+                    },
+                    "claim": {
+                        "type": "string",
+                        "description": "The claim description (e.g. 'fidelity is 1 to first order').",
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "Computation method used.",
+                    },
+                    "result": {
+                        "type": "string",
+                        "description": "Key numerical results and observations.",
+                    },
+                    "verdict": {
+                        "type": "string",
+                        "enum": ["VERIFIED", "REFUTED", "INCONCLUSIVE"],
+                        "description": "Your verdict.",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Summary notes (1-3 sentences).",
+                    },
+                },
+                "required": ["target_id", "claim", "method", "result", "verdict", "notes"],
+            },
+        },
+    }
+
+    _SUBMIT_RESULT_DEF: ClassVar[dict] = {
+        "type": "function",
+        "function": {
+            "name": "submit_result",
+            "description": (
+                "Submit the result of an exploratory computation. Call this ONCE "
+                "when you have a concrete result. This immediately ends your session."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_id": {
+                        "type": "string",
+                        "description": "The WH/ER ID being explored (e.g. 'WH-001').",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "What was computed.",
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "Approach used.",
+                    },
+                    "result": {
+                        "type": "string",
+                        "description": "The actual result.",
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["exact", "approximate", "partial"],
+                        "description": "Confidence level of the result.",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Additional notes.",
+                    },
+                },
+                "required": ["target_id", "description", "method", "result", "confidence", "notes"],
+            },
+        },
+    }
+
+    _REPORT_PROGRESS_DEF: ClassVar[dict] = {
+        "type": "function",
+        "function": {
+            "name": "report_progress",
+            "description": (
+                "Report your progress so far. You MUST call this when prompted by "
+                "the system before making more execute_python calls. Summarize what "
+                "your computations have shown and whether you have enough evidence "
+                "to reach a conclusion."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "findings_so_far": {
+                        "type": "string",
+                        "description": "Summary of what your computations have shown so far.",
+                    },
+                    "remaining_questions": {
+                        "type": "string",
+                        "description": "What specific new information you still need, if any.",
+                    },
+                    "ready_to_conclude": {
+                        "type": "boolean",
+                        "description": "True if you have enough evidence to call submit_verdict/submit_result.",
+                    },
+                },
+                "required": ["findings_so_far", "remaining_questions", "ready_to_conclude"],
+            },
+        },
+    }
+
+    # Default tool set (used by COMPUTE tasks for backward compatibility)
     TOOL_DEFINITIONS: ClassVar[list[dict]] = [
-        {
-            "type": "function",
-            "function": {
-                "name": "execute_python",
-                "description": (
-                    "Execute a Python script and return its stdout/stderr. "
-                    "Available packages: Python 3.12+, NumPy >= 2.0, SciPy >= 1.14, "
-                    "SymPy >= 1.13, matplotlib >= 3.9, standard library.\n\n"
-                    "BANNED APIs (will crash):\n"
-                    "- scipy.misc.derivative -> manual finite differences\n"
-                    "- numpy.trapz -> numpy.trapezoid\n"
-                    "- numpy.math -> math (stdlib)\n"
-                    "- scipy.integrate.simps -> scipy.integrate.simpson\n\n"
-                    "The script must be self-contained. Never call plt.show() "
-                    "(use plt.savefig() then plt.close()). "
-                    "Timeout: scripts are killed after the configured timeout "
-                    "(default 60s). If you hit a timeout, simplify your approach: "
-                    "reduce grid sizes, use fewer iterations, or switch to "
-                    "analytical methods."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "purpose": {
-                            "type": "string",
-                            "description": (
-                                "Brief explanation of what this computation will determine "
-                                "and why it is needed beyond previous results."
-                            ),
-                        },
-                        "code": {
-                            "type": "string",
-                            "description": "The complete Python script to execute.",
-                        },
-                    },
-                    "required": ["purpose", "code"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "submit_verdict",
-                "description": (
-                    "Submit your final COMP entry verdict. Call this ONCE when you "
-                    "have enough evidence to conclude. This immediately ends your "
-                    "session. Do NOT call execute_python in the same response as "
-                    "submit_verdict."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "claim": {
-                            "type": "string",
-                            "description": "The claim ID and description (e.g. 'WH-002 — fidelity is 1 to first order').",
-                        },
-                        "method": {
-                            "type": "string",
-                            "description": "Computation method used.",
-                        },
-                        "result": {
-                            "type": "string",
-                            "description": "Key numerical results and observations.",
-                        },
-                        "verdict": {
-                            "type": "string",
-                            "enum": ["VERIFIED", "REFUTED", "INCONCLUSIVE"],
-                            "description": "Your verdict.",
-                        },
-                        "notes": {
-                            "type": "string",
-                            "description": "Summary notes (1-3 sentences).",
-                        },
-                    },
-                    "required": ["claim", "method", "result", "verdict", "notes"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "report_progress",
-                "description": (
-                    "Report your progress so far. You MUST call this when prompted by "
-                    "the system before making more execute_python calls. Summarize what "
-                    "your computations have shown and whether you have enough evidence "
-                    "to reach a verdict."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "findings_so_far": {
-                            "type": "string",
-                            "description": "Summary of what your computations have shown so far.",
-                        },
-                        "remaining_questions": {
-                            "type": "string",
-                            "description": "What specific new information you still need, if any.",
-                        },
-                        "ready_to_conclude": {
-                            "type": "boolean",
-                            "description": "True if you have enough evidence to call submit_verdict.",
-                        },
-                    },
-                    "required": ["findings_so_far", "remaining_questions", "ready_to_conclude"],
-                },
-            },
-        },
+        _EXECUTE_PYTHON_DEF,
+        _SUBMIT_VERDICT_DEF,
+        _REPORT_PROGRESS_DEF,
     ]
+
+    # Tool sets by task type
+    VERIFY_TOOLS: ClassVar[list[dict]] = [
+        _EXECUTE_PYTHON_DEF,
+        _SUBMIT_VERDICT_DEF,
+        _REPORT_PROGRESS_DEF,
+    ]
+    EXPLORE_TOOLS: ClassVar[list[dict]] = [
+        _EXECUTE_PYTHON_DEF,
+        _SUBMIT_RESULT_DEF,
+        _REPORT_PROGRESS_DEF,
+    ]
+
+    @classmethod
+    def tools_for_task_type(cls, task_type: "TaskType") -> list[dict]:
+        """Return the appropriate tool set for a task type."""
+        if task_type == TaskType.COMPUTE_EXPLORE:
+            return cls.EXPLORE_TOOLS
+        if task_type == TaskType.COMPUTE_VERIFY:
+            return cls.VERIFY_TOOLS
+        return cls.TOOL_DEFINITIONS  # COMPUTE (legacy)
 
     def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000):
         self.workspace_root = workspace_root
@@ -151,6 +226,8 @@ class ToolExecutor:
             output, is_error = self._execute_python(tool_input["code"])
         elif tool_name == "submit_verdict":
             output, is_error = self._submit_verdict(tool_input)
+        elif tool_name == "submit_result":
+            output, is_error = self._submit_result(tool_input)
         elif tool_name == "report_progress":
             output, is_error = self._report_progress(tool_input)
         else:
@@ -185,6 +262,12 @@ class ToolExecutor:
         self.stop_after_round = True
         self._last_verdict = params
         return f"Verdict recorded: {params.get('verdict', 'UNKNOWN')}", False
+
+    def _submit_result(self, params: dict) -> tuple[str, bool]:
+        """Record exploratory result and signal loop to stop."""
+        self.stop_after_round = True
+        self._last_result = params
+        return f"Result recorded for {params.get('target_id', '?')}: {params.get('confidence', '?')}", False
 
     def _execute_python(self, code: str) -> tuple[str, bool]:
         """Write code to file, execute via sandbox, return (output, is_error)."""

@@ -1,5 +1,6 @@
 """SciRalph main loop engine."""
 
+import json
 from dataclasses import dataclass, field
 
 from rich.console import Console
@@ -11,9 +12,6 @@ from .llm import _is_transient
 from .markdown import (
     parse_frontmatter,
     render_frontmatter,
-    find_prior_failures_for_claim,
-    _parse_comp_entries,
-    _normalize_claim_key,
 )
 from .metrics import MetricsTracker
 from .task import Task, TaskType, TASK_TYPE_AGENT_MAP
@@ -40,6 +38,7 @@ class LoopState:
     pending_violations: list = field(default_factory=list)
     pending_termination_blockers: list[str] = field(default_factory=list)
     pending_compute_verdicts: list[dict] = field(default_factory=list)
+    pending_explore_results: list[dict] = field(default_factory=list)
     agent_failures: list[dict] = field(default_factory=list)
 
 
@@ -103,7 +102,7 @@ class SciRalph:
                 self._state.pending_violations.extend(violations)
 
             # 3. Enrichment for compute tasks
-            if task.task_type == TaskType.COMPUTE:
+            if task.task_type in (TaskType.COMPUTE, TaskType.COMPUTE_VERIFY):
                 self._enrich_compute_task_with_prior_failures(task)
 
             # 4. Termination gate
@@ -153,8 +152,8 @@ class SciRalph:
             self._record_agent_failures(task, agent_name, agent_result)
 
             # 6. Post-dispatch checks
-            if task.task_type == TaskType.COMPUTE:
-                self._track_compute_verdict(task)
+            if task.task_type in (TaskType.COMPUTE, TaskType.COMPUTE_EXPLORE, TaskType.COMPUTE_VERIFY):
+                self._track_computation(task)
 
             # 6b. Post-dispatch phantom check — catch refs introduced by agents
             post_phantoms = check_phantom_references(self.workspace)
@@ -251,13 +250,22 @@ class SciRalph:
             )
             lines.append(">>> END TERMINATION BLOCKERS <<<\n")
             self._state.pending_termination_blockers.clear()
+        if self._state.pending_explore_results:
+            lines.append(">>> EXPLORE RESULTS (previous iteration) <<<")
+            for r in self._state.pending_explore_results:
+                lines.append(f"- {r['target_id']}: {r['description']}  [{r['confidence']}]")
+                if r.get("result"):
+                    lines.append(f"  Result: {r['result'][:150]}")
+                lines.append("  Consider: formulate a concrete WH from this result, or integrate directly.")
+            lines.append(">>> END EXPLORE RESULTS <<<\n")
+            self._state.pending_explore_results.clear()
         if self._state.pending_compute_verdicts:
             lines.append(">>> COMPUTATION VERDICTS (previous iteration) <<<")
             for v in self._state.pending_compute_verdicts:
                 lines.append(f"- {v['verdict']}: {v['claim'][:120]}")
                 lines.append(f"  Attempt {v['attempt']}/{self.config.stall_recompute_limit}")
                 if v['attempt'] >= self.config.stall_recompute_limit:
-                    lines.append("  STALLED — do NOT schedule another compute. Route to researcher.")
+                    lines.append("  STALLED — do NOT schedule another compute_verify. Route to researcher.")
                 else:
                     lines.append("  You must address this: recompute, re-derive, or accept provisionally.")
             lines.append(">>> END COMPUTATION VERDICTS <<<\n")
@@ -306,8 +314,9 @@ class SciRalph:
             self._state.last_content_iteration = self.iteration
             return "researcher", result
 
-        elif tt == TaskType.COMPUTE:
-            console.print("[magenta]Computationalist[/magenta] working...")
+        elif tt in (TaskType.COMPUTE, TaskType.COMPUTE_EXPLORE, TaskType.COMPUTE_VERIFY):
+            mode = "exploring" if tt == TaskType.COMPUTE_EXPLORE else "verifying"
+            console.print(f"[magenta]Computationalist[/magenta] {mode}...")
             result = self.computationalist.run(task, self.iteration, on_round=self._on_compute_round)
             self._state.last_content_iteration = self.iteration
             return "computationalist", result
@@ -370,24 +379,51 @@ class SciRalph:
 
     def _enrich_compute_task_with_prior_failures(self, task: Task):
         """Append prior failure context to CURRENT_TASK.md for compute retries."""
-        comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
-        prior = find_prior_failures_for_claim(comp_log, task.body)
+        entries = self._read_computation_index()
+        # Extract target_id from task
+        import re
+        target_ids = set(re.findall(r'(?:ER|WH)-\d+', task.body or ""))
+        if task.target_claim:
+            target_ids.update(re.findall(r'(?:ER|WH)-\d+', task.target_claim))
+        if not target_ids:
+            return
+
+        # Find non-VERIFIED verify entries matching target
+        prior = [
+            e for e in entries
+            if e.get("kind") == "verify"
+            and e.get("verdict") != "VERIFIED"
+            and e.get("target_id") in target_ids
+        ]
         if not prior:
             return
+
         log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "compute_enrichment",
-                           f"claim={_normalize_claim_key(task.body)[:80]}")
+                           f"target={','.join(sorted(target_ids))}")
         task_text = self.workspace.read_file("CURRENT_TASK.md")
+        most_recent = prior[-1]
+        excerpt_parts = []
+        if most_recent.get("verdict"):
+            excerpt_parts.append(f"**Verdict:** {most_recent['verdict']}")
+        if most_recent.get("method"):
+            excerpt_parts.append(f"**Method:** {most_recent['method']}")
+        if most_recent.get("result"):
+            excerpt_parts.append(f"**Result:** {most_recent['result']}")
+        if most_recent.get("notes"):
+            excerpt_parts.append(f"**Notes:** {most_recent['notes']}")
+        excerpt = "\n".join(excerpt_parts)[:self.config.prior_failure_excerpt_chars]
+
         addendum = (
             "\n\n---\n\n## Prior Computation Failure Context\n\n"
             f"**{len(prior)} prior failure(s) on this claim.** "
             "Diagnose the ROOT CAUSE before writing new code.\n\n"
             "### Most Recent Failed Result\n\n"
-            + prior[0][:self.config.prior_failure_excerpt_chars]
+            + excerpt
         )
         if len(prior) > 1:
-            addendum += f"\n\n({len(prior) - 1} earlier failure(s) in COMPUTATION_LOG.md)\n"
-        # Check for zero-output stall in prior failures
-        has_zero_output = any("Agent produced no text output" in p for p in prior)
+            addendum += f"\n\n({len(prior) - 1} earlier failure(s) in COMPUTATION_INDEX.jsonl)\n"
+        # Check for zero-output stall
+        has_zero_output = any("no exit tool call" in e.get("notes", "") for e in prior)
         if has_zero_output:
             addendum += (
                 "\n\n**ZERO-OUTPUT STALL DETECTED:** A prior attempt produced no text at all.\n"
@@ -397,22 +433,52 @@ class SciRalph:
             )
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
 
-    def _track_compute_verdict(self, task: Task):
-        """After computationalist runs, track verdict and signal orchestrator."""
-        comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
-        entries = _parse_comp_entries(comp_log)
+    def _read_computation_index(self) -> list[dict]:
+        """Read all entries from COMPUTATION_INDEX.jsonl."""
+        raw = self.workspace.read_file("COMPUTATION_INDEX.jsonl")
+        entries = []
+        for line in raw.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return entries
+
+    def _track_computation(self, task: Task):
+        """After computationalist runs, read last JSONL entry and dispatch."""
+        entries = self._read_computation_index()
         if not entries:
             return
+        entry = entries[-1]
+        # Register in formal state
+        self._register_computation_from_index(entry, task)
 
-        last = entries[-1]
-        verdict = last["verdict"]
-        claim = last.get("claim", task.body)
-        key = _normalize_claim_key(claim)
+        if entry.get("kind") == "explore":
+            self._track_explore_result(task, entry)
+        else:
+            self._track_verify_verdict(task, entry)
+
+    def _track_explore_result(self, task: Task, entry: dict):
+        """Signal orchestrator with the explore result. No failure counting."""
+        self._state.pending_explore_results.append({
+            "target_id": entry.get("target_id", ""),
+            "description": entry.get("description", "")[:200],
+            "result": entry.get("result", "")[:200],
+            "confidence": entry.get("confidence", "partial"),
+        })
+        log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                           "explore_result_tracked",
+                           f"target={entry.get('target_id', '?')}")
+
+    def _track_verify_verdict(self, task: Task, entry: dict):
+        """Existing logic: failure counting + verdict signal."""
+        verdict = entry.get("verdict", "INCONCLUSIVE")
+        key = entry.get("target_id", "")
         if not key:
             return
-
-        # Register computation in formal state with authoritative target link
-        self._register_computation(last, task)
 
         if verdict == "VERIFIED":
             self._state.claim_failure_count.pop(key, None)
@@ -428,7 +494,7 @@ class SciRalph:
         })
         log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
                            "compute_verdict_failed",
-                           f"claim={key[:80]}, verdict={verdict}, "
+                           f"target={key}, verdict={verdict}, "
                            f"attempt={count}/{self.config.stall_recompute_limit}")
 
     def _check_compression(self):
@@ -493,37 +559,34 @@ class SciRalph:
                 return True
         return False
 
-    def _register_computation(self, comp_entry: dict, task: Task):
-        """Register a computation in the formal research state with authoritative target link."""
+    def _register_computation_from_index(self, entry: dict, task: Task):
+        """Register a computation in the formal research state from JSONL entry."""
         if not hasattr(self, "research_state"):
             return
         from .research_state import Computation, Verdict
-        from .markdown import _ER_WH_ID_RE
 
-        comp_id = comp_entry["id"]
+        comp_id = entry.get("id", "")
         if not comp_id.startswith("COMP-"):
             return  # Skip TASK-* stubs from forced-call bailouts
-        verdict_str = comp_entry.get("verdict", "INCONCLUSIVE")
-        try:
-            verdict = Verdict(verdict_str)
-        except ValueError:
-            verdict = Verdict.INCONCLUSIVE
 
-        # Authoritative target: task.target_claim > IDs in claim > IDs in body
-        target = task.target_claim
-        if not target:
-            claim = comp_entry.get("claim", "")
-            ids = _ER_WH_ID_RE.findall(claim)
-            if not ids:
-                ids = _ER_WH_ID_RE.findall(comp_entry.get("body", ""))
-            target = ids[0] if ids else ""
+        target = entry.get("target_id", "") or task.target_claim or ""
+
+        if entry.get("kind") == "explore":
+            # Explore entries don't have verdicts — record as INCONCLUSIVE
+            verdict = Verdict.INCONCLUSIVE
+        else:
+            verdict_str = entry.get("verdict", "INCONCLUSIVE")
+            try:
+                verdict = Verdict(verdict_str)
+            except ValueError:
+                verdict = Verdict.INCONCLUSIVE
 
         self.research_state.computations[comp_id] = Computation(
             id=comp_id,
             target_hypothesis=target,
             verdict=verdict,
-            claim=comp_entry.get("claim", ""),
-            method=comp_entry.get("method", ""),
+            claim=entry.get("claim", entry.get("description", "")),
+            method=entry.get("method", ""),
             iteration=self.iteration,
         )
 

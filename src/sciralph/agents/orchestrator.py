@@ -5,11 +5,12 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
+from ..computation_index import read_computation_index, detect_computation_stalls as _jsonl_stall_detect
 from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..markdown import (
     parse_frontmatter,
     render_frontmatter,
-    detect_computation_stalls,
+    detect_computation_stalls as _md_stall_detect,
     count_er_sections,
     count_wh_sections,
     normalize_er_wh_headers,
@@ -27,6 +28,8 @@ _TASK_TYPE_AGENT_DEFAULTS = {
     "research": "researcher",
     "derive": "researcher",
     "compute": "computationalist",
+    "compute_explore": "computationalist",
+    "compute_verify": "computationalist",
     "critique": "deep_critic",
     "resolve": "researcher",
     "synthesize": "researcher",
@@ -101,9 +104,13 @@ class OrchestratorAgent(BaseAgent):
                 "is still empty. Consider populating it with the unit system, "
                 "sign conventions, and variable definitions being used. <<<\n"
             )
-        # Computation stall detection
-        comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
-        stalls = detect_computation_stalls(comp_log, threshold=self.config.stall_threshold)
+        # Computation stall detection (prefer JSONL, fall back to markdown)
+        index_entries = read_computation_index(self.workspace)
+        if index_entries:
+            stalls = _jsonl_stall_detect(index_entries, threshold=self.config.stall_threshold)
+        else:
+            comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
+            stalls = _md_stall_detect(comp_log, threshold=self.config.stall_threshold)
         for stall in stalls:
             parts.append(
                 f">>> COMPUTATION STALL: {stall['count']} consecutive failures "

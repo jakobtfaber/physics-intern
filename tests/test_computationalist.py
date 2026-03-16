@@ -106,7 +106,8 @@ class TestAgenticResponse:
 
         agent.process_response(result, Task(task_id="COMP-020", task_type=TaskType.COMPUTE, assigned_to="computationalist"), iteration=7)
 
-        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert agent.workspace.append_file.call_count == 2  # markdown + JSONL
+        appended_text = agent.workspace.append_file.call_args_list[0][0][1]
         assert "**VERDICT:** VERIFIED" in appended_text
         assert "**Iteration:** 7" in appended_text
         assert "**Tool calls:** 1" in appended_text
@@ -125,7 +126,8 @@ class TestAgenticResponse:
 
         agent.process_response(result, Task(task_id="TASK-005", task_type=TaskType.COMPUTE, assigned_to="computationalist"), iteration=5)
 
-        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert agent.workspace.append_file.call_count == 2
+        appended_text = agent.workspace.append_file.call_args_list[0][0][1]
         assert "## TASK-005" in appended_text
         # Header should have been added since text didn't start with ##
         assert "## TASK-005: Computation" in appended_text
@@ -144,7 +146,8 @@ class TestAgenticResponse:
 
         agent.process_response(result, Task(task_id="TASK-010", task_type=TaskType.COMPUTE, assigned_to="computationalist"), iteration=10)
 
-        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert agent.workspace.append_file.call_count == 2
+        appended_text = agent.workspace.append_file.call_args_list[0][0][1]
         assert "INCONCLUSIVE" in appended_text
         assert "**CLAIM:** unknown" in appended_text
 
@@ -167,7 +170,8 @@ class TestAgenticResponse:
         )
         agent.process_response(result, task, iteration=5)
 
-        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert agent.workspace.append_file.call_count == 2
+        appended_text = agent.workspace.append_file.call_args_list[0][0][1]
         assert "**CLAIM:** WH-005" in appended_text
         assert "INCONCLUSIVE" in appended_text
 
@@ -181,7 +185,8 @@ class TestSubmitVerdictProcessing:
         agent.workspace.read_file.return_value = ""
 
         verdict_params = {
-            "claim": "WH-003 — entropy scales as area",
+            "target_id": "WH-003",
+            "claim": "entropy scales as area",
             "method": "Numerical spot-checks at 5 test points",
             "result": "All 5 checks pass within rtol=1e-6",
             "verdict": "VERIFIED",
@@ -202,9 +207,10 @@ class TestSubmitVerdictProcessing:
                     assigned_to="computationalist", body="Verify WH-003 entropy")
         agent.process_response(result, task, iteration=8)
 
-        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert agent.workspace.append_file.call_count == 2
+        appended_text = agent.workspace.append_file.call_args_list[0][0][1]
         assert "## COMP-030: Computation" in appended_text
-        assert "**CLAIM:** WH-003" in appended_text
+        assert "**CLAIM:** WH-003 — entropy scales as area" in appended_text
         assert "**VERDICT:** VERIFIED" in appended_text
         assert "**METHOD:** Numerical spot-checks" in appended_text
         assert "**NOTES:** Entropy-area proportionality confirmed." in appended_text
@@ -215,7 +221,8 @@ class TestSubmitVerdictProcessing:
         agent.workspace.read_file.return_value = ""
 
         verdict_params = {
-            "claim": "WH-001 — temperature is correct",
+            "target_id": "WH-001",
+            "claim": "temperature is correct",
             "method": "numerical",
             "result": "5/5 pass",
             "verdict": "VERIFIED",
@@ -235,10 +242,11 @@ class TestSubmitVerdictProcessing:
                     assigned_to="computationalist")
         agent.process_response(result, task, iteration=3)
 
-        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert agent.workspace.append_file.call_count == 2
+        appended_text = agent.workspace.append_file.call_args_list[0][0][1]
         # Should use submit_verdict data, not the free text
         assert "**VERDICT:** VERIFIED" in appended_text
-        assert "**CLAIM:** WH-001" in appended_text
+        assert "**CLAIM:** WH-001 — temperature is correct" in appended_text
         assert "REFUTED" not in appended_text
 
     def test_process_response_falls_back_without_submit_verdict(self):
@@ -260,7 +268,8 @@ class TestSubmitVerdictProcessing:
                     assigned_to="computationalist")
         agent.process_response(result, task, iteration=5)
 
-        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert agent.workspace.append_file.call_count == 2
+        appended_text = agent.workspace.append_file.call_args_list[0][0][1]
         assert "## COMP-010: Test" in appended_text
         assert "**VERDICT:** VERIFIED" in appended_text
 
@@ -285,5 +294,6 @@ class TestFreeTextFallthrough:
                     assigned_to="computationalist")
         agent.process_response(result, task, iteration=2)
 
-        appended_text = agent.workspace.append_file.call_args[0][1]
+        assert agent.workspace.append_file.call_count == 2
+        appended_text = agent.workspace.append_file.call_args_list[0][0][1]
         assert "## COMP-070: Test" in appended_text

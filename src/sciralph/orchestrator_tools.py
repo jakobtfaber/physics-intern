@@ -230,8 +230,9 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "task_type": {
                         "type": "string",
                         "enum": [
-                            "research", "derive", "compute", "critique",
-                            "resolve", "synthesize", "terminate",
+                            "research", "derive", "compute",
+                            "compute_explore", "compute_verify",
+                            "critique", "resolve", "synthesize", "terminate",
                         ],
                     },
                     "assigned_to": {

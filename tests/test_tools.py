@@ -91,9 +91,9 @@ class TestToolDefinitions:
         func = ToolExecutor.TOOL_DEFINITIONS[1]["function"]
         assert func["name"] == "submit_verdict"
         props = func["parameters"]["properties"]
-        assert set(props.keys()) == {"claim", "method", "result", "verdict", "notes"}
+        assert set(props.keys()) == {"target_id", "claim", "method", "result", "verdict", "notes"}
         assert props["verdict"]["enum"] == ["VERIFIED", "REFUTED", "INCONCLUSIVE"]
-        assert set(func["parameters"]["required"]) == {"claim", "method", "result", "verdict", "notes"}
+        assert set(func["parameters"]["required"]) == {"target_id", "claim", "method", "result", "verdict", "notes"}
 
     def test_report_progress_schema(self):
         func = ToolExecutor.TOOL_DEFINITIONS[2]["function"]
@@ -121,8 +121,8 @@ class TestTruncation:
 class TestSubmitVerdict:
     def test_sets_stop_flag(self):
         executor = _make_executor()
-        params = {"claim": "WH-001", "method": "numerical", "result": "ok",
-                  "verdict": "VERIFIED", "notes": "All checks pass."}
+        params = {"target_id": "WH-001", "claim": "energy", "method": "numerical",
+                  "result": "ok", "verdict": "VERIFIED", "notes": "All checks pass."}
         tc = executor.execute("submit_verdict", params)
         assert not tc.is_error
         assert "VERIFIED" in tc.output
@@ -130,18 +130,68 @@ class TestSubmitVerdict:
 
     def test_stores_last_verdict(self):
         executor = _make_executor()
-        params = {"claim": "WH-002", "method": "symbolic", "result": "mismatch",
-                  "verdict": "REFUTED", "notes": "Discrepancy found."}
+        params = {"target_id": "WH-002", "claim": "partition", "method": "symbolic",
+                  "result": "mismatch", "verdict": "REFUTED", "notes": "Discrepancy found."}
         executor.execute("submit_verdict", params)
         assert executor._last_verdict == params
 
     def test_output_message(self):
         executor = _make_executor()
-        tc = executor.execute("submit_verdict", {"claim": "c", "method": "m",
-                                                  "result": "r", "verdict": "INCONCLUSIVE",
-                                                  "notes": "n"})
+        tc = executor.execute("submit_verdict", {"target_id": "WH-001", "claim": "c",
+                                                  "method": "m", "result": "r",
+                                                  "verdict": "INCONCLUSIVE", "notes": "n"})
         assert tc.output == "Verdict recorded: INCONCLUSIVE"
         assert tc.tool_name == "submit_verdict"
+
+
+class TestSubmitResult:
+    def test_sets_stop_flag(self):
+        executor = _make_executor()
+        params = {"target_id": "WH-001", "description": "Computed F(p)",
+                  "method": "numerical", "result": "F(p) = 0.99",
+                  "confidence": "approximate", "notes": "Convergent."}
+        tc = executor.execute("submit_result", params)
+        assert not tc.is_error
+        assert "WH-001" in tc.output
+        assert executor.stop_after_round is True
+
+    def test_stores_last_result(self):
+        executor = _make_executor()
+        params = {"target_id": "WH-002", "description": "Computed entropy",
+                  "method": "analytical", "result": "S = k ln(W)",
+                  "confidence": "exact", "notes": "Standard formula."}
+        executor.execute("submit_result", params)
+        assert executor._last_result == params
+
+    def test_output_message(self):
+        executor = _make_executor()
+        tc = executor.execute("submit_result", {"target_id": "WH-003",
+                                                 "description": "d", "method": "m",
+                                                 "result": "r", "confidence": "partial",
+                                                 "notes": "n"})
+        assert "WH-003" in tc.output
+        assert "partial" in tc.output
+        assert tc.tool_name == "submit_result"
+
+
+class TestToolSetsForTaskType:
+    def test_explore_tools(self):
+        from sciralph.task import TaskType
+        tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE_EXPLORE)
+        names = {t["function"]["name"] for t in tools}
+        assert names == {"execute_python", "submit_result", "report_progress"}
+
+    def test_verify_tools(self):
+        from sciralph.task import TaskType
+        tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE_VERIFY)
+        names = {t["function"]["name"] for t in tools}
+        assert names == {"execute_python", "submit_verdict", "report_progress"}
+
+    def test_legacy_compute_tools(self):
+        from sciralph.task import TaskType
+        tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE)
+        names = {t["function"]["name"] for t in tools}
+        assert names == {"execute_python", "submit_verdict", "report_progress"}
 
 
 # --- Agent loop tests ---

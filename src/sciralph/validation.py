@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from .computation_index import read_computation_index, find_verified_target_ids, find_refuted_target_ids
 from .markdown import (
     parse_frontmatter,
     render_frontmatter,
@@ -47,6 +48,8 @@ class Violation:
 
 _AGENT_ALIASES = {
     "compute": "computationalist",
+    "compute_explore": "computationalist",
+    "compute_verify": "computationalist",
     "research": "researcher",
     "critique": "deep_critic",
     "review": "deep_critic",
@@ -93,10 +96,20 @@ def check_er_demotion_safety(workspace: WorkspaceManager, research_state: Resear
     """
     violations: list[Violation] = []
     state = workspace.read_file("RESEARCH_STATE.md")
-    comp_log = workspace.read_file("COMPUTATION_LOG.md")
-    entries = _parse_comp_entries(comp_log)
-    changed = False
 
+    # Prefer JSONL index; fall back to markdown parsing
+    index_entries = read_computation_index(workspace)
+    verified_targets = find_verified_target_ids(index_entries) if index_entries else set()
+    refuted_targets = find_refuted_target_ids(index_entries) if index_entries else set()
+
+    # Fallback for workspaces without JSONL
+    if not index_entries:
+        comp_log = workspace.read_file("COMPUTATION_LOG.md")
+        md_entries = _parse_comp_entries(comp_log)
+    else:
+        md_entries = []
+
+    changed = False
     er_ids = find_er_section_ids(state)
 
     for er_id in er_ids:
@@ -104,9 +117,10 @@ def check_er_demotion_safety(workspace: WorkspaceManager, research_state: Resear
         wh_id = f"WH-{num}"
 
         # Check for REFUTED and VERIFIED computations targeting this claim
-        has_refuted = False
-        has_verified = False
-        if research_state:
+        has_refuted = er_id in refuted_targets or wh_id in refuted_targets
+        has_verified = er_id in verified_targets or wh_id in verified_targets
+
+        if research_state and (not has_refuted or not has_verified):
             for c in research_state.computations.values():
                 if c.target_hypothesis in (er_id, wh_id):
                     if c.verdict.value == "REFUTED":
@@ -115,8 +129,8 @@ def check_er_demotion_safety(workspace: WorkspaceManager, research_state: Resear
                         has_verified = True
 
         if not has_refuted or not has_verified:
-            # Fallback: substring matching on computation log entries
-            for e in entries:
+            # Fallback: substring matching on markdown entries
+            for e in md_entries:
                 refs = e["claim"] + " " + e.get("body", "")
                 if er_id in refs or wh_id in refs:
                     if e["verdict"] == "REFUTED":
@@ -211,9 +225,18 @@ def check_task_agent_routing(workspace: WorkspaceManager) -> list[Violation]:
 def check_phantom_labels(workspace: WorkspaceManager) -> list[Violation]:
     """Strip unsubstantiated VERIFIED labels from state and proposed changes."""
     violations: list[Violation] = []
-    comp_log = workspace.read_file("COMPUTATION_LOG.md")
-    entries = _parse_comp_entries(comp_log)
-    verified_claims = {e["claim"] for e in entries if e["verdict"] == "VERIFIED"}
+
+    # Prefer JSONL for verified target lookup
+    index_entries = read_computation_index(workspace)
+    verified_ids = find_verified_target_ids(index_entries) if index_entries else set()
+
+    # Fallback: parse markdown
+    if not index_entries:
+        comp_log = workspace.read_file("COMPUTATION_LOG.md")
+        md_entries = _parse_comp_entries(comp_log)
+        verified_claims = {e["claim"] for e in md_entries if e["verdict"] == "VERIFIED"}
+    else:
+        verified_claims = set()
 
     for filename in ("RESEARCH_STATE.md", "PROPOSED_CHANGES.md"):
         text = workspace.read_file(filename)
@@ -227,8 +250,8 @@ def check_phantom_labels(workspace: WorkspaceManager) -> list[Violation]:
                 # Check if any verified claim's ER/WH ID is referenced in this line
                 ids_in_line = _ER_WH_ID_RE.findall(line)
                 if ids_in_line:
-                    # Check if any of these IDs appear in verified claims
-                    backed = any(
+                    # Check if any of these IDs are JSONL-verified or match markdown claims
+                    backed = any(id_ in verified_ids for id_ in ids_in_line) or any(
                         any(id_ in claim for claim in verified_claims)
                         for id_ in ids_in_line
                     )
@@ -254,15 +277,19 @@ def check_phantom_labels(workspace: WorkspaceManager) -> list[Violation]:
 def check_stale_unverified_labels(workspace: WorkspaceManager) -> list[Violation]:
     """Promote [unverified] labels to VERIFIED when backed by computation."""
     violations: list[Violation] = []
-    comp_log = workspace.read_file("COMPUTATION_LOG.md")
-    entries = _parse_comp_entries(comp_log)
 
     # Build set of ER/WH IDs that have VERIFIED computations
-    verified_ids: set[str] = set()
-    for e in entries:
-        if e["verdict"] == "VERIFIED":
-            verified_ids.update(_ER_WH_ID_RE.findall(e["claim"]))
-            verified_ids.update(_ER_WH_ID_RE.findall(e.get("body", "")))
+    index_entries = read_computation_index(workspace)
+    verified_ids = find_verified_target_ids(index_entries) if index_entries else set()
+
+    # Fallback: parse markdown
+    if not index_entries:
+        comp_log = workspace.read_file("COMPUTATION_LOG.md")
+        md_entries = _parse_comp_entries(comp_log)
+        for e in md_entries:
+            if e["verdict"] == "VERIFIED":
+                verified_ids.update(_ER_WH_ID_RE.findall(e["claim"]))
+                verified_ids.update(_ER_WH_ID_RE.findall(e.get("body", "")))
 
     if not verified_ids:
         return []
@@ -554,12 +581,19 @@ def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsT
     """
     blockers: list[str] = []
     state = workspace.read_file("RESEARCH_STATE.md")
-    comp_log = workspace.read_file("COMPUTATION_LOG.md")
 
-    entries = _parse_comp_entries(comp_log)
+    # Prefer JSONL; fall back to markdown parsing
+    index_entries = read_computation_index(workspace)
+    verified_targets = find_verified_target_ids(index_entries) if index_entries else set()
+
+    if not index_entries:
+        comp_log = workspace.read_file("COMPUTATION_LOG.md")
+        md_entries = _parse_comp_entries(comp_log)
+    else:
+        md_entries = []
 
     # Gate 1: At least one critic pass if verified results exist
-    has_verified = any(e["verdict"] == "VERIFIED" for e in entries)
+    has_verified = bool(verified_targets) or any(e["verdict"] == "VERIFIED" for e in md_entries)
     if has_verified and metrics.last_critic_iteration == 0:
         blockers.append(
             "No critic pass has occurred yet. "
@@ -577,11 +611,12 @@ def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsT
 
     # Gate 3: At least one computation when problem requires it
     meta = problem_meta or {}
+    all_entries = index_entries or md_entries
     if meta.get("requires_numerical", False):
-        if len(entries) == 0:
+        if len(all_entries) == 0:
             blockers.append(
-                "Problem requires numerical verification but COMPUTATION_LOG has 0 entries. "
-                "You MUST emit task_type: compute (assigned_to: computationalist) "
+                "Problem requires numerical verification but no computations found. "
+                "You MUST emit task_type: compute_verify (assigned_to: computationalist) "
                 "to run at least one numerical verification before terminating."
             )
 
@@ -591,13 +626,18 @@ def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsT
         for wh_id in wh_ids:
             num = wh_id.split("-")[1]
             er_id = f"ER-{num}"
-            wh_has_verified = any(
-                e["verdict"] == "VERIFIED" and (
-                    wh_id in e["claim"] or er_id in e["claim"]
-                    or wh_id in e.get("body", "") or er_id in e.get("body", "")
+
+            # Check JSONL index
+            wh_has_verified = wh_id in verified_targets or er_id in verified_targets
+            # Fallback: check markdown entries
+            if not wh_has_verified:
+                wh_has_verified = any(
+                    e["verdict"] == "VERIFIED" and (
+                        wh_id in e["claim"] or er_id in e["claim"]
+                        or wh_id in e.get("body", "") or er_id in e.get("body", "")
+                    )
+                    for e in md_entries
                 )
-                for e in entries
-            )
             if wh_has_verified:
                 blockers.append(
                     f"{wh_id} has VERIFIED computation backing but was not promoted. "

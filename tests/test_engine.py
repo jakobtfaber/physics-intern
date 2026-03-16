@@ -100,19 +100,14 @@ class TestSetResearchStatus:
 class TestEnrichComputeTask:
     """Test compute task enrichment with prior failure context (item 5)."""
 
-    COMP_LOG_WITH_FAILURES = """\
-## COMP-001: Check WH-003
-- **CLAIM**: Verify WH-003 Chandrasekhar mass limit
-- **VERDICT**: INCONCLUSIVE
-- **RESULT**:
-  Relative error: 13.6%. Expected 1.44 M_sun, got 1.24 M_sun.
-
-## COMP-002: Retry WH-003
-- **CLAIM**: Verify WH-003 mass limit with improved integration
-- **VERDICT**: INCONCLUSIVE
-- **RESULT**:
-  Still 8% error after improving step size.
-"""
+    COMP_INDEX_WITH_FAILURES = (
+        '{"id": "COMP-001", "kind": "verify", "iteration": 1, "target_id": "WH-003", '
+        '"claim": "Verify WH-003 Chandrasekhar mass limit", "verdict": "INCONCLUSIVE", '
+        '"notes": "Relative error: 13.6%. Expected 1.44 M_sun, got 1.24 M_sun.", "timestamp": "2026-01-01T00:00:00"}\n'
+        '{"id": "COMP-002", "kind": "verify", "iteration": 2, "target_id": "WH-003", '
+        '"claim": "Verify WH-003 mass limit with improved integration", "verdict": "INCONCLUSIVE", '
+        '"notes": "Still 8% error after improving step size.", "timestamp": "2026-01-01T00:01:00"}\n'
+    )
 
     def _make_engine(self):
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
@@ -139,7 +134,7 @@ class TestEnrichComputeTask:
         """Prior failures exist -> CURRENT_TASK enriched."""
         engine, ws, written = self._make_engine()
         ws.read_file = MagicMock(side_effect=lambda f: {
-            "COMPUTATION_LOG.md": self.COMP_LOG_WITH_FAILURES,
+            "COMPUTATION_INDEX.jsonl": self.COMP_INDEX_WITH_FAILURES,
             "CURRENT_TASK.md": "---\ntask_type: compute\n---\n\nVerify WH-003 mass.",
         }.get(f, ""))
 
@@ -157,7 +152,7 @@ class TestEnrichComputeTask:
         """No prior failures -> unchanged."""
         engine, ws, written = self._make_engine()
         ws.read_file = MagicMock(side_effect=lambda f: {
-            "COMPUTATION_LOG.md": self.COMP_LOG_WITH_FAILURES,
+            "COMPUTATION_INDEX.jsonl": self.COMP_INDEX_WITH_FAILURES,
             "CURRENT_TASK.md": "---\ntask_type: compute\n---\n\nVerify WH-099 something.",
         }.get(f, ""))
 
@@ -171,28 +166,25 @@ class TestEnrichComputeTask:
 class TestComputeVerdictTracking:
     """Test dispatch-level verdict tracking with failure counter and verdict signals."""
 
-    COMP_LOG_REFUTED = """\
-## COMP-001: Check WH-001
-**CLAIM**: Verify formula X = Y
-**VERDICT**: REFUTED
-**NOTES**: Numerical checks fail consistently.
-"""
+    COMP_INDEX_REFUTED = (
+        '{"id": "COMP-001", "kind": "verify", "iteration": 3, "target_id": "WH-001", '
+        '"claim": "Verify formula X = Y", "verdict": "REFUTED", '
+        '"notes": "Numerical checks fail consistently.", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
 
-    COMP_LOG_INCONCLUSIVE = """\
-## COMP-001: Check WH-001
-**CLAIM**: Verify formula X = Y
-**VERDICT**: INCONCLUSIVE
-**NOTES**: Could not determine.
-"""
+    COMP_INDEX_INCONCLUSIVE = (
+        '{"id": "COMP-001", "kind": "verify", "iteration": 3, "target_id": "WH-001", '
+        '"claim": "Verify formula X = Y", "verdict": "INCONCLUSIVE", '
+        '"notes": "Could not determine.", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
 
-    COMP_LOG_VERIFIED = """\
-## COMP-001: Check WH-001
-**CLAIM**: Verify formula X = Y
-**VERDICT**: VERIFIED
-**NOTES**: All checks pass.
-"""
+    COMP_INDEX_VERIFIED = (
+        '{"id": "COMP-001", "kind": "verify", "iteration": 3, "target_id": "WH-001", '
+        '"claim": "Verify formula X = Y", "verdict": "VERIFIED", '
+        '"notes": "All checks pass.", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
 
-    def _make_engine(self, comp_log="", stall_recompute_limit=2):
+    def _make_engine(self, comp_index="", stall_recompute_limit=2):
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
@@ -204,7 +196,7 @@ class TestComputeVerdictTracking:
             def capture_write(filename, content):
                 written[filename] = content
             ws.write_file = MagicMock(side_effect=capture_write)
-            ws.read_file = MagicMock(return_value=comp_log)
+            ws.read_file = MagicMock(return_value=comp_index)
 
             from sciralph.engine import SciRalph
             engine = SciRalph.__new__(SciRalph)
@@ -213,14 +205,16 @@ class TestComputeVerdictTracking:
             engine.metrics = MagicMock()
             engine.iteration = 3
             engine._state = LoopState()
+            engine.research_state = MagicMock()
+            engine.research_state.computations = {}
         return engine, ws, written
 
     def test_refuted_signals_orchestrator(self):
         """REFUTED verdict adds to pending_compute_verdicts."""
-        engine, ws, _ = self._make_engine(self.COMP_LOG_REFUTED)
+        engine, ws, _ = self._make_engine(self.COMP_INDEX_REFUTED)
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
-        engine._track_compute_verdict(task)
+        engine._track_computation(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["verdict"] == "REFUTED"
@@ -229,10 +223,10 @@ class TestComputeVerdictTracking:
 
     def test_inconclusive_signals_orchestrator(self):
         """INCONCLUSIVE also counted and signals orchestrator."""
-        engine, ws, _ = self._make_engine(self.COMP_LOG_INCONCLUSIVE)
+        engine, ws, _ = self._make_engine(self.COMP_INDEX_INCONCLUSIVE)
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
-        engine._track_compute_verdict(task)
+        engine._track_computation(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["verdict"] == "INCONCLUSIVE"
@@ -240,14 +234,13 @@ class TestComputeVerdictTracking:
 
     def test_stalled_verdict_signal(self):
         """After N failures, signal says STALLED in context prefix."""
-        engine, ws, _ = self._make_engine(self.COMP_LOG_REFUTED)
-        from sciralph.markdown import _normalize_claim_key
-        key = _normalize_claim_key("Verify formula X = Y")
-        engine._state.claim_failure_count[key] = 1  # next will be 2 == limit
+        engine, ws, _ = self._make_engine(self.COMP_INDEX_REFUTED)
+        # Key is now target_id from JSONL entry
+        engine._state.claim_failure_count["WH-001"] = 1  # next will be 2 == limit
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
-        engine._track_compute_verdict(task)
+        engine._track_computation(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["attempt"] == 2
@@ -258,47 +251,42 @@ class TestComputeVerdictTracking:
 
     def test_verified_clears_failure_count(self):
         """VERIFIED clears the failure counter for that claim."""
-        engine, ws, _ = self._make_engine(self.COMP_LOG_VERIFIED)
-        from sciralph.markdown import _normalize_claim_key
-        key = _normalize_claim_key("Verify formula X = Y")
-        engine._state.claim_failure_count[key] = 1
+        engine, ws, _ = self._make_engine(self.COMP_INDEX_VERIFIED)
+        # Key is now target_id from JSONL entry
+        engine._state.claim_failure_count["WH-001"] = 1
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
-        engine._track_compute_verdict(task)
+        engine._track_computation(task)
 
-        assert key not in engine._state.claim_failure_count
+        assert "WH-001" not in engine._state.claim_failure_count
         assert len(engine._state.pending_compute_verdicts) == 0
 
     def test_different_claims_tracked_independently(self):
         """Two different WH IDs have separate counters."""
-        comp_log_wh002 = """\
-## COMP-001: Check WH-002
-**CLAIM**: Verify WH-002 temperature
-**VERDICT**: REFUTED
-**NOTES**: Wrong.
-"""
-        engine, ws, _ = self._make_engine(comp_log_wh002)
-        from sciralph.markdown import _normalize_claim_key
-        key1 = _normalize_claim_key("Verify WH-001 formula")
-        engine._state.claim_failure_count[key1] = 1  # pre-existing failure on WH-001
+        comp_index_wh002 = (
+            '{"id": "COMP-001", "kind": "verify", "iteration": 3, "target_id": "WH-002", '
+            '"claim": "Verify WH-002 temperature", "verdict": "REFUTED", '
+            '"notes": "Wrong.", "timestamp": "2026-01-01T00:00:00"}\n'
+        )
+        engine, ws, _ = self._make_engine(comp_index_wh002)
+        engine._state.claim_failure_count["WH-001"] = 1  # pre-existing failure on WH-001
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify WH-002 temperature")
-        engine._track_compute_verdict(task)
+        engine._track_computation(task)
 
         # WH-001 counter unchanged
-        assert engine._state.claim_failure_count[key1] == 1
+        assert engine._state.claim_failure_count["WH-001"] == 1
         # WH-002 has its own counter
-        key2 = _normalize_claim_key("Verify WH-002 temperature")
-        assert engine._state.claim_failure_count.get(key2, 0) == 1
+        assert engine._state.claim_failure_count.get("WH-002", 0) == 1
 
     def test_compute_verdict_signal_in_context_prefix(self):
         """Non-VERIFIED verdict appears in context prefix with attempt count."""
-        engine, ws, _ = self._make_engine(self.COMP_LOG_REFUTED)
+        engine, ws, _ = self._make_engine(self.COMP_INDEX_REFUTED)
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
-        engine._track_compute_verdict(task)
+        engine._track_computation(task)
 
         prefix = engine._build_context_prefix()
         assert "COMPUTATION VERDICTS" in prefix
@@ -312,7 +300,7 @@ class TestComputeVerdictTracking:
 
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
-        engine._track_compute_verdict(task)
+        engine._track_computation(task)
 
         assert len(engine._state.claim_failure_count) == 0
         assert len(engine._state.pending_compute_verdicts) == 0
@@ -508,21 +496,7 @@ class TestCheckStatusField:
 class TestZeroOutputStallHandling:
     """Tests for zero-output stall detection and enrichment (Improvement 1C-1D)."""
 
-    COMP_LOG_ZERO_OUTPUT = """\
----
-total_computations: 1
----
-
-# Computations
-
-## COMP-001: Check WH-001
-**CLAIM**: Verify WH-001 formula
-**VERDICT**: INCONCLUSIVE
-
-Agent produced no text output. Writing INCONCLUSIVE stub.
-"""
-
-    def _make_engine(self, comp_log=""):
+    def _make_engine(self):
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
@@ -546,20 +520,15 @@ Agent produced no text output. Writing INCONCLUSIVE stub.
         return engine, ws, written
 
     def test_enrich_flags_zero_output_stall(self):
-        """Enrichment adds ZERO-OUTPUT STALL instructions when prior has no-text marker."""
+        """Enrichment adds ZERO-OUTPUT STALL instructions when prior has no exit tool call marker."""
         engine, ws, written = self._make_engine()
-        zero_output_prior = (
-            "Agent produced no text output. Writing INCONCLUSIVE stub.\n"
-            "Used 100K tokens with no result."
+        comp_index_zero_output = (
+            '{"id": "COMP-001", "kind": "verify", "iteration": 4, "target_id": "WH-003", '
+            '"claim": "Verify WH-003 mass limit", "verdict": "INCONCLUSIVE", '
+            '"notes": "no exit tool call — agent produced no text output", "timestamp": "2026-01-01T00:00:00"}\n'
         )
         ws.read_file = MagicMock(side_effect=lambda f: {
-            "COMPUTATION_LOG.md": """\
-## COMP-001: Check WH-003
-- **CLAIM**: Verify WH-003 mass limit
-- **VERDICT**: INCONCLUSIVE
-- **RESULT**:
-  Agent produced no text output. Writing INCONCLUSIVE stub.
-""",
+            "COMPUTATION_INDEX.jsonl": comp_index_zero_output,
             "CURRENT_TASK.md": "---\ntask_type: compute\n---\n\nVerify WH-003 mass.",
         }.get(f, ""))
         task = Task(
@@ -914,12 +883,11 @@ class TestAgentFailureRouting:
         assert len(engine._state.agent_failures) == 0
 
     def test_compute_verdict_appends_to_agent_failures(self):
-        """REFUTED verdict below stall limit appends to _agent_failures."""
-        comp_log = (
-            "## COMP-001: Check WH-001\n"
-            "**CLAIM**: Verify formula X = Y\n"
-            "**VERDICT**: REFUTED\n"
-            "**NOTES**: Numerical checks fail.\n"
+        """REFUTED verdict below stall limit appends to pending_compute_verdicts."""
+        comp_index = (
+            '{"id": "COMP-001", "kind": "verify", "iteration": 5, "target_id": "WH-001", '
+            '"claim": "Verify formula X = Y", "verdict": "REFUTED", '
+            '"notes": "Numerical checks fail.", "timestamp": "2026-01-01T00:00:00"}\n'
         )
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
@@ -927,7 +895,7 @@ class TestAgentFailureRouting:
             ws.root = MagicMock()
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
-            ws.read_file = MagicMock(return_value=comp_log)
+            ws.read_file = MagicMock(return_value=comp_index)
             ws.write_file = MagicMock()
 
             from sciralph.engine import SciRalph
@@ -937,10 +905,12 @@ class TestAgentFailureRouting:
             engine.metrics = MagicMock()
             engine.iteration = 5
             engine._state = LoopState()
+            engine.research_state = MagicMock()
+            engine.research_state.computations = {}
 
         task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
-        engine._track_compute_verdict(task)
+        engine._track_computation(task)
 
         # Verdict now goes to pending_compute_verdicts, not agent_failures
         assert len(engine._state.pending_compute_verdicts) == 1
@@ -949,11 +919,10 @@ class TestAgentFailureRouting:
 
     def test_compute_verdict_stall_signals_orchestrator(self):
         """At stall (count >= limit), verdict signal still goes to pending_compute_verdicts."""
-        comp_log = (
-            "## COMP-001: Check WH-001\n"
-            "**CLAIM**: Verify formula X = Y\n"
-            "**VERDICT**: INCONCLUSIVE\n"
-            "**NOTES**: Could not determine.\n"
+        comp_index = (
+            '{"id": "COMP-001", "kind": "verify", "iteration": 5, "target_id": "WH-001", '
+            '"claim": "Verify formula X = Y", "verdict": "INCONCLUSIVE", '
+            '"notes": "Could not determine.", "timestamp": "2026-01-01T00:00:00"}\n'
         )
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
@@ -961,7 +930,7 @@ class TestAgentFailureRouting:
             ws.root = MagicMock()
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
-            ws.read_file = MagicMock(return_value=comp_log)
+            ws.read_file = MagicMock(return_value=comp_index)
             ws.write_file = MagicMock()
 
             from sciralph.engine import SciRalph
@@ -971,12 +940,14 @@ class TestAgentFailureRouting:
             engine.metrics = MagicMock()
             engine.iteration = 5
             engine._state = LoopState(
-                claim_failure_count={"verify formula x = y": 1},  # already at limit-1
+                claim_failure_count={"WH-001": 1},  # already at limit-1
             )
+            engine.research_state = MagicMock()
+            engine.research_state.computations = {}
 
         task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
                     assigned_to="computationalist", body="Verify formula X = Y")
-        engine._track_compute_verdict(task)
+        engine._track_computation(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["attempt"] == 2

@@ -8,23 +8,31 @@ You will be given:
 
 ## TOOL USE
 
-You have three tools:
+Your available tools depend on your task mode:
 
 ### `execute_python`
 Execute a Python script. Provide a `purpose` parameter explaining what
 the computation will determine. Write code, call the tool, read output.
 If it errors, fix and retry.
 
-### `submit_verdict`
-Submit your final verdict. Call this ONCE when you have enough evidence.
-This immediately ends your session.
-Parameters: `claim`, `method`, `result`, `verdict` (VERIFIED/REFUTED/INCONCLUSIVE), `notes`.
+### `submit_verdict` (verification mode)
+Submit your final verification verdict. Call this ONCE when you have
+enough evidence to conclude. This immediately ends your session.
+Parameters: `target_id` (WH/ER ID), `claim`, `method`, `result`,
+`verdict` (VERIFIED/REFUTED/INCONCLUSIVE), `notes`.
+
+### `submit_result` (exploration mode)
+Submit the result of an exploratory computation. Call this ONCE when
+you have a concrete result. This immediately ends your session.
+Parameters: `target_id` (WH/ER ID), `description`, `method`, `result`,
+`confidence` (exact/approximate/partial), `notes`.
 
 ### `report_progress`
 When the system asks you to report progress, call this tool.
 Parameters: `findings_so_far`, `remaining_questions`, `ready_to_conclude` (boolean).
 
-Typical computations need 1-3 `execute_python` calls followed by one `submit_verdict`.
+Typical computations need 1-3 `execute_python` calls followed by one
+`submit_verdict` or `submit_result`.
 
 AVAILABLE PACKAGES: Python 3.12+, NumPy >= 2.0, SciPy >= 1.14, SymPy >= 1.13, matplotlib >= 3.9, standard library.
 
@@ -86,20 +94,6 @@ REFUTED requires convergent numerical failures at multiple test points.
 
 ## OUTPUT FORMAT
 
-When you have all results, call `submit_verdict` with your findings.
-This is the PREFERRED exit path.
-
-**Alternative** (free text): if you cannot call `submit_verdict`, write
-the full COMPUTATION_LOG entry in your final response text:
-
-```
-## COMP-NNN: [short description]
-
-**CLAIM:** [WH-NNN or ER-NNN] — [restate the claim being verified]
-**METHOD:** [what computation you performed]
-**RESULT:**
-[paste or summarize the key output from your execution]
-
-**VERDICT:** [VERIFIED / REFUTED / INCONCLUSIVE]
-**NOTES:** [1-3 sentences summarizing what the execution output shows]
-```
+When you have all results, call `submit_verdict` (verification mode)
+or `submit_result` (exploration mode) with your findings.
+This is the PREFERRED and REQUIRED exit path.
