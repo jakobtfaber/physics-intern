@@ -98,12 +98,15 @@ def render_computation_log_md(state: ResearchState) -> str:
     """Render COMPUTATION_LOG.md from ResearchState."""
     comps = sorted(state.computations.values(), key=lambda c: (c.iteration, c.id))
     meta = {
-        "total_computations": len([c for c in comps if c.id.startswith("COMP-")]),
+        "total_computations": len(comps),
     }
 
     parts: list[str] = ["# Computations\n"]
 
     for c in comps:
+        if c.zero_output:
+            parts.append(f"## {c.id}: FAILED (no result produced, iteration {c.iteration})\n")
+            continue
         if c.kind == "explore":
             parts.append(f"## {c.id}: Exploration\n")
             parts.append(f"**TARGET:** {c.target_hypothesis}")

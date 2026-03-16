@@ -188,9 +188,6 @@ class OrchestratorAgent(BaseAgent):
         if self._tool_executor.task_data:
             task_obj = self._task_from_tool_data(self._tool_executor.task_data, iteration)
             self.workspace.write_file("CURRENT_TASK.md", task_obj.to_markdown())
-        log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION,
-                           "orchestrator_tool_mutations",
-                           f"mutations=True, task={'set' if self._tool_executor.task_data else 'missing'}")
 
     def _task_from_tool_data(self, data: dict, iteration: int) -> Task:
         """Build a Task from set_next_task tool arguments."""

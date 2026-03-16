@@ -59,6 +59,8 @@ class SciRalph:
         self.iteration = 0
         self._state = LoopState()
         self.research_state = ResearchState()
+        self.research_state.problem_statement = problem.strip()
+        self.research_state.title = self.workspace.root.name
         self.problem_meta = problem_meta or {}
 
         # Initialize agents
@@ -113,6 +115,7 @@ class SciRalph:
                     console.print("[green]Orchestrator signaled completion.[/green]")
                     self._run_formatter()
                     self._set_research_status("completed")
+                    self._sync_research_state()
                     break
                 self._state.pending_termination_blockers = blockers
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "termination_blocked",
@@ -446,15 +449,20 @@ class SciRalph:
         comp = sorted(comps, key=lambda c: c.id)[-1]
 
         if comp.kind == "explore":
-            self._state.pending_explore_results.append({
-                "target_id": comp.target_hypothesis,
-                "description": comp.claim[:200],
-                "result": comp.result[:200],
-                "confidence": comp.confidence or "partial",
-            })
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                               "explore_result_tracked",
-                               f"target={comp.target_hypothesis}")
+            if comp.result and comp.target_hypothesis and not comp.zero_output:
+                self._state.pending_explore_results.append({
+                    "target_id": comp.target_hypothesis,
+                    "description": comp.claim[:500],
+                    "result": comp.result[:500],
+                    "confidence": comp.confidence or "partial",
+                })
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                                   "explore_result_tracked",
+                                   f"target={comp.target_hypothesis}")
+            else:
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                                   "explore_result_suppressed",
+                                   f"target={comp.target_hypothesis}, zero_output={comp.zero_output}")
         else:
             key = comp.target_hypothesis
             if not key:

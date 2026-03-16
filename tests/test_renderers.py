@@ -357,6 +357,39 @@ class TestRenderComputationLogMd:
         md = render_computation_log_md(state)
         assert "**NOTES:** Interesting behaviour near horizon" in md
 
+    def test_zero_output_collapsed_to_single_line(self):
+        """zero_output computations render as a single FAILED line (C4)."""
+        state = ResearchState()
+        state.computations["TASK-003"] = Computation(
+            id="TASK-003",
+            target_hypothesis="WH-001",
+            claim="Test claim",
+            method="Test method",
+            result="",
+            verdict=Verdict.INCONCLUSIVE,
+            zero_output=True,
+            iteration=3,
+            kind="verify",
+        )
+        md = render_computation_log_md(state)
+        assert "TASK-003: FAILED (no result produced, iteration 3)" in md
+        # Should NOT include the full entry fields
+        assert "**CLAIM:**" not in md
+        assert "**VERDICT:**" not in md
+
+    def test_task_prefixed_id_counted_in_total(self):
+        """TASK-prefixed computation IDs are counted in total_computations (A2)."""
+        state = ResearchState()
+        state.computations["TASK-003"] = Computation(
+            id="TASK-003", claim="Test", iteration=3, kind="verify",
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", claim="Test2", iteration=2, kind="verify",
+        )
+        md = render_computation_log_md(state)
+        meta, _ = parse_frontmatter(md)
+        assert meta["total_computations"] == 2
+
     def test_target_hypothesis_prefix_in_verify(self):
         state = ResearchState()
         state.computations["COMP-001"] = Computation(

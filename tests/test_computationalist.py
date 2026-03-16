@@ -252,6 +252,55 @@ class TestSubmitVerdictProcessing:
         assert "INCONCLUSIVE" in jsonl_text
 
 
+class TestZeroOutputOnMaxRoundsForced:
+    """Test that zero_output=True when stop_reason='max_rounds_forced' even with non-empty text (A4)."""
+
+    def test_max_rounds_forced_sets_zero_output(self):
+        agent = _make_agent()
+        from sciralph.research_state import ResearchState
+        agent.research_state = ResearchState()
+
+        result = AgentResult(
+            text="Some partial analysis that did not complete...",
+            tool_calls=[
+                ToolCall("execute_python", {"code": "print(1)"}, "1\n", False, 0.5),
+            ],
+            total_input_tokens=500,
+            total_output_tokens=200,
+            rounds=10,
+            stop_reason="max_rounds_forced",
+        )
+
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist",
+                    body="Verify WH-002 temperature")
+        agent.process_response(result, task, iteration=5)
+
+        comp = agent.research_state.computations["TASK-005"]
+        assert comp.zero_output is True
+
+    def test_normal_end_turn_empty_text_sets_zero_output(self):
+        agent = _make_agent()
+        from sciralph.research_state import ResearchState
+        agent.research_state = ResearchState()
+
+        result = AgentResult(
+            text="",
+            tool_calls=[],
+            total_input_tokens=100,
+            total_output_tokens=10,
+            rounds=1,
+        )
+
+        task = Task(task_id="TASK-006", task_type=TaskType.COMPUTE,
+                    assigned_to="computationalist",
+                    body="Verify WH-003")
+        agent.process_response(result, task, iteration=6)
+
+        comp = agent.research_state.computations["TASK-006"]
+        assert comp.zero_output is True
+
+
 class TestFreeTextFallthrough:
     """Free text without submit_verdict results in INCONCLUSIVE."""
 

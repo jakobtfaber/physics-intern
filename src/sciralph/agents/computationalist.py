@@ -185,7 +185,7 @@ class ComputationalistAgent(BaseAgent):
         target_ids = _ER_WH_ID_RE.findall(task.body or "")
         target_id = target_ids[0] if target_ids else ""
         kind = "explore" if task.task_type == TaskType.COMPUTE_EXPLORE else "verify"
-        zero_output = not response.text.strip()
+        zero_output = not response.text.strip() or response.stop_reason == "max_rounds_forced"
 
         if zero_output:
             log_scaffold_event(

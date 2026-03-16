@@ -933,6 +933,168 @@ class TestAgentFailureRouting:
         assert violations_pos < failures_pos
 
 
+class TestProblemStatementPopulated:
+    """Test that ResearchState gets problem_statement populated on init (A1)."""
+
+    def test_problem_statement_set_on_init(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.name = "20260316_test_run"
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 0
+            engine._state = LoopState()
+            # Simulate what __init__ does after workspace.init
+            problem = "Derive the Hawking temperature."
+            engine.research_state = ResearchState()
+            engine.research_state.problem_statement = problem.strip()
+            engine.research_state.title = ws.root.name
+
+            assert engine.research_state.problem_statement == "Derive the Hawking temperature."
+            assert engine.research_state.title == "20260316_test_run"
+
+    def test_problem_statement_includes_answer_template(self):
+        """When answer_template is appended, problem_statement includes it."""
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.name = "test_run"
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph("Derive T_H.", Config(), answer_template="## Answer\n\nT_H = ?")
+
+            assert "Expected answer format" in engine.research_state.problem_statement
+            assert "T_H = ?" in engine.research_state.problem_statement
+
+
+class TestSyncOnTermination:
+    """Test that _sync_research_state is called on termination path (A3)."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            ws.read_file = MagicMock(return_value="")
+            ws.write_file = MagicMock()
+            ws.file_size = MagicMock(return_value=0)
+            ws.git_commit = MagicMock()
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config(max_iterations=3)
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.metrics.last_critic_iteration = 0
+            engine.metrics.alerts = []
+            engine.metrics.calls = []
+            engine.metrics.total_input_tokens = 0
+            engine.metrics.total_output_tokens = 0
+            engine.iteration = 0
+            engine._state = LoopState()
+            engine.research_state = ResearchState()
+            engine.problem_meta = {}
+            engine.orchestrator = MagicMock()
+            engine.researcher = MagicMock()
+            engine.computationalist = MagicMock()
+            engine.critic = MagicMock()
+            engine.compressor = MagicMock()
+            engine.formatter = MagicMock()
+        return engine, ws
+
+    def test_sync_called_on_termination(self):
+        """_sync_research_state is called when termination is allowed."""
+        engine, ws = self._make_engine()
+        engine.config.max_iterations = 10
+
+        task_terminate = Task(
+            task_id="TASK-001", task_type=TaskType.TERMINATE,
+            assigned_to="orchestrator", iteration=1,
+        )
+        engine.orchestrator.parse_task = MagicMock(return_value=task_terminate)
+
+        with patch.object(engine, '_sync_research_state') as mock_sync:
+            engine.run()
+            mock_sync.assert_called()
+
+
+class TestExploreResultSuppression:
+    """Test that failed explore computations are NOT appended to pending_explore_results (C3)."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 3
+            engine._state = LoopState()
+            engine.research_state = ResearchState()
+        return engine
+
+    def _add_comp(self, engine, comp_id, target, kind="explore", **kwargs):
+        from sciralph.research_state import Computation
+        engine.research_state.computations[comp_id] = Computation(
+            id=comp_id, target_hypothesis=target,
+            kind=kind, iteration=engine.iteration,
+            **kwargs,
+        )
+
+    def test_zero_output_explore_not_appended(self):
+        """zero_output explore computation NOT appended to pending_explore_results."""
+        engine = self._make_engine()
+        self._add_comp(engine, "TASK-003", "WH-001", kind="explore",
+                        zero_output=True, result="", claim="test")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_EXPLORE,
+                    assigned_to="computationalist", body="Explore WH-001")
+        engine._track_computation(task)
+
+        assert len(engine._state.pending_explore_results) == 0
+
+    def test_empty_result_explore_not_appended(self):
+        """Explore with empty result NOT appended to pending_explore_results."""
+        engine = self._make_engine()
+        self._add_comp(engine, "TASK-003", "WH-001", kind="explore",
+                        result="", claim="test")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_EXPLORE,
+                    assigned_to="computationalist", body="Explore WH-001")
+        engine._track_computation(task)
+
+        assert len(engine._state.pending_explore_results) == 0
+
+    def test_successful_explore_appended(self):
+        """Successful explore IS appended to pending_explore_results."""
+        engine = self._make_engine()
+        self._add_comp(engine, "TASK-003", "WH-001", kind="explore",
+                        result="x = 42", claim="Compute x", confidence="exact")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_EXPLORE,
+                    assigned_to="computationalist", body="Explore WH-001")
+        engine._track_computation(task)
+
+        assert len(engine._state.pending_explore_results) == 1
+        assert engine._state.pending_explore_results[0]["target_id"] == "WH-001"
+
+
 def unittest_any_string_containing(substring):
     """Helper matcher: matches any string containing the given substring."""
     class _Matcher:

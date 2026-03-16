@@ -366,10 +366,6 @@ def run_agent_loop(
 
             # Executor-signaled early stop (e.g., orchestrator's set_next_task)
             if getattr(tool_executor, "stop_after_round", False):
-                if config.workspace_dir:
-                    log_scaffold_event(config.workspace_dir, iteration, CC.LOOP_CONTROL,
-                                       "executor_stop_signal",
-                                       f"round={round_num}, agent={agent_name}")
                 result = AgentResult(
                     text=round_text,
                     tool_calls=all_tool_calls,
