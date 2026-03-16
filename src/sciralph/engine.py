@@ -454,9 +454,6 @@ class SciRalph:
                     "result": comp.result[:500],
                     "confidence": comp.confidence or "partial",
                 })
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                                   "explore_result_tracked",
-                                   f"target={comp.target_hypothesis}")
             else:
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
                                    "explore_result_suppressed",

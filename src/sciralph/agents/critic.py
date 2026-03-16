@@ -146,11 +146,6 @@ class CriticAgent(BaseAgent):
                 self.workspace.write_file("CRITIQUE_LOG.md", content)
                 self._update_critique_metadata()
 
-            log_scaffold_event(
-                self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION,
-                "critiques_filed_via_tools", f"count={len(filed)}",
-            )
-
         # Update last_critic_pass timestamp
         if not self.research_state:
             self._update_critique_metadata()

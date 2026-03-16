@@ -9,9 +9,13 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, ClassVar
 
+from rich.console import Console
+
 from .tools import ToolCall
 from .categories import CompensationCategory as CC
 from .workspace import log_scaffold_event
+
+console = Console()
 
 if TYPE_CHECKING:
     from .research_state import ResearchState
@@ -381,6 +385,16 @@ class OrchestratorToolExecutor:
             iteration_modified=self.iteration,
         )
         self.mutations_applied = True
+        detail = f"{new_id}: {statement[:120]}"
+        if from_rq:
+            detail += f" (from {from_rq})"
+        if depends_on:
+            detail += f" (depends_on: {', '.join(depends_on)})"
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "add_hypothesis", detail,
+        )
+        console.print(f"  [bold yellow]+{new_id}[/] {statement[:80]}")
         return f"Added {new_id} — {statement}"
 
     def _update_hypothesis(self, args: dict) -> str:
@@ -435,6 +449,15 @@ class OrchestratorToolExecutor:
         ))
 
         self.mutations_applied = True
+
+        detail = f"{hid}: {reason}"
+        if dependents:
+            detail += f" (dependents affected: {', '.join(dependents)})"
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "abandon_hypothesis", detail,
+        )
+        console.print(f"  [bold red]✗ {hid}[/] abandoned: {reason[:80]}")
 
         msg = f"Abandoned {hid}: {reason}"
         if dependents:
@@ -524,6 +547,7 @@ class OrchestratorToolExecutor:
             "promote_hypothesis",
             f"Promoted {wh_id} → {er_id}: {justification}",
         )
+        console.print(f"  [bold green]{wh_id} → {er_id}[/] promoted")
 
         self.mutations_applied = True
         return f"Promoted {wh_id} → {er_id}"
@@ -548,7 +572,11 @@ class OrchestratorToolExecutor:
 
         self.resolved_critique_ids.add(crit_id)
         self.mutations_applied = True
-
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "resolve_critique", f"{crit_id}: {resolution[:120]}",
+        )
+        console.print(f"  [dim]{crit_id}[/] resolved")
         return f"Resolved {crit_id}"
 
     def _update_section(self, args: dict) -> str:
@@ -592,6 +620,11 @@ class OrchestratorToolExecutor:
             iteration_created=self.iteration,
         )
         self.mutations_applied = True
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "add_research_question", f"{rq_id}: {question[:120]}",
+        )
+        console.print(f"  [bold cyan]+{rq_id}[/] {question[:80]}")
         return f"Added {rq_id} — {question}"
 
     def _resolve_research_question(self, args: dict) -> str:
@@ -612,6 +645,15 @@ class OrchestratorToolExecutor:
         rq.resolved_to = resolved_to
         rq.iteration_resolved = self.iteration
         self.mutations_applied = True
+        detail = f"{rq_id} → {', '.join(resolved_to)}" if resolved_to else f"{rq_id} (abandoned)"
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "resolve_research_question", detail,
+        )
+        if resolved_to:
+            console.print(f"  [dim]{rq_id} → {', '.join(resolved_to)}[/] resolved")
+        else:
+            console.print(f"  [dim]{rq_id}[/] abandoned")
         return f"Resolved {rq_id} → {', '.join(resolved_to)}"
 
     def _set_next_task(self, args: dict) -> str:

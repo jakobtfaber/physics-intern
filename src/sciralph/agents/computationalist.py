@@ -63,18 +63,8 @@ class ComputationalistAgent(BaseAgent):
 
         if result_tc and isinstance(result_tc.tool_input, dict):
             comp, jsonl_entry = self._build_explore_computation(result_tc.tool_input, task, iteration, response)
-            log_scaffold_event(
-                self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION,
-                "submit_result_used",
-                f"target={result_tc.tool_input.get('target_id', '?')}",
-            )
         elif verdict_tc and isinstance(verdict_tc.tool_input, dict):
             comp, jsonl_entry = self._build_verify_computation(verdict_tc.tool_input, task, iteration, response)
-            log_scaffold_event(
-                self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION,
-                "submit_verdict_used",
-                f"verdict={verdict_tc.tool_input.get('verdict', '?')}",
-            )
         else:
             comp, jsonl_entry = self._build_inconclusive_computation(response, task, iteration)
 

@@ -32,12 +32,18 @@ if TYPE_CHECKING:
 
 def render_research_state_md(state: ResearchState) -> str:
     """Render RESEARCH_STATE.md from ResearchState."""
-    meta = {
+    er_ids = sorted(
+        h.id for h in state.hypotheses.values()
+        if h.id.startswith("ER-")
+    )
+    meta: dict = {
         "problem_id": "research-session",
         "title": state.title or state.problem_statement[:80],
         "status": state.status,
         "iteration": state.iteration,
     }
+    if er_ids:
+        meta["verified_results"] = er_ids
 
     parts: list[str] = []
 
