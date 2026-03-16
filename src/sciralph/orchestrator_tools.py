@@ -233,6 +233,8 @@ class OrchestratorToolExecutor:
 
     TOOL_DEFINITIONS: ClassVar[list[dict]] = ORCHESTRATOR_TOOL_DEFINITIONS
 
+    exit_tool_name: str = "set_next_task"
+
     def __init__(self, workspace: WorkspaceManager, iteration: int, research_state: ResearchState | None = None):
         self.workspace = workspace
         self.iteration = iteration

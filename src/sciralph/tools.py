@@ -211,12 +211,21 @@ class ToolExecutor:
             return cls.VERIFY_TOOLS
         return cls.TOOL_DEFINITIONS  # COMPUTE (legacy)
 
-    def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000):
+    def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000,
+                 task_type: "TaskType | None" = None):
         self.workspace_root = workspace_root
         self.timeout = timeout
         self._output_limit = output_limit
         self._counter = 0
         self._computations_dir = workspace_root / "computations"
+        self._task_type = task_type
+
+    @property
+    def exit_tool_name(self) -> str:
+        """Return the context-appropriate exit tool name."""
+        if self._task_type == TaskType.COMPUTE_EXPLORE:
+            return "submit_result"
+        return "submit_verdict"
 
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
         """Dispatch a tool call by name."""
@@ -244,17 +253,18 @@ class ToolExecutor:
 
     def _report_progress(self, params: dict) -> tuple[str, bool]:
         """Acknowledge progress report and guide next action."""
+        exit_tool = self.exit_tool_name
         ready = params.get("ready_to_conclude", False)
         if ready:
             return (
                 "Acknowledged. You have indicated you are ready to conclude. "
-                "Call `submit_verdict` now with your findings."
+                f"Call `{exit_tool}` now with your findings."
             ), False
         remaining = params.get("remaining_questions", "")
         return (
             f"Acknowledged. Remaining questions: {remaining}\n"
             "Continue with your next execute_python call, then call "
-            "submit_verdict when you have enough evidence."
+            f"{exit_tool} when you have enough evidence."
         ), False
 
     def _submit_verdict(self, params: dict) -> tuple[str, bool]:

@@ -216,6 +216,10 @@ def run_agent_loop(
     overall_start = time.time()
 
     tool_call_failure = False
+    empty_end_turn_count = 0
+    loop_exit_reason = "max_rounds"  # default; overridden on early exits
+    # Resolve exit tool name for context-aware messages
+    _exit_tool = getattr(tool_executor, "exit_tool_name", "submit_verdict")
     for round_num in range(1, max_rounds + 1):
         start = time.time()
         try:
@@ -237,6 +241,7 @@ def run_agent_loop(
                     f"text-only response[/yellow]"
                 )
                 tool_call_failure = True
+                loop_exit_reason = "tool_call_failure"
                 if config.workspace_dir:
                     log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "tool_call_failure_fallback",
                                        f"round={round_num}")
@@ -280,14 +285,34 @@ def run_agent_loop(
                 answer_tokens=round_resp.answer_tokens, round=round_num,
             )
 
-        # end_turn: done (unless empty text after tool calls — fall through to forced final call)
+        # end_turn: done (unless empty text after tool calls — attempt recovery)
         if resp.stop_reason == "end_turn":
             if not round_text.strip() and all_tool_calls:
-                # Model ended turn with no text after tool calls — force a text-only final call
+                empty_end_turn_count += 1
+                if empty_end_turn_count == 1:
+                    # First empty end_turn: inject recovery message and continue
+                    _recovery_msg = (
+                        f"Your response was empty. You still need to call `{_exit_tool}` "
+                        f"to complete your task. Review your findings and call "
+                        f"`{_exit_tool}` now."
+                    )
+                    messages.append(provider.format_assistant_message(resp.raw_content))
+                    messages.append({"role": "user", "content": _recovery_msg})
+                    round_log.append({
+                        "kind": "scaffold_injection", "round": round_num,
+                        "label": "empty_end_turn_recovery", "content": _recovery_msg,
+                    })
+                    if config.workspace_dir:
+                        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
+                                           "empty_end_turn_recovery", f"round={round_num}")
+                    continue
+                # Second consecutive empty end_turn: fall through to forced final
+                loop_exit_reason = "empty_end_turn"
                 if config.workspace_dir:
                     log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
                                        "empty_end_turn_fallthrough", f"rounds={round_num}")
-                break  # fall through to forced final call
+                break
+            empty_end_turn_count = 0  # non-empty turn resets counter
             result = AgentResult(
                 text=round_text,
                 tool_calls=all_tool_calls,
@@ -401,11 +426,11 @@ def run_agent_loop(
                     "PROGRESS CHECK: You have run {n} consecutive computations without "
                     "reporting your progress. Before your next execute_python call, "
                     "you MUST call `report_progress` to summarize your findings so far "
-                    "and state whether you are ready to call `submit_verdict`.\n\n"
+                    "and state whether you are ready to call `{exit_tool}`.\n\n"
                     "If your recent computations confirmed what earlier ones already "
                     "showed, you likely have enough evidence — set ready_to_conclude "
                     "to true."
-                ).format(n=consecutive_exec_python)
+                ).format(n=consecutive_exec_python, exit_tool=_exit_tool)
                 messages.append({"role": "user", "content": _progress_msg})
                 round_log.append({
                     "kind": "scaffold_injection", "round": round_num,
@@ -421,8 +446,7 @@ def run_agent_loop(
                 _final_warn_msg = (
                     "WARNING: You have 2 rounds left before your session ends. "
                     "Wrap up your work and prepare your final output. "
-                    "If you have a structured exit tool (e.g. submit_verdict, "
-                    "set_next_task), call it now."
+                    f"Call `{_exit_tool}` now."
                 )
                 messages.append({"role": "user", "content": _final_warn_msg})
                 round_log.append({
@@ -434,9 +458,8 @@ def run_agent_loop(
             if round_num == max_rounds - 1 and max_rounds >= 4:
                 _crit_msg = (
                     "CRITICAL: This is your LAST round with tool access. "
-                    "You MUST conclude now. Use your structured exit tool "
-                    "if available, or write your final output as text in "
-                    "this response."
+                    f"You MUST call `{_exit_tool}` now, or write your final "
+                    "output as text in this response."
                 )
                 messages.append({"role": "user", "content": _crit_msg})
                 round_log.append({
@@ -445,14 +468,15 @@ def run_agent_loop(
                 })
 
     # --- Post-loop: one forced text-only final call ---
-    if tool_call_failure:
-        reason = "The tool-calling interface is unavailable due to a provider error."
-    else:
-        reason = "You have reached the maximum number of tool-use rounds."
+    _reasons_human = {
+        "max_rounds": "You have reached the maximum number of tool-use rounds.",
+        "tool_call_failure": "The tool-calling interface is unavailable due to a provider error.",
+        "empty_end_turn": "Your previous responses produced no output after repeated attempts.",
+    }
+    reason = _reasons_human.get(loop_exit_reason, _reasons_human["max_rounds"])
 
-    _reason = "tool_call_failure" if tool_call_failure else "max_rounds"
     if config.workspace_dir:
-        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "forced_final_call", _reason)
+        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "forced_final_call", loop_exit_reason)
 
     # Agent-agnostic forced exit message (delivered as user message, not system prompt mutation).
     # Each agent's process_response() handles format normalization for its own output.
@@ -509,7 +533,7 @@ def run_agent_loop(
 
     round_log.append({
         "kind": "forced_final_call", "round": round_num + 1,
-        "reason": _reason, "text": final_text,
+        "reason": loop_exit_reason, "text": final_text,
         "input_tokens": final_in, "output_tokens": final_out,
         "reasoning_tokens": final_reasoning, "answer_tokens": final_answer,
         "duration": final_dur,

@@ -78,6 +78,7 @@ class BaseAgent(ABC):
             workspace_root=self.workspace.root,
             timeout=self.config.sympy_timeout_seconds,
             output_limit=self.config.tool_output_limit,
+            task_type=task.task_type,
         )
         result = run_agent_loop(
             system=self.system_prompt,

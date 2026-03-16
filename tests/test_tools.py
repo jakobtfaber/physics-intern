@@ -194,6 +194,61 @@ class TestToolSetsForTaskType:
         assert names == {"execute_python", "submit_verdict", "report_progress"}
 
 
+class TestExitToolName:
+    """Test exit_tool_name property on all executor types (C2)."""
+
+    def test_verify_executor_exit_tool(self):
+        from sciralph.task import TaskType
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_VERIFY)
+        assert executor.exit_tool_name == "submit_verdict"
+
+    def test_explore_executor_exit_tool(self):
+        from sciralph.task import TaskType
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
+        assert executor.exit_tool_name == "submit_result"
+
+    def test_legacy_compute_executor_exit_tool(self):
+        from sciralph.task import TaskType
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
+        assert executor.exit_tool_name == "submit_verdict"
+
+    def test_none_task_type_defaults(self):
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root)
+        assert executor.exit_tool_name == "submit_verdict"
+
+    def test_orchestrator_exit_tool(self):
+        from sciralph.orchestrator_tools import OrchestratorToolExecutor
+        assert OrchestratorToolExecutor.exit_tool_name == "set_next_task"
+
+    def test_critic_exit_tool(self):
+        from sciralph.critic_tools import CriticToolExecutor
+        assert CriticToolExecutor.exit_tool_name == "finish_review"
+
+    def test_report_progress_explore_mentions_submit_result(self):
+        from sciralph.task import TaskType
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
+        tc = executor.execute("report_progress", {
+            "findings_so_far": "done", "remaining_questions": "",
+            "ready_to_conclude": True,
+        })
+        assert "submit_result" in tc.output
+
+    def test_report_progress_verify_mentions_submit_verdict(self):
+        from sciralph.task import TaskType
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_VERIFY)
+        tc = executor.execute("report_progress", {
+            "findings_so_far": "done", "remaining_questions": "",
+            "ready_to_conclude": True,
+        })
+        assert "submit_verdict" in tc.output
+
+
 # --- Agent loop tests ---
 
 def _mock_provider_response(text="", stop_reason="end_turn",
@@ -499,8 +554,8 @@ class TestEmptyTextFallthrough:
     """Test Gap A: end_turn with empty text falls through to forced final call."""
 
     @patch("sciralph.llm._get_provider")
-    def test_empty_end_turn_falls_through_to_forced_call(self, mock_get_provider):
-        """end_turn with empty text after tool calls triggers forced final call."""
+    def test_empty_end_turn_recovery_then_text(self, mock_get_provider):
+        """First empty end_turn injects recovery; model responds with text."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
@@ -509,9 +564,9 @@ class TestEmptyTextFallthrough:
             "", "tool_use", 200, 80,
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(42)"}}],
         )
-        # Round 2: end_turn but empty text (the Gemini gap)
+        # Round 2: end_turn but empty text -> recovery injected
         round2 = _mock_provider_response("", "end_turn", 150, 0)
-        # Round 3: forced final call produces text
+        # Round 3: model responds with text after recovery prompt
         round3 = _mock_provider_response(
             "## COMP-001: Result\n**VERDICT:** INCONCLUSIVE", "end_turn", 300, 100
         )
@@ -525,8 +580,40 @@ class TestEmptyTextFallthrough:
         )
 
         assert "COMP-001" in result.text
+        assert result.stop_reason == "end_turn"
+        assert provider.call.call_count == 3  # tool_use + empty + recovery response
+
+    @patch("sciralph.llm._get_provider")
+    def test_two_consecutive_empty_end_turns_forced_final(self, mock_get_provider):
+        """Two consecutive empty end_turns fall through to forced final call."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: tool_use
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(42)"}}],
+        )
+        # Round 2: first empty end_turn -> recovery injected
+        round2 = _mock_provider_response("", "end_turn", 150, 0)
+        # Round 3: second empty end_turn -> falls through to forced final
+        round3 = _mock_provider_response("", "end_turn", 150, 0)
+        # Round 4: forced final call produces text
+        round4 = _mock_provider_response(
+            "## COMP-001: Forced result", "end_turn", 300, 100
+        )
+        provider.call.side_effect = [round1, round2, round3, round4]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+        )
+
+        assert "COMP-001" in result.text
         assert result.stop_reason == "max_rounds_forced"
-        assert provider.call.call_count == 3  # tool_use + end_turn + forced
+        assert provider.call.call_count == 4
 
     @patch("sciralph.llm._get_provider")
     def test_empty_end_turn_with_text_returns_normally(self, mock_get_provider):

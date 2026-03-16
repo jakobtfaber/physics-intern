@@ -93,6 +93,7 @@ class CriticToolExecutor:
     """Dispatches tool calls for the deep critic agent."""
 
     TOOL_DEFINITIONS: ClassVar[list[dict]] = CRITIC_TOOL_DEFINITIONS
+    exit_tool_name: str = "finish_review"
 
     def __init__(self, existing_critique_count: int = 0):
         self.filed_critiques: list[dict] = []
