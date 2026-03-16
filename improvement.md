@@ -262,3 +262,60 @@ This keeps the log clean and focused on computations that actually produced resu
 **Why:** The EVENT_LOG should be a concise record of "what went wrong and how the scaffolding compensated." Always-firing events dilute signal-to-noise ratio, making it harder to diagnose runs.
 
 **Note:** `orchestrator_tool_mutations` does skip logging when there are no mutations (observed in iter 2), so it's not fully always-firing. But it still fires on every normal orchestrator pass that includes any state change, which is the common case. `executor_stop_signal` fires on every successful agent exit — pure noise.
+
+---
+
+## F. Validation checklist for next run
+
+After implementing the changes above, run the same problem (`quantum_error_correction_main.yaml`) and verify the following:
+
+### Bug fixes (must pass)
+
+- [ ] **A1:** Problem statement visible in all agent contexts from iteration 1 onward (check orchestrator, computationalist, critic user content)
+- [ ] **A1:** `RESEARCH_GRAPH.json` has non-empty `problem_statement`
+- [ ] **A2:** `total_computations` in COMPUTATION_LOG frontmatter matches actual entry count
+- [ ] **A3:** `RESEARCH_GRAPH.json` reflects final state after termination — all promotions applied, `status: "completed"`, correct iteration count
+- [ ] **A4:** Failed computations (no exit tool) have `zero_output: true` in RESEARCH_GRAPH.json
+
+### Architecture (if implemented)
+
+- [ ] **B1:** Orchestrator creates RQs for open questions, WHs only for concrete claims. No vague WHs like "F(p) is a rational function"
+- [ ] **B1:** Explore tasks target RQs, verify tasks target WHs
+- [ ] **B2:** Computationalist prompt contains only the tools relevant to its mode (no `submit_verdict` docs in explore mode, no `submit_result` docs in verify mode)
+- [ ] **B3:** Orchestrator uses `research_verify` for analytical claims (e.g., ideal circuit state) and `compute_verify` for numerical claims (e.g., F(p) expression)
+- [ ] **B3:** `verified_results` only contains ERs that have actual verification evidence (not auto-backfilled from ER sections)
+- [ ] **B4:** `depends_on` populated for derived hypotheses (e.g., WH-003 depends on WH-002)
+- [ ] **B4:** `promotion_justification` stored on Hypothesis object, readable from RESEARCH_GRAPH.json
+- [ ] **B4:** Attempting to promote a WH whose dependencies are not yet ERs returns an error
+
+### Scaffolding behavior
+
+- [ ] **C1:** Empty end-turn triggers a recovery nudge (naming the correct exit tool), not an immediate break to forced-final. Check that the computationalist calls its exit tool after the nudge
+- [ ] **C2:** `report_progress` acknowledgment names the correct exit tool for the current mode
+- [ ] **C3:** Failed explorations (no result, no target) don't produce EXPLORE RESULTS banners. Only AGENT FAILURES banner appears
+- [ ] **C4a:** EXPLORE RESULTS banner shows full mathematical expressions (not truncated mid-formula)
+- [ ] **C4b:** COMPUTATION_LOG in orchestrator context doesn't show all-empty entries for failed computations
+- [ ] **C5:** If forced-final fires, the reason distinguishes `empty_end_turn` from `max_rounds` in both the log event and the injected message
+
+### Prompt improvements
+
+- [ ] **D1:** Orchestrator prompt has no redundant tool list (tools come from API only)
+- [ ] **D1:** No "compute: Legacy alias" in prompt
+- [ ] **D1:** Edge-case guidance (convergence, resolve-critique loops, dead ends) is in a separate section at the bottom, not interleaved with common-path instructions
+
+### Observability
+
+- [ ] **E1:** EVENT_LOG contains no `executor_stop_signal` events
+- [ ] **E1:** EVENT_LOG scaffold events are limited to exceptional/compensating actions
+- [ ] **E1:** A successful run with no failures produces a near-empty scaffold event log (only `promote_hypothesis`, `forced_critic`, and similar meaningful state transitions)
+
+### Efficiency comparison (baseline from this run)
+
+| Metric | Baseline (this run) | New run |
+|--------|-------------------|---------|
+| Total iterations | 5 | |
+| Total tokens (in+out) | ~139K | |
+| Wasted tokens (failed iter + redundant compute) | ~47K (34%) | |
+| Computationalist failures (no exit tool) | 1 | |
+| Time to correct answer | ~7 min | |
+| Critic critiques filed | 0 | |
