@@ -20,7 +20,7 @@
 
 ## 1. Architecture Overview
 
-SciRalph is a multi-agent scaffolding system for autonomous scientific research in theoretical physics. Five agents take turns in a main loop, communicating exclusively through Markdown files with YAML frontmatter. LLM calls go through a provider abstraction layer supporting Anthropic, OpenAI, Google Gemini, and HuggingFace.
+SciRalph is a multi-agent scaffolding system for autonomous scientific research in theoretical physics. Six agents take turns in a main loop. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. LLM calls go through a provider abstraction layer supporting Anthropic, OpenAI, Google Gemini, and HuggingFace.
 
 ```
                         ┌──────────────────┐
@@ -45,7 +45,20 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
      ┌────────▼────────────────▼───────────────────┐
      │                   Agents                     │
      │  orchestrator  researcher  computationalist  │
-     │  critic        compressor                    │
+     │  critic        compressor  formatter         │
+     └─────────────────────────────────────────────┘
+
+     ┌─────────────────────────────────────────────┐
+     │         research_state.py                    │
+     │  ResearchState: authoritative structured     │
+     │  state (hypotheses, computations, critiques) │
+     │  + renderers.py (state → Markdown)           │
+     └─────────────────────────────────────────────┘
+
+     ┌─────────────────────────────────────────────┐
+     │  orchestrator_tools.py  tools.py             │
+     │  critic_tools.py                             │
+     │  (Tool executors for agentic agents)         │
      └─────────────────────────────────────────────┘
 
      ┌─────────────────────────────────────────────┐
@@ -56,50 +69,58 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 
      ┌─────────────────────────────────────────────┐
      │              validation.py                   │
-     │  Post-integration checks (7 checks)          │
+     │  Post-integration checks (8 checks)          │
      │  Termination gates (can_terminate)            │
      └─────────────────────────────────────────────┘
 ```
 
 ### Key design decisions
 
-- **Fresh context per call.** Agents are stateless — they read from disk, call the LLM, and write back to disk. No conversation history is carried between iterations.
+- **ResearchState as source of truth.** All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`). Agents mutate state via tool calls, then Markdown files (`RESEARCH_STATE.md`, `COMPUTATION_LOG.md`, `CRITIQUE_LOG.md`) are rendered from the state for git snapshots and agent context.
+- **Fresh context per call.** Agents are stateless — each call starts from a fresh context built from the current state. No conversation history is carried between iterations.
 - **Staging discipline.** The researcher writes to `PROPOSED_CHANGES.md`, never to `RESEARCH_STATE.md`. The orchestrator reviews and integrates on its next pass. No agent can self-certify its own results.
 - **Mandatory critic passes.** The scaffold forces critic reviews every N iterations, regardless of agent judgment.
-- **All state in Markdown.** Every piece of research state, computation result, and critique is persisted in version-controlled Markdown files.
+- **Tool-based state mutation.** Three agents are agentic (orchestrator, computationalist, critic) — they mutate `ResearchState` via typed tool executors (`OrchestratorToolExecutor`, `ToolExecutor`, `CriticToolExecutor`). Tool calls use the `stop_after_round` mechanism to signal completion.
 - **Provider-agnostic.** LLM calls go through a `providers/` abstraction layer. Model selection is resolved via `models.yaml` registry (friendly key → provider + model_id + env_key + cost). The `verify.py` script is Anthropic-only.
 
 ### Source file map
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `main.py` | 91 | CLI entry point, arg parsing, workspace naming (includes model label in dir name) |
-| `engine.py` | ~550 | `SciRalph` class, `LoopState` dataclass: main loop, dispatch, compression, scaffolding log events |
-| `categories.py` | 11 | `CompensationCategory` enum (call_reliability, state_invariants, loop_control, output_normalization) |
-| `validation.py` | 597 | Post-integration checks (7 checks), `can_terminate()` gates, `Violation` dataclass |
-| `config.py` | 155 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
-| `task.py` | 82 | `Task` dataclass, `TaskType` enum, YAML serialization |
-| `llm.py` | 526 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, event log entries |
-| `tools.py` | 230 | `ToolExecutor`, `ToolCall`, `execute_python` + `submit_verdict` + `report_progress` tool schemas |
-| `workspace.py` | 224 | File I/O, git ops, phantom reference validation, `log_scaffold_event()` |
-| `markdown.py` | 502 | Frontmatter parsing, critique lifecycle, comp parsing |
+| `main.py` | 82 | CLI entry point, arg parsing, workspace naming (includes model label in dir name) |
+| `engine.py` | 596 | `SciRalph` class, `LoopState` dataclass: main loop, dispatch, compression, scaffolding log events |
+| `research_state.py` | 607 | `ResearchState` dataclass: authoritative structured state (hypotheses, computations, critiques, failed_approaches), query/mutation methods, JSON serialization |
+| `renderers.py` | 309 | Snapshot renderers (state → `RESEARCH_STATE.md`, `COMPUTATION_LOG.md`, `CRITIQUE_LOG.md`) and per-agent context renderers |
+| `orchestrator_tools.py` | 451 | `OrchestratorToolExecutor`: 7 state-mutation tools for orchestrator agent |
+| `critic_tools.py` | 153 | `CriticToolExecutor`: `submit_critique` + `finish_review` tools for critic agent |
+| `tools.py` | 313 | `ToolExecutor`, `ToolCall`, `execute_python` + `submit_verdict`/`submit_result` + `report_progress` tool schemas; `tools_for_task_type()` |
+| `categories.py` | 10 | `CompensationCategory` enum (call_reliability, state_invariants, loop_control, output_normalization) |
+| `validation.py` | 647 | Post-integration checks (8 checks), `can_terminate()` gates, `Violation` dataclass |
+| `config.py` | 168 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
+| `task.py` | 92 | `Task` dataclass, `TaskType` enum (10 types including `format`), YAML serialization |
+| `llm.py` | 737 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, event log entries |
+| `workspace.py` | 262 | File I/O, git ops, phantom reference validation, `log_scaffold_event()`, `log_llm_call()` |
+| `markdown.py` | 507 | Frontmatter parsing, critique lifecycle, comp parsing |
 | `sandbox.py` | 49 | `subprocess.run` wrapper with timeout |
-| `metrics.py` | 110 | `MetricsTracker`, `METRICS.md` rendering |
-| `verify.py` | 760 | Independent verification script (science + process audit) |
-| `agents/base.py` | 158 | `BaseAgent` ABC, template method, retry logic |
-| `agents/orchestrator.py` | 252 | Planning, integration, critique resolution, inline synthesis, scaffolding log events |
-| `agents/researcher.py` | 40 | Derivations, writes `PROPOSED_CHANGES.md` |
-| `agents/computationalist.py` | 108 | Agentic tool-use, `submit_verdict` extraction, verdict writing, scaffolding log events |
-| `agents/critic.py` | 84 | Adversarial review, self-retraction filter, scaffolding log events |
-| `agents/compressor.py` | 27 | File size management |
+| `metrics.py` | 116 | `MetricsTracker`, `METRICS.md` rendering |
+| `verify.py` | 894 | Independent verification script (science + process audit) |
+| `computation_index.py` | 68 | JSONL helpers for `COMPUTATION_INDEX.jsonl` (legacy, used by validation) |
+| `critique_index.py` | 60 | JSONL helpers for `CRITIQUE_INDEX.jsonl` (legacy) |
+| `agents/base.py` | 160 | `BaseAgent` ABC, template method, retry logic, tool-use dispatch |
+| `agents/orchestrator.py` | 218 | Agentic: state mutation via `OrchestratorToolExecutor`, renders state → Markdown |
+| `agents/researcher.py` | 40 | One-shot: derivations, writes `PROPOSED_CHANGES.md` |
+| `agents/computationalist.py` | 255 | Agentic: explore/verify modes via `ToolExecutor`, writes `Computation` objects to `ResearchState` |
+| `agents/critic.py` | 170 | Agentic: adversarial review via `CriticToolExecutor`, writes `Critique` objects to `ResearchState` |
+| `agents/compressor.py` | 27 | One-shot: file size management |
+| `agents/formatter.py` | 40 | One-shot: produces `ANSWER.md` from final research state |
 | `providers/__init__.py` | 24 | `create_provider()` factory + re-exports |
-| `providers/base.py` | 42 | `LLMProvider` ABC + `ProviderResponse` dataclass |
-| `providers/anthropic.py` | 112 | Anthropic Claude adapter |
-| `providers/openai.py` | 97 | OpenAI adapter |
-| `providers/google.py` | 148 | Google Gemini adapter |
-| `providers/huggingface.py` | 108 | HuggingFace Inference Providers adapter |
-| `models.yaml` | 101 | Model registry (friendly keys → provider, model_id, env_key, cost) |
-| **Total** | **~5,044** | |
+| `providers/base.py` | 75 | `LLMProvider` ABC + `ProviderResponse` dataclass |
+| `providers/anthropic.py` | 126 | Anthropic Claude adapter |
+| `providers/openai.py` | 109 | OpenAI adapter |
+| `providers/google.py` | 155 | Google Gemini adapter |
+| `providers/huggingface.py` | 306 | HuggingFace Inference Providers adapter |
+| `models.yaml` | ~100 | Model registry (friendly keys → provider, model_id, env_key, cost) |
+| **Total** | **~7,827** | |
 
 ---
 
@@ -124,7 +145,7 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │        └─ Emits CURRENT_TASK.md                                      │
 │                                                                      │
 │  3. POST-INTEGRATION VALIDATION                                      │
-│     └─ validate_post_integration(): 7 checks                        │
+│     └─ validate_post_integration(): 8 checks                        │
 │     └─ Violations queued for next orchestrator pass                  │
 │                                                                      │
 │  4. COMPUTE TASK ENRICHMENT (inline, before dispatch)                │
@@ -133,25 +154,23 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │                                                                      │
 │  5. TERMINATION GATE                                                 │
 │     └─ TERMINATE → can_terminate() gate                              │
-│        └─ Allowed → break                                            │
+│        └─ Allowed → run formatter → set status completed → break     │
 │        └─ Blocked → continue (blockers shown next pass)              │
 │                                                                      │
-│  6. DISPATCH to researcher / computationalist / critic               │
+│  6. DISPATCH to researcher / computationalist / critic / formatter   │
 │     └─ Wrapped in try/except for transient API errors                │
 │     └─ _record_agent_failures(): capture max_tokens/max_rounds/etc.  │
 │                                                                      │
 │  7. POST-DISPATCH CHECKS                                             │
-│     └─ Verdict tracking (non-VERIFIED → pending_compute_verdicts)    │
-│     └─ Phantom reference check on agent output                       │
-│     └─ NO_CRITIQUES_FILED detection after CRITIQUE                   │
+│     └─ _track_computation(): explore → pending_explore_results,      │
+│        verify non-VERIFIED → pending_compute_verdicts                │
+│     └─ _record_agent_failures(): max_tokens/max_rounds detection     │
 │                                                                      │
-│  8. COMPRESSION + METRICS + GIT COMMIT                               │
-│                                                                      │
-│  9. STATUS FIELD SAFETY NET                                          │
-│     └─ Reads status from RESEARCH_STATE frontmatter                  │
+│  8. COMPRESSION + METRICS + STATE SYNC + GIT COMMIT                  │
+│     └─ _sync_research_state(): normalize references, save JSON       │
 │                                                                      │
 │  ── EVENT LOG (cross-cutting) ────────────────────────────────────── │
-│     Steps 1–9 emit events to EVENT_LOG.jsonl whenever a              │
+│     Steps 1–8 emit events to EVENT_LOG.jsonl whenever a              │
 │     compensation mechanism fires or an LLM call completes (see §7).  │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
@@ -184,8 +203,9 @@ The `can_terminate()` gate requires: at least one VERIFIED computation triggers 
 | TaskType | Agent | Notes |
 |----------|-------|-------|
 | `research`, `derive`, `resolve`, `synthesize` | Researcher | Synthesize rarely dispatched; orchestrator typically writes synthesis inline |
-| `compute` | Computationalist | Post-dispatch: verdict tracking with failure counter |
-| `critique` | Critic | Post-dispatch: NO_CRITIQUES_FILED detection |
+| `compute`, `compute_explore`, `compute_verify` | Computationalist | Dynamic tool set via `tools_for_task_type()`; post-dispatch: `_track_computation()` |
+| `critique` | Deep Critic | Post-dispatch: `_no_critiques_filed` detection |
+| `format` | Formatter | Dispatched automatically on successful termination |
 | Unknown | Researcher | Fallback with console warning |
 
 ---
@@ -213,31 +233,62 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Currently the computationalist (`execute_python`, `submit_verdict`, `report_progress`) and orchestrator (`set_next_task`, `add_hypothesis`, `promote_hypothesis`) set `tools`.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Three agents are agentic: orchestrator (7 tools via `OrchestratorToolExecutor`), computationalist (3 tools via `ToolExecutor`, dynamic per task type), and critic (2 tools via `CriticToolExecutor`).
+
+All three agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_verdict`/`submit_result`, `finish_review`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`.
 
 **No retry on truncation:** `_call_with_retry` returns immediately when `stop_reason == "max_tokens"` (no retries). The engine's `_record_agent_failures()` detects the truncation and injects a CAPACITY EXCEEDED banner into the orchestrator's next context via `_build_context_prefix()`, prompting task decomposition.
 
+### ResearchState (`research_state.py`)
+
+The authoritative source of truth for all research state. Agents mutate it via tools; Markdown files are rendered from it.
+
+**Entity dataclasses:**
+- `Hypothesis` — `id`, `statement`, `status` (`HypothesisStatus`: WORKING/ESTABLISHED/REFUTED/ABANDONED), `derivation`, `supporting_comps`, `critiques`, `iteration_created`, `iteration_modified`
+- `Computation` — `id`, `target_hypothesis`, `verdict` (`Verdict`: VERIFIED/REFUTED/INCONCLUSIVE), `claim`, `method`, `key_results`, `code_path`, `failure_detail`, `iteration`, `kind` ("explore"/"verify"), `zero_output`, `confidence`, `notes`, `result`
+- `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `iteration_filed`, `iteration_resolved`
+- `FailedApproach` — `description`, `reason`, `related_comps`, `iteration`
+
+**ResearchState fields:** `hypotheses` (dict by ID), `computations` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `iteration`, `problem_statement`, `conventions`, `open_questions`, `status`, `title`
+
+**Key query methods:** `verified_comps_for()`, `has_verified_backing()`, `active_critiques_for()`, `unresolved_high_critiques()`, `established_hypotheses()`, `working_hypotheses()`, `explore_only_hypotheses()`, `refuted_targets()`, `detect_computation_stalls()`
+
+**Mutation methods:** `promote_hypothesis(wh_id)` → renames WH-NNN → ER-NNN, updates status, calls `normalize_references()`; `demote_hypothesis(er_id)` → reverse (used by validation demotion safety)
+
+**Serialization:** `to_json()`/`from_json()` → persisted as `RESEARCH_GRAPH.json`
+
+### Renderers (`renderers.py`)
+
+**Snapshot renderers** (produce full Markdown files from state):
+- `render_research_state_md(state)` → `RESEARCH_STATE.md` (problem statement, conventions, WH/ER sections, dead ends, open questions)
+- `render_computation_log_md(state)` → `COMPUTATION_LOG.md` (computation entries sorted by iteration, explore/verify format)
+- `render_critique_log_md(state)` → `CRITIQUE_LOG.md` (active/resolved/withdrawn sections with frontmatter counts)
+
+**Per-agent context renderers:** `render_orchestrator_context()`, `render_researcher_context()`, `render_computationalist_context()`, `render_critic_context()`
+
 ### Agent-by-agent summary
 
-#### Orchestrator (`agents/orchestrator.py`)
+#### Orchestrator (`agents/orchestrator.py` + `orchestrator_tools.py`)
 
-**Role:** Planning only. Reads all state, emits `CURRENT_TASK.md`, and integrates `PROPOSED_CHANGES.md` into `RESEARCH_STATE.md`.
+**Role:** Planning and state mutation. Mutates `ResearchState` via tools, renders state → Markdown, emits `CURRENT_TASK.md`.
+
+**Tools** (7, via `OrchestratorToolExecutor`):
+- `add_hypothesis` — creates new WH-NNN in state, auto-assigns ID
+- `update_hypothesis` — updates statement/derivation for existing WH/ER
+- `abandon_hypothesis` — marks as ABANDONED, records in `failed_approaches`
+- `promote_hypothesis` — promotes WH → ER with guardrails (checks for REFUTED without VERIFIED, unresolved HIGH critiques)
+- `resolve_critique` — marks critique as RESOLVED with resolution text
+- `update_section` — replaces content of Conventions, Open Questions, or Dead Ends
+- `set_next_task` — emits next task; triggers `stop_after_round` to end agent loop
 
 **Context (largest in the system):**
-- `context_prefix` from engine — violations, termination blockers, computation verdicts, agent failures
-- Completion analysis banner (if ER count sufficient, or budget ≤ 3) — includes inline synthesis instruction
-- Computation stall warnings from `detect_computation_stalls()` (≥ threshold consecutive non-VERIFIED on same claim)
+- `context_prefix` from engine — violations, termination blockers, computation verdicts, explore results, agent failures (5 consumed-once banners)
+- Completion analysis banner (if ER count sufficient, or budget pressure) — includes synthesis instruction
+- Computation stall warnings from `research_state.detect_computation_stalls()`
 - Full `RESEARCH_STATE.md`, `CRITIQUE_LOG.md`, tail of `COMPUTATION_LOG.md`, `METRICS.md`
 - `PROPOSED_CHANGES.md` (when present)
 
-**Output parsing:** Splits on literal delimiter strings `=== RESEARCH_STATE.md ===` and `=== CURRENT_TASK.md ===`. If both present, writes state update and deletes PROPOSED_CHANGES. If only task delimiter, writes task only. No delimiters at all → entire output becomes CURRENT_TASK.
-
-**Key behaviors:**
-- `_enforce_problem_statement` — regex-replaces the Problem Statement section after every state integration to prevent LLM paraphrasing
-- `_resolve_critiques` — scans its own output for resolved critique IDs via four patterns (YAML list, YAML mapping, forward prose, reverse prose), then physically moves critique blocks from Active to Resolved
-- `_completion_analysis` — injects completion/budget-pressure/inline-synthesis banners into context
-- **Inline synthesis** — when all problem steps are established, the orchestrator writes a `## Synthesis` section directly into RESEARCH_STATE.md and emits `terminate`
-- `detect_computation_stalls` — groups COMPUTATION_LOG entries by claim, reports streaks of ≥ N non-VERIFIED
+**Output processing:** Only processes if `_tool_executor.mutations_applied` is true. Renders state → `RESEARCH_STATE.md` + `CRITIQUE_LOG.md` via `renderers.py`. Writes `CURRENT_TASK.md` from `set_next_task` tool data. Deletes `PROPOSED_CHANGES.md` after integration.
 
 **Prompt rules (key):** COMPUTE-FIRST (new hypotheses get verification before critique); converged derivation → move to verification; stall loops → escalate or downgrade; LOW critiques don't block promotion.
 
@@ -245,32 +296,34 @@ The `tools` class attribute is the **single switch** between one-shot and agenti
 
 **Role:** Derivations, proofs, hypothesis generation. Writes only to `PROPOSED_CHANGES.md`.
 
+**Mode:** One-shot (no tools).
+
 **Context (leanest):** `CURRENT_TASK.md` + `RESEARCH_STATE.md`. For RESOLVE tasks, adds relevant critique sections from `CRITIQUE_LOG.md`.
 
 **Output:** Entire response → `PROPOSED_CHANGES.md`. The simplest agent mechanically.
 
 **Prompt rules:** Mandatory confidence tags (HIGH/MEDIUM/LOW) on every claim. MEDIUM/LOW claims must specify a verification method.
 
-#### Computationalist (`agents/computationalist.py`)
+#### Computationalist (`agents/computationalist.py` + `tools.py`)
 
-**Role:** Code-based verification via `execute_python` + `submit_verdict` + `report_progress` tools. The only agentic (tool-use) agent.
+**Role:** Code-based verification (verify mode) or exploration (explore mode) via agentic tool-use loop.
 
-**Context:** `CURRENT_TASK.md` + full `RESEARCH_STATE.md`. Prior failure context is injected into the task by the engine, not by this agent.
+**Tools** (3, dynamic per task type via `tools_for_task_type()`):
+- `COMPUTE_VERIFY` / `COMPUTE` (legacy): `execute_python` + `submit_verdict` + `report_progress`
+- `COMPUTE_EXPLORE`: `execute_python` + `submit_result` + `report_progress`
 
-**Tool-use loop:** LLM writes Python (with `purpose` param) → `ToolExecutor` runs it in sandbox → output fed back → LLM iterates → calls `submit_verdict` for structured exit (or writes free-text verdict). Up to `max_tool_rounds` (default 10) rounds. After `progress_check_interval` (default 3) consecutive `execute_python` rounds, a progress check message is injected requiring the model to call `report_progress`.
+**Context:** `CURRENT_TASK.md` + `RESEARCH_STATE.md` excerpt. Prior failure context is injected into the task by the engine via `_enrich_compute_task_with_prior_failures()`.
 
-**Two exit paths:**
-1. **Preferred:** `submit_verdict` tool call — structured data (claim, method, result, verdict, notes), triggers `stop_after_round` → `executor_stop`. `process_response` formats the COMP entry from the tool parameters.
-2. **Fallback:** Free-text verdict in final response (original path, still supported).
+**Tool-use loop:** LLM writes Python (with `purpose` param) → `ToolExecutor` runs it in sandbox → output fed back → LLM iterates → calls `submit_verdict` or `submit_result` for structured exit. Up to `max_tool_rounds` (default 10) rounds. After `progress_check_interval` (default 3) consecutive `execute_python` rounds, a progress check message is injected requiring `report_progress`.
 
 **Output processing:**
-- `submit_verdict` present → formats COMP entry from structured tool data (takes priority over free text)
-- Text contains `submit_verdict(...)` syntax (no actual tool call) → extracts parameters from text, formats COMP entry
-- Empty text (no submit_verdict) → synthesizes fallback INCONCLUSIVE entry
-- Ensures `##` header present
-- Appends iteration/tool-call metadata
-- Appends to `COMPUTATION_LOG.md` (log grows, never overwrites)
-- Updates frontmatter computation count
+- `submit_verdict` present → creates `Computation` with `kind="verify"`, verdict from tool params
+- `submit_result` present → creates `Computation` with `kind="explore"`, `verdict=INCONCLUSIVE`, confidence from tool params
+- No exit tool → creates fallback `Computation` with `verdict=INCONCLUSIVE`, `zero_output=True` if response empty
+- Writes `Computation` object to `research_state.computations`
+- Renders `COMPUTATION_LOG.md` from state via `render_computation_log_md()`
+
+**3-valued verdict system:** VERIFIED / REFUTED / INCONCLUSIVE
 
 **Prompt rules (critical):**
 - Numerical spot-checks always required (5+ parameter values, `np.isclose` with `rtol=1e-6`)
@@ -280,37 +333,43 @@ The `tools` class attribute is the **single switch** between one-shot and agenti
 - REFUTED requires convergent failures at ≥ 2 test points + both numerical and symbolic disagree
 - Execution errors → INCONCLUSIVE, never REFUTED
 
-**3-valued verdict system:** VERIFIED / REFUTED / INCONCLUSIVE
+#### Deep Critic (`agents/critic.py` + `critic_tools.py`)
 
-#### Critic (`agents/critic.py`)
+**Role:** Adversarial review via agentic tool-use. Files structured critiques, never suggests fixes.
 
-**Role:** Adversarial review. Finds flaws, never suggests fixes.
+**Tools** (2, via `CriticToolExecutor`):
+- `submit_critique` — files a critique with severity/target_id/argument; auto-increments CRIT-NNN; does NOT stop the loop (can file multiple critiques)
+- `finish_review` — completes review with summary; triggers `stop_after_round`
 
-**Context (heaviest one-shot):** Full `RESEARCH_STATE.md` + `COMPUTATION_LOG.md` + `CRITIQUE_LOG.md`.
+**Context:** Full `RESEARCH_STATE.md` + `COMPUTATION_LOG.md` + `CRITIQUE_LOG.md` (existing critiques to avoid repeats).
 
-**Two-phase format:**
-- Phase 1: Reproduce — restate the argument in own words; no critique yet
-- Phase 2: Objection — what is wrong, why it matters, suggested verification
-- If Phase 1 arrives at the same result → do NOT file a critique
+**Output processing:**
+- If critiques filed: creates `Critique` objects with `CritiqueStatus.ACTIVE` in `research_state.critiques`, links to target hypotheses
+- If no critiques filed: sets `_no_critiques_filed` flag (clean review signal to orchestrator via engine)
+- Renders `CRITIQUE_LOG.md` from state via `render_critique_log_md()`
 
 **Severity rules:**
 - HIGH: only for specific wrong steps (sign error, dropped term)
 - MEDIUM: forced cap when objection rests on intuition, or when only INCONCLUSIVE evidence exists, or when a VERIFIED computation exists
 - LOW: stylistic
 
-**Self-retraction filter:** After the LLM responds, the scaffold scans LOW/MEDIUM-severity critiques for retraction signals in Phase 2 (9 regex patterns: "reproduction succeeded", "no issues found", "not filing", etc.) and marks them `[WITHDRAWN]`. Withdrawals are kept in the log as HTML comments.
-
-**`NO_CRITIQUES_FILED`:** When the critic finds nothing, it outputs this marker. The scaffold treats it as an empty critic pass and signals the orchestrator to proceed to synthesize.
-
 #### Compressor (`agents/compressor.py`)
 
-**Role:** Shrink files exceeding size thresholds. LLM output IS the compressed file.
+**Role:** Shrink files exceeding size thresholds. LLM output IS the compressed file. One-shot (no tools).
 
 **Context:** The target file's content with a one-line header.
 
 **Processing:** Archives original (timestamped copy in `archive/`), writes compressed version back.
 
 **Rules:** Preserve ERs and unresolved critiques verbatim. Collapse resolved critiques to one-line summaries. Drop abandoned hypotheses. Never discard "what didn't work" information.
+
+#### Formatter (`agents/formatter.py`)
+
+**Role:** Produces clean `ANSWER.md` from final research state. One-shot (no tools). Dispatched automatically on successful termination.
+
+**Context:** `RESEARCH_STATE.md` + `COMPUTATION_LOG.md` + optional answer template from problem YAML.
+
+**Output:** Entire response → `ANSWER.md`.
 
 ---
 
@@ -347,9 +406,9 @@ Four adapters: `AnthropicProvider`, `OpenAIProvider`, `GoogleProvider`, `Hugging
 
 Two calling patterns:
 
-**`call_llm`** — stateless one-shot. Uses `_call_provider_with_retry()` for API resilience. Returns `LLMResponse(text, input_tokens, output_tokens, stop_reason, duration)`. Used by orchestrator, researcher, critic, compressor.
+**`call_llm`** — stateless one-shot. Uses `_call_provider_with_retry()` for API resilience. Returns `LLMResponse(text, input_tokens, output_tokens, stop_reason, duration)`. Used by researcher, compressor, formatter.
 
-**`run_agent_loop`** — stateful multi-turn. Maintains a growing `messages` list across rounds. Each round: LLM response → tool extraction → `ToolExecutor.execute()` → tool result fed back. Returns `AgentResult(text, tool_calls, total_input/output_tokens, rounds, truncated, duration, stop_reason)`. Used exclusively by computationalist. On `max_rounds` exhaustion or `tool_call_failure`, forces a single text-only final call via agent-agnostic user message (system prompt unchanged); empty text is honest failure (no synthesis fallback). Agent-agnostic warnings at `max_rounds-2` and `max_rounds-1` (no agent-specific format references).
+**`run_agent_loop`** — stateful multi-turn. Maintains a growing `messages` list across rounds. Each round: LLM response → tool extraction → tool executor's `execute()` → tool result fed back. Returns `AgentResult(text, tool_calls, total_input/output_tokens, rounds, truncated, duration, stop_reason)`. Used by orchestrator, computationalist, and critic. On `max_rounds` exhaustion or `tool_call_failure`, forces a single text-only final call via agent-agnostic user message (system prompt unchanged); empty text is honest failure (no synthesis fallback). Agent-agnostic warnings at `max_rounds-2` and `max_rounds-1` (no agent-specific format references).
 
 Both paths go through `_call_provider_with_retry()` which wraps every provider call in an exponential-backoff retry loop (see §7 for details).
 
@@ -357,12 +416,38 @@ Both paths go through `_call_provider_with_retry()` which wraps every provider c
 - JSONL event entry in `EVENT_LOG.jsonl` via `log_llm_call()` (metadata only, no prompts; includes round number for tool-use and per-call cost; `kind: "llm_call"`)
 - Full conversation log in `logs/iter{NNN}_{agent}_{seq}.md` (system prompt + context + response)
 
-### Tool execution (`tools.py`)
+### Tool execution (`tools.py`, `orchestrator_tools.py`, `critic_tools.py`)
 
-Three tools defined in `ToolExecutor.TOOL_DEFINITIONS`:
-1. **`execute_python`** — requires `purpose` (why this computation is needed) and `code` (the script). `purpose` is preserved in `ToolCall.tool_input` for logging/audit; only `code` is executed.
-2. **`submit_verdict`** — structured exit path for the computationalist. Sets `stop_after_round = True` (reuses `executor_stop` mechanism), stores params in `_last_verdict`. Parameters: `claim`, `method`, `result`, `verdict` (enum: VERIFIED/REFUTED/INCONCLUSIVE), `notes`.
-3. **`report_progress`** — progress check tool. Does NOT set `stop_after_round`. Parameters: `findings_so_far`, `remaining_questions`, `ready_to_conclude` (boolean). If `ready_to_conclude` is true, response guides model to call `submit_verdict`.
+Three tool executors, one per agentic agent:
+
+**`ToolExecutor`** (computationalist) — dynamic tool set via `tools_for_task_type()`:
+
+For `COMPUTE_VERIFY` / `COMPUTE` (legacy):
+1. **`execute_python`** — requires `purpose` and `code`. `purpose` preserved in logs; only `code` executed.
+2. **`submit_verdict`** — structured verify-mode exit. Params: `target_id`, `claim`, `method`, `result`, `verdict` (VERIFIED/REFUTED/INCONCLUSIVE), `notes`. Sets `stop_after_round = True`.
+3. **`report_progress`** — progress check. Params: `findings_so_far`, `remaining_questions`, `ready_to_conclude`. Does NOT stop.
+
+For `COMPUTE_EXPLORE`:
+1. **`execute_python`** — same as above.
+2. **`submit_result`** — structured explore-mode exit. Params: `target_id`, `description`, `method`, `result`, `confidence` (exact/approximate/partial), `notes`. Sets `stop_after_round = True`.
+3. **`report_progress`** — same as above.
+
+**`OrchestratorToolExecutor`** (orchestrator) — 7 state-mutation tools:
+1. **`add_hypothesis`** — creates new WH-NNN in `ResearchState`
+2. **`update_hypothesis`** — updates statement/derivation
+3. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
+4. **`promote_hypothesis`** — WH → ER with guardrails (REFUTED/VERIFIED checks, HIGH critique checks)
+5. **`resolve_critique`** — marks CRIT-NNN as RESOLVED with resolution text
+6. **`update_section`** — replaces Conventions, Open Questions, or Dead Ends content
+7. **`set_next_task`** — emits task; sets `stop_after_round = True`
+
+Tracks `mutations_applied` (bool) and `resolved_critique_ids` (set) for `process_response` to use.
+
+**`CriticToolExecutor`** (critic) — 2 review tools:
+1. **`submit_critique`** — files critique with severity/target_id/argument; auto-increments CRIT-NNN; does NOT stop
+2. **`finish_review`** — captures summary; sets `stop_after_round = True`
+
+Accumulates `filed_critiques` (list) for `process_response` to convert into `Critique` objects.
 
 The `ToolExecutor` class:
 - Writes each script to `computations/tool_exec_NNN.py` (monotonic counter per instance)
@@ -421,15 +506,17 @@ In-memory `MetricsTracker` with `CallRecord` entries. Tracks: per-call tokens, t
 
 ## 5. Workspace Files & Data Flow
 
-Each run creates a timestamped workspace directory (e.g., `workspaces/20260310_142530_hawking_temperature/`):
+Each run creates a timestamped workspace directory (e.g., `workspaces/20260313_142530_hawking_temperature_claude-sonnet-4-6/`):
 
 ```
 workspaces/<run>/
-  RESEARCH_STATE.md      ← Orchestrator writes; the canonical research document
+  RESEARCH_GRAPH.json    ← Authoritative structured state (ResearchState serialized as JSON)
+  RESEARCH_STATE.md      ← Rendered from ResearchState by orchestrator (git snapshot + agent context)
   PROPOSED_CHANGES.md    ← Researcher writes; orchestrator integrates on next pass
-  CURRENT_TASK.md        ← Orchestrator writes; consumed by dispatched agent
-  COMPUTATION_LOG.md     ← Computationalist appends; grows over the run
-  CRITIQUE_LOG.md        ← Critic appends; scaffold manages Active/Resolved sections
+  CURRENT_TASK.md        ← Orchestrator writes via set_next_task tool; consumed by dispatched agent
+  COMPUTATION_LOG.md     ← Rendered from ResearchState by computationalist
+  CRITIQUE_LOG.md        ← Rendered from ResearchState by orchestrator/critic
+  ANSWER.md              ← Formatter writes on successful termination
   METRICS.md             ← Engine writes every iteration
   EVENT_LOG.jsonl        ← Append-only events: scaffolding interventions (kind: "scaffold") + LLM call metadata (kind: "llm_call")
   computations/          ← Python scripts from tool execution (tool_exec_NNN.py)
@@ -441,29 +528,34 @@ workspaces/<run>/
 ### Data flow per iteration
 
 ```
-                       RESEARCH_STATE.md ◄──────── Orchestrator (integrates)
-                              │                         ▲
-                              ▼                         │
-                      PROPOSED_CHANGES.md ◄──── Researcher (writes)
-                              │
-                              │ (deleted after integration)
-                              ▼
-     CURRENT_TASK.md ◄──────── Orchestrator (emits)
+     ResearchState (in-memory, authoritative)
            │
-           ├──► Researcher ──► PROPOSED_CHANGES.md
-           ├──► Computationalist ──► COMPUTATION_LOG.md (append)
-           └──► Critic ──► CRITIQUE_LOG.md (append to Active section)
+           ├──► Orchestrator mutates via tools ──► renders → RESEARCH_STATE.md
+           │                                                  CRITIQUE_LOG.md
+           │                                                  CURRENT_TASK.md
+           │
+           ├──► Computationalist adds Computation ──► renders → COMPUTATION_LOG.md
+           │
+           ├──► Critic adds Critique(s) ──► renders → CRITIQUE_LOG.md
+           │
+           └──► _sync_research_state() ──► saves → RESEARCH_GRAPH.json
+
+     PROPOSED_CHANGES.md ◄──── Researcher (one-shot, writes text)
+           │
+           └──► Orchestrator reads + integrates into ResearchState on next pass
+                (deletes PROPOSED_CHANGES.md after integration)
 ```
 
 ### Promotion pipeline
 
 A hypothesis advances through this lifecycle:
 1. **Working Hypothesis (WH-NNN)** — researcher proposes in PROPOSED_CHANGES
-2. **Orchestrator integrates** — adds to RESEARCH_STATE as `## WH-NNN`
-3. **Computation** — computationalist runs verification → VERIFIED / REFUTED / INCONCLUSIVE
-4. **Critique** — critic reviews, files objections
-5. **Established Result (ER-NNN)** — orchestrator promotes when: (a) ≥ 1 VERIFIED computation, (b) no unresolved HIGH critiques, (c) all dependencies are themselves ERs
-6. **Inline synthesis** — orchestrator writes `## Synthesis` section directly into RESEARCH_STATE.md, then emits `terminate`
+2. **Orchestrator integrates** — calls `add_hypothesis` tool, creates `Hypothesis` with status WORKING
+3. **Explore** (optional) — computationalist runs `compute_explore` to investigate properties
+4. **Verify** — computationalist runs `compute_verify` → `submit_verdict` → VERIFIED / REFUTED / INCONCLUSIVE
+5. **Critique** — critic reviews via `submit_critique` tool, files objections
+6. **Established Result (ER-NNN)** — orchestrator calls `promote_hypothesis` tool with guardrails: (a) ≥ 1 VERIFIED verify-type computation, (b) no unresolved HIGH critiques
+7. **Termination** — orchestrator emits `terminate` task → `can_terminate()` gates → formatter produces `ANSWER.md`
 
 ---
 
@@ -565,7 +657,7 @@ jq -r 'select(.kind == "llm_call") | .agent' workspaces/<run>/EVENT_LOG.jsonl | 
 
 #### Agent loop bailouts
 
-These mechanisms prevent the computationalist from wasting rounds or producing empty output:
+These mechanisms prevent agentic agents from wasting rounds or producing empty output:
 
 | Mechanism | Trigger | Action |
 |-----------|---------|--------|
@@ -589,7 +681,7 @@ These mechanisms prevent the computationalist from wasting rounds or producing e
 
 ### state_invariants — Post-integration validation pipeline (`validation.py`)
 
-All 7 checks run after every orchestrator pass. They are pure functions that mutate workspace files directly and return `Violation` objects injected into the orchestrator's next context.
+All 8 checks run after every orchestrator pass. They are pure functions that mutate workspace files directly and return `Violation` objects injected into the orchestrator's next context.
 
 | Check | Function | What it does | Failure compensated |
 |-------|----------|--------------|---------------------|
@@ -601,7 +693,7 @@ All 7 checks run after every orchestrator pass. They are pure functions that mut
 | **Verified frontmatter backfill** | `check_verified_frontmatter_backfill()` | Ensures `verified_results` list in RESEARCH_STATE frontmatter includes all IDs with VERIFIED entries; normalises WH↔ER form | LLM forgetting to update frontmatter |
 | **ID consistency** | `check_id_consistency()` | Corrects `total_computations` in COMPUTATION_LOG frontmatter to match actual `## COMP-NNN` header count | LLM writing wrong counter value |
 | **Critique resolution consistency** | `check_critique_resolution_consistency()` | Checks that resolved critiques actually had their fixes applied: target ER/WH still exists in RESEARCH_STATE, no leftover dual WH/ER labels | LLM marking critiques "resolved" without applying the fix |
-| **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when VERIFIED computations exist, (2) zero unresolved HIGH critiques, (3) computation exists when `requires_numerical` | LLM trying to terminate prematurely |
+| **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when VERIFIED computations exist, (2) zero unresolved HIGH critiques, (3) computation exists when `requires_numerical`, (4) no WH with VERIFIED backing left unpromoted | LLM trying to terminate prematurely |
 
 ### loop_control — Pre-dispatch hooks and dispatch guards (`engine.py`)
 
@@ -612,7 +704,7 @@ All 7 checks run after every orchestrator pass. They are pure functions that mut
 | Forced critic | `_critic_overdue()` + `_make_forced_critic_task()` | Overdue AND new content exists | Skip orchestrator, dispatch critic directly (saves an LLM call) | Orchestrator skipping critic indefinitely |
 | Compute enrichment | `_enrich_compute_task_with_prior_failures()` | COMPUTE task with prior failures on same claim | Append last failure's METHOD+RESULT+NOTES excerpt to task body | Model repeating identical failing code |
 
-Non-VERIFIED compute verdicts go to `pending_compute_verdicts` in `LoopState`, rendered as a COMPUTATION VERDICTS banner in `_build_context_prefix()`. The orchestrator decides how to respond (recompute, re-derive, or accept). No auto-recompute.
+Non-VERIFIED verify verdicts go to `pending_compute_verdicts` in `LoopState`, rendered as a COMPUTATION VERDICTS banner in `_build_context_prefix()`. Explore results go to `pending_explore_results`, rendered as an EXPLORE RESULTS banner. The orchestrator decides how to respond (recompute, re-derive, or accept). No auto-recompute.
 
 #### Engine-level guards
 
@@ -624,46 +716,38 @@ Non-VERIFIED compute verdicts go to `pending_compute_verdicts` in `LoopState`, r
 | Scaffolding-maintained iteration counter | `_update_research_iteration()` | Writes `iteration: N` into RESEARCH_STATE frontmatter unconditionally at the top of each iteration | LLM forgetting or corrupting iteration count |
 | Status field safety-net exit | `_check_status_field()` | Reads RESEARCH_STATE for `status: completed/abandoned/partially_complete` → exits loop | Loop continuing past a declared terminal state |
 | Post-dispatch phantom check | `run()` | Runs `check_phantom_references()` after every agent dispatch | Phantoms introduced by non-orchestrator agents |
-| NO_CRITIQUES_FILED handling | `_dispatch()` | Detects `NO_CRITIQUES_FILED` in critic response → files `critic_clean` violation telling orchestrator to proceed to synthesize | Empty critic looping indefinitely |
-| Dispatch-level verdict tracking | `_track_compute_verdict()` | Counts consecutive non-VERIFIED verdicts per claim via `claim_failure_count`. Non-VERIFIED verdicts stored in `pending_compute_verdicts` for orchestrator context. VERIFIED verdict clears the claim's failure count | Orchestrator unaware of computation failures |
+| NO_CRITIQUES_FILED handling | `_dispatch()` | Detects `_no_critiques_filed` flag on critic agent → files `critic_clean` violation telling orchestrator to proceed to synthesize | Empty critic looping indefinitely |
+| Dispatch-level computation tracking | `_track_computation()` | Dispatches to explore or verify handling: explore → `pending_explore_results`; verify non-VERIFIED → `pending_compute_verdicts` with attempt count; VERIFIED clears failure count | Orchestrator unaware of computation results |
 | Agent failure routing | `_record_agent_failures()` + `_build_context_prefix()` | Records max_tokens truncation, max_rounds exhaustion, and non-VERIFIED compute verdicts; shows "AGENT FAILURES" banner to orchestrator on next pass | Orchestrator re-issuing identical failing tasks without awareness of prior failures |
-| Violations/blockers/verdicts as context prefix | `_build_context_prefix()` | 4 sections: violations (except ER demotion safety, enforced silently), termination blockers, computation verdicts (with stall warnings at limit), agent failures — serialised into orchestrator's next user message | Orchestrator ignoring validation failures or computation results |
+| Violations/blockers/verdicts/explore/failures as context prefix | `_build_context_prefix()` | 5 sections: violations (except ER demotion safety, enforced silently), termination blockers, computation verdicts (with stall warnings at limit), explore results, agent failures — serialised into orchestrator's next user message; all consumed-once (cleared after read) | Orchestrator ignoring validation failures or computation results |
 | Compression at soft threshold | `_check_compression()` | Compresses files exceeding `compress_soft_multiplier` × threshold (single tier) | Runaway file growth crashing context window |
 
 ### output_normalization — Agent-level corrections and parsing tolerance
 
-#### Orchestrator corrections (`agents/orchestrator.py`)
+#### Orchestrator corrections (`agents/orchestrator.py`, `orchestrator_tools.py`)
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
 | Budget-aware completion analysis | `_completion_analysis()` | Injects "COMPLETION CHECK" or "BUDGET SYNTHESIS REQUIRED" banners based on ER/WH/critique counts and remaining budget | Orchestrator failing to terminate when done |
 | Phantom marker cleaning | `build_context()` | Flattens nested `[[[ID:unverified]...]]` brackets and replaces `[ID:unverified]` with `ID (unverified)` before the LLM sees the state | LLM copying bracket syntax into new outputs |
-| Computation stall warnings | `build_context()` | Injects "COMPUTATION STALL: N consecutive failures on claim: ..." banners | Orchestrator re-scheduling same failing compute |
-| Problem statement enforcement | `_enforce_problem_statement()` | Regex-replaces the Problem Statement section with the original from problem YAML | LLM rewriting/paraphrasing the problem (scope drift) |
-| Bold-to-header normalisation | `process_response()` via `normalize_er_wh_headers()` | Converts `**ER-NNN title**` bold lines to `## ER-NNN title` headers | Bold shorthand breaking all regex-based ER/WH detection |
-| Multi-strategy critique resolution | `_resolve_critiques()` via `extract_resolved_critique_ids()` | Four independent patterns to extract resolved critique IDs from various LLM formats | Each LLM uses a different format for claiming resolution |
-| Resolution note quality validation | `_validate_resolution_note()` | Rejects notes < 20 chars or containing system markers (`[error]`, `phantom`, `:unverified]`, `>>>`, `<<<`) | LLM emitting garbage or system artifacts as resolution notes |
-| Critique metadata recount | `_resolve_critiques()` via `recount_critique_metadata()` | Recomputes unresolved_high/medium/low and total_critiques from actual file contents | LLM updating counters incorrectly |
+| Computation stall warnings | `build_context()` | Injects "COMPUTATION STALL: N consecutive failures on claim: ..." banners via `research_state.detect_computation_stalls()` | Orchestrator re-scheduling same failing compute |
+| `promote_hypothesis` guardrails | `OrchestratorToolExecutor._promote_hypothesis()` | Rejects promotion if REFUTED without VERIFIED, or if unresolved HIGH critiques exist on target | LLM promoting unverified or contested hypotheses |
 | Conventions section staleness reminder | `build_context()` | From iteration 3+, injects banner if Conventions still says "To be populated" | LLM skipping conventions population |
 
-#### Critic corrections (`agents/critic.py`, `markdown.py`)
+#### Critic corrections (`agents/critic.py`, `critic_tools.py`)
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
-| Preamble stripping | `_strip_preamble()` | Removes everything before first `## CRIT-` header | Critic producing narrative preamble before actual critiques |
-| Self-retraction filtering | `filter_self_retracted_critiques()` | Scans LOW/MEDIUM critiques for 9 retraction patterns; marks as `[WITHDRAWN]`, kept as HTML comments | Critic filing critiques then immediately retracting in Phase 2 |
-| Critique metadata recount | `_update_critique_metadata()` | Recounts all statistics from file and updates frontmatter, including `last_critic_pass` timestamp | Counter drift across multiple critic passes |
+| `_no_critiques_filed` flag | `process_response()` | Sets flag when `CriticToolExecutor.filed_critiques` is empty → engine signals orchestrator to proceed to synthesize | Empty critic looping indefinitely |
+| Auto-increment CRIT-NNN | `CriticToolExecutor._submit_critique()` | Auto-assigns next CRIT-NNN based on existing critique count | LLM using wrong or duplicate critique IDs |
 
 #### Computationalist corrections (`agents/computationalist.py`)
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
-| submit_verdict extraction | `process_response()` | Extracts structured data from `submit_verdict` tool call, formats COMP entry; takes priority over free text | Tool-happy models (e.g. Gemini Flash) that never produce free text |
-| Text-based submit_verdict extraction | `process_response()` | When model writes `submit_verdict(...)` as text instead of a tool call, extract parameters and format COMP entry | Weaker models (Gemini Flash) writing tool syntax as prose instead of using function-calling interface |
-| Empty-response INCONCLUSIVE stub | `process_response()` | Synthesizes minimal COMP entry with VERDICT: INCONCLUSIVE when response is empty (and no submit_verdict) | Agent producing no text despite forced final call |
-| Missing header injection | `process_response()` | Prepends `## {task_id}: Computation` if output doesn't start with `##` | Headerless entry invisible to downstream parsers |
-| Claim ID injection | `process_response()` | Prepends target WH/ER ID to CLAIM line if missing | demotion safety check and `promote_hypothesis` guardrails unable to link computation to claim |
-| Computation metadata recount | `_update_computation_metadata()` | Recounts `## COMP-NNN` headers and updates `total_computations` frontmatter | LLM using TASK-NNN headers instead of COMP-NNN |
+| Structured tool exit → Computation object | `process_response()` | Routes `submit_verdict` (verify) or `submit_result` (explore) tool data to typed `Computation` objects in `ResearchState` | Ensures structured data reaches state regardless of LLM output format |
+| Empty-response INCONCLUSIVE stub | `_build_inconclusive_computation()` | Creates `Computation` with `verdict=INCONCLUSIVE`, `zero_output=True` when no exit tool called and response empty | Agent producing no output despite forced final call |
+| Dynamic tool set | `build_context()` via `tools_for_task_type()` | Sets explore-mode tools (submit_result) vs verify-mode tools (submit_verdict) based on task type | Prevent model from calling wrong exit tool for the mode |
 
 #### Markdown parsing tolerance (`markdown.py`)
 
@@ -695,34 +779,40 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 
 ## 9. Testing
 
-**450 tests** across 17 test files (~7,777 lines). Run with `uv run python -m pytest -v`.
+**716 tests** across 23 test files (~11,316 lines). Run with `uv run python -m pytest -v`.
 
 | Test file | Lines | What it covers |
 |-----------|------:|----------------|
-| `test_engine.py` | 1405 | Main loop, overrides, termination gates, compression, budget, stalls, status, dispatch errors |
-| `test_validation.py` | 1346 | All 8 post-integration checks, can_terminate gates, violation types, critique resolution consistency |
-| `test_markdown.py` | 958 | Frontmatter, sections, critique lifecycle, comp parsing, header normalisation |
-| `test_report_recommendations.py` | 931 | Report generation, recommendation analysis |
-| `test_verify.py` | 582 | Workspace loading, verdict parsing, prompts, process audit, report patching |
-| `test_llm_retry.py` | 530 | Retry logic, transient error classification, backoff, tool-call failure fallback |
-| `test_orchestrator.py` | 515 | Response splitting, integration, completion analysis, budget, stalls, critiques, inline synthesis |
-| `test_tools.py` | 400 | ToolExecutor, submit_verdict, run_agent_loop, truncation, token accumulation |
-| `test_config.py` | 224 | Defaults, YAML/CLI override, merge priority, model resolution from models.yaml |
-| `test_computationalist.py` | 220 | Soft-check pattern, tools attribute, process_response, submit_verdict processing, INCONCLUSIVE fallback |
+| `test_validation.py` | 1421 | All 8 post-integration checks, can_terminate gates, violation types, critique resolution consistency |
+| `test_research_state.py` | 1218 | ResearchState dataclass, query methods, promote/demote, normalize_references, serialization |
+| `test_engine.py` | 1035 | Main loop, termination gates, compression, budget, stalls, dispatch, context prefix, computation tracking |
+| `test_markdown.py` | 972 | Frontmatter, sections, critique lifecycle, comp parsing, header normalisation |
+| `test_report_recommendations.py` | 843 | Report generation, recommendation analysis |
+| `test_renderers.py` | 729 | Snapshot renderers (research_state, computation_log, critique_log), per-agent context renderers |
+| `test_tools.py` | 715 | ToolExecutor, submit_verdict/submit_result, run_agent_loop, truncation, token accumulation |
+| `test_llm_retry.py` | 704 | Retry logic, transient error classification, backoff, tool-call failure fallback |
+| `test_verify.py` | 688 | Workspace loading, verdict parsing, prompts, process audit, report patching |
+| `test_orchestrator_tools.py` | 445 | OrchestratorToolExecutor: add/update/abandon/promote hypothesis, resolve critique, set_next_task |
+| `test_huggingface_repair.py` | 358 | HuggingFace provider edge cases and repair logic |
+| `test_orchestrator.py` | 322 | Completion analysis, budget, stalls, context building |
+| `test_conversation_log.py` | 311 | File naming, sections, sequence counter |
+| `test_computationalist.py` | 276 | Dynamic tool sets, process_response (explore/verify/inconclusive), Computation object creation |
+| `test_config.py` | 234 | Defaults, YAML/CLI override, merge priority, model resolution from models.yaml |
+| `test_task.py` | 161 | TaskType enum, to_markdown, from_frontmatter, round-trip |
+| `test_reasoning_tokens.py` | 156 | Reasoning token handling across providers |
+| `test_metrics.py` | 152 | CallRecord, critic tracking, alerts, Markdown rendering |
+| `test_scaffold_log.py` | 135 | `log_scaffold_event` and `log_llm_call` JSONL output to `EVENT_LOG.jsonl` |
 | `test_workspace.py` | 132 | init structure, validate_comp_references |
-| `test_provider_smoke.py` | 118 | Provider adapters: tool format, message format, stop reason normalisation |
-| `test_task.py` | 125 | TaskType enum, to_markdown, from_frontmatter, round-trip |
-| `test_metrics.py` | 110 | CallRecord, critic tracking, alerts, Markdown rendering |
-| `test_conversation_log.py` | 80 | File naming, sections, sequence counter |
+| `test_provider_smoke.py` | 124 | Provider adapters: tool format, message format, stop reason normalisation |
+| `test_critic_tools.py` | 114 | CriticToolExecutor: submit_critique, finish_review, auto-numbering |
 | `test_sandbox.py` | 66 | Script execution, timeout, MPLBACKEND |
-| `test_scaffold_log.py` | 120 | `log_scaffold_event` and `log_llm_call` JSONL output to `EVENT_LOG.jsonl`, validation integration, budget override integration |
 
 **Testing approach:** pytest with `tmp_path` fixtures. All LLM calls are mocked (no real API calls). `SimpleNamespace` objects mock SDK responses. Fixture Markdown files for complex document parsing.
 
 **Notable coverage gaps:**
 - `call_llm` one-shot path (only `run_agent_loop` is tested via `test_tools.py`)
 - BaseAgent retry logic directly
-- Researcher, critic, compressor `process_response` methods
+- Researcher, compressor, formatter `process_response` methods
 - Workspace git operations
 - End-to-end `main.py` run path
 
@@ -758,15 +848,19 @@ The `messages` list grows unboundedly across rounds. Large tool outputs can push
 
 ## 11. Documentation Status
 
-All documentation was synced with the codebase in March 2026.
+All documentation was synced with the codebase on 2026-03-16.
 
+- **ResearchState as source of truth** — `research_state.py` (607 lines) provides authoritative structured state; agents mutate via tools, Markdown rendered from state
+- **Three agentic agents** — orchestrator (7 tools via `OrchestratorToolExecutor`), computationalist (3 tools via `ToolExecutor`, dynamic per task type), critic (2 tools via `CriticToolExecutor`); all use `stop_after_round` mechanism
+- **Renderers** — `renderers.py` produces Markdown snapshot files + per-agent context from ResearchState
+- **Formatter agent** — `agents/formatter.py` produces `ANSWER.md` on successful termination
+- **Explore/verify compute modes** — `compute_explore` and `compute_verify` task types with different tool sets and exit paths
 - Multi-provider support (Anthropic, OpenAI, Google Gemini, HuggingFace) fully implemented with `models.yaml` registry
 - API retry with exponential backoff implemented (transient errors + tool-call failures)
-- 8 post-integration validation checks (up from 7; added critique resolution consistency)
+- 8 post-integration validation checks including critique resolution consistency
 - Scaffolding-maintained iteration counter (no longer LLM-dependent)
 - `verify.py` remains Anthropic-only
-- Event log (`EVENT_LOG.jsonl`) instrumentation implemented across all 4 categories for scaffold events, plus LLM call metadata (markdown parsing tolerance mechanisms not yet instrumented due to lacking workspace context)
-- Workspace directory names now include model label (e.g. `20260313_142530_hawking_temperature_claude-sonnet-4-6`)
-- `read_file` tool for orchestrator/researcher/critic remains planned (not implemented)
-- External reference files (`files:` YAML key) remains planned (not implemented)
-- Problems organized into `problems/tier1/` (10 core) and `problems/tier2/` (12 advanced)
+- Event log (`EVENT_LOG.jsonl`) instrumentation implemented across all 4 categories
+- Workspace directory names include model label (e.g. `20260313_142530_hawking_temperature_claude-sonnet-4-6`)
+- Problems organized into `problems/tier1/` (10 core), `problems/tier2/` (12 advanced), and `problems/critpt/` (quantum error correction decomposition)
+- Legacy `computation_index.py` and `critique_index.py` still used by validation; to be removed once validation queries ResearchState directly
