@@ -56,7 +56,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 
      ┌─────────────────────────────────────────────┐
      │              validation.py                   │
-     │  Post-integration checks (8 checks)          │
+     │  Post-integration checks (7 checks)          │
      │  Termination gates (can_terminate)            │
      └─────────────────────────────────────────────┘
 ```
@@ -76,7 +76,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `main.py` | 91 | CLI entry point, arg parsing, workspace naming (includes model label in dir name) |
 | `engine.py` | 790 | `SciRalph` class, `LoopState` dataclass, `Override` chain: main loop, dispatch, declarative overrides, compression, scaffolding log events |
 | `categories.py` | 11 | `CompensationCategory` enum (call_reliability, state_invariants, loop_control, output_normalization) |
-| `validation.py` | 597 | Post-integration checks (8 checks), `can_terminate()` gates, `Violation` dataclass |
+| `validation.py` | 597 | Post-integration checks (7 checks), `can_terminate()` gates, `Violation` dataclass |
 | `config.py` | 155 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
 | `task.py` | 82 | `Task` dataclass, `TaskType` enum, YAML serialization |
 | `llm.py` | 526 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, event log entries |
@@ -121,7 +121,7 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │     └─ Emits CURRENT_TASK.md                                         │
 │                                                                      │
 │  3. POST-INTEGRATION VALIDATION                                      │
-│     └─ validate_post_integration(): 8 checks                        │
+│     └─ validate_post_integration(): 7 checks                        │
 │     └─ Violations queued for next orchestrator pass                  │
 │                                                                      │
 │  4. _apply_overrides() — consolidated priority chain                 │
@@ -223,7 +223,7 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Currently the computationalist (`execute_python`, `submit_verdict`, `report_progress`) and orchestrator (`set_next_task`, `add_hypothesis`) set `tools`.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Currently the computationalist (`execute_python`, `submit_verdict`, `report_progress`) and orchestrator (`set_next_task`, `add_hypothesis`, `promote_hypothesis`) set `tools`.
 
 **No retry on truncation:** `_call_with_retry` returns immediately when `stop_reason == "max_tokens"` (no retries). The engine's `_record_agent_failures()` detects the truncation and injects a CAPACITY EXCEEDED banner into the orchestrator's next context via `_build_context_prefix()`, prompting task decomposition.
 
@@ -516,7 +516,7 @@ Compression tiers: alert at 1x, compress at 1.5x, force-compress at 2x (though 1
 This section catalogues every mechanism that compensates for LLM misbehaviour at the scaffolding level. LLMs routinely fail in specific, predictable ways — promoting unverified results, hallucinating IDs, emitting malformed YAML, ignoring instructions, failing to terminate. The scaffolding corrects these failures across four concern-based categories (defined in `categories.py` as `CompensationCategory`):
 
 - **`call_reliability`** — making each LLM call succeed: transport retry, tool-call fallback, agent loop bailouts, tool execution guards
-- **`state_invariants`** — keeping workspace files consistent: post-integration validation pipeline (8 checks)
+- **`state_invariants`** — keeping workspace files consistent: post-integration validation pipeline (7 checks)
 - **`loop_control`** — steering the main loop: override chain, dispatch guards, verdict tracking, termination gates
 - **`output_normalization`** — cleaning agent output: per-agent response corrections, markdown parsing tolerance
 
@@ -541,7 +541,7 @@ Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter
 | Category | Event keys |
 |----------|-----------|
 | `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `progress_check`, `forced_final_call`, `forced_final_call_failed`, `forced_call_retry`, `tool_history_synthesis`, `empty_end_turn_fallthrough`, `tool_timeout`, `tool_output_truncation` |
-| `state_invariants` | All `Violation.check` values from validation checks (e.g. `er_promotion_gate`, `phantom_references`, `phantom_labels`, `stale_unverified_labels`, `verified_frontmatter_backfill`, `task_agent_routing`, `id_consistency`, `critique_resolution_consistency`) |
+| `state_invariants` | All `Violation.check` values from validation checks (e.g. `er_demotion_safety`, `phantom_references`, `phantom_labels`, `stale_unverified_labels`, `verified_frontmatter_backfill`, `task_agent_routing`, `id_consistency`, `critique_resolution_consistency`) |
 | `loop_control` | `p1_budget_override`, `p2_stale_loop_override`, `p3_forced_critic`, `p3b_redundant_critic_suppressed`, `p4_refuted_recompute`, `p4_recompute_enriched`, `p4_refuted_suppressed`, `p5_stall_block`, `p6_enrichment`, `termination_blocked`, `dispatch_failure`, `post_dispatch_phantom`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `compute_verdict_stall_escalation`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry` |
 | `output_normalization` | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened`, `preamble_stripped`, `critique_self_retracted`, `empty_response_stub`, `header_injected`, `claim_id_injected`, `submit_verdict_text_extracted` |
 
@@ -601,12 +601,11 @@ These mechanisms prevent the computationalist from wasting rounds or producing e
 
 ### state_invariants — Post-integration validation pipeline (`validation.py`)
 
-All 8 checks run after every orchestrator pass. They are pure functions that mutate workspace files directly and return `Violation` objects injected into the orchestrator's next context.
+All 7 checks run after every orchestrator pass. They are pure functions that mutate workspace files directly and return `Violation` objects injected into the orchestrator's next context.
 
 | Check | Function | What it does | Failure compensated |
 |-------|----------|--------------|---------------------|
-| **ER demotion** | `check_er_promotion_gate()` Pass 1 | Scans for `## ER-NNN` headers without VERIFIED backing in COMPUTATION_LOG → silently rewrites to `## WH-NNN` + updates all prose references (not injected into orchestrator context to prevent re-promotion churn) | LLM promoting WH to ER without computation |
-| **WH promotion** | `check_er_promotion_gate()` Pass 2 | Scans for `## WH-NNN` headers that DO have VERIFIED backing → promotes to `## ER-NNN` | LLM failing to promote after verification |
+| **ER demotion** | `check_er_demotion_safety()` | Demotes ER-NNN when explicit REFUTED computation exists with no VERIFIED → silently rewrites to `## WH-NNN` + updates all prose references (not injected into orchestrator context to prevent re-promotion churn) | LLM promoting WH to ER without computation |
 | **Agent routing fix** | `check_task_agent_routing()` | Corrects known aliases in `assigned_to` frontmatter ("compute"→"computationalist", "critique"→"deep_critic", etc.) | LLM using shortform agent names |
 | **Phantom label stripping** | `check_phantom_labels()` | Finds "VERIFIED" in prose near ER/WH IDs without computation backing → replaces with `[unverified]` | LLM copying "VERIFIED" from existing text without evidence |
 | **Stale-unverified label promotion** | `check_stale_unverified_labels()` | Finds `[unverified]` labels on IDs that now HAVE verification → restores "VERIFIED"; also applies WH→ER rename on same line | Labels stuck as [unverified] after late computation |
@@ -644,7 +643,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | Displaced-task transparency | `_log_displacement()` + `_build_context_prefix()` | Logs every overridden task and feeds the list to the orchestrator's next context: "Consider re-scheduling if still needed" | Orchestrator unaware that its planned task was overridden |
 | Dispatch-level verdict tracking | `_track_compute_verdict()` | Counts consecutive non-VERIFIED verdicts per claim; below `stall_recompute_limit` sets `_state.pending_recompute_claim` and `_state.pending_recompute_verdict` (actual verdict), at/above limit escalates to `_state.stalled_claims` with violation | Infinite recompute loops on persistently failing claims |
 | Agent failure routing | `_record_agent_failures()` + `_build_context_prefix()` | Records max_tokens truncation, max_rounds exhaustion, and non-VERIFIED compute verdicts; shows "AGENT FAILURES" banner to orchestrator on next pass | Orchestrator re-issuing identical failing tasks without awareness of prior failures |
-| Violations/blockers as context prefix | `_build_context_prefix()` | All pending violations (except ER promotion gate, which is enforced silently by state rewrite) and termination blockers serialised into orchestrator's next user message with explicit "Do NOT emit terminate again" instruction | Orchestrator ignoring validation failures |
+| Violations/blockers as context prefix | `_build_context_prefix()` | All pending violations (except ER demotion safety, which is enforced silently by state rewrite) and termination blockers serialised into orchestrator's next user message with explicit "Do NOT emit terminate again" instruction | Orchestrator ignoring validation failures |
 | Forced compression at 2x threshold | `_check_compression()` | Force-compresses files exceeding 2× threshold | Runaway file growth crashing context window |
 
 ### output_normalization — Agent-level corrections and parsing tolerance
@@ -679,7 +678,7 @@ All 8 checks run after every orchestrator pass. They are pure functions that mut
 | Text-based submit_verdict extraction | `process_response()` | When model writes `submit_verdict(...)` as text instead of a tool call, extract parameters and format COMP entry | Weaker models (Gemini Flash) writing tool syntax as prose instead of using function-calling interface |
 | Empty-response INCONCLUSIVE stub | `process_response()` | Synthesizes minimal COMP entry with VERDICT: INCONCLUSIVE when response is empty (and no submit_verdict) | Agent producing no text despite forced final call |
 | Missing header injection | `process_response()` | Prepends `## {task_id}: Computation` if output doesn't start with `##` | Headerless entry invisible to downstream parsers |
-| Claim ID injection | `process_response()` | Prepends target WH/ER ID to CLAIM line if missing | er_promotion_gate unable to link computation to claim |
+| Claim ID injection | `process_response()` | Prepends target WH/ER ID to CLAIM line if missing | demotion safety check and `promote_hypothesis` guardrails unable to link computation to claim |
 | Computation metadata recount | `_update_computation_metadata()` | Recounts `## COMP-NNN` headers and updates `total_computations` frontmatter | LLM using TASK-NNN headers instead of COMP-NNN |
 
 #### Markdown parsing tolerance (`markdown.py`)

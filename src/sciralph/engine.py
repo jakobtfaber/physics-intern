@@ -415,18 +415,10 @@ class SciRalph:
         """Build prefix for orchestrator context with violations, blockers, and displaced tasks."""
         lines = []
         if self._state.pending_violations:
-            # ER-demotion/promotion violations are enforced by state rewrite
-            # in check_er_promotion_gate(); injecting them into context causes
-            # re-promotion churn.  Keep only non-gate violations.
-            display_violations = [
-                v for v in self._state.pending_violations
-                if v.check != "er_promotion_gate"
-            ]
-            if display_violations:
-                lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
-                for v in display_violations:
-                    lines.append(f"  [{v.severity}] {v.check}: {v.message}")
-                lines.append(">>> END VIOLATIONS <<<\n")
+            lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
+            for v in self._state.pending_violations:
+                lines.append(f"  [{v.severity}] {v.check}: {v.message}")
+            lines.append(">>> END VIOLATIONS <<<\n")
             self._state.pending_violations.clear()
         if self._state.pending_termination_blockers:
             lines.append(">>> TERMINATION BLOCKED — YOU CANNOT TERMINATE YET <<<")

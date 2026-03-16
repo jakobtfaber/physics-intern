@@ -443,3 +443,265 @@ class TestMultipleTools:
         assert ex.mutations_applied
         assert ex.task_data["task_type"] == "compute"
         assert "spin-0" in store["RESEARCH_STATE.md"]
+
+
+# ---------------------------------------------------------------------------
+# Tool executor: promote_hypothesis
+# ---------------------------------------------------------------------------
+
+SAMPLE_STATE_WITH_COMP = """\
+---
+status: in_progress
+iteration: 5
+---
+
+# Problem Statement
+
+Some problem.
+
+# Conventions
+
+Natural units.
+
+# Working Hypotheses (WH) and Established Results (ER)
+
+Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, pending).
+
+## WH-001 — First hypothesis
+
+Photon has spin-1.
+
+## WH-002 — Second hypothesis
+
+Entropy increases in isolated systems.
+
+# Dead Ends
+
+Nothing yet.
+
+# Open Questions
+
+What is dark energy?
+"""
+
+SAMPLE_COMP_LOG_VERIFIED = """\
+---
+total_computations: 1
+---
+
+# Computations
+
+## COMP-001
+
+**CLAIM**: Verify WH-001 photon spin
+**VERDICT**: VERIFIED
+**RESULT**:
+Confirmed spin-1.
+"""
+
+SAMPLE_COMP_LOG_REFUTED = """\
+---
+total_computations: 1
+---
+
+# Computations
+
+## COMP-001
+
+**CLAIM**: Verify WH-001 photon spin
+**VERDICT**: REFUTED
+**RESULT**:
+Spin is wrong.
+"""
+
+SAMPLE_CRITIQUE_LOG_HIGH = """\
+---
+total_critiques: 1
+unresolved_high: 1
+unresolved_medium: 0
+unresolved_low: 0
+---
+
+# Active Critiques
+
+## CRIT-001 [HIGH] [UNRESOLVED]
+
+**Target:** WH-001
+
+Spin prediction may be wrong.
+
+# Resolved Critiques
+"""
+
+
+class TestPromoteHypothesis:
+    def test_successful_promotion(self):
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_STATE_WITH_COMP,
+            "COMPUTATION_LOG.md": SAMPLE_COMP_LOG_VERIFIED,
+            "CRITIQUE_LOG.md": "",
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=5)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "COMP-001 verified spin-1.",
+        })
+        assert not tc.is_error
+        assert "Promoted WH-001" in tc.output
+        assert "ER-001" in tc.output
+        updated = store["RESEARCH_STATE.md"]
+        assert "## ER-001" in updated
+        assert "## WH-001" not in updated
+        assert ex.mutations_applied
+
+    def test_prose_propagation(self):
+        """Prose references to WH-NNN are renamed to ER-NNN."""
+        state = SAMPLE_STATE_WITH_COMP.replace(
+            "Photon has spin-1.",
+            "Photon has spin-1. See WH-001 for details.",
+        )
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": state,
+            "COMPUTATION_LOG.md": SAMPLE_COMP_LOG_VERIFIED,
+            "CRITIQUE_LOG.md": "",
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=5)
+        ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "COMP-001 confirmed.",
+        })
+        updated = store["RESEARCH_STATE.md"]
+        assert "See ER-001 for details" in updated
+        assert "WH-001" not in updated
+
+    def test_frontmatter_updated(self):
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_STATE_WITH_COMP,
+            "COMPUTATION_LOG.md": SAMPLE_COMP_LOG_VERIFIED,
+            "CRITIQUE_LOG.md": "",
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=5)
+        ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "Verified.",
+        })
+        from sciralph.markdown import parse_frontmatter
+        meta, _ = parse_frontmatter(store["RESEARCH_STATE.md"])
+        vr = meta.get("verified_results", [])
+        assert "ER-001" in vr
+
+    def test_rejected_on_refuted(self):
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_STATE_WITH_COMP,
+            "COMPUTATION_LOG.md": SAMPLE_COMP_LOG_REFUTED,
+            "CRITIQUE_LOG.md": "",
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=5)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "Should fail.",
+        })
+        assert "Error" in tc.output or "REFUTED" in tc.output
+        # State unchanged
+        assert "## WH-001" in store["RESEARCH_STATE.md"]
+        assert not ex.mutations_applied
+
+    def test_rejected_on_unresolved_high_critique(self):
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_STATE_WITH_COMP,
+            "COMPUTATION_LOG.md": SAMPLE_COMP_LOG_VERIFIED,
+            "CRITIQUE_LOG.md": SAMPLE_CRITIQUE_LOG_HIGH,
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=5)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "Should fail due to critique.",
+        })
+        assert "Error" in tc.output or "CRIT-001" in tc.output
+        assert "## WH-001" in store["RESEARCH_STATE.md"]
+        assert not ex.mutations_applied
+
+    def test_rejected_on_non_wh_id(self):
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_STATE_WITH_COMP,
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=5)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "ER-001",
+            "justification": "Not a WH.",
+        })
+        assert "Error" in tc.output
+        assert "not a WH" in tc.output
+        assert not ex.mutations_applied
+
+    def test_rejected_on_nonexistent_section(self):
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_STATE_WITH_COMP,
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=5)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-099",
+            "justification": "Doesn't exist.",
+        })
+        assert "Error" in tc.output or "not found" in tc.output
+        assert not ex.mutations_applied
+
+    def test_research_state_formal_update(self):
+        """Formal research state object is updated on promotion."""
+        from sciralph.research_state import ResearchState, Hypothesis, HypothesisStatus
+        rs = ResearchState()
+        rs.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="First", status=HypothesisStatus.WORKING,
+        )
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_STATE_WITH_COMP,
+            "COMPUTATION_LOG.md": SAMPLE_COMP_LOG_VERIFIED,
+            "CRITIQUE_LOG.md": "",
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=rs)
+        ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "Verified.",
+        })
+        assert "WH-001" not in rs.hypotheses
+        assert "ER-001" in rs.hypotheses
+        assert rs.hypotheses["ER-001"].status == HypothesisStatus.ESTABLISHED
+        assert rs.hypotheses["ER-001"].iteration_modified == 5
+
+    def test_refuted_with_verified_allows_promotion(self):
+        """If both REFUTED and VERIFIED exist, promotion is allowed."""
+        comp_log = """\
+---
+total_computations: 2
+---
+
+# Computations
+
+## COMP-001
+
+**CLAIM**: Verify WH-001 spin
+**VERDICT**: REFUTED
+**RESULT**: Wrong approach.
+
+## COMP-002
+
+**CLAIM**: Verify WH-001 spin (corrected)
+**VERDICT**: VERIFIED
+**RESULT**: Confirmed.
+"""
+        ws, store = _make_workspace({
+            "RESEARCH_STATE.md": SAMPLE_STATE_WITH_COMP,
+            "COMPUTATION_LOG.md": comp_log,
+            "CRITIQUE_LOG.md": "",
+        })
+        ex = OrchestratorToolExecutor(ws, iteration=5)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "COMP-002 verified despite earlier REFUTED.",
+        })
+        assert not tc.is_error
+        assert "Promoted" in tc.output

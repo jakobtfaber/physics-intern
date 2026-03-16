@@ -5,7 +5,7 @@ from sciralph.validation import (
     ViolationSeverity,
     validate_post_integration,
     can_terminate,
-    check_er_promotion_gate,
+    check_er_demotion_safety,
     check_phantom_labels,
     check_phantom_references,
     check_task_agent_routing,
@@ -73,10 +73,10 @@ class TestViolation:
 
 
 # ---------------------------------------------------------------------------
-# check_er_promotion_gate
+# check_er_demotion_safety
 # ---------------------------------------------------------------------------
 
-class TestCheckErPromotionGate:
+class TestCheckErDemotionSafety:
     def _comp_log_with_verified(self, er_id: str) -> str:
         meta = {"total_computations": 1, "last_computation": "2026-03-10"}
         body = f"""# Computations
@@ -116,11 +116,12 @@ T = hbar * kappa / (2 pi k_B)
             "RESEARCH_STATE.md": self._state_with_er("ER-001"),
             "COMPUTATION_LOG.md": self._comp_log_with_refuted("ER-001"),
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
 
         assert len(violations) == 1
         assert violations[0].severity == ViolationSeverity.WARNING
-        assert "demoted" in violations[0].message
+        assert violations[0].check == "er_demotion_safety"
+        assert "REFUTED" in violations[0].message or "demoted" in violations[0].message
         assert "ER-001" in violations[0].detail
         # State should now have WH-001
         assert "## WH-001" in ws.read_file("RESEARCH_STATE.md")
@@ -131,7 +132,7 @@ T = hbar * kappa / (2 pi k_B)
             "RESEARCH_STATE.md": self._state_with_er("ER-001"),
             "COMPUTATION_LOG.md": self._comp_log_with_verified("ER-001"),
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
         assert len(violations) == 0
 
     def test_er_with_verified_via_wh_alias(self):
@@ -150,7 +151,7 @@ OK.
             "RESEARCH_STATE.md": self._state_with_er("ER-003"),
             "COMPUTATION_LOG.md": render_frontmatter(meta, body),
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
         assert len(violations) == 0
 
     def test_no_ers_no_violations(self):
@@ -158,20 +159,22 @@ OK.
             "RESEARCH_STATE.md": "# Working Hypotheses (WH) and Established Results (ER)\n\n## WH-001 something\n",
             "COMPUTATION_LOG.md": "",
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
         assert len(violations) == 0
 
-    def test_empty_comp_log_demotes(self):
+    def test_empty_comp_log_no_demotion(self):
+        """No REFUTED computation => ER stays (no demotion without explicit REFUTED)."""
         ws = MockWorkspace({
             "RESEARCH_STATE.md": self._state_with_er("ER-005"),
             "COMPUTATION_LOG.md": "",
         })
-        violations = check_er_promotion_gate(ws)
-        assert len(violations) == 1
-        assert "## WH-005" in ws.read_file("RESEARCH_STATE.md")
+        violations = check_er_demotion_safety(ws)
+        assert len(violations) == 0
+        assert "## ER-005" in ws.read_file("RESEARCH_STATE.md")
 
-    def test_multiple_ers_partial_demotion(self):
-        """Two ERs: one has VERIFIED backing, one does not."""
+    def test_multiple_ers_no_demotion_without_refuted(self):
+        """Two ERs: one has VERIFIED backing, one has no computations at all.
+        Without explicit REFUTED, neither is demoted."""
         state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## ER-001 Good Result
@@ -196,26 +199,11 @@ OK.
             "RESEARCH_STATE.md": state,
             "COMPUTATION_LOG.md": render_frontmatter(meta, body),
         })
-        violations = check_er_promotion_gate(ws)
-        assert len(violations) == 1
-        assert violations[0].detail == "ER-002"
+        violations = check_er_demotion_safety(ws)
+        assert len(violations) == 0
         updated = ws.read_file("RESEARCH_STATE.md")
         assert "## ER-001" in updated  # kept
-        assert "## WH-002" in updated  # demoted
-        assert "## ER-002" not in updated
-
-    def test_wh_promoted_without_er_in_prose(self):
-        """WH with VERIFIED backing is promoted even when ER-NNN doesn't appear in prose."""
-        state = "# Working Hypotheses (WH) and Established Results (ER)\n\n## WH-001 Partition Function\n\nZ = 1/(2 sinh(...))\n"
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": self._comp_log_with_verified("WH-001"),
-        })
-        violations = check_er_promotion_gate(ws)
-        updated = ws.read_file("RESEARCH_STATE.md")
-        assert "## ER-001" in updated
-        assert "## WH-001" not in updated
-        assert any("Promoted" in v.message for v in violations)
+        assert "## ER-002" in updated  # kept (no REFUTED)
 
 
 # ---------------------------------------------------------------------------
@@ -581,21 +569,32 @@ class TestValidatePostIntegration:
 
 Backed by COMP-999 which doesn't exist.
 """
+        # Add a REFUTED comp entry so er_demotion_safety triggers demotion
+        meta_comp = {"total_computations": 1}
+        comp_body = """# Computations
+
+## COMP-001
+
+**CLAIM**: Verify ER-001 derivation
+**VERDICT**: REFUTED
+**RESULT**:
+Failed.
+"""
         task = render_frontmatter(
             {"task_id": "TASK-001", "task_type": "compute", "assigned_to": "compute"},
             "Do something.\n",
         )
         ws = MockWorkspace({
             "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": "",
+            "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
             "CURRENT_TASK.md": task,
         })
         violations = validate_post_integration(ws)
         assert len(violations) > 0
         checks_triggered = {v.check for v in violations}
-        # Should include phantom_references (COMP-999), er_promotion_gate (ER-001), task_agent_routing (compute alias)
+        # Should include phantom_references (COMP-999), er_demotion_safety (ER-001 REFUTED), task_agent_routing (compute alias)
         assert "phantom_references" in checks_triggered
-        assert "er_promotion_gate" in checks_triggered
+        assert "er_demotion_safety" in checks_triggered
         assert "task_agent_routing" in checks_triggered
 
     def test_empty_workspace_no_violations(self):
@@ -834,9 +833,35 @@ Big problem.
         allowed, blockers = can_terminate(ws, self._base_config(), metrics)
         assert allowed is True
 
+    def test_blocked_by_verified_wh_not_promoted(self):
+        """Gate 4: WH with VERIFIED computation backing but not promoted to ER => blocks termination."""
+        meta = {"total_computations": 1}
+        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify WH-001 partition function\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": "## WH-001 Partition Function\n\nZ = 1/(2 sinh(...))\n",
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
+            "CRITIQUE_LOG.md": "",
+        })
+        metrics = MockMetrics(last_critic_iteration=3)
+        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        assert allowed is False
+        assert any("WH-001" in b and "not promoted" in b.lower() for b in blockers)
 
-class TestErPromotionGateBoldFormat:
-    """Test that check_er_promotion_gate handles bold ER entries."""
+    def test_wh_without_verified_does_not_block_gate4(self):
+        """Gate 4: WH without VERIFIED computation backing does not block termination."""
+        ws = MockWorkspace({
+            "RESEARCH_STATE.md": "## WH-001 Some hypothesis\n\nContent.\n",
+            "COMPUTATION_LOG.md": "",
+            "CRITIQUE_LOG.md": "",
+        })
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        assert allowed is True
+        assert not any("WH-001" in b for b in blockers)
+
+
+class TestErDemotionSafetyBoldFormat:
+    """Test that check_er_demotion_safety handles bold ER entries."""
 
     def test_bold_er_detected_and_demoted(self):
         state = "**ER-001 — Partition Function Z**\nBody.\n"
@@ -846,7 +871,7 @@ class TestErPromotionGateBoldFormat:
             "RESEARCH_STATE.md": state,
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
         assert len(violations) == 1
         assert "demoted" in violations[0].message
         updated = ws.read_file("RESEARCH_STATE.md")
@@ -861,7 +886,7 @@ class TestErPromotionGateBoldFormat:
             "RESEARCH_STATE.md": state,
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
         assert len(violations) == 0
 
 
@@ -869,7 +894,7 @@ class TestErPromotionGateBoldFormat:
 # Regression: colon-inside-bold verdict + WH IDs only in entry body
 # ---------------------------------------------------------------------------
 
-class TestErPromotionGateColonInsideBold:
+class TestErDemotionSafetyColonInsideBold:
     """Reproduce the QHO termination bug: **VERDICT:** format + WH IDs on bullet lines."""
 
     def test_verdict_colon_inside_bold_with_body_ids(self):
@@ -894,7 +919,7 @@ All checks passed.
             "RESEARCH_STATE.md": state,
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
         assert len(violations) == 0, (
             "ER-001 should NOT be demoted — WH-001 is VERIFIED in the entry body"
         )
@@ -998,11 +1023,22 @@ T = hbar * kappa / (2 pi k_B)
 This result ER-001 depends on the surface gravity calculation.
 See ER-001 in the synthesis section.
 """
+        # REFUTED computation triggers demotion
+        meta = {"total_computations": 1, "last_computation": "2026-03-10"}
+        comp_body = """# Computations
+
+## COMP-001
+
+**CLAIM**: Verify ER-001 Hawking temperature
+**VERDICT**: REFUTED
+**RESULT**:
+Failed.
+"""
         ws = MockWorkspace({
             "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": "",  # no computations -> demotion
+            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
         updated = ws.read_file("RESEARCH_STATE.md")
         # All ER-001 references should be WH-001 now
         assert "ER-001" not in updated
@@ -1019,11 +1055,22 @@ See ER-001 in the synthesis section.
 Z = exp(-x/2)/(1-exp(-x))
 """
         state = render_frontmatter(state_meta, state_body)
+        # REFUTED computation triggers demotion
+        meta_comp = {"total_computations": 1, "last_computation": "2026-03-10"}
+        comp_body = """# Computations
+
+## COMP-001
+
+**CLAIM**: Verify ER-001 Partition Function
+**VERDICT**: REFUTED
+**RESULT**:
+Failed.
+"""
         ws = MockWorkspace({
             "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": "",  # no computations -> demotion
+            "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
         updated = ws.read_file("RESEARCH_STATE.md")
         from sciralph.markdown import parse_frontmatter as pf
         meta, _ = pf(updated)
@@ -1031,40 +1078,6 @@ Z = exp(-x/2)/(1-exp(-x))
         vr = meta.get("verified_results", [])
         assert "WH-001" in vr
         assert "ER-001" not in vr
-
-    def test_frontmatter_verified_results_normalized_after_promotion(self):
-        """verified_results entries are renamed WH→ER after promotion."""
-        state_meta = {"status": "in_progress", "verified_results": ["WH-003"]}
-        state_body = """# Working Hypotheses (WH) and Established Results (ER)
-
-## WH-003 Hawking Temperature
-
-T = hbar * kappa / (2 pi k_B)
-
-Also see ER-003 in the synthesis section.
-"""
-        meta_comp = {"total_computations": 1}
-        comp_body = """# Computations
-
-## COMP-001
-
-**CLAIM**: Verify WH-003 Hawking temperature
-**VERDICT**: VERIFIED
-**RESULT**:
-Correct.
-"""
-        state = render_frontmatter(state_meta, state_body)
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
-        })
-        violations = check_er_promotion_gate(ws)
-        updated = ws.read_file("RESEARCH_STATE.md")
-        from sciralph.markdown import parse_frontmatter as pf
-        meta, _ = pf(updated)
-        vr = meta.get("verified_results", [])
-        assert "ER-003" in vr
-        assert "WH-003" not in vr
 
 
 class TestBackfillUsesPromotedForm:
@@ -1105,38 +1118,6 @@ Body.
 
 class TestErPromotionProsePropagation:
     """Tests for WH→ER prose reference propagation (Improvement 4A)."""
-
-    def test_promotion_propagates_prose(self):
-        """When WH→ER promotion happens, prose references also get updated."""
-        state = """# Working Hypotheses (WH) and Established Results (ER)
-
-## WH-003 Hawking Temperature
-
-T = hbar * kappa / (2 pi k_B)
-
-This result depends on WH-003 for the surface gravity calculation.
-Also see ER-003 in the synthesis section.
-"""
-        meta = {"total_computations": 1}
-        comp_body = """# Computations
-
-## COMP-001
-
-**CLAIM**: Verify WH-003 Hawking temperature
-**VERDICT**: VERIFIED
-**RESULT**:
-Correct.
-"""
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
-        })
-        violations = check_er_promotion_gate(ws)
-        updated = ws.read_file("RESEARCH_STATE.md")
-        # All WH-003 references should be ER-003 now
-        assert "WH-003" not in updated
-        assert "ER-003" in updated
-        assert "depends on ER-003" in updated
 
     def test_promotion_updates_unverified_tags(self):
         """Stale unverified labels get WH→ER rename when promoted ER header exists."""
@@ -1184,7 +1165,13 @@ class TestVerifiedFrontmatterBackfill:
 All checks pass.
 """
         state_meta = {"status": "in_progress"}
-        state_body = "# Working Hypotheses (WH) and Established Results (ER)\n\nSome findings.\n"
+        # Include ER-001 section header so backfill syncs it into verified_results
+        state_body = """# Working Hypotheses (WH) and Established Results (ER)
+
+## ER-001 Some Result
+
+Some findings.
+"""
         ws = MockWorkspace({
             "RESEARCH_STATE.md": render_frontmatter(state_meta, state_body),
             "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
@@ -1194,7 +1181,6 @@ All checks pass.
         from sciralph.markdown import parse_frontmatter
         updated_meta, _ = parse_frontmatter(ws.read_file("RESEARCH_STATE.md"))
         assert "ER-001" in updated_meta.get("verified_results", [])
-        assert "WH-002" in updated_meta.get("verified_results", [])
 
     def test_backfill_idempotent(self):
         meta_comp = {"total_computations": 1}
@@ -1208,7 +1194,13 @@ All checks pass.
 OK.
 """
         state_meta = {"status": "in_progress", "verified_results": ["ER-001"]}
-        state_body = "# Working Hypotheses (WH) and Established Results (ER)\n"
+        # Include ER-001 section header so verified_results stays in sync
+        state_body = """# Working Hypotheses (WH) and Established Results (ER)
+
+## ER-001 Some Result
+
+Body.
+"""
         ws = MockWorkspace({
             "RESEARCH_STATE.md": render_frontmatter(state_meta, state_body),
             "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
@@ -1391,11 +1383,11 @@ Something is wrong.
 
 
 # ---------------------------------------------------------------------------
-# ER promotion gate with ResearchState registry (Phase 2)
+# ER demotion safety with ResearchState registry (Phase 2)
 # ---------------------------------------------------------------------------
 
-class TestERPromotionGateWithRegistry:
-    """Test that check_er_promotion_gate uses formal registry when available."""
+class TestERDemotionSafetyWithRegistry:
+    """Test that check_er_demotion_safety uses formal registry when available."""
 
     def test_registry_based_demotion(self):
         """ER without VERIFIED in registry is demoted."""
@@ -1411,66 +1403,19 @@ class TestERPromotionGateWithRegistry:
         rs.computations["COMP-001"] = Computation(
             id="COMP-001", target_hypothesis="ER-001", verdict=Verdict.REFUTED,
         )
-        violations = check_er_promotion_gate(ws, research_state=rs)
+        violations = check_er_demotion_safety(ws, research_state=rs)
         assert len(violations) == 1
         assert "demoted" in violations[0].message
         assert "## WH-001" in ws.read_file("RESEARCH_STATE.md")
 
-    def test_registry_based_promotion(self):
-        """WH with VERIFIED in registry is promoted."""
-        from sciralph.research_state import ResearchState, Computation, Verdict
-
-        state = "## WH-001 — Test Hypothesis\n\nBody.\n"
-        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM:** Verify WH-001\n**VERDICT:** VERIFIED\n"
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": render_frontmatter({"total_computations": 1}, comp_body),
-        })
-        rs = ResearchState()
-        rs.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001", verdict=Verdict.VERIFIED,
-        )
-        violations = check_er_promotion_gate(ws, research_state=rs)
-        assert any("Promoted" in v.message for v in violations)
-        assert "## ER-001" in ws.read_file("RESEARCH_STATE.md")
-
-    def test_registry_target_claim_overrides_missing_substring(self):
-        """Registry links comp to hypothesis even when claim text lacks the ID."""
-        from sciralph.research_state import ResearchState, Computation, Verdict
-
-        # COMP-001's claim text does NOT mention WH-001 — only the registry knows
-        state = "## WH-001 — Partition Function\n\nBody.\n"
-        comp_body = (
-            "# Computations\n\n## COMP-001\n\n"
-            "**CLAIM:** Verify partition function calculation\n"
-            "**VERDICT:** VERIFIED\n"
-        )
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": render_frontmatter({"total_computations": 1}, comp_body),
-        })
-        # Without registry: substring matching fails (no WH-001 in claim)
-        violations_no_registry = check_er_promotion_gate(ws)
-        assert not any("Promoted" in v.message for v in violations_no_registry)
-
-        # With registry: formal link found, WH-001 promoted
-        rs = ResearchState()
-        rs.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001", verdict=Verdict.VERIFIED,
-        )
-        # Reset state since first call demoted nothing (WH stayed WH)
-        ws._files["RESEARCH_STATE.md"] = state
-        violations_with_registry = check_er_promotion_gate(ws, research_state=rs)
-        assert any("Promoted" in v.message for v in violations_with_registry)
-        assert "## ER-001" in ws.read_file("RESEARCH_STATE.md")
-
     def test_none_registry_falls_back_to_substring(self):
-        """When research_state is None, substring matching still works."""
+        """When research_state is None, substring matching still works.
+        ER-001 with VERIFIED comp and no REFUTED => no demotion."""
         state = "## ER-001 — Test\n\nBody.\n"
         comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM:** Verify ER-001\n**VERDICT:** VERIFIED\n"
         ws = MockWorkspace({
             "RESEARCH_STATE.md": state,
             "COMPUTATION_LOG.md": render_frontmatter({"total_computations": 1}, comp_body),
         })
-        violations = check_er_promotion_gate(ws, research_state=None)
-        assert len(violations) == 0  # ER-001 stays because VERIFIED matches
+        violations = check_er_demotion_safety(ws, research_state=None)
+        assert len(violations) == 0  # ER-001 stays (no REFUTED)

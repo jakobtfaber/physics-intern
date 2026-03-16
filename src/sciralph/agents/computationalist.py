@@ -85,7 +85,7 @@ class ComputationalistAgent(BaseAgent):
             )
 
         # Ensure the CLAIM line references the target WH/ER ID (needed by
-        # er_promotion_gate to link computations to claims).
+        # demotion safety check and promote_hypothesis guardrails).
         target_ids = _ER_WH_ID_RE.findall(task.body or "")
         if target_ids:
             target_id = target_ids[0]

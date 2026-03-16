@@ -17,7 +17,7 @@ from sciralph.tools import ToolExecutor
 from sciralph.validation import (
     Violation,
     ViolationSeverity,
-    check_er_promotion_gate,
+    check_er_demotion_safety,
     check_stale_unverified_labels,
 )
 
@@ -480,10 +480,11 @@ Confirmed.
 # ---------------------------------------------------------------------------
 
 class TestWhToErHeaderPromotion:
-    """P2-B: WH-NNN headers promoted to ER-NNN when body uses ER-NNN with VERIFIED backing."""
+    """P2-B: Auto-promotion removed — promotion is now handled by the orchestrator tool.
+    These tests verify that check_er_demotion_safety does NOT auto-promote WHs."""
 
-    def test_wh_header_promoted_when_er_in_body(self):
-        """WH header renamed to ER when ER-NNN appears in body and has VERIFIED."""
+    def test_wh_not_auto_promoted_even_with_er_in_body(self):
+        """WH header stays WH even with ER-NNN in body and VERIFIED backing (no auto-promotion)."""
         state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## WH-001 Hawking Temperature
@@ -503,18 +504,16 @@ Result: ER-001 is the Hawking temperature T = hbar*kappa/(2*pi*k_B).
             "RESEARCH_STATE.md": state,
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
 
-        # Should have a promotion warning
-        promotion_vs = [v for v in violations if "Promoted header" in v.message]
-        assert len(promotion_vs) == 1
-        assert promotion_vs[0].severity == ViolationSeverity.WARNING
+        # No auto-promotion — WH stays as WH
+        promotion_vs = [v for v in violations if "Promoted" in v.message]
+        assert len(promotion_vs) == 0
         updated = ws.read_file("RESEARCH_STATE.md")
-        assert "## ER-001" in updated
-        assert "## WH-001" not in updated
+        assert "## WH-001" in updated
 
-    def test_wh_header_promoted_without_er_in_body(self):
-        """WH header promoted to ER when VERIFIED backing exists, even without ER in body."""
+    def test_wh_not_auto_promoted_without_er_in_body(self):
+        """WH header stays WH when VERIFIED backing exists but no auto-promotion."""
         state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## WH-001 Some Hypothesis
@@ -534,17 +533,16 @@ Just a regular WH, no ER reference.
             "RESEARCH_STATE.md": state,
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
 
-        # Now promotes unconditionally with VERIFIED backing
-        promotion_vs = [v for v in violations if "Promoted header" in v.message]
-        assert len(promotion_vs) == 1
+        # No auto-promotion — WH stays as WH
+        promotion_vs = [v for v in violations if "Promoted" in v.message]
+        assert len(promotion_vs) == 0
         updated = ws.read_file("RESEARCH_STATE.md")
-        assert "## ER-001" in updated
-        assert "## WH-001" not in updated
+        assert "## WH-001" in updated
 
     def test_wh_header_not_promoted_without_verified(self):
-        """WH header stays WH even if ER-NNN in body but no VERIFIED computation."""
+        """WH header stays WH when no VERIFIED computation exists."""
         state = """# Working Hypotheses (WH) and Established Results (ER)
 
 ## WH-001 Something
@@ -555,9 +553,9 @@ ER-001 appears in body text.
             "RESEARCH_STATE.md": state,
             "COMPUTATION_LOG.md": "",
         })
-        violations = check_er_promotion_gate(ws)
+        violations = check_er_demotion_safety(ws)
 
-        promotion_vs = [v for v in violations if "Promoted header" in v.message]
+        promotion_vs = [v for v in violations if "Promoted" in v.message]
         assert len(promotion_vs) == 0
 
 

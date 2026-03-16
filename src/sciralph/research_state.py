@@ -173,9 +173,10 @@ class ResearchState:
         """Normalize target_hypothesis in computations to match current hypothesis IDs,
         and rebuild supporting_comps from scratch.
 
-        When the ER promotion gate renames WH-002 → ER-002, existing computations
-        that targeted WH-002 become stale. This method fixes those backlinks by
-        mapping the numeric suffix to the current hypothesis ID.
+        When promote_hypothesis or demotion safety renames WH-002 → ER-002 (or
+        vice versa), existing computations that targeted WH-002 become stale.
+        This method fixes those backlinks by mapping the numeric suffix to the
+        current hypothesis ID.
         """
         # Build alias map: number -> current ID  (e.g., "002" -> "ER-002")
         id_by_num: dict[str, str] = {}

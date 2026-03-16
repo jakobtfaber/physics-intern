@@ -11,6 +11,8 @@ import time
 from typing import TYPE_CHECKING, ClassVar
 
 from .tools import ToolCall
+from .categories import CompensationCategory as CC
+from .workspace import log_scaffold_event
 
 if TYPE_CHECKING:
     from .workspace import WorkspaceManager
@@ -138,6 +140,34 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "promote_hypothesis",
+            "description": (
+                "Promote a Working Hypothesis to an Established Result. "
+                "Call when you judge that the accumulated evidence "
+                "(computations, derivations, or both) sufficiently supports the claim."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "WH-NNN to promote to ER-NNN.",
+                    },
+                    "justification": {
+                        "type": "string",
+                        "description": (
+                            "Why the evidence is sufficient. "
+                            "Reference specific COMP entries, derivations, or other evidence."
+                        ),
+                    },
+                },
+                "required": ["id", "justification"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "resolve_critique",
             "description": (
                 "Mark a critique as resolved in CRITIQUE_LOG.md. "
@@ -255,6 +285,7 @@ class OrchestratorToolExecutor:
             "add_hypothesis": self._add_hypothesis,
             "update_hypothesis": self._update_hypothesis,
             "abandon_hypothesis": self._abandon_hypothesis,
+            "promote_hypothesis": self._promote_hypothesis,
             "resolve_critique": self._resolve_critique,
             "update_section": self._update_section,
             "set_next_task": self._set_next_task,
@@ -373,6 +404,128 @@ class OrchestratorToolExecutor:
                 self.research_state.hypotheses[hid].iteration_modified = self.iteration
 
         return f"Abandoned {hid}: {reason}"
+
+    def _promote_hypothesis(self, args: dict) -> str:
+        from .markdown import (
+            parse_frontmatter,
+            render_frontmatter,
+            _parse_comp_entries,
+            count_unresolved_critiques,
+            _ER_WH_ID_RE,
+        )
+
+        wh_id = args["id"]
+        justification = args.get("justification", "")
+
+        # Validate ID format
+        if not wh_id.startswith("WH-"):
+            return f"Error: {wh_id} is not a WH. Only WH-NNN can be promoted."
+
+        state_text = self.workspace.read_file("RESEARCH_STATE.md")
+        range_ = _find_section_range(state_text, wh_id)
+        if range_ is None:
+            return f"Error: {wh_id} not found in RESEARCH_STATE.md"
+
+        num = wh_id.split("-")[1]
+        er_id = f"ER-{num}"
+
+        # Guardrail: REFUTED block
+        has_refuted = False
+        has_verified = False
+        if self.research_state:
+            for c in self.research_state.computations.values():
+                if c.target_hypothesis in (wh_id, er_id):
+                    if c.verdict.value == "REFUTED":
+                        has_refuted = True
+                    if c.verdict.value == "VERIFIED":
+                        has_verified = True
+        if not has_refuted or not has_verified:
+            # Fallback: check computation log
+            comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
+            entries = _parse_comp_entries(comp_log)
+            for e in entries:
+                refs = e["claim"] + " " + e.get("body", "")
+                if wh_id in refs or er_id in refs:
+                    if e["verdict"] == "REFUTED":
+                        has_refuted = True
+                    if e["verdict"] == "VERIFIED":
+                        has_verified = True
+        if has_refuted and not has_verified:
+            return (
+                f"Error: Cannot promote {wh_id} — a REFUTED computation exists "
+                "with no superseding VERIFIED computation."
+            )
+
+        # Guardrail: unresolved HIGH critique block
+        critique_log = self.workspace.read_file("CRITIQUE_LOG.md")
+        if critique_log:
+            # Check if any unresolved HIGH critique mentions this WH
+            active_idx = critique_log.find("# Active Critiques")
+            resolved_idx = critique_log.find("# Resolved Critiques")
+            if active_idx != -1:
+                end = resolved_idx if resolved_idx > active_idx else len(critique_log)
+                active_section = critique_log[active_idx:end]
+                # Find HIGH UNRESOLVED critiques that mention this WH
+                _ACTIVE_CRIT_RE = re.compile(
+                    r'^##\s+(CRIT(?:IQUE)?-\d+)\s.*?\[HIGH\].*?\[UNRESOLVED\]',
+                    re.MULTILINE | re.IGNORECASE,
+                )
+                headers = list(_ACTIVE_CRIT_RE.finditer(active_section))
+                for i, match in enumerate(headers):
+                    start = match.end()
+                    end_pos = headers[i + 1].start() if i + 1 < len(headers) else len(active_section)
+                    body = active_section[start:end_pos]
+                    if wh_id in body or er_id in body:
+                        crit_id = match.group(1)
+                        return (
+                            f"Error: Cannot promote {wh_id} — unresolved HIGH "
+                            f"critique {crit_id} targets this claim."
+                        )
+
+        # Perform promotion: rename header WH-NNN → ER-NNN
+        state_text = re.sub(
+            rf'^(#{{2,3}} ){re.escape(wh_id)}',
+            rf'\g<1>{er_id}',
+            state_text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        # Propagate prose references using word-boundary regex
+        state_text = re.sub(rf'\b{re.escape(wh_id)}\b', er_id, state_text)
+
+        # Update verified_results frontmatter
+        meta, body = parse_frontmatter(state_text)
+        vr = meta.get("verified_results", []) or []
+        if er_id not in vr:
+            vr.append(er_id)
+            meta["verified_results"] = sorted(vr)
+        # Remove WH form if present
+        if wh_id in vr:
+            vr.remove(wh_id)
+            meta["verified_results"] = sorted(vr)
+        state_text = render_frontmatter(meta, body)
+
+        self.workspace.write_file("RESEARCH_STATE.md", state_text)
+
+        # Update formal research state object
+        if self.research_state:
+            from .research_state import HypothesisStatus
+            if wh_id in self.research_state.hypotheses:
+                h = self.research_state.hypotheses.pop(wh_id)
+                h.id = er_id
+                h.status = HypothesisStatus.ESTABLISHED
+                h.iteration_modified = self.iteration
+                self.research_state.hypotheses[er_id] = h
+
+        # Log scaffold event
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "promote_hypothesis",
+            f"Promoted {wh_id} → {er_id}: {justification}",
+        )
+
+        self.mutations_applied = True
+        return f"Promoted {wh_id} → {er_id}"
 
     def _resolve_critique(self, args: dict) -> str:
         from .markdown import (

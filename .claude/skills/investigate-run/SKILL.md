@@ -83,9 +83,10 @@ Read `EVENT_LOG.jsonl` and look for:
 - Count `orchestrator_tool_mutations` events — how many show `mutations=True` (tool path) vs any legacy fallback?
 - If the orchestrator used tools: did it over-call `set_next_task` (multiple times per iteration)?
 
-**Promotion gate behavior:**
-- Count `er_promotion_gate` events — how many times did the gate fire? (1-2 is healthy; 5+ suggests the old fight-loop problem)
-- Were there any silent demotions that the orchestrator then re-promoted?
+**Demotion safety and promotion:**
+- Count `er_demotion_safety` events — how many times did the demotion check fire? (1-2 is healthy; 5+ suggests a compute loop problem)
+- Count `promote_hypothesis` events — tracks orchestrator-driven WH→ER promotions
+- Did the orchestrator promote WHs promptly after VERIFIED verdicts?
 
 **Failure enrichment:**
 - Did `p6_enrichment` fire? If there were REFUTED/INCONCLUSIVE computations, was the retry enriched with prior failure context?

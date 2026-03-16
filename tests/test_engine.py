@@ -887,13 +887,13 @@ class TestTerminationGate:
         prefix = engine._build_context_prefix()
         assert prefix == ""
 
-    def test_context_prefix_filters_er_promotion_gate(self):
-        """ER promotion gate violations are silently filtered; other violations appear."""
+    def test_context_prefix_includes_er_demotion_safety(self):
+        """ER demotion safety violations now appear in context (no longer silently filtered)."""
         engine, _ = self._make_engine()
         engine._state.pending_violations = [
             Violation(
-                check="er_promotion_gate", severity=ViolationSeverity.WARNING,
-                message="ER-001 has no VERIFIED computation backing — demoted to WH-001",
+                check="er_demotion_safety", severity=ViolationSeverity.WARNING,
+                message="ER-001 has REFUTED computation with no VERIFIED — demoted to WH-001",
                 file="RESEARCH_STATE.md", detail="ER-001",
             ),
             Violation(
@@ -906,9 +906,8 @@ class TestTerminationGate:
         assert "POST-INTEGRATION VIOLATIONS" in prefix
         assert "phantom_references" in prefix
         assert "COMP-999" in prefix
-        # ER promotion gate violation should NOT appear
-        assert "er_promotion_gate" not in prefix
-        assert "UNVERIFIED CLAIMS" not in prefix
+        # ER demotion safety violations now appear in context prefix
+        assert "er_demotion_safety" in prefix
         assert len(engine._state.pending_violations) == 0  # consumed
 
 

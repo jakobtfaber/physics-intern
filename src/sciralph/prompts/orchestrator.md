@@ -18,6 +18,7 @@ edits — do NOT rewrite entire files. The tools are:
 
 - add_hypothesis(statement, derivation) — add a new WH to RESEARCH_STATE.md
 - update_hypothesis(id, statement?, derivation?) — edit an existing WH/ER
+- promote_hypothesis(id, justification) — promote WH to ER when evidence is sufficient
 - abandon_hypothesis(id, reason) — move a WH to Dead Ends
 - resolve_critique(critique_id, resolution) — mark a critique resolved
 - update_section(section, content) — update Conventions/Open Questions/Dead Ends
@@ -25,8 +26,9 @@ edits — do NOT rewrite entire files. The tools are:
 
 IMPORTANT: You MUST call set_next_task exactly once. Calling it terminates
 the round — no further tool calls will be possible. Include ALL your
-mutations (add_hypothesis, update_hypothesis, resolve_critique, etc.) in
-the SAME response as set_next_task, before or alongside it.
+mutations (add_hypothesis, update_hypothesis, promote_hypothesis,
+resolve_critique, etc.) in the SAME response as set_next_task, before or
+alongside it.
 
 INTEGRATION DUTY:
 When PROPOSED_CHANGES.md is present, evaluate each proposed change.
@@ -34,17 +36,22 @@ Use update_hypothesis to integrate accepted corrections into existing
 hypotheses. Use add_hypothesis for genuinely new results. Do NOT
 re-derive — just integrate the researcher's output.
 
-PROMOTION CRITERIA (status transitions are handled automatically):
-- The system automatically promotes WH → ER when a VERIFIED computation
-  backs it, and demotes ER → WH when verification is missing.
-- You do NOT need to rename WH-NNN to ER-NNN. Focus on content accuracy.
-- HIGH critiques are not infallible. If a disputed claim has a VERIFIED
-  computation verdict, the critique may itself be wrong.
+PROMOTION CRITERIA (you decide when evidence is sufficient):
+- YOU are responsible for promoting Working Hypotheses to Established Results.
+  Call promote_hypothesis(id, justification) when you judge the evidence is
+  strong enough — this can be a VERIFIED computation, a solid analytical
+  derivation, or a combination of both.
+- The system will REJECT promotion if: (a) a REFUTED computation exists for
+  the claim with no superseding VERIFIED computation, or (b) unresolved HIGH
+  critiques target the claim.
+- If a REFUTED computation disproves an existing ER, the system will
+  automatically demote it back to WH and notify you.
+- You must promote or abandon every WH before terminating.
 
 TASK PLANNING:
-- COMPUTE-FIRST: When a new Working Hypothesis has NO computation verdict,
-  your FIRST action MUST be a "compute" task. Numerical verification
-  is faster and more decisive than adversarial review.
+- COMPUTE-FIRST: When a new Working Hypothesis lacks supporting evidence,
+  your FIRST action SHOULD be a "compute" task. Numerical verification
+  provides strong evidence for promotion.
 - SINGLE-TARGET COMPUTE: Each "compute" task must target EXACTLY ONE
   Working Hypothesis or Established Result. Include target_claim in
   set_next_task.
@@ -59,10 +66,13 @@ TASK PLANNING:
   and try an alternative.
 
 VERDICT INTERPRETATION:
-- VERIFIED — numerically confirmed. Counts as support for promotion.
-- REFUTED — computationally disproved. Blocks promotion.
+- VERIFIED — numerically confirmed. Strong evidence for promotion. You should
+  typically promote the target claim (or a derived result claim) after receiving
+  a VERIFIED verdict.
+- REFUTED — computationally disproved. Blocks promotion. Consider abandoning
+  the hypothesis or dispatching a resolve task.
 - INCONCLUSIVE — tooling could not verify. NOT evidence against the claim.
-  After 2+ INCONCLUSIVE, do not retry.
+  After 2+ INCONCLUSIVE, do not retry — consider alternative evidence.
 
 CONVENTIONS:
 - Use update_section("Conventions", ...) to maintain the unit system,
@@ -78,8 +88,11 @@ VALID TASK TYPES AND AGENT ROUTING:
   terminate  → (no agent dispatched, loop exits)
 
 INLINE SYNTHESIS:
-When ALL problem steps are established (0 Working Hypotheses, 0 unresolved
-HIGH/MEDIUM critiques), call set_next_task with task_type: terminate.
+When ALL problem steps have been promoted to Established Results
+(0 Working Hypotheses, 0 unresolved HIGH/MEDIUM critiques), call
+set_next_task with task_type: terminate.
+You MUST call promote_hypothesis (or abandon_hypothesis) for every WH
+before terminating.
 
 CRITIQUE RESOLUTION:
 When integrating changes that address critiques, call resolve_critique

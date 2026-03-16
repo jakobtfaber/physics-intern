@@ -85,38 +85,47 @@ def _build_task_comp_mapping(entries: list[dict]) -> dict[str, set[str]]:
 # Individual check functions
 # ---------------------------------------------------------------------------
 
-def check_er_promotion_gate(workspace: WorkspaceManager, research_state: ResearchState | None = None) -> list[Violation]:
-    """Demote ER-NNN sections that lack a VERIFIED computation backing,
-    and promote WH-NNN headers when the body already uses ER-NNN with VERIFIED backing."""
+def check_er_demotion_safety(workspace: WorkspaceManager, research_state: ResearchState | None = None) -> list[Violation]:
+    """Demote ER-NNN sections only when an explicit REFUTED computation exists
+    with no superseding VERIFIED computation for that claim.
+
+    Promotion is now handled by the orchestrator's promote_hypothesis tool.
+    """
     violations: list[Violation] = []
     state = workspace.read_file("RESEARCH_STATE.md")
     comp_log = workspace.read_file("COMPUTATION_LOG.md")
     entries = _parse_comp_entries(comp_log)
     changed = False
 
-    # --- Pass 1: Demote unverified ERs to WHs ---
     er_ids = find_er_section_ids(state)
 
     for er_id in er_ids:
         num = er_id.split("-")[1]
         wh_id = f"WH-{num}"
-        # Primary: check formal registry (target_hypothesis field)
+
+        # Check for REFUTED and VERIFIED computations targeting this claim
+        has_refuted = False
         has_verified = False
         if research_state:
-            has_verified = any(
-                c.verdict.value == "VERIFIED" and c.target_hypothesis in (er_id, wh_id)
-                for c in research_state.computations.values()
-            )
-        # Fallback: substring matching on computation log entries
-        if not has_verified:
-            has_verified = any(
-                e["verdict"] == "VERIFIED" and (
-                    er_id in e["claim"] or wh_id in e["claim"]
-                    or er_id in e.get("body", "") or wh_id in e.get("body", "")
-                )
-                for e in entries
-            )
-        if not has_verified:
+            for c in research_state.computations.values():
+                if c.target_hypothesis in (er_id, wh_id):
+                    if c.verdict.value == "REFUTED":
+                        has_refuted = True
+                    if c.verdict.value == "VERIFIED":
+                        has_verified = True
+
+        if not has_refuted or not has_verified:
+            # Fallback: substring matching on computation log entries
+            for e in entries:
+                refs = e["claim"] + " " + e.get("body", "")
+                if er_id in refs or wh_id in refs:
+                    if e["verdict"] == "REFUTED":
+                        has_refuted = True
+                    if e["verdict"] == "VERIFIED":
+                        has_verified = True
+
+        # Only demote when REFUTED exists and no VERIFIED supersedes it
+        if has_refuted and not has_verified:
             state = re.sub(
                 rf'^(#{{2,3}} |(?:\*\*)){re.escape(er_id)}',
                 rf'\g<1>{wh_id}',
@@ -125,54 +134,14 @@ def check_er_promotion_gate(workspace: WorkspaceManager, research_state: Researc
                 flags=re.MULTILINE,
             )
             # Propagate prose references: ER-NNN → WH-NNN throughout state
-            state = state.replace(er_id, wh_id)
+            state = re.sub(rf'\b{re.escape(er_id)}\b', wh_id, state)
             changed = True
             violations.append(Violation(
-                check="er_promotion_gate",
+                check="er_demotion_safety",
                 severity=ViolationSeverity.WARNING,
-                message=f"{er_id} has no VERIFIED computation backing — demoted to {wh_id}",
+                message=f"{er_id} has REFUTED computation with no VERIFIED — demoted to {wh_id}",
                 file="RESEARCH_STATE.md",
                 detail=er_id,
-            ))
-
-    # --- Pass 2: Promote WH-NNN headers when ER-NNN already in body with VERIFIED backing ---
-    wh_ids = _WH_SECTION_RE.findall(state)
-    for wh_id in wh_ids:
-        num = wh_id.split("-")[1]
-        er_id = f"ER-{num}"
-        # Primary: check formal registry
-        has_verified = False
-        if research_state:
-            has_verified = any(
-                c.verdict.value == "VERIFIED" and c.target_hypothesis in (er_id, wh_id)
-                for c in research_state.computations.values()
-            )
-        # Fallback: substring matching
-        if not has_verified:
-            has_verified = any(
-                e["verdict"] == "VERIFIED" and (
-                    er_id in e["claim"] or wh_id in e["claim"]
-                    or er_id in e.get("body", "") or wh_id in e.get("body", "")
-                )
-                for e in entries
-            )
-        if has_verified:
-            state = re.sub(
-                rf'^(#{{2,3}} ){re.escape(wh_id)}',
-                rf'\g<1>{er_id}',
-                state,
-                count=1,
-                flags=re.MULTILINE,
-            )
-            # Propagate prose references: WH-NNN → ER-NNN throughout state
-            state = state.replace(wh_id, er_id)
-            changed = True
-            violations.append(Violation(
-                check="er_promotion_gate",
-                severity=ViolationSeverity.WARNING,
-                message=f"Promoted header {wh_id} → {er_id} (VERIFIED backing found)",
-                file="RESEARCH_STATE.md",
-                detail=wh_id,
             ))
 
     # --- Normalize frontmatter verified_results to match current section headers ---
@@ -180,7 +149,6 @@ def check_er_promotion_gate(workspace: WorkspaceManager, research_state: Researc
         meta, body = parse_frontmatter(state)
         vr_list = meta.get("verified_results")
         if vr_list:
-            # Build mapping of current header IDs
             current_er_ids = set(find_er_section_ids(body))
             current_wh_ids = set(_WH_SECTION_RE.findall(body))
             normalized = []
@@ -389,52 +357,42 @@ def check_phantom_references(workspace: WorkspaceManager) -> list[Violation]:
 
 
 def check_verified_frontmatter_backfill(workspace: WorkspaceManager) -> list[Violation]:
-    """Backfill verified_results in RESEARCH_STATE.md frontmatter from computation log."""
+    """Sync verified_results in RESEARCH_STATE.md frontmatter with current ER section headers.
+
+    Promotion is now explicit via the orchestrator's promote_hypothesis tool,
+    so verified_results should simply reflect actual ER sections.
+    """
     violations: list[Violation] = []
-    comp_log = workspace.read_file("COMPUTATION_LOG.md")
     state = workspace.read_file("RESEARCH_STATE.md")
-    if not comp_log or not state:
+    if not state:
         return []
 
-    entries = _parse_comp_entries(comp_log)
-    verified_ids: set[str] = set()
-    for e in entries:
-        if e["verdict"] == "VERIFIED":
-            verified_ids.update(_ER_WH_ID_RE.findall(e["claim"]))
-            verified_ids.update(_ER_WH_ID_RE.findall(e.get("body", "")))
-
-    if not verified_ids:
-        return []
-
-    # Normalize verified IDs to match current section headers in state
     meta, body = parse_frontmatter(state)
-    current_er_ids = set(find_er_section_ids(body))
-    current_wh_ids = set(_WH_SECTION_RE.findall(body))
-    normalized_ids: set[str] = set()
-    for vid in verified_ids:
-        num = vid.split("-")[1]
-        er_form = f"ER-{num}"
-        wh_form = f"WH-{num}"
-        if vid.startswith("WH-") and er_form in current_er_ids:
-            normalized_ids.add(er_form)
-        elif vid.startswith("ER-") and er_form not in current_er_ids and wh_form in current_wh_ids:
-            normalized_ids.add(wh_form)
-        else:
-            normalized_ids.add(vid)
+    current_er_ids = sorted(find_er_section_ids(body))
+    existing = sorted(meta.get("verified_results", []) or [])
 
-    existing = set(meta.get("verified_results", []) or [])
-    missing = sorted(normalized_ids - existing)
-    if not missing:
+    if current_er_ids == existing:
         return []
 
-    meta["verified_results"] = sorted(existing | normalized_ids)
+    added = sorted(set(current_er_ids) - set(existing))
+    removed = sorted(set(existing) - set(current_er_ids))
+
+    meta["verified_results"] = current_er_ids
     workspace.write_file("RESEARCH_STATE.md", render_frontmatter(meta, body))
+
+    parts = []
+    if added:
+        parts.append(f"added {', '.join(added)}")
+    if removed:
+        parts.append(f"removed {', '.join(removed)}")
+    detail = "; ".join(parts)
+
     violations.append(Violation(
         check="verified_frontmatter_backfill",
         severity=ViolationSeverity.WARNING,
-        message=f"Backfilled verified_results: {', '.join(missing)}",
+        message=f"Synced verified_results with ER sections: {detail}",
         file="RESEARCH_STATE.md",
-        detail=", ".join(missing),
+        detail=detail,
     ))
     return violations
 
@@ -553,7 +511,7 @@ def check_critique_resolution_consistency(workspace: WorkspaceManager) -> list[V
 
 _DEFAULT_CHECKS = [
     check_phantom_references,
-    check_er_promotion_gate,
+    check_er_demotion_safety,
     check_phantom_labels,
     check_stale_unverified_labels,
     check_verified_frontmatter_backfill,
@@ -573,7 +531,7 @@ def validate_post_integration(
     violations: list[Violation] = []
     for check in _DEFAULT_CHECKS:
         # Pass research_state to checks that accept it
-        if check is check_er_promotion_gate:
+        if check is check_er_demotion_safety:
             check_violations = check(workspace, research_state=research_state)
         else:
             check_violations = check(workspace)
@@ -626,5 +584,24 @@ def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsT
                 "You MUST emit task_type: compute (assigned_to: computationalist) "
                 "to run at least one numerical verification before terminating."
             )
+
+    # Gate 4: WHs with VERIFIED computation backing should be promoted or abandoned
+    if state:
+        wh_ids = _WH_SECTION_RE.findall(state)
+        for wh_id in wh_ids:
+            num = wh_id.split("-")[1]
+            er_id = f"ER-{num}"
+            wh_has_verified = any(
+                e["verdict"] == "VERIFIED" and (
+                    wh_id in e["claim"] or er_id in e["claim"]
+                    or wh_id in e.get("body", "") or er_id in e.get("body", "")
+                )
+                for e in entries
+            )
+            if wh_has_verified:
+                blockers.append(
+                    f"{wh_id} has VERIFIED computation backing but was not promoted. "
+                    "Call promote_hypothesis or abandon_hypothesis before terminating."
+                )
 
     return (len(blockers) == 0, blockers)
