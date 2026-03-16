@@ -518,14 +518,22 @@ def validate_post_integration(
 # Termination gate
 # ---------------------------------------------------------------------------
 
-def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsTracker, problem_meta: dict | None = None) -> tuple[bool, list[str]]:
+def can_terminate(
+    workspace: WorkspaceManager,
+    config: Config,
+    metrics: MetricsTracker,
+    problem_meta: dict | None = None,
+    *,
+    research_state: ResearchState,
+) -> tuple[bool, list[str]]:
     """Check preconditions before allowing the research loop to exit.
 
     Returns (allowed, blockers) where blockers is a list of human-readable
     reasons the loop must continue.
     """
+    from .research_state import HypothesisStatus, RQStatus, Verdict
+
     blockers: list[str] = []
-    state = workspace.read_file("RESEARCH_STATE.md")
 
     # Prefer JSONL; fall back to markdown parsing
     index_entries = read_computation_index(workspace)
@@ -565,28 +573,31 @@ def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsT
                 "to run at least one numerical verification before terminating."
             )
 
-    # Gate 4: WHs with VERIFIED computation backing should be promoted or abandoned
-    if state:
-        wh_ids = _WH_SECTION_RE.findall(state)
-        for wh_id in wh_ids:
-            num = wh_id.split("-")[1]
-            er_id = f"ER-{num}"
+    # Gate 4: All RQs and WHs must be resolved before termination
+    for rq in research_state.research_questions.values():
+        if rq.status == RQStatus.OPEN:
+            blockers.append(
+                f"{rq.id} is still OPEN. "
+                "Call resolve_research_question or abandon it before terminating."
+            )
 
-            # Check JSONL index
-            wh_has_verified = wh_id in verified_targets or er_id in verified_targets
-            # Fallback: check markdown entries
-            if not wh_has_verified:
-                wh_has_verified = any(
-                    e["verdict"] == "VERIFIED" and (
-                        wh_id in e["claim"] or er_id in e["claim"]
-                        or wh_id in e.get("body", "") or er_id in e.get("body", "")
-                    )
-                    for e in md_entries
-                )
-            if wh_has_verified:
+    # Build set of WHs with VERIFIED backing for a more specific message
+    verified_wh_ids: set[str] = set()
+    for comp in research_state.computations.values():
+        if comp.verdict == Verdict.VERIFIED and comp.target_hypothesis:
+            verified_wh_ids.add(comp.target_hypothesis)
+
+    for h in research_state.hypotheses.values():
+        if h.status == HypothesisStatus.WORKING:
+            if h.id in verified_wh_ids:
                 blockers.append(
-                    f"{wh_id} has VERIFIED computation backing but was not promoted. "
+                    f"{h.id} has VERIFIED computation backing but was not promoted. "
                     "Call promote_hypothesis or abandon_hypothesis before terminating."
+                )
+            else:
+                blockers.append(
+                    f"{h.id} is still a working hypothesis. "
+                    "Promote, verify, or abandon it before terminating."
                 )
 
     return (len(blockers) == 0, blockers)

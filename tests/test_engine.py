@@ -371,7 +371,8 @@ class TestTerminationGate:
 
         # The stub always allows termination
         allowed, blockers = can_terminate(
-            engine.workspace, engine.config, engine.metrics, engine.problem_meta)
+            engine.workspace, engine.config, engine.metrics, engine.problem_meta,
+            research_state=engine.research_state)
         assert allowed is True
         assert blockers == []
 

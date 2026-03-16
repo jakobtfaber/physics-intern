@@ -544,15 +544,38 @@ class TestCanTerminate:
         """Return a minimal config-like object (unused by can_terminate but required by signature)."""
         return object()
 
-    def test_clean_termination_allowed(self):
-        """No ERs, no HIGH critiques, no numerical requirement => allowed."""
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": "# Working Hypotheses (WH) and Established Results (ER)\n\nSome findings.\n",
+    def _empty_rs(self):
+        from sciralph.research_state import ResearchState
+        return ResearchState()
+
+    def _rs_with_er(self, er_id="ER-001"):
+        from sciralph.research_state import ResearchState, Hypothesis, HypothesisStatus
+        rs = ResearchState()
+        rs.hypotheses[er_id] = Hypothesis(
+            id=er_id, statement="Result", status=HypothesisStatus.ESTABLISHED,
+        )
+        return rs
+
+    def _rs_with_wh(self, wh_id="WH-001"):
+        from sciralph.research_state import ResearchState, Hypothesis, HypothesisStatus
+        rs = ResearchState()
+        rs.hypotheses[wh_id] = Hypothesis(
+            id=wh_id, statement="Hypothesis", status=HypothesisStatus.WORKING,
+        )
+        return rs
+
+    def _empty_ws(self):
+        return MockWorkspace({
+            "RESEARCH_STATE.md": "",
             "COMPUTATION_LOG.md": "",
             "CRITIQUE_LOG.md": "",
         })
+
+    def test_clean_termination_allowed(self):
+        """No ERs, no HIGH critiques, no numerical requirement => allowed."""
         metrics = MockMetrics(last_critic_iteration=0)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=self._empty_rs())
         assert allowed is True
         assert blockers == []
 
@@ -561,12 +584,13 @@ class TestCanTerminate:
         meta = {"total_computations": 1}
         comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify WH-001\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": "## ER-001 Some result\n\nContent.\n",
+            "RESEARCH_STATE.md": "",
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
             "CRITIQUE_LOG.md": "",
         })
         metrics = MockMetrics(last_critic_iteration=0)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        allowed, blockers = can_terminate(
+            ws, self._base_config(), metrics, research_state=self._rs_with_er())
         assert allowed is False
         assert any("critic pass" in b.lower() for b in blockers)
 
@@ -575,12 +599,13 @@ class TestCanTerminate:
         meta = {"total_computations": 1}
         comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify WH-001\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": "## ER-001 Some result\n\nContent.\n",
+            "RESEARCH_STATE.md": "",
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
             "CRITIQUE_LOG.md": "",
         })
         metrics = MockMetrics(last_critic_iteration=3)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        allowed, blockers = can_terminate(
+            ws, self._base_config(), metrics, research_state=self._rs_with_er())
         assert allowed is True
 
     def test_blocked_by_unresolved_high(self):
@@ -591,12 +616,13 @@ class TestCanTerminate:
 Something is wrong.
 """
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": "Some state.\n",
+            "RESEARCH_STATE.md": "",
             "COMPUTATION_LOG.md": "",
             "CRITIQUE_LOG.md": critique,
         })
         metrics = MockMetrics(last_critic_iteration=2)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        allowed, blockers = can_terminate(
+            ws, self._base_config(), metrics, research_state=self._empty_rs())
         assert allowed is False
         assert any("HIGH" in b for b in blockers)
 
@@ -608,35 +634,30 @@ Something is wrong.
 Minor issue.
 """
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": "Some state.\n",
+            "RESEARCH_STATE.md": "",
             "COMPUTATION_LOG.md": "",
             "CRITIQUE_LOG.md": critique,
         })
         metrics = MockMetrics(last_critic_iteration=2)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        allowed, blockers = can_terminate(
+            ws, self._base_config(), metrics, research_state=self._empty_rs())
         assert allowed is True
 
     def test_blocked_by_no_computations_when_required(self):
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": "Some state.\n",
-            "COMPUTATION_LOG.md": "",
-            "CRITIQUE_LOG.md": "",
-        })
         metrics = MockMetrics(last_critic_iteration=2)
         problem_meta = {"requires_numerical": True}
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics, problem_meta)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, problem_meta,
+            research_state=self._empty_rs())
         assert allowed is False
         assert any("numerical" in b.lower() for b in blockers)
 
     def test_allowed_when_requires_numerical_false(self):
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": "Some state.\n",
-            "COMPUTATION_LOG.md": "",
-            "CRITIQUE_LOG.md": "",
-        })
         metrics = MockMetrics(last_critic_iteration=0)
         problem_meta = {"requires_numerical": False}
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics, problem_meta)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, problem_meta,
+            research_state=self._empty_rs())
         assert allowed is True
 
     def test_allowed_with_computations_when_required(self):
@@ -651,17 +672,20 @@ Minor issue.
 OK.
 """
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": "Some state.\n",
+            "RESEARCH_STATE.md": "",
             "COMPUTATION_LOG.md": render_frontmatter(meta, body),
             "CRITIQUE_LOG.md": "",
         })
         metrics = MockMetrics(last_critic_iteration=2)
         problem_meta = {"requires_numerical": True}
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics, problem_meta)
+        allowed, blockers = can_terminate(
+            ws, self._base_config(), metrics, problem_meta,
+            research_state=self._empty_rs())
         assert allowed is True
 
     def test_multiple_blockers(self):
         """Multiple gates fail at once."""
+        from sciralph.research_state import ResearchState, Hypothesis, HypothesisStatus, Computation, Verdict
         critique = """# Active Critiques
 
 ## CRIT-001 [HIGH] [UNRESOLVED]
@@ -671,26 +695,28 @@ Big problem.
         meta = {"total_computations": 1}
         comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify WH-001\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": "## ER-001 Something\n\nContent.\n",
+            "RESEARCH_STATE.md": "",
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
             "CRITIQUE_LOG.md": critique,
         })
+        rs = ResearchState()
+        rs.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", statement="Something", status=HypothesisStatus.ESTABLISHED,
+        )
         metrics = MockMetrics(last_critic_iteration=0)
         problem_meta = {"requires_numerical": True}
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics, problem_meta)
+        allowed, blockers = can_terminate(
+            ws, self._base_config(), metrics, problem_meta, research_state=rs)
         assert allowed is False
         # Should have at least 2 blockers: no critic, HIGH critique
         # (Gate 3 passes because comp_log has entries)
         assert len(blockers) >= 2
 
     def test_none_problem_meta_treated_as_empty(self):
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": "Some state.\n",
-            "COMPUTATION_LOG.md": "",
-            "CRITIQUE_LOG.md": "",
-        })
         metrics = MockMetrics(last_critic_iteration=0)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics, None)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, None,
+            research_state=self._empty_rs())
         assert allowed is True
 
     def test_bold_format_er_detected_for_critic_gate(self):
@@ -698,65 +724,191 @@ Big problem.
         meta = {"total_computations": 1}
         comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify ER-001 partition function\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": "**ER-001 — Partition Function**\nBody.\n",
+            "RESEARCH_STATE.md": "",
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
             "CRITIQUE_LOG.md": "",
         })
         metrics = MockMetrics(last_critic_iteration=0)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        allowed, blockers = can_terminate(
+            ws, self._base_config(), metrics, research_state=self._rs_with_er())
         assert allowed is False
         assert any("critic pass" in b.lower() for b in blockers)
 
     def test_blocked_by_verified_comp_without_critic(self):
-        """WHs only (no ERs) but VERIFIED computation exists => should block (GPT-OSS failure mode)."""
+        """WHs only (no ERs) but VERIFIED computation exists => blocked by both critic gate and Gate 4."""
+        from sciralph.research_state import ResearchState, Hypothesis, HypothesisStatus, Computation, Verdict
         meta = {"total_computations": 1}
         comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify WH-001 partition function\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
         ws = MockWorkspace({
-            "RESEARCH_STATE.md": "## WH-001 Partition Function\n\nZ = 1/(2 sinh(...))\n",
+            "RESEARCH_STATE.md": "",
             "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
             "CRITIQUE_LOG.md": "",
         })
+        rs = ResearchState()
+        rs.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Partition Function", status=HypothesisStatus.WORKING,
+        )
+        rs.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001", verdict=Verdict.VERIFIED, iteration=1,
+        )
         metrics = MockMetrics(last_critic_iteration=0)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        allowed, blockers = can_terminate(
+            ws, self._base_config(), metrics, research_state=rs)
         assert allowed is False
         assert any("critic pass" in b.lower() for b in blockers)
+        assert any("WH-001" in b for b in blockers)
 
-    def test_no_verified_comp_allows_termination_without_critic(self):
-        """No verified computations => critic not required (early termination of empty runs)."""
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": "## WH-001 Some hypothesis\n\nContent.\n",
+
+class TestCanTerminateGate5:
+    """Gate 5: All RQs and WHs must be resolved/abandoned before termination (ResearchState path)."""
+
+    def _base_config(self):
+        return object()
+
+    def _empty_ws(self):
+        return MockWorkspace({
+            "RESEARCH_STATE.md": "",
             "COMPUTATION_LOG.md": "",
             "CRITIQUE_LOG.md": "",
         })
-        metrics = MockMetrics(last_critic_iteration=0)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
-        assert allowed is True
 
-    def test_blocked_by_verified_wh_not_promoted(self):
-        """Gate 4: WH with VERIFIED computation backing but not promoted to ER => blocks termination."""
-        meta = {"total_computations": 1}
-        comp_body = "# Computations\n\n## COMP-001\n\n**CLAIM**: Verify WH-001 partition function\n**VERDICT**: VERIFIED\n**RESULT**:\nOK.\n"
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": "## WH-001 Partition Function\n\nZ = 1/(2 sinh(...))\n",
-            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
-            "CRITIQUE_LOG.md": "",
-        })
-        metrics = MockMetrics(last_critic_iteration=3)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+    def test_open_rq_blocks_termination(self):
+        from sciralph.research_state import ResearchState, ResearchQuestion, RQStatus
+        rs = ResearchState()
+        rs.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is F(p)?", status=RQStatus.OPEN,
+        )
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=rs)
         assert allowed is False
-        assert any("WH-001" in b and "not promoted" in b.lower() for b in blockers)
+        assert any("RQ-001" in b and "OPEN" in b for b in blockers)
 
-    def test_wh_without_verified_does_not_block_gate4(self):
-        """Gate 4: WH without VERIFIED computation backing does not block termination."""
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": "## WH-001 Some hypothesis\n\nContent.\n",
-            "COMPUTATION_LOG.md": "",
-            "CRITIQUE_LOG.md": "",
-        })
+    def test_resolved_rq_does_not_block(self):
+        from sciralph.research_state import ResearchState, ResearchQuestion, RQStatus
+        rs = ResearchState()
+        rs.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is F(p)?", status=RQStatus.RESOLVED,
+        )
         metrics = MockMetrics(last_critic_iteration=0)
-        allowed, blockers = can_terminate(ws, self._base_config(), metrics)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=rs)
         assert allowed is True
-        assert not any("WH-001" in b for b in blockers)
+
+    def test_abandoned_rq_does_not_block(self):
+        from sciralph.research_state import ResearchState, ResearchQuestion, RQStatus
+        rs = ResearchState()
+        rs.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Dead end", status=RQStatus.ABANDONED,
+        )
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=rs)
+        assert allowed is True
+
+    def test_working_wh_blocks_termination(self):
+        from sciralph.research_state import ResearchState, Hypothesis, HypothesisStatus
+        rs = ResearchState()
+        rs.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="F(p) is rational", status=HypothesisStatus.WORKING,
+        )
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=rs)
+        assert allowed is False
+        assert any("WH-001" in b and "working hypothesis" in b.lower() for b in blockers)
+
+    def test_working_wh_with_verified_backing_gives_specific_message(self):
+        from sciralph.research_state import ResearchState, Hypothesis, HypothesisStatus, Computation, Verdict
+        rs = ResearchState()
+        rs.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="F(p) = ...", status=HypothesisStatus.WORKING,
+        )
+        rs.computations["TASK-001"] = Computation(
+            id="TASK-001", target_hypothesis="WH-001", verdict=Verdict.VERIFIED,
+            iteration=1,
+        )
+        metrics = MockMetrics(last_critic_iteration=3)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=rs)
+        assert allowed is False
+        assert any("WH-001" in b and "VERIFIED" in b for b in blockers)
+
+    def test_established_hypothesis_does_not_block(self):
+        from sciralph.research_state import ResearchState, Hypothesis, HypothesisStatus
+        rs = ResearchState()
+        rs.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", statement="Proven", status=HypothesisStatus.ESTABLISHED,
+        )
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=rs)
+        assert allowed is True
+
+    def test_abandoned_hypothesis_does_not_block(self):
+        from sciralph.research_state import ResearchState, Hypothesis, HypothesisStatus
+        rs = ResearchState()
+        rs.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Wrong", status=HypothesisStatus.ABANDONED,
+        )
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=rs)
+        assert allowed is True
+
+    def test_mixed_entities_all_resolved_allows_termination(self):
+        from sciralph.research_state import (
+            ResearchState, Hypothesis, HypothesisStatus,
+            ResearchQuestion, RQStatus,
+        )
+        rs = ResearchState()
+        rs.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Q1", status=RQStatus.RESOLVED,
+        )
+        rs.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", statement="Result", status=HypothesisStatus.ESTABLISHED,
+        )
+        rs.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", statement="Dead end", status=HypothesisStatus.ABANDONED,
+        )
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=rs)
+        assert allowed is True
+
+    def test_mixed_entities_some_dangling_blocks(self):
+        from sciralph.research_state import (
+            ResearchState, Hypothesis, HypothesisStatus,
+            ResearchQuestion, RQStatus,
+        )
+        rs = ResearchState()
+        rs.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Q1", status=RQStatus.RESOLVED,
+        )
+        rs.research_questions["RQ-002"] = ResearchQuestion(
+            id="RQ-002", question="Q2", status=RQStatus.OPEN,
+        )
+        rs.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", statement="Result", status=HypothesisStatus.ESTABLISHED,
+        )
+        rs.hypotheses["WH-003"] = Hypothesis(
+            id="WH-003", statement="Dangling", status=HypothesisStatus.WORKING,
+        )
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=rs)
+        assert allowed is False
+        assert any("RQ-002" in b for b in blockers)
+        assert any("WH-003" in b for b in blockers)
+        assert len(blockers) == 2
+
+    def test_empty_research_state_allows_termination(self):
+        from sciralph.research_state import ResearchState
+        rs = ResearchState()
+        metrics = MockMetrics(last_critic_iteration=0)
+        allowed, blockers = can_terminate(
+            self._empty_ws(), self._base_config(), metrics, research_state=rs)
+        assert allowed is True
 
 
 class TestErDemotionSafetyBoldFormat:

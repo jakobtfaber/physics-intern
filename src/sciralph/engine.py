@@ -116,7 +116,8 @@ class SciRalph:
             # 4. Termination gate
             if task.task_type == TaskType.TERMINATE:
                 allowed, blockers = can_terminate(
-                    self.workspace, self.config, self.metrics, self.problem_meta)
+                    self.workspace, self.config, self.metrics, self.problem_meta,
+                    research_state=self.research_state)
                 if allowed:
                     console.print("[green]Orchestrator signaled completion.[/green]")
                     self._run_formatter()
