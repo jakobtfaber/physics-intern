@@ -111,7 +111,7 @@ class TestAgenticResponse:
             rounds=2,
         )
 
-        agent.process_response(result, Task(task_id="COMP-020", task_type=TaskType.COMPUTE, assigned_to="computationalist"), iteration=7)
+        agent.process_response(result, Task(task_id="COMP-020", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify"), iteration=7)
 
         # Without research_state, falls back to append_file
         assert agent.workspace.append_file.call_count >= 1  # JSONL at minimum
@@ -131,7 +131,7 @@ class TestAgenticResponse:
             rounds=1,
         )
 
-        agent.process_response(result, Task(task_id="TASK-010", task_type=TaskType.COMPUTE, assigned_to="computationalist"), iteration=10)
+        agent.process_response(result, Task(task_id="TASK-010", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify"), iteration=10)
 
         # Without research_state, falls back to append_file for markdown
         assert agent.workspace.append_file.call_count == 1
@@ -151,8 +151,8 @@ class TestAgenticResponse:
         )
 
         task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist",
+            task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
+            assigned_to="compute_verify",
             body="Verify WH-005 Maslov phase for ωT > π",
         )
         agent.process_response(result, task, iteration=5)
@@ -189,8 +189,8 @@ class TestSubmitVerdictProcessing:
             rounds=2,
         )
 
-        task = Task(task_id="COMP-030", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify WH-003 entropy")
+        task = Task(task_id="COMP-030", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify WH-003 entropy")
         agent.process_response(result, task, iteration=8)
 
         # Without research_state: append_file for md only (JSONL removed)
@@ -222,8 +222,8 @@ class TestSubmitVerdictProcessing:
             rounds=1,
         )
 
-        task = Task(task_id="COMP-050", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist")
+        task = Task(task_id="COMP-050", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify")
         agent.process_response(result, task, iteration=3)
 
         # JSONL should have VERIFIED from tool data
@@ -245,8 +245,8 @@ class TestSubmitVerdictProcessing:
             rounds=2,
         )
 
-        task = Task(task_id="COMP-010", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist")
+        task = Task(task_id="COMP-010", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify")
         agent.process_response(result, task, iteration=5)
 
         # Without exit tool, result is INCONCLUSIVE
@@ -273,8 +273,8 @@ class TestZeroOutputOnMaxRoundsForced:
             stop_reason="max_rounds_forced",
         )
 
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist",
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify",
                     body="Verify WH-002 temperature")
         agent.process_response(result, task, iteration=5)
 
@@ -294,8 +294,8 @@ class TestZeroOutputOnMaxRoundsForced:
             rounds=1,
         )
 
-        task = Task(task_id="TASK-006", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist",
+        task = Task(task_id="TASK-006", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify",
                     body="Verify WH-003")
         agent.process_response(result, task, iteration=6)
 
@@ -382,8 +382,8 @@ class TestFreeTextFallthrough:
             rounds=1,
         )
 
-        task = Task(task_id="COMP-070", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist")
+        task = Task(task_id="COMP-070", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify")
         agent.process_response(result, task, iteration=2)
 
         jsonl_text = agent.workspace.append_file.call_args_list[-1][0][1]

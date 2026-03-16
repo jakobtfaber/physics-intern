@@ -12,7 +12,6 @@ import yaml
 
 class TaskType(StrEnum):
     RESEARCH_EXPLORE = "research_explore"
-    COMPUTE = "compute"
     COMPUTE_EXPLORE = "compute_explore"
     COMPUTE_VERIFY = "compute_verify"
     RESEARCH_VERIFY = "research_verify"
@@ -23,7 +22,6 @@ class TaskType(StrEnum):
 
 TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
     TaskType.RESEARCH_EXPLORE: "research_explore",
-    TaskType.COMPUTE: "compute_verify",
     TaskType.COMPUTE_EXPLORE: "compute_explore",
     TaskType.COMPUTE_VERIFY: "compute_verify",
     TaskType.RESEARCH_VERIFY: "research_verify",

@@ -42,8 +42,8 @@ Result A is proven.
 
 TASK_TEXT = """---
 task_id: TASK-002
-task_type: compute
-assigned_to: computationalist
+task_type: compute_verify
+assigned_to: compute_verify
 priority: high
 iteration: 2
 ---
@@ -58,7 +58,7 @@ class TestParseTask:
     def test_bare_text(self, orchestrator):
         task = orchestrator.parse_task(TASK_TEXT)
         assert task.task_id == "TASK-002"
-        assert task.task_type == "compute"
+        assert task.task_type == "compute_verify"
 
     def test_parse_task_missing_id_uses_engine_iteration(self, orchestrator):
         text = "---\ntask_type: research_explore\nassigned_to: research_explore\npriority: high\n---\nDo something."
@@ -67,7 +67,7 @@ class TestParseTask:
         assert task.iteration == 7
 
     def test_parse_task_present_id_preferred(self, orchestrator):
-        text = "---\ntask_id: TASK-042\ntask_type: compute\nassigned_to: computationalist\npriority: high\niteration: 42\n---\nVerify."
+        text = "---\ntask_id: TASK-042\ntask_type: compute_verify\nassigned_to: compute_verify\npriority: high\niteration: 42\n---\nVerify."
         task = orchestrator.parse_task(text, iteration=5)
         assert task.task_id == "TASK-042"
         assert task.iteration == 42

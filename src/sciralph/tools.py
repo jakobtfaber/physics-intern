@@ -221,7 +221,7 @@ class ToolExecutor:
             return cls.RESEARCH_VERIFY_TOOLS
         if task_type == TaskType.RESEARCH_EXPLORE:
             return cls.RESEARCH_EXPLORE_TOOLS
-        return cls.TOOL_DEFINITIONS  # COMPUTE (legacy)
+        return cls.TOOL_DEFINITIONS  # default fallback
 
     def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000,
                  task_type: "TaskType | None" = None):

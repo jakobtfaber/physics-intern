@@ -43,29 +43,6 @@ class Violation:
 
 
 # ---------------------------------------------------------------------------
-# Agent routing constants
-# ---------------------------------------------------------------------------
-
-_AGENT_ALIASES = {
-    "compute": "compute_verify",
-    "compute_explore": "compute_explore",
-    "compute_verify": "compute_verify",
-    "research_verify": "research_verify",
-    "research_explore": "research_explore",
-    "researcher": "research_explore",  # backward compat
-    "research": "research_explore",  # backward compat
-    "critique": "deep_critic",
-    "review": "deep_critic",
-    "computationalist": "compute_verify",  # backward compat
-}
-_VALID_AGENTS = {
-    "orchestrator", "research_explore", "computationalist",
-    "compute_verify", "compute_explore", "research_verify",
-    "deep_critic", "compressor",
-}
-
-
-# ---------------------------------------------------------------------------
 # TASK→COMP mapping helper
 # ---------------------------------------------------------------------------
 
@@ -187,45 +164,6 @@ def check_er_demotion_safety(workspace: WorkspaceManager, research_state: Resear
             meta["verified_results"] = sorted(set(normalized))
             state = render_frontmatter(meta, body)
         workspace.write_file("RESEARCH_STATE.md", state)
-
-    return violations
-
-
-def check_task_agent_routing(workspace: WorkspaceManager) -> list[Violation]:
-    """Validate and fix the assigned_to field in CURRENT_TASK.md."""
-    violations: list[Violation] = []
-    task_text = workspace.read_file("CURRENT_TASK.md")
-    if not task_text:
-        return []
-
-    meta, body = parse_frontmatter(task_text)
-
-    # terminate tasks don't dispatch to any agent — skip routing check
-    if meta.get("task_type", "") == "terminate":
-        return []
-
-    assigned = meta.get("assigned_to", "")
-
-    if assigned in _VALID_AGENTS:
-        return []
-
-    if assigned in _AGENT_ALIASES:
-        correct = _AGENT_ALIASES[assigned]
-        meta["assigned_to"] = correct
-        workspace.write_file("CURRENT_TASK.md", render_frontmatter(meta, body))
-        violations.append(Violation(
-            check="task_agent_routing",
-            severity=ViolationSeverity.WARNING,
-            message=f"Alias '{assigned}' resolved to '{correct}'",
-            file="CURRENT_TASK.md",
-        ))
-    else:
-        violations.append(Violation(
-            check="task_agent_routing",
-            severity=ViolationSeverity.ERROR,
-            message=f"Unknown assigned_to '{assigned}'",
-            file="CURRENT_TASK.md",
-        ))
 
     return violations
 
@@ -550,7 +488,6 @@ _DEFAULT_CHECKS = [
     check_phantom_labels,
     check_stale_unverified_labels,
     check_verified_frontmatter_backfill,
-    check_task_agent_routing,
     check_id_consistency,
     check_critique_resolution_consistency,
 ]
@@ -624,7 +561,7 @@ def can_terminate(workspace: WorkspaceManager, config: Config, metrics: MetricsT
         if len(all_entries) == 0:
             blockers.append(
                 "Problem requires numerical verification but no computations found. "
-                "You MUST emit task_type: compute_verify (assigned_to: computationalist) "
+                "You MUST emit task_type: compute_verify "
                 "to run at least one numerical verification before terminating."
             )
 

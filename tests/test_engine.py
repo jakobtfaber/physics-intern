@@ -140,10 +140,10 @@ class TestEnrichComputeTask:
     def test_enrich_compute_task_appends_context(self):
         """Prior failures exist -> CURRENT_TASK enriched."""
         engine, ws, written = self._make_engine()
-        ws.read_file = MagicMock(return_value="---\ntask_type: compute\n---\n\nVerify WH-003 mass.")
+        ws.read_file = MagicMock(return_value="---\ntask_type: compute_verify\n---\n\nVerify WH-003 mass.")
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify WH-003 mass limit")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify WH-003 mass limit")
         engine._enrich_compute_task_with_prior_failures(task)
 
         assert "CURRENT_TASK.md" in written
@@ -155,10 +155,10 @@ class TestEnrichComputeTask:
     def test_enrich_compute_task_no_match(self):
         """No prior failures on this target -> unchanged."""
         engine, ws, written = self._make_engine()
-        ws.read_file = MagicMock(return_value="---\ntask_type: compute\n---\n\nVerify WH-099.")
+        ws.read_file = MagicMock(return_value="---\ntask_type: compute_verify\n---\n\nVerify WH-099.")
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify WH-099 something new")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify WH-099 something new")
         engine._enrich_compute_task_with_prior_failures(task)
 
         assert "CURRENT_TASK.md" not in written  # write_file not called
@@ -197,8 +197,8 @@ class TestComputeVerdictTracking:
         """REFUTED verdict adds to pending_compute_verdicts."""
         engine = self._make_engine()
         self._add_comp(engine, "COMP-001", "WH-001", "REFUTED")
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify formula X = Y")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify formula X = Y")
         engine._track_computation(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
@@ -209,8 +209,8 @@ class TestComputeVerdictTracking:
         """INCONCLUSIVE also counted and signals orchestrator."""
         engine = self._make_engine()
         self._add_comp(engine, "COMP-001", "WH-001", "INCONCLUSIVE")
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify formula X = Y")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify formula X = Y")
         engine._track_computation(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
@@ -222,8 +222,8 @@ class TestComputeVerdictTracking:
         self._add_comp(engine, "COMP-001", "WH-001", "REFUTED")
         engine._state.claim_failure_count["WH-001"] = 1  # next will be 2 == limit
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify formula X = Y")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify formula X = Y")
         engine._track_computation(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
@@ -238,8 +238,8 @@ class TestComputeVerdictTracking:
         self._add_comp(engine, "COMP-001", "WH-001", "VERIFIED")
         engine._state.claim_failure_count["WH-001"] = 1
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify formula X = Y")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify formula X = Y")
         engine._track_computation(task)
 
         assert "WH-001" not in engine._state.claim_failure_count
@@ -251,8 +251,8 @@ class TestComputeVerdictTracking:
         self._add_comp(engine, "COMP-001", "WH-002", "REFUTED")
         engine._state.claim_failure_count["WH-001"] = 1
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify WH-002 temperature")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify WH-002 temperature")
         engine._track_computation(task)
 
         assert engine._state.claim_failure_count["WH-001"] == 1
@@ -262,8 +262,8 @@ class TestComputeVerdictTracking:
         """Non-VERIFIED verdict appears in context prefix with attempt count."""
         engine = self._make_engine()
         self._add_comp(engine, "COMP-001", "WH-001", "REFUTED")
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify formula X = Y")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify formula X = Y")
         engine._track_computation(task)
 
         prefix = engine._build_context_prefix()
@@ -276,8 +276,8 @@ class TestComputeVerdictTracking:
         """No computations at this iteration, nothing happens."""
         engine = self._make_engine()
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify formula X = Y")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify formula X = Y")
         engine._track_computation(task)
 
         assert len(engine._state.claim_failure_count) == 0
@@ -516,70 +516,15 @@ class TestZeroOutputStallHandling:
             verdict=Verdict.INCONCLUSIVE, notes="Agent produced no exit tool call.",
             zero_output=True, iteration=4,
         )
-        ws.read_file = MagicMock(return_value="---\ntask_type: compute\n---\n\nVerify WH-003 mass.")
+        ws.read_file = MagicMock(return_value="---\ntask_type: compute_verify\n---\n\nVerify WH-003 mass.")
         task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", body="Verify WH-003 mass limit",
+            task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
+            assigned_to="compute_verify", body="Verify WH-003 mass limit",
         )
         engine._enrich_compute_task_with_prior_failures(task)
         assert "CURRENT_TASK.md" in written
         enriched = written["CURRENT_TASK.md"]
         assert "ZERO-OUTPUT STALL DETECTED" in enriched
-
-
-class TestDispatchRoutingValidation:
-    """Tests for dispatch cross-validation (Improvement 6B)."""
-
-    def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config()
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.iteration = 5
-            engine._state = LoopState(last_content_iteration=5)
-            engine.research_state = ResearchState()
-            engine.research_explore = MagicMock()
-            engine.compute_verify = MagicMock()
-            engine.compute_explore = MagicMock()
-            engine.research_verify = MagicMock()
-            engine.critic = MagicMock()
-        return engine
-
-    def test_dispatch_logs_routing_conflict(self):
-        """Mismatched assigned_to logs a warning but routes correctly."""
-        engine = self._make_engine()
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="research_explore",  # wrong for compute
-            iteration=5, body="Verify something.",
-        )
-        agent_name, _ = engine._dispatch(task)
-        assert agent_name == "compute_verify"
-        engine.metrics.alert.assert_called()
-        alert_msg = engine.metrics.alert.call_args[0][1]
-        assert "Routing conflict" in alert_msg
-
-    def test_dispatch_infers_from_empty_assigned_to(self):
-        """Empty assigned_to gets inferred from task_type."""
-        engine = self._make_engine()
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.RESEARCH_EXPLORE,
-            assigned_to="",  # empty
-            iteration=5, body="Research something.",
-        )
-        agent_name, _ = engine._dispatch(task)
-        assert agent_name == "research_explore"
-        engine.metrics.alert.assert_called()
-        alert_msg = engine.metrics.alert.call_args[0][1]
-        assert "Routing fix" in alert_msg
 
 
 class TestDispatchNewAgents:
@@ -630,9 +575,9 @@ class TestDispatchNewAgents:
         name, _ = engine._dispatch(task)
         assert name == "research_verify"
 
-    def test_legacy_compute_routes_to_verify(self):
+    def test_compute_verify_routes_correctly(self):
         engine = self._make_engine()
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
                     assigned_to="compute_verify", iteration=5, body="Verify something")
         name, _ = engine._dispatch(task)
         assert name == "compute_verify"
@@ -767,8 +712,8 @@ class TestDispatchFailureRecovery:
 
         # Orchestrator returns a compute task each time
         task = Task(
-            task_id="TASK-001", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", iteration=1,
+            task_id="TASK-001", task_type=TaskType.COMPUTE_VERIFY,
+            assigned_to="compute_verify", iteration=1,
             body="Verify something.",
         )
         engine.orchestrator.parse_task = MagicMock(return_value=task)
@@ -816,8 +761,8 @@ class TestDispatchFailureRecovery:
         exc_timeout.status_code = 504
 
         task = Task(
-            task_id="TASK-001", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", iteration=1,
+            task_id="TASK-001", task_type=TaskType.COMPUTE_VERIFY,
+            assigned_to="compute_verify", iteration=1,
             body="Verify something.",
         )
         task_terminate = Task(
@@ -878,9 +823,9 @@ class TestAgentFailureRouting:
         from sciralph.llm import AgentResult
         engine = self._make_engine()
         result = AgentResult(text="partial", rounds=10, stop_reason="max_rounds_forced")
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE, assigned_to="computationalist")
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify")
 
-        engine._record_agent_failures(task, "computationalist", result)
+        engine._record_agent_failures(task, "compute_verify", result)
 
         assert len(engine._state.agent_failures) == 1
         assert engine._state.agent_failures[0]["event"] == "max_rounds_exhaustion"
@@ -943,8 +888,8 @@ class TestAgentFailureRouting:
             verdict=Verdict.REFUTED, kind="verify", iteration=5,
         )
 
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify formula X = Y")
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify formula X = Y")
         engine._track_computation(task)
 
         # Verdict now goes to pending_compute_verdicts, not agent_failures
@@ -965,8 +910,8 @@ class TestAgentFailureRouting:
             verdict=Verdict.INCONCLUSIVE, kind="verify", iteration=5,
         )
 
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
-                    assigned_to="computationalist", body="Verify formula X = Y")
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify formula X = Y")
         engine._track_computation(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
@@ -981,7 +926,7 @@ class TestAgentFailureRouting:
         ]
         engine._state.agent_failures = [{
             "task_id": "TASK-003",
-            "agent": "computationalist",
+            "agent": "compute_verify",
             "event": "max_rounds_exhaustion",
             "detail": "Exhausted 10 tool-use rounds without completing.",
             "iteration": 4,
@@ -1126,7 +1071,7 @@ class TestExploreResultSuppression:
         self._add_comp(engine, "TASK-003", "WH-001", kind="explore",
                         zero_output=True, result="", claim="test")
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_EXPLORE,
-                    assigned_to="computationalist", body="Explore WH-001")
+                    assigned_to="compute_explore", body="Explore WH-001")
         engine._track_computation(task)
 
         assert len(engine._state.pending_explore_results) == 0
@@ -1137,7 +1082,7 @@ class TestExploreResultSuppression:
         self._add_comp(engine, "TASK-003", "WH-001", kind="explore",
                         result="", claim="test")
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_EXPLORE,
-                    assigned_to="computationalist", body="Explore WH-001")
+                    assigned_to="compute_explore", body="Explore WH-001")
         engine._track_computation(task)
 
         assert len(engine._state.pending_explore_results) == 0
@@ -1148,7 +1093,7 @@ class TestExploreResultSuppression:
         self._add_comp(engine, "TASK-003", "WH-001", kind="explore",
                         result="x = 42", claim="Compute x", confidence="exact")
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_EXPLORE,
-                    assigned_to="computationalist", body="Explore WH-001")
+                    assigned_to="compute_explore", body="Explore WH-001")
         engine._track_computation(task)
 
         assert len(engine._state.pending_explore_results) == 1

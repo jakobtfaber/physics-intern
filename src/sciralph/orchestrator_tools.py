@@ -259,17 +259,10 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "task_type": {
                         "type": "string",
                         "enum": [
-                            "research_explore", "compute",
+                            "research_explore",
                             "compute_explore", "compute_verify",
                             "research_verify",
                             "critique", "terminate",
-                        ],
-                    },
-                    "assigned_to": {
-                        "type": "string",
-                        "enum": [
-                            "research_explore", "computationalist",
-                            "deep_critic", "formatter",
                         ],
                     },
                     "priority": {
@@ -607,4 +600,4 @@ class OrchestratorToolExecutor:
     def _set_next_task(self, args: dict) -> str:
         self.task_data = args
         self.stop_after_round = True
-        return f"Task set: {args.get('task_type', '?')} → {args.get('assigned_to', '?')}"
+        return f"Task set: {args.get('task_type', '?')}"

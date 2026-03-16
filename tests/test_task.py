@@ -6,11 +6,11 @@ from sciralph.task import Task, TaskType, TASK_TYPE_AGENT_MAP
 class TestTaskType:
     def test_values(self):
         assert TaskType.RESEARCH_EXPLORE == "research_explore"
-        assert TaskType.COMPUTE == "compute"
+        assert TaskType.COMPUTE_VERIFY == "compute_verify"
         assert TaskType.TERMINATE == "terminate"
 
     def test_from_string(self):
-        assert TaskType("compute") == TaskType.COMPUTE
+        assert TaskType("compute_verify") == TaskType.COMPUTE_VERIFY
         assert TaskType("research_explore") == TaskType.RESEARCH_EXPLORE
 
 
@@ -18,16 +18,16 @@ class TestTaskToMarkdown:
     def test_basic(self):
         task = Task(
             task_id="TASK-005",
-            task_type=TaskType.COMPUTE,
-            assigned_to="computationalist",
+            task_type=TaskType.COMPUTE_VERIFY,
+            assigned_to="compute_verify",
             priority="high",
             iteration=5,
             body="# Task\n\nVerify result B.",
         )
         md = task.to_markdown()
         assert "task_id: TASK-005" in md
-        assert "task_type: compute" in md
-        assert "assigned_to: computationalist" in md
+        assert "task_type: compute_verify" in md
+        assert "assigned_to: compute_verify" in md
         assert "Verify result B." in md
 
     def test_with_blocking_critiques(self):
@@ -49,8 +49,8 @@ class TestTaskFromFrontmatter:
         text = (
             "---\n"
             "task_id: TASK-003\n"
-            "task_type: compute\n"
-            "assigned_to: computationalist\n"
+            "task_type: compute_verify\n"
+            "assigned_to: compute_verify\n"
             "priority: high\n"
             "iteration: 3\n"
             "---\n\n"
@@ -58,8 +58,8 @@ class TestTaskFromFrontmatter:
         )
         task = Task.from_frontmatter(text)
         assert task.task_id == "TASK-003"
-        assert task.task_type == TaskType.COMPUTE
-        assert task.assigned_to == "computationalist"
+        assert task.task_type == TaskType.COMPUTE_VERIFY
+        assert task.assigned_to == "compute_verify"
         assert task.iteration == 3
         assert "Verify something." in task.body
 
@@ -97,13 +97,13 @@ class TestTaskFromFrontmatterEdgeCases:
 
     def test_from_frontmatter_empty_assigned_to(self):
         """Empty string assigned_to defaults to 'research_explore'."""
-        text = "---\ntask_type: compute\nassigned_to: ''\niteration: 5\n---\n\nBody."
+        text = "---\ntask_type: compute_verify\nassigned_to: ''\niteration: 5\n---\n\nBody."
         task = Task.from_frontmatter(text)
         assert task.assigned_to == "research_explore"
 
     def test_from_frontmatter_null_assigned_to(self):
         """null/None assigned_to defaults to 'research_explore'."""
-        text = "---\ntask_type: compute\nassigned_to:\niteration: 5\n---\n\nBody."
+        text = "---\ntask_type: compute_verify\nassigned_to:\niteration: 5\n---\n\nBody."
         task = Task.from_frontmatter(text)
         assert task.assigned_to == "research_explore"
 
@@ -115,8 +115,8 @@ class TestTaskTypeAgentMap:
         for tt in TaskType:
             assert tt in TASK_TYPE_AGENT_MAP, f"TaskType.{tt} not in TASK_TYPE_AGENT_MAP"
 
-    def test_compute_maps_to_computationalist(self):
-        assert TASK_TYPE_AGENT_MAP[TaskType.COMPUTE] == "compute_verify"
+    def test_compute_verify_maps_to_compute_verify(self):
+        assert TASK_TYPE_AGENT_MAP[TaskType.COMPUTE_VERIFY] == "compute_verify"
 
     def test_critique_maps_to_deep_critic(self):
         assert TASK_TYPE_AGENT_MAP[TaskType.CRITIQUE] == "deep_critic"
@@ -130,8 +130,8 @@ class TestTaskTargetClaim:
 
     def test_target_claim_in_markdown(self):
         task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", target_claim="WH-001",
+            task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
+            assigned_to="compute_verify", target_claim="WH-001",
             body="Verify WH-001.",
         )
         md = task.to_markdown()
@@ -139,8 +139,8 @@ class TestTaskTargetClaim:
 
     def test_target_claim_omitted_when_empty(self):
         task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist",
+            task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
+            assigned_to="compute_verify",
             body="Verify something.",
         )
         md = task.to_markdown()
@@ -148,14 +148,14 @@ class TestTaskTargetClaim:
 
     def test_target_claim_round_trip(self):
         task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="computationalist", target_claim="ER-003",
+            task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
+            assigned_to="compute_verify", target_claim="ER-003",
             body="Verify ER-003.",
         )
         restored = Task.from_frontmatter(task.to_markdown())
         assert restored.target_claim == "ER-003"
 
     def test_target_claim_missing_in_frontmatter(self):
-        text = "---\ntask_type: compute\nassigned_to: computationalist\n---\n\nBody."
+        text = "---\ntask_type: compute_verify\nassigned_to: compute_verify\n---\n\nBody."
         task = Task.from_frontmatter(text)
         assert task.target_claim == ""

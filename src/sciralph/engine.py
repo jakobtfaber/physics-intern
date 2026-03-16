@@ -13,7 +13,7 @@ from .markdown import (
     render_frontmatter,
 )
 from .metrics import MetricsTracker
-from .task import Task, TaskType, TASK_TYPE_AGENT_MAP
+from .task import Task, TaskType
 from .categories import CompensationCategory as CC
 from .research_state import build_from_workspace as _build_research_state, ResearchState
 from .renderers import render_research_state_md, render_computation_log_md, render_critique_log_md
@@ -110,7 +110,7 @@ class SciRalph:
                 self._state.pending_violations.extend(violations)
 
             # 3. Enrichment for compute tasks
-            if task.task_type in (TaskType.COMPUTE, TaskType.COMPUTE_VERIFY, TaskType.COMPUTE_EXPLORE, TaskType.RESEARCH_VERIFY):
+            if task.task_type in (TaskType.COMPUTE_VERIFY, TaskType.COMPUTE_EXPLORE, TaskType.RESEARCH_VERIFY):
                 self._enrich_compute_task_with_prior_failures(task)
 
             # 4. Termination gate
@@ -161,7 +161,7 @@ class SciRalph:
             self._record_agent_failures(task, agent_name, agent_result)
 
             # 6. Post-dispatch checks
-            if task.task_type in (TaskType.COMPUTE, TaskType.COMPUTE_EXPLORE, TaskType.COMPUTE_VERIFY, TaskType.RESEARCH_VERIFY):
+            if task.task_type in (TaskType.COMPUTE_EXPLORE, TaskType.COMPUTE_VERIFY, TaskType.RESEARCH_VERIFY, TaskType.RESEARCH_EXPLORE):
                 self._track_computation(task)
 
             # 6b. Post-dispatch phantom check — catch refs introduced by agents
@@ -264,7 +264,7 @@ class SciRalph:
             for r in self._state.pending_explore_results:
                 lines.append(f"- {r['target_id']}: {r['description']}  [{r['confidence']}]")
                 if r.get("result"):
-                    lines.append(f"  Result: {r['result'][:150]}")
+                    lines.append(f"  Result: {r['result'][:800]}")
                 lines.append("  Consider: formulate a concrete WH from this result, or integrate directly.")
             lines.append(">>> END EXPLORE RESULTS <<<\n")
             self._state.pending_explore_results.clear()
@@ -291,32 +291,6 @@ class SciRalph:
         """Route task to the correct agent. Returns (agent_name, result)."""
         from .llm import AgentResult, LLMResponse  # noqa: F811
 
-        # Pre-dispatch cross-validation (Improvement 6B)
-        expected_agent = TASK_TYPE_AGENT_MAP.get(task.task_type)
-        if expected_agent:
-            if not task.assigned_to or task.assigned_to not in (
-                "orchestrator", "research_explore", "computationalist",
-                "compute_verify", "compute_explore", "research_verify",
-                "deep_critic", "compressor", "formatter",
-            ):
-                self.metrics.alert(
-                    self.iteration,
-                    f"Routing fix: empty/invalid assigned_to '{task.assigned_to}' "
-                    f"for {task.task_type}, inferred '{expected_agent}'",
-                )
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "routing_conflict_corrected",
-                                   f"'{task.assigned_to}' -> '{expected_agent}' for {task.task_type.value}")
-                task.assigned_to = expected_agent
-            elif task.assigned_to != expected_agent:
-                self.metrics.alert(
-                    self.iteration,
-                    f"Routing conflict: assigned_to='{task.assigned_to}' "
-                    f"vs expected='{expected_agent}' for {task.task_type}; "
-                    f"using task_type for routing",
-                )
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "routing_conflict_corrected",
-                                   f"'{task.assigned_to}' -> '{expected_agent}' for {task.task_type.value}")
-
         tt = task.task_type
 
         if tt == TaskType.RESEARCH_EXPLORE:
@@ -326,7 +300,7 @@ class SciRalph:
             self._state.last_content_iteration = self.iteration
             return "research_explore", result
 
-        elif tt in (TaskType.COMPUTE, TaskType.COMPUTE_VERIFY):
+        elif tt == TaskType.COMPUTE_VERIFY:
             console.print("[magenta]ComputeVerify[/magenta] verifying...")
             self.compute_verify.research_state = self.research_state
             result = self.compute_verify.run(task, self.iteration, on_round=self._on_compute_round)

@@ -8,7 +8,6 @@ from sciralph.validation import (
     check_er_demotion_safety,
     check_phantom_labels,
     check_phantom_references,
-    check_task_agent_routing,
     check_id_consistency,
     check_stale_unverified_labels,
     check_verified_frontmatter_backfill,
@@ -358,91 +357,6 @@ OK.
 
 
 # ---------------------------------------------------------------------------
-# check_task_agent_routing
-# ---------------------------------------------------------------------------
-
-class TestCheckTaskAgentRouting:
-    def _task_with_assigned(self, assigned_to: str) -> str:
-        meta = {"task_id": "TASK-001", "task_type": "compute", "assigned_to": assigned_to}
-        return render_frontmatter(meta, "Do something.\n")
-
-    def test_alias_compute_resolved(self):
-        ws = MockWorkspace({
-            "CURRENT_TASK.md": self._task_with_assigned("compute"),
-        })
-        violations = check_task_agent_routing(ws)
-        assert len(violations) == 1
-        assert violations[0].severity == ViolationSeverity.WARNING
-        assert "'compute'" in violations[0].message
-        assert "'compute_verify'" in violations[0].message
-        # File rewritten with correct agent
-        assert "compute_verify" in ws.read_file("CURRENT_TASK.md")
-
-    def test_alias_critique_resolved(self):
-        ws = MockWorkspace({
-            "CURRENT_TASK.md": self._task_with_assigned("critique"),
-        })
-        violations = check_task_agent_routing(ws)
-        assert len(violations) == 1
-        assert "'deep_critic'" in violations[0].message
-
-    def test_alias_research_resolved(self):
-        ws = MockWorkspace({
-            "CURRENT_TASK.md": self._task_with_assigned("research"),
-        })
-        violations = check_task_agent_routing(ws)
-        assert len(violations) == 1
-        assert "'research_explore'" in violations[0].message
-
-    def test_alias_review_resolved(self):
-        ws = MockWorkspace({
-            "CURRENT_TASK.md": self._task_with_assigned("review"),
-        })
-        violations = check_task_agent_routing(ws)
-        assert len(violations) == 1
-        assert "'deep_critic'" in violations[0].message
-
-    def test_valid_routing_no_violation(self):
-        ws = MockWorkspace({
-            "CURRENT_TASK.md": self._task_with_assigned("computationalist"),
-        })
-        violations = check_task_agent_routing(ws)
-        assert len(violations) == 0
-
-    def test_all_valid_agents_pass(self):
-        for agent in ("orchestrator", "research_explore", "computationalist", "deep_critic", "compressor"):
-            ws = MockWorkspace({
-                "CURRENT_TASK.md": self._task_with_assigned(agent),
-            })
-            violations = check_task_agent_routing(ws)
-            assert len(violations) == 0, f"Agent '{agent}' should be valid"
-
-    def test_unknown_agent_errors(self):
-        ws = MockWorkspace({
-            "CURRENT_TASK.md": self._task_with_assigned("magic_agent"),
-        })
-        violations = check_task_agent_routing(ws)
-        assert len(violations) == 1
-        assert violations[0].severity == ViolationSeverity.ERROR
-        assert "'magic_agent'" in violations[0].message
-
-    def test_terminate_task_skips_routing_check(self):
-        """Terminate tasks don't dispatch to any agent — no routing violation."""
-        for assigned in ("none", "None", "null", ""):
-            meta = {"task_id": "TASK-001", "task_type": "terminate", "assigned_to": assigned}
-            ws = MockWorkspace({
-                "CURRENT_TASK.md": render_frontmatter(meta, "Terminate.\n"),
-            })
-            violations = check_task_agent_routing(ws)
-            assert len(violations) == 0, f"terminate with assigned_to='{assigned}' should not violate"
-
-    def test_empty_task_no_violation(self):
-        ws = MockWorkspace({})
-        violations = check_task_agent_routing(ws)
-        assert len(violations) == 0
-
-
-# ---------------------------------------------------------------------------
 # check_id_consistency
 # ---------------------------------------------------------------------------
 
@@ -571,22 +485,16 @@ Backed by COMP-999 which doesn't exist.
 **RESULT**:
 Failed.
 """
-        task = render_frontmatter(
-            {"task_id": "TASK-001", "task_type": "compute", "assigned_to": "compute"},
-            "Do something.\n",
-        )
         ws = MockWorkspace({
             "RESEARCH_STATE.md": state,
             "COMPUTATION_LOG.md": render_frontmatter(meta_comp, comp_body),
-            "CURRENT_TASK.md": task,
         })
         violations = validate_post_integration(ws)
         assert len(violations) > 0
         checks_triggered = {v.check for v in violations}
-        # Should include phantom_references (COMP-999), er_demotion_safety (ER-001 REFUTED), task_agent_routing (compute alias)
+        # Should include phantom_references (COMP-999), er_demotion_safety (ER-001 REFUTED)
         assert "phantom_references" in checks_triggered
         assert "er_demotion_safety" in checks_triggered
-        assert "task_agent_routing" in checks_triggered
 
     def test_empty_workspace_no_violations(self):
         ws = MockWorkspace({})

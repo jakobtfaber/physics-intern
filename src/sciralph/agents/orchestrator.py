@@ -15,22 +15,11 @@ from ..markdown import (
 )
 from ..orchestrator_tools import OrchestratorToolExecutor
 from ..renderers import render_research_state_md, render_critique_log_md
-from ..task import Task, TaskType
+from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from ..tools import ToolCall
 from .base import BaseAgent
 from ..categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event
-
-# Agent routing for set_next_task fallback
-_TASK_TYPE_AGENT_DEFAULTS = {
-    "research_explore": "research_explore",
-    "compute": "compute_verify",
-    "compute_explore": "compute_explore",
-    "compute_verify": "compute_verify",
-    "research_verify": "research_verify",
-    "critique": "deep_critic",
-    "terminate": "orchestrator",
-}
 
 
 class OrchestratorAgent(BaseAgent):
@@ -190,7 +179,7 @@ class OrchestratorAgent(BaseAgent):
             task_type = TaskType(raw_type)
         except ValueError:
             task_type = TaskType.RESEARCH_EXPLORE
-        assigned_to = data.get("assigned_to") or _TASK_TYPE_AGENT_DEFAULTS.get(raw_type, "research_explore")
+        assigned_to = TASK_TYPE_AGENT_MAP.get(task_type, "research_explore")
         return Task(
             task_id=f"TASK-{iteration:03d}",
             task_type=task_type,

@@ -187,9 +187,9 @@ class TestToolSetsForTaskType:
         names = {t["function"]["name"] for t in tools}
         assert names == {"execute_python", "submit_verdict", "report_progress"}
 
-    def test_legacy_compute_tools(self):
+    def test_default_compute_verify_tools(self):
         from sciralph.task import TaskType
-        tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE)
+        tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE_VERIFY)
         names = {t["function"]["name"] for t in tools}
         assert names == {"execute_python", "submit_verdict", "report_progress"}
 
@@ -209,10 +209,10 @@ class TestExitToolName:
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
         assert executor.exit_tool_name == "submit_result"
 
-    def test_legacy_compute_executor_exit_tool(self):
+    def test_compute_verify_executor_exit_tool(self):
         from sciralph.task import TaskType
         root = Path(tempfile.mkdtemp())
-        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_VERIFY)
         assert executor.exit_tool_name == "submit_verdict"
 
     def test_none_task_type_defaults(self):

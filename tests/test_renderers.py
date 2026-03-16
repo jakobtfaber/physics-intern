@@ -145,7 +145,7 @@ def sample_task():
     return Task(
         task_id="TASK-005",
         task_type=TaskType.COMPUTE_VERIFY,
-        assigned_to="computationalist",
+        assigned_to="compute_verify",
         priority="high",
         iteration=5,
         target_claim="ER-001",
@@ -571,7 +571,7 @@ class TestRenderTaskMd:
         meta, body = parse_frontmatter(md)
         assert meta["task_id"] == "TASK-005"
         assert meta["task_type"] == "compute_verify"
-        assert meta["assigned_to"] == "computationalist"
+        assert meta["assigned_to"] == "compute_verify"
         assert meta["priority"] == "high"
         assert meta["iteration"] == 5
 

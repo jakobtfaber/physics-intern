@@ -375,15 +375,14 @@ class TestSetNextTask:
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3)
         tc = ex.execute("set_next_task", {
-            "task_type": "compute",
-            "assigned_to": "computationalist",
+            "task_type": "compute_verify",
             "priority": "high",
             "target_claim": "WH-001",
             "description": "Verify WH-001 numerically.",
         })
         assert not tc.is_error
         assert ex.task_data is not None
-        assert ex.task_data["task_type"] == "compute"
+        assert ex.task_data["task_type"] == "compute_verify"
         assert ex.task_data["target_claim"] == "WH-001"
 
     def test_sets_stop_after_round(self):
