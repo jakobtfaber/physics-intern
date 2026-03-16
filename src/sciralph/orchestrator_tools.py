@@ -6,8 +6,10 @@ and CRITIQUE_LOG.md instead of rewriting entire files.
 
 from __future__ import annotations
 
+import json
 import re
 import time
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, ClassVar
 
 from .tools import ToolCall
@@ -542,6 +544,18 @@ class OrchestratorToolExecutor:
         self.workspace.write_file("CRITIQUE_LOG.md", content)
         self.resolved_critique_ids.add(crit_id)
         self.mutations_applied = True
+
+        # Write RESOLVED entry to CRITIQUE_INDEX.jsonl
+        entry = {
+            "id": crit_id,
+            "status": "RESOLVED",
+            "resolution": resolution,
+            "iteration": self.iteration,
+            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        self.workspace.append_file(
+            "CRITIQUE_INDEX.jsonl", json.dumps(entry, ensure_ascii=False) + "\n"
+        )
 
         # Update formal state with resolution metadata
         if self.research_state and crit_id in self.research_state.critiques:
