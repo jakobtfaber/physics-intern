@@ -1,6 +1,5 @@
 """SciRalph main loop engine."""
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from rich.console import Console
@@ -35,57 +34,13 @@ console = Console()
 @dataclass
 class LoopState:
     """Inter-iteration state for the main research loop."""
-    pending_recompute_claim: str | None = None
-    pending_recompute_verdict: str | None = None
-    stalled_claims: set[str] = field(default_factory=set)
     claim_failure_count: dict[str, int] = field(default_factory=dict)
     last_content_iteration: int = 0
     # Consumed-once feedback accumulators (cleared after orchestrator reads them)
     pending_violations: list = field(default_factory=list)
     pending_termination_blockers: list[str] = field(default_factory=list)
+    pending_compute_verdicts: list[dict] = field(default_factory=list)
     agent_failures: list[dict] = field(default_factory=list)
-
-
-@dataclass
-class Override:
-    """A single pre-dispatch override in the priority chain."""
-    name: str
-    priority: int
-    condition: Callable[["SciRalph", Task], bool]
-    action: Callable[["SciRalph", Task], Task]
-
-
-# ---------------------------------------------------------------------------
-# Override condition/action functions
-# ---------------------------------------------------------------------------
-
-def _p4_refuted_recompute_condition(engine: "SciRalph", task: Task) -> bool:
-    """Pure check — no side effects."""
-    if not engine._state.pending_recompute_claim:
-        return False
-    return task.task_type not in (TaskType.SYNTHESIZE, TaskType.TERMINATE)
-
-
-def _p4_refuted_recompute_action(engine: "SciRalph", task: Task) -> Task:
-    # Consume pending state (moved from condition)
-    claim = engine._state.pending_recompute_claim
-    verdict = engine._state.pending_recompute_verdict or "REFUTED"
-    engine._state.pending_recompute_claim = None
-    engine._state.pending_recompute_verdict = None
-    console.print(f"[yellow]Forcing recompute after {verdict} verdict.[/yellow]")
-    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
-                       "p4_refuted_recompute",
-                       f"claim={claim[:80]}, verdict={verdict}")
-    recompute_task = engine._make_recompute_task(claim, verdict)
-    engine._enrich_compute_task_with_prior_failures(recompute_task)
-    log_scaffold_event(engine.workspace.root, engine.iteration, CC.LOOP_CONTROL,
-                       "p4_recompute_enriched", f"claim={claim[:80]}")
-    return recompute_task
-
-
-_OVERRIDE_CHAIN: list[Override] = [
-    Override("refuted_recompute", 6, _p4_refuted_recompute_condition, _p4_refuted_recompute_action),
-]
 
 
 class SciRalph:
@@ -138,7 +93,7 @@ class SciRalph:
             else:
                 task = self._run_orchestrator()
 
-            # 2. Post-integration validation (Layer B hook -- stub returns [])
+            # 2. Post-integration validation
             violations = validate_post_integration(
                 self.workspace, self.config,
                 iteration=self.iteration,
@@ -147,8 +102,9 @@ class SciRalph:
             if violations:
                 self._state.pending_violations.extend(violations)
 
-            # 3. Pre-dispatch overrides (explicit priority chain)
-            task = self._apply_overrides(task)
+            # 3. Enrichment for compute tasks
+            if task.task_type == TaskType.COMPUTE:
+                self._enrich_compute_task_with_prior_failures(task)
 
             # 4. Termination gate
             if task.task_type == TaskType.TERMINATE:
@@ -295,6 +251,17 @@ class SciRalph:
             )
             lines.append(">>> END TERMINATION BLOCKERS <<<\n")
             self._state.pending_termination_blockers.clear()
+        if self._state.pending_compute_verdicts:
+            lines.append(">>> COMPUTATION VERDICTS (previous iteration) <<<")
+            for v in self._state.pending_compute_verdicts:
+                lines.append(f"- {v['verdict']}: {v['claim'][:120]}")
+                lines.append(f"  Attempt {v['attempt']}/{self.config.stall_recompute_limit}")
+                if v['attempt'] >= self.config.stall_recompute_limit:
+                    lines.append("  STALLED — do NOT schedule another compute. Route to researcher.")
+                else:
+                    lines.append("  You must address this: recompute, re-derive, or accept provisionally.")
+            lines.append(">>> END COMPUTATION VERDICTS <<<\n")
+            self._state.pending_compute_verdicts.clear()
         if self._state.agent_failures:
             lines.append(">>> AGENT FAILURES (previous iteration) <<<")
             for f in self._state.agent_failures:
@@ -302,31 +269,6 @@ class SciRalph:
             lines.append(">>> END AGENT FAILURES <<<\n")
             self._state.agent_failures.clear()
         return "\n".join(lines)
-
-    def _apply_overrides(self, task: Task) -> Task:
-        """Consolidated pre-dispatch override chain (declarative priority order).
-
-        Iterates _OVERRIDE_CHAIN sorted by priority. The first matching override
-        wins. P6 enrichment is non-overriding and runs after the loop.
-        """
-        for override in _OVERRIDE_CHAIN:
-            if override.condition(self, task):
-                return override.action(self, task)
-
-        # Consume unconsumed pending recompute (suppressed by SYNTHESIZE/TERMINATE)
-        if self._state.pending_recompute_claim:
-            claim = self._state.pending_recompute_claim
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                               "p4_refuted_suppressed",
-                               f"claim={claim[:80]}, task={task.task_type.value}")
-            self._state.pending_recompute_claim = None
-            self._state.pending_recompute_verdict = None
-
-        # P6: Enrichment (non-overriding, mutates task body)
-        if task.task_type == TaskType.COMPUTE:
-            self._enrich_compute_task_with_prior_failures(task)
-
-        return task
 
     def _dispatch(self, task: Task) -> tuple[str, "LLMResponse | AgentResult"]:
         """Route task to the correct agent. Returns (agent_name, result)."""
@@ -362,7 +304,6 @@ class SciRalph:
             console.print(f"[green]Researcher[/green] working on: {tt}")
             result = self.researcher.run(task, self.iteration)
             self._state.last_content_iteration = self.iteration
-            self._clear_stall_for_research_task(task)
             return "researcher", result
 
         elif tt == TaskType.COMPUTE:
@@ -401,25 +342,6 @@ class SciRalph:
             result = self.researcher.run(task, self.iteration)
             return "researcher", result
 
-    def _clear_stall_for_research_task(self, task: Task):
-        """Clear stall state when a research task addresses a stalled claim."""
-        if task.task_type not in (TaskType.RESEARCH, TaskType.DERIVE, TaskType.RESOLVE):
-            return
-        from .markdown import _ER_WH_ID_RE
-        task_ids = set(_ER_WH_ID_RE.findall(task.body))
-        if task.target_claim:
-            task_ids.update(_ER_WH_ID_RE.findall(task.target_claim))
-        if not task_ids:
-            return
-        for stalled_key in list(self._state.stalled_claims):
-            key_ids = set(_ER_WH_ID_RE.findall(stalled_key))
-            if key_ids & task_ids:
-                self._state.stalled_claims.discard(stalled_key)
-                self._state.claim_failure_count.pop(stalled_key, None)
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                                   "stall_cleared_by_research",
-                                   f"claim={stalled_key[:80]}")
-
     def _critic_overdue(self) -> bool:
         """Check if more than N iterations since last critic pass."""
         if (self.iteration - self.metrics.last_critic_iteration) < self.config.critic_every_n:
@@ -447,27 +369,12 @@ class SciRalph:
         return task
 
     def _enrich_compute_task_with_prior_failures(self, task: Task):
-        """Append prior failure context to CURRENT_TASK.md for compute retries.
-
-        Consults both the formal ResearchState (failed_approaches) and
-        COMPUTATION_LOG.md (Markdown fallback) for comprehensive context.
-        """
+        """Append prior failure context to CURRENT_TASK.md for compute retries."""
         comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
         prior = find_prior_failures_for_claim(comp_log, task.body)
-
-        # Also check formal state for failed approaches targeting this claim
-        if hasattr(self, "research_state"):
-            from .markdown import _ER_WH_ID_RE
-            task_ids = set(_ER_WH_ID_RE.findall(task.body))
-            for fa in self.research_state.failed_approaches:
-                if task_ids and any(tid in fa.description for tid in task_ids):
-                    excerpt = f"**Prior failure (iter {fa.iteration}):** {fa.description}\n**Reason:** {fa.reason}"
-                    if excerpt not in prior:
-                        prior.append(excerpt)
-
         if not prior:
             return
-        log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "p6_enrichment",
+        log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "compute_enrichment",
                            f"claim={_normalize_claim_key(task.body)[:80]}")
         task_text = self.workspace.read_file("CURRENT_TASK.md")
         addendum = (
@@ -491,7 +398,7 @@ class SciRalph:
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
 
     def _track_compute_verdict(self, task: Task):
-        """After computationalist runs, track verdict and manage recompute/stall."""
+        """After computationalist runs, track verdict and signal orchestrator."""
         comp_log = self.workspace.read_file("COMPUTATION_LOG.md")
         entries = _parse_comp_entries(comp_log)
         if not entries:
@@ -509,85 +416,20 @@ class SciRalph:
 
         if verdict == "VERIFIED":
             self._state.claim_failure_count.pop(key, None)
-            self._state.stalled_claims.discard(key)  # unblock on successful verification
             return
 
-        # Record failure in formal state
-        self._record_failed_computation(last, task, verdict)
-
-        # REFUTED, INCONCLUSIVE, or any non-VERIFIED
+        # Non-verified: count failures, signal orchestrator
         count = self._state.claim_failure_count.get(key, 0) + 1
         self._state.claim_failure_count[key] = count
-
-        if count < self.config.stall_recompute_limit:
-            # Allow auto-recompute (existing P4 behavior, now gated)
-            self._state.pending_recompute_claim = claim
-            self._state.pending_recompute_verdict = verdict
-            self._state.agent_failures.append({
-                "task_id": task.task_id, "agent": "computationalist",
-                "event": f"{verdict.lower()}_verdict",
-                "detail": f"Attempt {count}/{self.config.stall_recompute_limit}. Will force recompute next iteration.",
-                "iteration": self.iteration,
-            })
-            self.metrics.alert(
-                self.iteration,
-                f"{verdict} verdict (attempt {count}/{self.config.stall_recompute_limit}) "
-                f"— will force recompute next iteration"
-            )
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                               "compute_verdict_failed",
-                               f"claim={key[:80]}, verdict={verdict}, "
-                               f"attempt={count}/{self.config.stall_recompute_limit}")
-        else:
-            # Escalate: block further recomputes, inform orchestrator
-            self._state.stalled_claims.add(key)
-            self._state.pending_violations.append(
-                Violation(
-                    check="computation_stall",
-                    severity=ViolationSeverity.WARNING,
-                    message=(
-                        f"Claim '{key[:80]}' has failed verification {count} times. "
-                        "Do NOT schedule another computation on this claim. Either "
-                        "(a) route to researcher for an analytical alternative, "
-                        "(b) try a fundamentally different computational method, "
-                        "or (c) accept provisionally and move on."
-                    ),
-                    file="COMPUTATION_LOG.md",
-                    detail=key,
-                )
-            )
-            self.metrics.alert(
-                self.iteration,
-                f"{verdict} verdict (attempt {count}) — claim escalated to stall"
-            )
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                               "compute_verdict_stall_escalation",
-                               f"claim={key[:80]}, verdict={verdict}, count={count}")
-
-    def _make_recompute_task(self, claim: str, verdict: str = "REFUTED") -> Task:
-        """Create a forced compute task to re-verify a claim after a non-VERIFIED verdict."""
-        # Extract target WH/ER ID from claim for formal linking
-        from .markdown import _ER_WH_ID_RE
-        target_ids = _ER_WH_ID_RE.findall(claim)
-        target_claim = target_ids[0] if target_ids else ""
-        task = Task(
-            task_id=f"TASK-{self.iteration:03d}",
-            task_type=TaskType.COMPUTE,
-            assigned_to="computationalist",
-            priority="high",
-            iteration=self.iteration,
-            target_claim=target_claim,
-            body=(
-                f"# Re-verification After {verdict} Verdict\n\n"
-                f"The previous computation returned {verdict} for the following claim. "
-                "The orchestrator has\n"
-                "integrated corrections. Verify the CORRECTED version now appears in\n"
-                "RESEARCH_STATE.md and compute a fresh verification.\n\n"
-                f"**Claim to re-verify:** {claim[:500]}\n"
-            ),
-        )
-        self.workspace.write_file("CURRENT_TASK.md", task.to_markdown())
-        return task
+        self._state.pending_compute_verdicts.append({
+            "verdict": verdict,
+            "claim": key,
+            "attempt": count,
+        })
+        log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                           "compute_verdict_failed",
+                           f"claim={key[:80]}, verdict={verdict}, "
+                           f"attempt={count}/{self.config.stall_recompute_limit}")
 
     def _check_compression(self):
         """Check file sizes against thresholds, compress if needed."""
@@ -650,30 +492,6 @@ class SciRalph:
                                    f"status={status}")
                 return True
         return False
-
-    def _record_failed_computation(self, comp_entry: dict, task: Task, verdict: str):
-        """Record a non-VERIFIED computation as a FailedApproach in the research state."""
-        if not hasattr(self, "research_state"):
-            return
-        from .research_state import FailedApproach
-
-        comp_id = comp_entry.get("id", "")
-        claim = comp_entry.get("claim", task.body[:200])
-        method = comp_entry.get("method", "")
-        notes = comp_entry.get("notes", "")
-        result = comp_entry.get("result", "")
-
-        description = f"{verdict} on: {claim}"
-        if method:
-            description += f"\nMethod: {method}"
-        reason = notes or result or f"Computation returned {verdict}"
-
-        self.research_state.failed_approaches.append(FailedApproach(
-            description=description,
-            reason=reason,
-            related_comps=[comp_id] if comp_id else [],
-            iteration=self.iteration,
-        ))
 
     def _register_computation(self, comp_entry: dict, task: Task):
         """Register a computation in the formal research state with authoritative target link."""
