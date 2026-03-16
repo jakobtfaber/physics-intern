@@ -50,6 +50,15 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                             "(e.g. ['ER-001', 'WH-002']). Optional."
                         ),
                     },
+                    "from_rq": {
+                        "type": "string",
+                        "description": (
+                            "If this WH is the concrete result of a research "
+                            "question, provide the RQ ID (e.g. 'RQ-003'). "
+                            "The WH inherits the RQ's number and the RQ is "
+                            "auto-resolved."
+                        ),
+                    },
                 },
                 "required": ["statement"],
             },
@@ -250,16 +259,16 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "task_type": {
                         "type": "string",
                         "enum": [
-                            "research", "derive", "compute",
+                            "research_explore", "compute",
                             "compute_explore", "compute_verify",
                             "research_verify",
-                            "critique", "resolve", "synthesize", "terminate",
+                            "critique", "terminate",
                         ],
                     },
                     "assigned_to": {
                         "type": "string",
                         "enum": [
-                            "researcher", "computationalist",
+                            "research_explore", "computationalist",
                             "deep_critic", "formatter",
                         ],
                     },
@@ -338,17 +347,36 @@ class OrchestratorToolExecutor:
     # -- Mutation handlers --
 
     def _add_hypothesis(self, args: dict) -> str:
-        from .research_state import Hypothesis, HypothesisStatus
+        from .research_state import Hypothesis, HypothesisStatus, RQStatus
 
         state = self.research_state
         if not state:
             return "Error: no research state available"
 
-        num = state.next_hypothesis_num()
-        new_id = f"WH-{num:03d}"
         statement = args.get("statement", "Untitled")
         derivation = args.get("derivation", "")
         depends_on = args.get("depends_on", [])
+        from_rq = args.get("from_rq")
+
+        if from_rq:
+            # Inherit RQ's number and auto-resolve it
+            if from_rq not in state.research_questions:
+                return f"Error: {from_rq} not found in research questions"
+            rq = state.research_questions[from_rq]
+            rq_num = int(from_rq.split("-")[1])
+            new_id = f"WH-{rq_num:03d}"
+            if new_id in state.hypotheses:
+                # Collision: another WH already has this number; use next available
+                num = state.next_entity_num()
+                new_id = f"WH-{num:03d}"
+            else:
+                # Auto-resolve the RQ
+                rq.status = RQStatus.RESOLVED
+                rq.resolved_to.append(new_id)
+                rq.iteration_resolved = self.iteration
+        else:
+            num = state.next_entity_num()
+            new_id = f"WH-{num:03d}"
 
         state.hypotheses[new_id] = Hypothesis(
             id=new_id,
@@ -542,7 +570,7 @@ class OrchestratorToolExecutor:
         if not state:
             return "Error: no research state available"
 
-        num = state.next_rq_num()
+        num = state.next_entity_num()
         rq_id = f"RQ-{num:03d}"
         question = args.get("question", "Untitled question")
         context = args.get("context", "")

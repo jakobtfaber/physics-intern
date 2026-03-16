@@ -51,13 +51,15 @@ _AGENT_ALIASES = {
     "compute_explore": "compute_explore",
     "compute_verify": "compute_verify",
     "research_verify": "research_verify",
-    "research": "researcher",
+    "research_explore": "research_explore",
+    "researcher": "research_explore",  # backward compat
+    "research": "research_explore",  # backward compat
     "critique": "deep_critic",
     "review": "deep_critic",
     "computationalist": "compute_verify",  # backward compat
 }
 _VALID_AGENTS = {
-    "orchestrator", "researcher", "computationalist",
+    "orchestrator", "research_explore", "computationalist",
     "compute_verify", "compute_explore", "research_verify",
     "deep_critic", "compressor",
 }
@@ -439,7 +441,7 @@ def check_id_consistency(workspace: WorkspaceManager) -> list[Violation]:
 
     meta, body = parse_frontmatter(comp_log)
     entries = _parse_comp_entries(comp_log)
-    actual_count = len([e for e in entries if e["id"].startswith("COMP-")])
+    actual_count = len(entries)
     recorded_count = meta.get("total_computations", 0)
 
     if actual_count != recorded_count:

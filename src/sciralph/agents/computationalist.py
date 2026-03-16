@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from ..research_state import ResearchState
     from ..task import Task
 
-_ER_WH_ID_RE = re.compile(r"(?:ER|WH)-\d+")
+_ER_WH_ID_RE = re.compile(r"(?:ER|WH|RQ)-\d+")
 
 
 class ComputationalistAgent(BaseAgent):
@@ -185,7 +185,7 @@ class ComputationalistAgent(BaseAgent):
         task_id = task.task_id or f"TASK-{iteration:03d}"
         target_ids = _ER_WH_ID_RE.findall(task.body or "")
         target_id = target_ids[0] if target_ids else ""
-        if task.task_type == TaskType.COMPUTE_EXPLORE:
+        if task.task_type in (TaskType.COMPUTE_EXPLORE, TaskType.RESEARCH_EXPLORE):
             kind = "explore"
         elif task.task_type == TaskType.RESEARCH_VERIFY:
             kind = "research_verify"

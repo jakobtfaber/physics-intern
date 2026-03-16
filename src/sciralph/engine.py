@@ -20,11 +20,11 @@ from .renderers import render_research_state_md, render_computation_log_md, rend
 from .validation import validate_post_integration, can_terminate, check_phantom_references, Violation, ViolationSeverity
 from .workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
-from .agents.researcher import ResearcherAgent
 from .agents.computationalist import ComputationalistAgent
 from .agents.compute_verify import ComputeVerifyAgent
 from .agents.compute_explore import ComputeExploreAgent
 from .agents.research_verify import ResearchVerifyAgent
+from .agents.research_explore import ResearchExploreAgent
 from .agents.critic import CriticAgent
 from .agents.compressor import CompressorAgent
 from .agents.formatter import FormatterAgent
@@ -68,11 +68,11 @@ class SciRalph:
 
         # Initialize agents
         self.orchestrator = OrchestratorAgent(self.config, self.workspace, self.metrics)
-        self.researcher = ResearcherAgent(self.config, self.workspace, self.metrics)
         self.computationalist = ComputationalistAgent(self.config, self.workspace, self.metrics)
         self.compute_verify = ComputeVerifyAgent(self.config, self.workspace, self.metrics)
         self.compute_explore = ComputeExploreAgent(self.config, self.workspace, self.metrics)
         self.research_verify = ResearchVerifyAgent(self.config, self.workspace, self.metrics)
+        self.research_explore = ResearchExploreAgent(self.config, self.workspace, self.metrics)
         self.critic = CriticAgent(self.config, self.workspace, self.metrics)
         self.compressor = CompressorAgent(self.config, self.workspace, self.metrics)
         self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
@@ -196,7 +196,7 @@ class SciRalph:
         self.orchestrator._research_state_ref = getattr(self, "research_state", None)
 
         orch_task = Task(
-            task_id="", task_type=TaskType.RESEARCH,
+            task_id="", task_type=TaskType.RESEARCH_EXPLORE,
             assigned_to="orchestrator", iteration=self.iteration,
         )
         orch_response = self.orchestrator.run(orch_task, self.iteration)
@@ -295,7 +295,7 @@ class SciRalph:
         expected_agent = TASK_TYPE_AGENT_MAP.get(task.task_type)
         if expected_agent:
             if not task.assigned_to or task.assigned_to not in (
-                "orchestrator", "researcher", "computationalist",
+                "orchestrator", "research_explore", "computationalist",
                 "compute_verify", "compute_explore", "research_verify",
                 "deep_critic", "compressor", "formatter",
             ):
@@ -319,11 +319,12 @@ class SciRalph:
 
         tt = task.task_type
 
-        if tt in (TaskType.RESEARCH, TaskType.DERIVE, TaskType.RESOLVE, TaskType.SYNTHESIZE):
-            console.print(f"[green]Researcher[/green] working on: {tt}")
-            result = self.researcher.run(task, self.iteration)
+        if tt == TaskType.RESEARCH_EXPLORE:
+            console.print("[green]ResearchExplore[/green] reasoning...")
+            self.research_explore.research_state = self.research_state
+            result = self.research_explore.run(task, self.iteration, on_round=self._on_compute_round)
             self._state.last_content_iteration = self.iteration
-            return "researcher", result
+            return "research_explore", result
 
         elif tt in (TaskType.COMPUTE, TaskType.COMPUTE_VERIFY):
             console.print("[magenta]ComputeVerify[/magenta] verifying...")
@@ -364,7 +365,7 @@ class SciRalph:
                         message=(
                             "Deep critic found NO issues. "
                             "Do NOT emit another critique task — proceed to "
-                            "synthesize or terminate."
+                            "terminate."
                         ),
                         file="CRITIQUE_LOG.md",
                     )
@@ -372,9 +373,10 @@ class SciRalph:
             return "deep_critic", response
 
         else:
-            console.print(f"[yellow]Unknown task type '{tt}', defaulting to researcher[/yellow]")
-            result = self.researcher.run(task, self.iteration)
-            return "researcher", result
+            console.print(f"[yellow]Unknown task type '{tt}', defaulting to research_explore[/yellow]")
+            self.research_explore.research_state = self.research_state
+            result = self.research_explore.run(task, self.iteration, on_round=self._on_compute_round)
+            return "research_explore", result
 
     def _critic_overdue(self) -> bool:
         """Check if more than N iterations since last critic pass."""
@@ -516,7 +518,7 @@ class SciRalph:
                     console.print(f"[yellow]Compressing {filename} ({size}/{threshold})[/yellow]")
                     compress_task = Task(
                         task_id=f"COMPRESS-{self.iteration:03d}",
-                        task_type=TaskType.RESEARCH,
+                        task_type=TaskType.RESEARCH_EXPLORE,
                         assigned_to="compressor",
                         iteration=self.iteration,
                         target_file=filename,

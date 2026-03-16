@@ -811,13 +811,15 @@ class TestCriticOverdue:
             engine.metrics = MagicMock()
             engine.iteration = 7
             from sciralph.engine import LoopState
+            from sciralph.research_state import ResearchState
             engine._state = LoopState()
+            engine.research_state = ResearchState()
 
-            engine.researcher = MagicMock()
+            engine.research_explore = MagicMock()
             engine.computationalist = MagicMock()
             engine.critic = MagicMock()
 
-        task = Task(task_id="T", task_type=TaskType.RESEARCH, assigned_to="researcher")
+        task = Task(task_id="T", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="research_explore")
         engine._dispatch(task)
         assert engine._state.last_content_iteration == 7
 

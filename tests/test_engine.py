@@ -546,7 +546,7 @@ class TestDispatchRoutingValidation:
             engine.iteration = 5
             engine._state = LoopState(last_content_iteration=5)
             engine.research_state = ResearchState()
-            engine.researcher = MagicMock()
+            engine.research_explore = MagicMock()
             engine.compute_verify = MagicMock()
             engine.compute_explore = MagicMock()
             engine.research_verify = MagicMock()
@@ -558,7 +558,7 @@ class TestDispatchRoutingValidation:
         engine = self._make_engine()
         task = Task(
             task_id="TASK-005", task_type=TaskType.COMPUTE,
-            assigned_to="researcher",  # wrong for compute
+            assigned_to="research_explore",  # wrong for compute
             iteration=5, body="Verify something.",
         )
         agent_name, _ = engine._dispatch(task)
@@ -571,12 +571,12 @@ class TestDispatchRoutingValidation:
         """Empty assigned_to gets inferred from task_type."""
         engine = self._make_engine()
         task = Task(
-            task_id="TASK-005", task_type=TaskType.RESEARCH,
+            task_id="TASK-005", task_type=TaskType.RESEARCH_EXPLORE,
             assigned_to="",  # empty
             iteration=5, body="Research something.",
         )
         agent_name, _ = engine._dispatch(task)
-        assert agent_name == "researcher"
+        assert agent_name == "research_explore"
         engine.metrics.alert.assert_called()
         alert_msg = engine.metrics.alert.call_args[0][1]
         assert "Routing fix" in alert_msg
@@ -601,7 +601,7 @@ class TestDispatchNewAgents:
             engine.iteration = 5
             engine._state = LoopState(last_content_iteration=5)
             engine.research_state = ResearchState()
-            engine.researcher = MagicMock()
+            engine.research_explore = MagicMock()
             engine.compute_verify = MagicMock()
             engine.compute_explore = MagicMock()
             engine.research_verify = MagicMock()
@@ -747,7 +747,7 @@ class TestDispatchFailureRecovery:
             engine.problem_meta = {}
 
             engine.orchestrator = MagicMock()
-            engine.researcher = MagicMock()
+            engine.research_explore = MagicMock()
             engine.compute_verify = MagicMock()
             engine.compute_explore = MagicMock()
             engine.research_verify = MagicMock()
@@ -796,12 +796,12 @@ class TestDispatchFailureRecovery:
         engine = self._make_engine()
 
         task = Task(
-            task_id="TASK-001", task_type=TaskType.RESEARCH,
-            assigned_to="researcher", iteration=1,
+            task_id="TASK-001", task_type=TaskType.RESEARCH_EXPLORE,
+            assigned_to="research_explore", iteration=1,
             body="Research something.",
         )
         engine.orchestrator.parse_task = MagicMock(return_value=task)
-        engine.researcher.run = MagicMock(side_effect=ValueError("bug in code"))
+        engine.research_explore.run = MagicMock(side_effect=ValueError("bug in code"))
 
         import pytest
         with pytest.raises(ValueError, match="bug in code"):
@@ -862,14 +862,14 @@ class TestAgentFailureRouting:
         result = MagicMock()
         result.stop_reason = "max_tokens"
         result.output_tokens = 8000
-        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH, assigned_to="researcher")
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="research_explore")
 
-        engine._record_agent_failures(task, "researcher", result)
+        engine._record_agent_failures(task, "research_explore", result)
 
         assert len(engine._state.agent_failures) == 1
         assert engine._state.agent_failures[0]["event"] == "max_tokens_truncation"
         assert engine._state.agent_failures[0]["task_id"] == "TASK-005"
-        assert engine._state.agent_failures[0]["agent"] == "researcher"
+        assert engine._state.agent_failures[0]["agent"] == "research_explore"
         assert "8000 tokens" in engine._state.agent_failures[0]["detail"]
         assert "Decompose" in engine._state.agent_failures[0]["detail"]
 
@@ -891,9 +891,9 @@ class TestAgentFailureRouting:
         engine = self._make_engine()
         result = MagicMock()
         result.stop_reason = "end_turn"
-        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH, assigned_to="researcher")
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="research_explore")
 
-        engine._record_agent_failures(task, "researcher", result)
+        engine._record_agent_failures(task, "research_explore", result)
 
         assert len(engine._state.agent_failures) == 0
 
@@ -902,7 +902,7 @@ class TestAgentFailureRouting:
         engine = self._make_engine()
         engine._state.agent_failures = [{
             "task_id": "TASK-004",
-            "agent": "researcher",
+            "agent": "research_explore",
             "event": "max_tokens_truncation",
             "detail": (
                 "Output hit token limit (8000 tokens). "
@@ -924,7 +924,7 @@ class TestAgentFailureRouting:
         engine = self._make_engine()
         engine._state.agent_failures = [{
             "task_id": "TASK-004",
-            "agent": "researcher",
+            "agent": "research_explore",
             "event": "max_tokens_truncation",
             "detail": "Task too large.",
             "iteration": 4,
@@ -1068,7 +1068,7 @@ class TestSyncOnTermination:
             engine.research_state = ResearchState()
             engine.problem_meta = {}
             engine.orchestrator = MagicMock()
-            engine.researcher = MagicMock()
+            engine.research_explore = MagicMock()
             engine.computationalist = MagicMock()
             engine.critic = MagicMock()
             engine.compressor = MagicMock()

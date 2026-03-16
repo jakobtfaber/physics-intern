@@ -23,15 +23,12 @@ from ..workspace import log_scaffold_event
 
 # Agent routing for set_next_task fallback
 _TASK_TYPE_AGENT_DEFAULTS = {
-    "research": "researcher",
-    "derive": "researcher",
+    "research_explore": "research_explore",
     "compute": "compute_verify",
     "compute_explore": "compute_explore",
     "compute_verify": "compute_verify",
     "research_verify": "research_verify",
     "critique": "deep_critic",
-    "resolve": "researcher",
-    "synthesize": "researcher",
     "terminate": "orchestrator",
 }
 
@@ -77,7 +74,7 @@ class OrchestratorAgent(BaseAgent):
                 f"{er_count} Established Results, "
                 f"{wh_count} Working Hypotheses still pending, "
                 f"{high} HIGH / {medium} MEDIUM unresolved critiques. "
-                "You MUST call set_next_task with task_type: synthesize NOW. "
+                "You MUST call set_next_task with task_type: research_explore to synthesize results NOW. "
                 "Unresolved items should be noted as limitations. <<<"
             )
         return None
@@ -127,9 +124,6 @@ class OrchestratorAgent(BaseAgent):
             "\n## METRICS.md (summary)\n",
             self.workspace.read_file("METRICS.md"),
         ])
-        if self.workspace.file_exists("PROPOSED_CHANGES.md"):
-            parts.append("\n## PROPOSED_CHANGES.md (pending review)\n")
-            parts.append(self.workspace.read_file("PROPOSED_CHANGES.md"))
         return "\n".join(parts)
 
     def _call_with_tools(
@@ -183,7 +177,6 @@ class OrchestratorAgent(BaseAgent):
             # Render state to markdown files
             self.workspace.write_file("RESEARCH_STATE.md", render_research_state_md(research_state))
             self.workspace.write_file("CRITIQUE_LOG.md", render_critique_log_md(research_state))
-        self.workspace.delete_file("PROPOSED_CHANGES.md")
 
         # Write CURRENT_TASK.md from set_next_task tool call
         if self._tool_executor.task_data:
@@ -192,12 +185,12 @@ class OrchestratorAgent(BaseAgent):
 
     def _task_from_tool_data(self, data: dict, iteration: int) -> Task:
         """Build a Task from set_next_task tool arguments."""
-        raw_type = data.get("task_type", "research")
+        raw_type = data.get("task_type", "research_explore")
         try:
             task_type = TaskType(raw_type)
         except ValueError:
-            task_type = TaskType.RESEARCH
-        assigned_to = data.get("assigned_to") or _TASK_TYPE_AGENT_DEFAULTS.get(raw_type, "researcher")
+            task_type = TaskType.RESEARCH_EXPLORE
+        assigned_to = data.get("assigned_to") or _TASK_TYPE_AGENT_DEFAULTS.get(raw_type, "research_explore")
         return Task(
             task_id=f"TASK-{iteration:03d}",
             task_type=task_type,

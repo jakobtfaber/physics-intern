@@ -217,9 +217,20 @@ class ResearchState:
         """All open research questions."""
         return [rq for rq in self.research_questions.values() if rq.status == RQStatus.OPEN]
 
-    def next_rq_num(self) -> int:
-        """Max existing RQ number + 1."""
+    def next_entity_num(self) -> int:
+        """Max existing entity number across hypotheses and RQs, + 1.
+
+        RQ, WH, and ER share a single counter so that an entity keeps the
+        same number through its lifecycle (RQ-003 → WH-003 → ER-003).
+        """
         nums = []
+        for hid in self.hypotheses:
+            parts = hid.split("-")
+            if len(parts) == 2:
+                try:
+                    nums.append(int(parts[1]))
+                except ValueError:
+                    pass
         for rqid in self.research_questions:
             parts = rqid.split("-")
             if len(parts) == 2 and parts[0] == "RQ":
@@ -228,6 +239,10 @@ class ResearchState:
                 except ValueError:
                     pass
         return max(nums, default=0) + 1
+
+    def next_rq_num(self) -> int:
+        """Max existing RQ number + 1 (delegates to unified counter)."""
+        return self.next_entity_num()
 
     def unestablished_dependencies(self, hypothesis_id: str) -> list[str]:
         """Return dependency IDs that are not yet ESTABLISHED."""
@@ -264,16 +279,8 @@ class ResearchState:
         return new_id
 
     def next_hypothesis_num(self) -> int:
-        """Max existing hypothesis number + 1."""
-        nums = []
-        for hid in self.hypotheses:
-            parts = hid.split("-")
-            if len(parts) == 2:
-                try:
-                    nums.append(int(parts[1]))
-                except ValueError:
-                    pass
-        return max(nums, default=0) + 1
+        """Max existing hypothesis number + 1 (delegates to unified counter)."""
+        return self.next_entity_num()
 
     def next_computation_num(self) -> int:
         """Max existing COMP number + 1."""
@@ -347,25 +354,32 @@ class ResearchState:
                 id_by_num[parts[1]] = hid
 
         # Update computation target_hypothesis to current form
+        # Only remap WH/ER targets — RQ, CRIT, TASK prefixes must not be touched
         for comp in self.computations.values():
             target = comp.target_hypothesis
             if not target or "-" not in target:
                 continue
-            num = target.split("-")[1]
+            prefix, num = target.split("-", 1)
+            if prefix not in ("WH", "ER"):
+                continue
             if num in id_by_num and id_by_num[num] != target:
                 comp.target_hypothesis = id_by_num[num]
 
         # Update depends_on references to current form
         for h in self.hypotheses.values():
             h.depends_on = [
-                id_by_num.get(dep.split("-")[1], dep) if "-" in dep else dep
+                id_by_num.get(dep.split("-")[1], dep)
+                if "-" in dep and dep.split("-")[0] in ("WH", "ER")
+                else dep
                 for dep in h.depends_on
             ]
 
         # Update resolved_to references in research questions
         for rq in self.research_questions.values():
             rq.resolved_to = [
-                id_by_num.get(ref.split("-")[1], ref) if "-" in ref else ref
+                id_by_num.get(ref.split("-")[1], ref)
+                if "-" in ref and ref.split("-")[0] in ("WH", "ER")
+                else ref
                 for ref in rq.resolved_to
             ]
 

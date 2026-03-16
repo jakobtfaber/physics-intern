@@ -11,7 +11,7 @@ from sciralph.metrics import MetricsTracker
 from sciralph.task import Task, TaskType
 from sciralph.workspace import WorkspaceManager
 
-_EMPTY_TASK = Task(task_id="", task_type=TaskType.RESEARCH, assigned_to="orchestrator")
+_EMPTY_TASK = Task(task_id="", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="orchestrator")
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ class TestParseTask:
         assert task.task_type == "compute"
 
     def test_parse_task_missing_id_uses_engine_iteration(self, orchestrator):
-        text = "---\ntask_type: research\nassigned_to: researcher\npriority: high\n---\nDo something."
+        text = "---\ntask_type: research_explore\nassigned_to: research_explore\npriority: high\n---\nDo something."
         task = orchestrator.parse_task(text, iteration=7)
         assert task.task_id == "TASK-007"
         assert task.iteration == 7

@@ -205,6 +205,10 @@ class ToolExecutor:
         _SUBMIT_VERDICT_DEF,
         _REPORT_PROGRESS_DEF,
     ]
+    RESEARCH_EXPLORE_TOOLS: ClassVar[list[dict]] = [
+        _SUBMIT_RESULT_DEF,
+        _REPORT_PROGRESS_DEF,
+    ]
 
     @classmethod
     def tools_for_task_type(cls, task_type: "TaskType") -> list[dict]:
@@ -215,6 +219,8 @@ class ToolExecutor:
             return cls.VERIFY_TOOLS
         if task_type == TaskType.RESEARCH_VERIFY:
             return cls.RESEARCH_VERIFY_TOOLS
+        if task_type == TaskType.RESEARCH_EXPLORE:
+            return cls.RESEARCH_EXPLORE_TOOLS
         return cls.TOOL_DEFINITIONS  # COMPUTE (legacy)
 
     def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000,
@@ -229,7 +235,7 @@ class ToolExecutor:
     @property
     def exit_tool_name(self) -> str:
         """Return the context-appropriate exit tool name."""
-        if self._task_type == TaskType.COMPUTE_EXPLORE:
+        if self._task_type in (TaskType.COMPUTE_EXPLORE, TaskType.RESEARCH_EXPLORE):
             return "submit_result"
         return "submit_verdict"
 

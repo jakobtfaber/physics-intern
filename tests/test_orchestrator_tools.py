@@ -536,16 +536,17 @@ class TestResearchQuestionTools:
 
     def test_add_research_question(self):
         ws = _make_workspace()
-        state = _make_state()
+        state = _make_state()  # has WH-001, WH-002
         ex = OrchestratorToolExecutor(ws, iteration=2, research_state=state)
         tc = ex.execute("add_research_question", {
             "question": "What is the entropy correction?",
             "context": "Needed for WH-002",
         })
         assert not tc.is_error
-        assert "RQ-001" in tc.output
-        assert "RQ-001" in state.research_questions
-        rq = state.research_questions["RQ-001"]
+        # Shared counter: next number after WH-001/WH-002 is 003
+        assert "RQ-003" in tc.output
+        assert "RQ-003" in state.research_questions
+        rq = state.research_questions["RQ-003"]
         assert rq.question == "What is the entropy correction?"
         assert rq.context == "Needed for WH-002"
         assert ex.mutations_applied

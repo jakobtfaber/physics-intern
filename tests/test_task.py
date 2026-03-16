@@ -5,13 +5,13 @@ from sciralph.task import Task, TaskType, TASK_TYPE_AGENT_MAP
 
 class TestTaskType:
     def test_values(self):
-        assert TaskType.RESEARCH == "research"
+        assert TaskType.RESEARCH_EXPLORE == "research_explore"
         assert TaskType.COMPUTE == "compute"
         assert TaskType.TERMINATE == "terminate"
 
     def test_from_string(self):
         assert TaskType("compute") == TaskType.COMPUTE
-        assert TaskType("synthesize") == TaskType.SYNTHESIZE
+        assert TaskType("research_explore") == TaskType.RESEARCH_EXPLORE
 
 
 class TestTaskToMarkdown:
@@ -33,8 +33,8 @@ class TestTaskToMarkdown:
     def test_with_blocking_critiques(self):
         task = Task(
             task_id="TASK-010",
-            task_type=TaskType.RESOLVE,
-            assigned_to="researcher",
+            task_type=TaskType.RESEARCH_EXPLORE,
+            assigned_to="research_explore",
             iteration=10,
             blocking_critiques=["CRIT-001", "CRIT-002"],
             body="Resolve critiques.",
@@ -64,15 +64,15 @@ class TestTaskFromFrontmatter:
         assert "Verify something." in task.body
 
     def test_fallback_iteration(self):
-        text = "---\ntask_type: research\nassigned_to: researcher\n---\n\nDo something."
+        text = "---\ntask_type: research_explore\nassigned_to: research_explore\n---\n\nDo something."
         task = Task.from_frontmatter(text, fallback_iteration=7)
         assert task.task_id == "TASK-007"
         assert task.iteration == 7
 
-    def test_unknown_task_type_defaults_to_research(self):
-        text = "---\ntask_type: foobar\nassigned_to: researcher\n---\n\nBody."
+    def test_unknown_task_type_defaults_to_research_explore(self):
+        text = "---\ntask_type: foobar\nassigned_to: research_explore\n---\n\nBody."
         task = Task.from_frontmatter(text)
-        assert task.task_type == TaskType.RESEARCH
+        assert task.task_type == TaskType.RESEARCH_EXPLORE
 
     def test_round_trip(self):
         original = Task(
@@ -96,16 +96,16 @@ class TestTaskFromFrontmatterEdgeCases:
     """Tests for Task.from_frontmatter edge cases (Improvement 6C)."""
 
     def test_from_frontmatter_empty_assigned_to(self):
-        """Empty string assigned_to defaults to 'researcher'."""
+        """Empty string assigned_to defaults to 'research_explore'."""
         text = "---\ntask_type: compute\nassigned_to: ''\niteration: 5\n---\n\nBody."
         task = Task.from_frontmatter(text)
-        assert task.assigned_to == "researcher"
+        assert task.assigned_to == "research_explore"
 
     def test_from_frontmatter_null_assigned_to(self):
-        """null/None assigned_to defaults to 'researcher'."""
+        """null/None assigned_to defaults to 'research_explore'."""
         text = "---\ntask_type: compute\nassigned_to:\niteration: 5\n---\n\nBody."
         task = Task.from_frontmatter(text)
-        assert task.assigned_to == "researcher"
+        assert task.assigned_to == "research_explore"
 
 
 class TestTaskTypeAgentMap:
@@ -121,8 +121,8 @@ class TestTaskTypeAgentMap:
     def test_critique_maps_to_deep_critic(self):
         assert TASK_TYPE_AGENT_MAP[TaskType.CRITIQUE] == "deep_critic"
 
-    def test_research_maps_to_researcher(self):
-        assert TASK_TYPE_AGENT_MAP[TaskType.RESEARCH] == "researcher"
+    def test_research_explore_maps_to_research_explore(self):
+        assert TASK_TYPE_AGENT_MAP[TaskType.RESEARCH_EXPLORE] == "research_explore"
 
 
 class TestTaskTargetClaim:

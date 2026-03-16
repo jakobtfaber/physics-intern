@@ -11,29 +11,23 @@ import yaml
 
 
 class TaskType(StrEnum):
-    RESEARCH = "research"
-    DERIVE = "derive"
+    RESEARCH_EXPLORE = "research_explore"
     COMPUTE = "compute"
     COMPUTE_EXPLORE = "compute_explore"
     COMPUTE_VERIFY = "compute_verify"
-    CRITIQUE = "critique"
-    RESOLVE = "resolve"
-    SYNTHESIZE = "synthesize"
     RESEARCH_VERIFY = "research_verify"
+    CRITIQUE = "critique"
     TERMINATE = "terminate"
     FORMAT = "format"
 
 
 TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
-    TaskType.RESEARCH: "researcher",
-    TaskType.DERIVE: "researcher",
+    TaskType.RESEARCH_EXPLORE: "research_explore",
     TaskType.COMPUTE: "compute_verify",
     TaskType.COMPUTE_EXPLORE: "compute_explore",
     TaskType.COMPUTE_VERIFY: "compute_verify",
     TaskType.RESEARCH_VERIFY: "research_verify",
     TaskType.CRITIQUE: "deep_critic",
-    TaskType.RESOLVE: "researcher",
-    TaskType.SYNTHESIZE: "researcher",
     TaskType.TERMINATE: "orchestrator",
     TaskType.FORMAT: "formatter",
 }
@@ -76,15 +70,15 @@ class Task:
         """Parse from YAML frontmatter text."""
         meta, body = parse_frontmatter(text)
         effective_iter = meta.get("iteration", fallback_iteration) or fallback_iteration
-        raw_type = meta.get("task_type", "research")
+        raw_type = meta.get("task_type", "research_explore")
         try:
             task_type = TaskType(raw_type)
         except ValueError:
-            task_type = TaskType.RESEARCH
+            task_type = TaskType.RESEARCH_EXPLORE
         return cls(
             task_id=meta.get("task_id", f"TASK-{effective_iter:03d}"),
             task_type=task_type,
-            assigned_to=meta.get("assigned_to", "researcher") or "researcher",
+            assigned_to=meta.get("assigned_to", "research_explore") or "research_explore",
             priority=meta.get("priority", "medium"),
             iteration=effective_iter,
             blocking_critiques=meta.get("blocking_critiques", []),

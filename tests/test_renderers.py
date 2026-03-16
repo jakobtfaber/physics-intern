@@ -157,8 +157,8 @@ def sample_task():
 def resolve_task():
     return Task(
         task_id="TASK-006",
-        task_type=TaskType.RESOLVE,
-        assigned_to="researcher",
+        task_type=TaskType.RESEARCH_EXPLORE,
+        assigned_to="research_explore",
         priority="high",
         iteration=5,
         blocking_critiques=["CRIT-001"],
@@ -734,8 +734,8 @@ class TestRenderResearcherContext:
     def test_resolve_with_missing_critique_id(self, populated_state):
         task = Task(
             task_id="TASK-007",
-            task_type=TaskType.RESOLVE,
-            assigned_to="researcher",
+            task_type=TaskType.RESEARCH_EXPLORE,
+            assigned_to="research_explore",
             iteration=5,
             blocking_critiques=["CRIT-999"],  # does not exist
             body="Resolve non-existent critique.",

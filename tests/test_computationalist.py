@@ -58,9 +58,11 @@ class TestToolsAttribute:
         names = {t["function"]["name"] for t in ComputationalistAgent.tools}
         assert names == {"execute_python", "submit_verdict", "report_progress"}
 
-    def test_researcher_no_tools(self):
-        from sciralph.agents.researcher import ResearcherAgent
-        assert ResearcherAgent.tools == []
+    def test_research_explore_has_tools(self):
+        from sciralph.agents.research_explore import ResearchExploreAgent
+        assert len(ResearchExploreAgent.tools) == 2
+        names = {t["function"]["name"] for t in ResearchExploreAgent.tools}
+        assert names == {"submit_result", "report_progress"}
 
     def test_critic_has_tools(self):
         from sciralph.agents.critic import CriticAgent

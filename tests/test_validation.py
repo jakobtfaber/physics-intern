@@ -392,7 +392,7 @@ class TestCheckTaskAgentRouting:
         })
         violations = check_task_agent_routing(ws)
         assert len(violations) == 1
-        assert "'researcher'" in violations[0].message
+        assert "'research_explore'" in violations[0].message
 
     def test_alias_review_resolved(self):
         ws = MockWorkspace({
@@ -410,7 +410,7 @@ class TestCheckTaskAgentRouting:
         assert len(violations) == 0
 
     def test_all_valid_agents_pass(self):
-        for agent in ("orchestrator", "researcher", "computationalist", "deep_critic", "compressor"):
+        for agent in ("orchestrator", "research_explore", "computationalist", "deep_critic", "compressor"):
             ws = MockWorkspace({
                 "CURRENT_TASK.md": self._task_with_assigned(agent),
             })
@@ -516,16 +516,12 @@ OK.
         assert "frontmatter=5" in violations[0].message
         assert "actual=1" in violations[0].message
 
-    def test_task_headers_excluded_from_count(self):
-        """TASK-NNN headers in COMPUTATION_LOG should not be counted as computations."""
+    def test_task_headers_counted(self):
+        """TASK-NNN entries are counted — the renderer now uses TASK-NNN IDs."""
         meta = {"total_computations": 0, "last_computation": "2026-03-10"}
         body = """# Computations
 
 ## TASK-002: Computation
-
-All checks resolve cleanly.
-
-## COMP-002: Verification of QHO Heat Capacity
 
 **CLAIM**: Verify heat capacity
 **VERDICT**: VERIFIED
@@ -533,10 +529,6 @@ All checks resolve cleanly.
 OK.
 
 ## TASK-003: Computation
-
-More preamble.
-
-## COMP-003: Partition Function Identity
 
 **CLAIM**: Verify partition function
 **VERDICT**: VERIFIED
@@ -548,7 +540,6 @@ OK.
         })
         violations = check_id_consistency(ws)
         assert len(violations) == 1
-        # Should count only COMP-002 and COMP-003, not TASK-002 and TASK-003
         assert "actual=2" in violations[0].message
         updated = ws.read_file("COMPUTATION_LOG.md")
         from sciralph.markdown import parse_frontmatter
@@ -624,7 +615,7 @@ T = hbar * kappa / (2 pi k_B)
 Backed by COMP-001.
 """
         task = render_frontmatter(
-            {"task_id": "TASK-002", "task_type": "research", "assigned_to": "researcher"},
+            {"task_id": "TASK-002", "task_type": "research_explore", "assigned_to": "research_explore"},
             "Continue research.\n",
         )
         ws = MockWorkspace({

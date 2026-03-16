@@ -288,7 +288,7 @@ def render_researcher_context(state: ResearchState, task: Task) -> str:
         render_research_state_md(state),
     ]
 
-    if task.task_type == TaskType.RESOLVE:
+    if task.blocking_critiques:
         parts.append("\n## Relevant Critiques\n")
         for crit_id in task.blocking_critiques:
             if crit_id in state.critiques:
