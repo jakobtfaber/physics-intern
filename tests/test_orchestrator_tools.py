@@ -187,6 +187,34 @@ class TestAbandonHypothesis:
         tc = ex.execute("abandon_hypothesis", {"id": "WH-099", "reason": "nope"})
         assert "not found" in tc.output
 
+    def test_warns_when_dependents_exist(self):
+        ws = _make_workspace()
+        state = _make_state()
+        # WH-002 depends on WH-001
+        state.hypotheses["WH-002"].depends_on = ["WH-001"]
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("abandon_hypothesis", {
+            "id": "WH-001",
+            "reason": "Dead end.",
+        })
+        assert not tc.is_error
+        assert state.hypotheses["WH-001"].status == HypothesisStatus.ABANDONED
+        assert "Warning" in tc.output
+        assert "WH-002" in tc.output
+
+    def test_no_warning_when_dependent_already_abandoned(self):
+        ws = _make_workspace()
+        state = _make_state()
+        state.hypotheses["WH-002"].depends_on = ["WH-001"]
+        state.hypotheses["WH-002"].status = HypothesisStatus.ABANDONED
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("abandon_hypothesis", {
+            "id": "WH-001",
+            "reason": "Dead end.",
+        })
+        assert not tc.is_error
+        assert "Warning" not in tc.output
+
 
 # ---------------------------------------------------------------------------
 # promote_hypothesis

@@ -414,6 +414,14 @@ class OrchestratorToolExecutor:
         if hid not in state.hypotheses:
             return f"Error: {hid} not found"
 
+        # Check for dependents — warn but don't block
+        dependents = [
+            h2.id for h2 in state.hypotheses.values()
+            if h2.id != hid
+            and h2.status != HypothesisStatus.ABANDONED
+            and hid in h2.depends_on
+        ]
+
         h = state.hypotheses[hid]
         title = h.statement or hid
 
@@ -427,7 +435,16 @@ class OrchestratorToolExecutor:
         ))
 
         self.mutations_applied = True
-        return f"Abandoned {hid}: {reason}"
+
+        msg = f"Abandoned {hid}: {reason}"
+        if dependents:
+            dep_list = ", ".join(dependents)
+            msg += (
+                f"\nWarning: {dep_list} depend(s) on {hid}. "
+                "Their promotion will be blocked until you remove this "
+                "dependency (update or abandon them too)."
+            )
+        return msg
 
     def _promote_hypothesis(self, args: dict) -> str:
         from .research_state import HypothesisStatus, Severity, CritiqueStatus

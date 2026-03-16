@@ -17,7 +17,7 @@ If it errors, fix and retry.
 ### `submit_result`
 Submit the result of your exploratory computation. Call this ONCE when
 you have a concrete result. This immediately ends your session.
-Parameters: `target_id` (WH/ER ID), `description`, `method`, `result`,
+Parameters: `target_id` (RQ/WH/ER ID), `description`, `method`, `result`,
 `confidence` (exact/approximate/partial), `notes`.
 
 ### `report_progress`
