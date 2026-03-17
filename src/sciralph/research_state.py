@@ -33,6 +33,7 @@ class Verdict(StrEnum):
     VERIFIED = "VERIFIED"
     REFUTED = "REFUTED"
     INCONCLUSIVE = "INCONCLUSIVE"
+    EXPLORED = "EXPLORED"
 
 
 class Severity(StrEnum):
@@ -138,6 +139,7 @@ class ResearchState:
     critiques: dict[str, Critique] = field(default_factory=dict)
     research_questions: dict[str, ResearchQuestion] = field(default_factory=dict)
     failed_approaches: list[FailedApproach] = field(default_factory=list)
+    critic_clean_reviews: list[dict[str, Any]] = field(default_factory=list)
     iteration: int = 0
     problem_statement: str = ""
     conventions: str = ""
@@ -467,6 +469,7 @@ class ResearchState:
                 related_comps=fdata.get("related_comps", []),
                 iteration=fdata.get("iteration", 0),
             ))
+        state.critic_clean_reviews = data.get("critic_clean_reviews", [])
         return state
 
     def save(self, workspace_root: Path) -> None:

@@ -85,7 +85,7 @@ class ComputationalistAgent(BaseAgent):
         comp = Computation(
             id=task_id,
             target_hypothesis=target_id,
-            verdict=Verdict.INCONCLUSIVE,
+            verdict=Verdict.EXPLORED,
             claim=description,
             method=method,
             result=result,

@@ -96,10 +96,16 @@ class CriticAgent(BaseAgent):
         self._no_critiques_filed = len(filed) == 0
 
         if self._no_critiques_filed:
+            summary = self._tool_executor.review_summary
             log_scaffold_event(
                 self.workspace.root, iteration, CC.LOOP_CONTROL,
-                "no_critiques_filed", f"summary={self._tool_executor.review_summary[:100]}",
+                "no_critiques_filed", f"summary={summary}",
             )
+            if self.research_state:
+                self.research_state.critic_clean_reviews.append({
+                    "iteration": iteration,
+                    "summary": summary,
+                })
         elif self.research_state:
             # Write Critique objects to research state
             for critique_data in filed:

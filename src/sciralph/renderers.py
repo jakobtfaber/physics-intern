@@ -212,6 +212,11 @@ def _critique_log_body(state: ResearchState) -> str:
             parts.append(f"- **Resolution:** {c.resolution}")
         parts.append("")
 
+    if state.critic_clean_reviews:
+        parts.append("# Clean Reviews\n")
+        for rev in sorted(state.critic_clean_reviews, key=lambda r: r.get("iteration", 0)):
+            parts.append(f"**Iteration {rev.get('iteration', '?')}:** {rev.get('summary', '')}\n")
+
     return "\n".join(parts)
 
 
