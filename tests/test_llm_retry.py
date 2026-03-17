@@ -384,6 +384,7 @@ class TestPenultimateRoundMessage:
 
         max_rounds = 5
         provider = MagicMock()
+        provider.prepare_messages.side_effect = lambda msgs: msgs
         # Rounds 1..5 return tool_use, then forced final call returns text
         tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
         final_response = self._make_final_response()
@@ -435,6 +436,7 @@ class TestPenultimateRoundMessage:
 
         max_rounds = 3
         provider = MagicMock()
+        provider.prepare_messages.side_effect = lambda msgs: msgs
         tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
         final_response = self._make_final_response()
 
@@ -482,6 +484,7 @@ class TestPenultimateRoundMessage:
 
         max_rounds = 3
         provider = MagicMock()
+        provider.prepare_messages.side_effect = lambda msgs: msgs
         # Rounds 1..3 return tool_use, forced final call raises
         tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
         forced_exc = Exception("output_parse_failed - model gibberish")
@@ -525,6 +528,7 @@ class TestPenultimateRoundMessage:
 
         max_rounds = 5
         provider = MagicMock()
+        provider.prepare_messages.side_effect = lambda msgs: msgs
         tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
         final_response = self._make_final_response()
 
@@ -562,6 +566,7 @@ class TestPenultimateRoundMessage:
 
         max_rounds = 5
         provider = MagicMock()
+        provider.prepare_messages.side_effect = lambda msgs: msgs
 
         # Provider raises tool_use_failed on the very first round (after retries)
         tool_fail_exc = Exception(
@@ -610,6 +615,7 @@ class TestPenultimateRoundMessage:
 
         max_rounds = 2
         provider = MagicMock()
+        provider.prepare_messages.side_effect = lambda msgs: msgs
         tool_responses = [self._make_tool_use_response() for _ in range(max_rounds)]
         final_response = self._make_final_response()
 

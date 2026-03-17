@@ -73,3 +73,11 @@ class LLMProvider(ABC):
         tool_results: [{"tool_call_id": ..., "name": ..., "output": ..., "is_error": ...}]
         """
         ...
+
+    def prepare_messages(self, messages: list[dict]) -> list[dict]:
+        """Pre-process messages before sending to provider.
+
+        Default: return messages unchanged. Providers can override to strip
+        thinking blocks or perform other context-saving transformations.
+        """
+        return messages

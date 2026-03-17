@@ -304,6 +304,7 @@ def _mock_provider():
     provider = MagicMock()
     provider.format_assistant_message.return_value = {"role": "assistant", "content": "mock"}
     provider.build_tool_result_messages.return_value = [{"role": "user", "content": []}]
+    provider.prepare_messages.side_effect = lambda msgs: msgs
     return provider
 
 

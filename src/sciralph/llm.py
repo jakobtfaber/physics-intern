@@ -230,7 +230,7 @@ def run_agent_loop(
                 model=config.model_id,
                 max_tokens=config.max_tokens,
                 system=system,
-                messages=messages,
+                messages=provider.prepare_messages(messages),
                 tools=tools,
             )
         except Exception as exc:
@@ -504,7 +504,7 @@ def run_agent_loop(
             model=config.model_id,
             max_tokens=config.max_tokens,
             system=system,       # UNCHANGED system prompt
-            messages=messages,   # includes forced user message
+            messages=provider.prepare_messages(messages),   # includes forced user message
             # No tools parameter — forces text-only response
         )
         final_dur = time.time() - start

@@ -22,18 +22,12 @@ class AnthropicProvider(LLMProvider):
     def call(self, model: str, max_tokens: int, system: str,
              messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
         if self._thinking:
-            if self._reasoning_budget > 0:
-                # Explicit budget mode with user-specified reasoning budget
-                effective_max = max(max_tokens, self._reasoning_budget + self._thinking_token_headroom)
-                thinking_cfg = {"type": "enabled", "budget_tokens": self._reasoning_budget}
-            else:
-                # Cap thinking to guarantee answer token reserve
-                budget = max(1024, max_tokens - self._thinking_token_headroom)
-                effective_max = max_tokens
-                thinking_cfg = {"type": "enabled", "budget_tokens": budget}
+            # Adaptive thinking: model decides when and how much to think.
+            # No budget_tokens — the model allocates within max_tokens.
+            thinking_cfg = {"type": "adaptive"}
             kwargs = dict(
                 model=model,
-                max_tokens=effective_max,
+                max_tokens=max_tokens,
                 system=system,
                 messages=messages,
                 thinking=thinking_cfg,
@@ -99,6 +93,45 @@ class AnthropicProvider(LLMProvider):
 
     def format_assistant_message(self, raw_content: object) -> dict:
         return {"role": "assistant", "content": raw_content}
+
+    def prepare_messages(self, messages: list[dict]) -> list[dict]:
+        """Strip thinking blocks from older assistant turns to control context growth.
+
+        The Anthropic API requires thinking blocks from the most recent assistant
+        turn to be preserved, but older turns can have thinking stripped. This
+        prevents O(rounds^2) context growth from accumulated thinking tokens.
+        """
+        if not self._thinking:
+            return messages
+
+        # Find the last assistant message index
+        last_asst_idx = -1
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "assistant":
+                last_asst_idx = i
+                break
+        if last_asst_idx < 0:
+            return messages
+
+        result = []
+        for i, msg in enumerate(messages):
+            if msg.get("role") == "assistant" and i < last_asst_idx:
+                content = msg.get("content")
+                if content and isinstance(content, list):
+                    filtered = [
+                        block for block in content
+                        if getattr(block, "type", None) not in ("thinking", "redacted_thinking")
+                    ]
+                    if filtered:
+                        result.append({"role": "assistant", "content": filtered})
+                    else:
+                        # All blocks were thinking — keep original to avoid empty content
+                        result.append(msg)
+                else:
+                    result.append(msg)
+            else:
+                result.append(msg)
+        return result
 
     def build_tool_result_messages(self, tool_results: list[dict]) -> list[dict]:
         """Anthropic: single user message with tool_result content blocks."""
