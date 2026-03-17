@@ -10,12 +10,15 @@ Usage:
     uv run python -m sciralph.one_shot problems/tier1/hawking_temperature.yaml
     uv run python -m sciralph.one_shot problems/tier1/hawking_temperature.yaml --model gpt-5.4-high
     uv run python -m sciralph.one_shot problems/tier1/hawking_temperature.yaml -o result.md
+    uv run python -m sciralph.one_shot problems/tier1/hawking_temperature.yaml --runs 10
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -24,6 +27,7 @@ load_dotenv()
 import yaml
 
 from .config import Config
+from .evaluate import evaluate_response
 from .providers import create_provider, LLMProvider, ProviderResponse
 
 # ---------------------------------------------------------------------------
@@ -123,6 +127,207 @@ def build_user_message(problem_text: str, answer_template: str = "") -> str:
 
 
 # ---------------------------------------------------------------------------
+# Single run helper
+# ---------------------------------------------------------------------------
+
+def _run_once(
+    provider: LLMProvider,
+    config: Config,
+    user_message: str,
+) -> dict:
+    """Execute a single LLM call and return a structured result dict."""
+    start = time.time()
+    resp = _call_with_retry(
+        provider,
+        model=config.model_id,
+        max_tokens=config.max_tokens,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    duration = time.time() - start
+
+    cost_usd = 0.0
+    if config.input_cost or config.output_cost:
+        cost_usd = (
+            resp.input_tokens * config.input_cost
+            + resp.output_tokens * config.output_cost
+        ) / 1_000_000
+
+    return {
+        "tokens": {
+            "input": resp.input_tokens,
+            "output": resp.output_tokens,
+            "reasoning": resp.reasoning_tokens or 0,
+            "answer": resp.answer_tokens or 0,
+        },
+        "duration_s": round(duration, 2),
+        "cost_usd": round(cost_usd, 6),
+        "stop_reason": resp.stop_reason,
+        "response_text": resp.text,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Single-run mode (original behavior + evaluation)
+# ---------------------------------------------------------------------------
+
+def _run_single(
+    args: argparse.Namespace,
+    config: Config,
+    provider: LLMProvider,
+    user_message: str,
+    problem_def: dict,
+) -> None:
+    """Run once, print to stdout, optionally save markdown — original behavior."""
+    result = _run_once(provider, config, user_message)
+
+    # --- Report stats to stderr ---
+    tokens = result["tokens"]
+    print(f"Input tokens:  {tokens['input']}", file=sys.stderr)
+    print(f"Output tokens: {tokens['output']}", file=sys.stderr)
+    if tokens["reasoning"]:
+        print(f"  Reasoning:   {tokens['reasoning']}", file=sys.stderr)
+        print(f"  Answer:      {tokens['answer']}", file=sys.stderr)
+    print(f"Duration:      {result['duration_s']:.1f}s", file=sys.stderr)
+    print(f"Stop reason:   {result['stop_reason']}", file=sys.stderr)
+    if result["cost_usd"]:
+        print(f"Est. cost:     ${result['cost_usd']:.4f}", file=sys.stderr)
+
+    # --- Evaluation ---
+    if problem_def.get("answer") is not None:
+        ev = evaluate_response(result["response_text"], problem_def)
+        if ev["correct"] is True:
+            print(f"Evaluation:    CORRECT ({ev['method']})", file=sys.stderr)
+        elif ev["correct"] is False:
+            print(f"Evaluation:    INCORRECT ({ev['method']})", file=sys.stderr)
+        else:
+            print(f"Evaluation:    ERROR — {ev['error']}", file=sys.stderr)
+
+    print("---", file=sys.stderr)
+
+    # --- Output response to stdout ---
+    print(result["response_text"])
+
+    # --- Optionally save structured report ---
+    if args.output:
+        reasoning_row = ""
+        if tokens["reasoning"]:
+            reasoning_row = (
+                f"| Reasoning tokens | {tokens['reasoning']} |\n"
+                f"| Answer tokens | {tokens['answer']} |\n"
+            )
+        cost_row = ""
+        if result["cost_usd"]:
+            cost_row = f"| Est. cost | ${result['cost_usd']:.4f} |\n"
+
+        problem_text = problem_def.get("problem", "")
+        report = (
+            f"# One-Shot Result — {args.problem.stem}\n\n"
+            f"| Field | Value |\n"
+            f"|-------|-------|\n"
+            f"| Model | {config.model} ({config.model_id}) |\n"
+            f"| Provider | {config.provider} |\n"
+            f"| Input tokens | {tokens['input']} |\n"
+            f"| Output tokens | {tokens['output']} |\n"
+            f"{reasoning_row}"
+            f"| Duration | {result['duration_s']:.1f}s |\n"
+            f"| Stop reason | {result['stop_reason']} |\n"
+            f"{cost_row}\n"
+            f"## Problem\n\n{problem_text.strip()}\n\n"
+            f"## Response\n\n{result['response_text']}\n"
+        )
+        args.output.write_text(report)
+        print(f"\nSaved to {args.output}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Batch-run mode
+# ---------------------------------------------------------------------------
+
+def _run_batch(
+    args: argparse.Namespace,
+    config: Config,
+    provider: LLMProvider,
+    user_message: str,
+    problem_def: dict,
+) -> None:
+    """Run N times, evaluate each, save JSON results."""
+    n = args.runs
+    runs: list[dict] = []
+    counts = {"correct": 0, "incorrect": 0, "error": 0}
+
+    for i in range(n):
+        print(f"Run {i + 1}/{n}... ", end="", file=sys.stderr, flush=True)
+        try:
+            result = _run_once(provider, config, user_message)
+            ev = evaluate_response(result["response_text"], problem_def)
+
+            if ev["correct"] is True:
+                counts["correct"] += 1
+                label = "correct"
+            elif ev["correct"] is False:
+                counts["incorrect"] += 1
+                label = "incorrect"
+            else:
+                counts["error"] += 1
+                label = f"error: {ev['error']}"
+
+            runs.append({
+                "run_index": i,
+                "tokens": result["tokens"],
+                "duration_s": result["duration_s"],
+                "cost_usd": result["cost_usd"],
+                "stop_reason": result["stop_reason"],
+                "evaluation": ev,
+                "response_text": result["response_text"],
+            })
+            print(f"done ({result['duration_s']:.1f}s, {label})", file=sys.stderr)
+
+        except Exception as exc:
+            counts["error"] += 1
+            runs.append({
+                "run_index": i,
+                "tokens": None,
+                "duration_s": None,
+                "cost_usd": None,
+                "stop_reason": None,
+                "evaluation": {"correct": None, "method": "llm_error", "error": str(exc), "details": ""},
+                "response_text": None,
+            })
+            print(f"FAILED ({exc})", file=sys.stderr)
+
+    # --- Summary ---
+    total_cost = sum(r["cost_usd"] for r in runs if r["cost_usd"] is not None)
+    print("---", file=sys.stderr)
+    print(f"Results: {counts['correct']}/{n} correct, "
+          f"{counts['incorrect']} incorrect, {counts['error']} errors", file=sys.stderr)
+    print(f"Total cost: ${total_cost:.4f}", file=sys.stderr)
+
+    # --- Save JSON ---
+    results_dir = args.results_dir
+    results_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{args.problem.stem}_{config.model}_{timestamp}.json"
+    output_path = results_dir / filename
+
+    payload = {
+        "problem": args.problem.stem,
+        "problem_path": str(args.problem),
+        "model": config.model,
+        "model_id": config.model_id,
+        "provider": config.provider,
+        "max_tokens": config.max_tokens,
+        "num_runs": n,
+        "timestamp": timestamp,
+        "summary": counts,
+        "total_cost_usd": round(total_cost, 6),
+        "runs": runs,
+    }
+    output_path.write_text(json.dumps(payload, indent=2, default=str))
+    print(f"Saved to {output_path}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -147,6 +352,14 @@ def main() -> None:
     parser.add_argument(
         "-o", "--output", type=Path, default=None,
         help="Save response with metadata to a Markdown file",
+    )
+    parser.add_argument(
+        "--runs", type=int, default=None,
+        help="Number of runs for batch benchmarking",
+    )
+    parser.add_argument(
+        "--results-dir", type=Path, default=Path("results/one_shot"),
+        help="Directory for batch result JSON files (default: results/one_shot/)",
     )
     args = parser.parse_args()
 
@@ -190,69 +403,14 @@ def main() -> None:
     print(f"Tokens:   {config.max_tokens} max output", file=sys.stderr)
     print("---", file=sys.stderr)
 
-    # --- Single LLM call ---
-    start = time.time()
-    resp = _call_with_retry(
-        provider,
-        model=config.model_id,
-        max_tokens=config.max_tokens,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
-    duration = time.time() - start
-
-    # --- Report stats to stderr ---
-    print(f"Input tokens:  {resp.input_tokens}", file=sys.stderr)
-    print(f"Output tokens: {resp.output_tokens}", file=sys.stderr)
-    if resp.reasoning_tokens:
-        print(f"  Reasoning:   {resp.reasoning_tokens}", file=sys.stderr)
-        print(f"  Answer:      {resp.answer_tokens}", file=sys.stderr)
-    print(f"Duration:      {duration:.1f}s", file=sys.stderr)
-    print(f"Stop reason:   {resp.stop_reason}", file=sys.stderr)
-    if config.input_cost or config.output_cost:
-        cost = (
-            resp.input_tokens * config.input_cost
-            + resp.output_tokens * config.output_cost
-        ) / 1_000_000
-        print(f"Est. cost:     ${cost:.4f}", file=sys.stderr)
-    print("---", file=sys.stderr)
-
-    # --- Output response to stdout ---
-    print(resp.text)
-
-    # --- Optionally save structured report ---
-    if args.output:
-        reasoning_row = ""
-        if resp.reasoning_tokens:
-            reasoning_row = (
-                f"| Reasoning tokens | {resp.reasoning_tokens} |\n"
-                f"| Answer tokens | {resp.answer_tokens} |\n"
-            )
-        cost_row = ""
-        if config.input_cost or config.output_cost:
-            cost = (
-                resp.input_tokens * config.input_cost
-                + resp.output_tokens * config.output_cost
-            ) / 1_000_000
-            cost_row = f"| Est. cost | ${cost:.4f} |\n"
-
-        report = (
-            f"# One-Shot Result — {args.problem.stem}\n\n"
-            f"| Field | Value |\n"
-            f"|-------|-------|\n"
-            f"| Model | {config.model} ({config.model_id}) |\n"
-            f"| Provider | {config.provider} |\n"
-            f"| Input tokens | {resp.input_tokens} |\n"
-            f"| Output tokens | {resp.output_tokens} |\n"
-            f"{reasoning_row}"
-            f"| Duration | {duration:.1f}s |\n"
-            f"| Stop reason | {resp.stop_reason} |\n"
-            f"{cost_row}\n"
-            f"## Problem\n\n{problem_text.strip()}\n\n"
-            f"## Response\n\n{resp.text}\n"
-        )
-        args.output.write_text(report)
-        print(f"\nSaved to {args.output}", file=sys.stderr)
+    # --- Dispatch ---
+    if args.runs is not None:
+        if args.runs < 1:
+            print("Error: --runs must be >= 1", file=sys.stderr)
+            sys.exit(1)
+        _run_batch(args, config, provider, user_message, problem_def)
+    else:
+        _run_single(args, config, provider, user_message, problem_def)
 
 
 if __name__ == "__main__":
