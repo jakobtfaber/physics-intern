@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 class ViolationSeverity(StrEnum):
     ERROR = "error"
     WARNING = "warning"
+    INFO = "info"
 
 
 @dataclass(frozen=True)

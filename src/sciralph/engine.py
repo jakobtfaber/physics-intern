@@ -99,6 +99,8 @@ class SciRalph:
                                    "forced_critic",
                                    f"last_critic={self.metrics.last_critic_iteration}")
                 task = self._make_forced_critic_task()
+                # Clear stale termination blockers — the forced critic addresses the critic gate
+                self._state.pending_termination_blockers.clear()
             else:
                 task = self._run_orchestrator()
 
@@ -403,6 +405,18 @@ class SciRalph:
                         ),
                     )
                 )
+                if self._state.consecutive_termination_blocks > 0:
+                    self._state.pending_violations.append(
+                        Violation(
+                            check="critic_clean_can_terminate",
+                            severity=ViolationSeverity.INFO,
+                            message=(
+                                "The critic pass completed with no issues. "
+                                "You previously attempted to terminate — you may now retry "
+                                "task_type: terminate."
+                            ),
+                        )
+                    )
             else:
                 # Summarise filed critiques at iteration header level
                 crits = list(self.research_state.critiques.values())
