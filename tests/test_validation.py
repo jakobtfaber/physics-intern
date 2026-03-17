@@ -54,7 +54,7 @@ class TestViolation:
     def test_creation(self):
         v = Violation(
             check="test_check", severity=ViolationSeverity.ERROR,
-            message="test msg", file="test.md",
+            message="test msg",
         )
         assert v.check == "test_check"
         assert v.severity == ViolationSeverity.ERROR
@@ -64,7 +64,7 @@ class TestViolation:
     def test_with_detail(self):
         v = Violation(
             check="x", severity=ViolationSeverity.WARNING,
-            message="y", file="z", detail="d",
+            message="y", detail="d",
         )
         assert v.detail == "d"
 

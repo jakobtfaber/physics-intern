@@ -358,7 +358,7 @@ class TestTerminationGate:
         engine._state.pending_violations = [
             Violation(
                 check="test_check", severity=ViolationSeverity.ERROR,
-                message="Something wrong", file="TEST.md",
+                message="Something wrong",
             ),
         ]
         prefix = engine._build_context_prefix()
@@ -395,11 +395,11 @@ class TestTerminationGate:
             Violation(
                 check="er_demotion_safety", severity=ViolationSeverity.WARNING,
                 message="ER-001 has REFUTED computation with no VERIFIED — demoted to WH-001",
-                file="RESEARCH_STATE.md", detail="ER-001",
+                detail="ER-001",
             ),
             Violation(
                 check="phantom_references", severity=ViolationSeverity.ERROR,
-                message="Phantom reference COMP-999", file="RESEARCH_STATE.md",
+                message="Phantom reference COMP-999",
             ),
         ]
         prefix = engine._build_context_prefix()
@@ -845,7 +845,7 @@ class TestAgentFailureRouting:
         engine = self._make_engine()
         engine._state.pending_violations = [
             Violation(check="test", severity=ViolationSeverity.WARNING,
-                      message="test violation", file="TEST.md"),
+                      message="test violation"),
         ]
         engine._state.agent_failures = [{
             "task_id": "TASK-003",

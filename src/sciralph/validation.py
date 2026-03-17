@@ -28,7 +28,6 @@ class Violation:
     check: str
     severity: ViolationSeverity
     message: str
-    file: str
     detail: str = ""
 
 
@@ -72,7 +71,6 @@ def check_er_demotion_safety(research_state: ResearchState) -> list[Violation]:
                     check="er_demotion_safety",
                     severity=ViolationSeverity.WARNING,
                     message=f"{hid} has REFUTED computation with no VERIFIED — demoted to {new_id}",
-                    file="RESEARCH_STATE.md",
                     detail=hid,
                 ))
 
@@ -107,7 +105,6 @@ def check_phantom_labels(research_state: ResearchState) -> list[Violation]:
                             check="phantom_labels",
                             severity=ViolationSeverity.ERROR,
                             message="Unsubstantiated VERIFIED label stripped",
-                            file="RESEARCH_STATE.md",
                             detail=f"{hid}: {', '.join(ids_in_line)}",
                         ))
             new_lines.append(line)
@@ -158,7 +155,6 @@ def check_stale_unverified_labels(research_state: ResearchState) -> list[Violati
                         check="stale_unverified_labels",
                         severity=ViolationSeverity.WARNING,
                         message=f"Promoted [unverified] → VERIFIED for {', '.join(ids_in_line)}",
-                        file="RESEARCH_STATE.md",
                         detail=f"{hid}: {', '.join(ids_in_line)}",
                     ))
             new_lines.append(line)
@@ -205,7 +201,6 @@ def check_critique_resolution_consistency(research_state: ResearchState) -> list
                         f"Resolved {crit_id} targets {tid} which no longer "
                         f"exists in research state"
                     ),
-                    file="CRITIQUE_LOG.md",
                     detail=f"{crit_id}:{tid}",
                 ))
 
@@ -220,7 +215,6 @@ def check_critique_resolution_consistency(research_state: ResearchState) -> list
                         f"Resolved {crit_id} (label critique) but {wh_form} and "
                         f"{er_form} still co-exist in research state"
                     ),
-                    file="CRITIQUE_LOG.md",
                     detail=f"{crit_id}:{wh_form}+{er_form}",
                 ))
 

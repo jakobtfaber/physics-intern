@@ -144,7 +144,6 @@ class SciRalph:
                             f"Agent dispatch failed with transient error: "
                             f"{type(exc).__name__}: {str(exc)[:200]}"
                         ),
-                        file="CURRENT_TASK.md",
                     )
                 )
                 console.print(
@@ -334,7 +333,6 @@ class SciRalph:
                             "Do NOT emit another critique task — proceed to "
                             "terminate."
                         ),
-                        file="CRITIQUE_LOG.md",
                     )
                 )
             return "deep_critic", response
