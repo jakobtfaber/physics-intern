@@ -252,6 +252,7 @@ def run_agent_loop(
 
     tool_call_failure = False
     empty_end_turn_count = 0
+    ready_conclude_recovery_count = 0
     loop_exit_reason = "max_rounds"  # default; overridden on early exits
     # Resolve exit tool name for context-aware messages
     _exit_tool = getattr(tool_executor, "exit_tool_name", "submit_verdict")
@@ -360,6 +361,28 @@ def run_agent_loop(
                                        "empty_end_turn_fallthrough", f"rounds={round_num}")
                 break
             empty_end_turn_count = 0  # non-empty turn resets counter
+
+            # Ready-to-conclude recovery: agent signaled ready but answered in text
+            if getattr(tool_executor, "ready_to_conclude_signaled", False):
+                ready_conclude_recovery_count += 1
+                if ready_conclude_recovery_count == 1:
+                    _recovery_msg = (
+                        f"You produced output but did not call `{_exit_tool}`. "
+                        f"You reported ready to conclude — call `{_exit_tool}` now "
+                        f"with your findings."
+                    )
+                    messages.append(provider.format_assistant_message(resp.raw_content))
+                    messages.append({"role": "user", "content": _recovery_msg})
+                    round_log.append({
+                        "kind": "scaffold_injection", "round": round_num,
+                        "label": "ready_conclude_recovery", "content": _recovery_msg,
+                    })
+                    if config.workspace_dir:
+                        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
+                                           "ready_conclude_recovery", f"round={round_num}")
+                    continue
+                # Second time: fall through to normal end_turn return
+
             result = AgentResult(
                 text=round_text,
                 tool_calls=all_tool_calls,
@@ -526,13 +549,30 @@ def run_agent_loop(
     if config.workspace_dir:
         log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "forced_final_call", loop_exit_reason)
 
+    # Part B: When agent signaled ready_to_conclude, keep exit tool available
+    _ready_conclude_forced = (
+        getattr(tool_executor, "ready_to_conclude_signaled", False)
+        and loop_exit_reason not in ("tool_call_failure", "provider_side_400")
+    )
+    _exit_tool_defs = None
+    if _ready_conclude_forced:
+        _exit_tool_defs = [t for t in tools if t["function"]["name"] == _exit_tool]
+        if not _exit_tool_defs:
+            _ready_conclude_forced = False
+
     # Agent-agnostic forced exit message (delivered as user message, not system prompt mutation).
     # Each agent's process_response() handles format normalization for its own output.
-    forced_msg = (
-        f"IMPORTANT: {reason}\n\n"
-        "You cannot call any more tools. You MUST now write your final output as text.\n"
-        "Summarize what you have accomplished and provide your conclusions.\n"
-    )
+    if _ready_conclude_forced:
+        forced_msg = (
+            f"IMPORTANT: {reason}\n\n"
+            f"You MUST call `{_exit_tool}` now with your findings.\n"
+        )
+    else:
+        forced_msg = (
+            f"IMPORTANT: {reason}\n\n"
+            "You cannot call any more tools. You MUST now write your final output as text.\n"
+            "Summarize what you have accomplished and provide your conclusions.\n"
+        )
     messages.append({"role": "user", "content": forced_msg})
 
     # Log the injection in conversation log
@@ -543,17 +583,22 @@ def run_agent_loop(
     final_text = ""
     final_in = final_out = final_reasoning = final_answer = 0
     final_dur = 0.0
+    _forced_call_kwargs = dict(
+        model=config.model_id,
+        max_tokens=config.max_tokens,
+        system=system,       # UNCHANGED system prompt
+        messages=provider.prepare_messages(messages),   # includes forced user message
+    )
+    if _ready_conclude_forced:
+        _forced_call_kwargs["tools"] = _exit_tool_defs
+    # else: no tools parameter — forces text-only response
     try:
         start = time.time()
         final_resp = _call_provider_with_retry(
             provider, config,
             workspace_dir=config.workspace_dir,
             iteration=iteration,
-            model=config.model_id,
-            max_tokens=config.max_tokens,
-            system=system,       # UNCHANGED system prompt
-            messages=provider.prepare_messages(messages),   # includes forced user message
-            # No tools parameter — forces text-only response
+            **_forced_call_kwargs,
         )
         final_dur = time.time() - start
         final_in = final_resp.input_tokens
@@ -561,6 +606,19 @@ def run_agent_loop(
         final_reasoning = final_resp.reasoning_tokens
         final_answer = final_resp.answer_tokens
         final_text = final_resp.text.strip()
+
+        # Process exit tool call if returned during ready-to-conclude forced final
+        if _ready_conclude_forced and final_resp.tool_calls:
+            for tc_info in final_resp.tool_calls:
+                if tc_info["name"] == _exit_tool:
+                    tc = tool_executor.execute(tc_info["name"], tc_info["input"])
+                    all_tool_calls.append(tc)
+                    round_log.append({
+                        "kind": "tool_result", "round": round_num + 1,
+                        "tool_name": tc.tool_name, "tool_input": tc.tool_input,
+                        "output": tc.output, "is_error": tc.is_error,
+                        "duration": tc.duration,
+                    })
     except Exception as exc:
         console.print(
             f"[yellow]Forced final call failed: {type(exc).__name__}: {exc}[/yellow]"
@@ -575,6 +633,35 @@ def run_agent_loop(
     total_output += final_out
     total_reasoning += final_reasoning
     total_answer += final_answer
+
+    # Exit tool successfully called during ready-to-conclude forced final
+    if _ready_conclude_forced and getattr(tool_executor, "stop_after_round", False):
+        if on_round:
+            on_round(round_num + 1, "executor_stop", [], total_input, total_output)
+        round_log.append({
+            "kind": "forced_final_call", "round": round_num + 1,
+            "reason": "ready_conclude_exit_tool", "text": final_text,
+            "input_tokens": final_in, "output_tokens": final_out,
+            "reasoning_tokens": final_reasoning, "answer_tokens": final_answer,
+            "duration": final_dur,
+        })
+        result = AgentResult(
+            text=final_text,
+            tool_calls=all_tool_calls,
+            total_input_tokens=total_input,
+            total_output_tokens=total_output,
+            rounds=round_num + 1,
+            truncated=False,
+            duration=time.time() - overall_start,
+            stop_reason="executor_stop",
+            token_alert_fired=token_alert_fired,
+            total_reasoning_tokens=total_reasoning,
+            total_answer_tokens=total_answer,
+        )
+        _write_agent_conversation_log(
+            config, system, user_content, agent_name,
+            iteration, round_log, result)
+        return result
 
     if on_round:
         on_round(round_num + 1, "forced_partial", [], total_input, total_output)

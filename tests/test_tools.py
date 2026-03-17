@@ -801,3 +801,212 @@ class TestSubmitVerdictInLoop:
         assert not result.truncated
         # No forced final call — only 2 provider calls
         assert provider.call.call_count == 2
+
+
+class TestReadyToConcludeRecovery:
+    """Test ready-to-conclude recovery re-prompt (Part A)."""
+
+    @patch("sciralph.llm._get_provider")
+    def test_ready_conclude_recovery_then_exit_tool(self, mock_get_provider):
+        """report_progress(ready=True) → end_turn with text → recovery → submit_result → executor_stop."""
+        from sciralph.task import TaskType
+
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: report_progress with ready_to_conclude=True
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "report_progress",
+                         "input": {"findings_so_far": "Found the answer",
+                                   "remaining_questions": "",
+                                   "ready_to_conclude": True}}],
+        )
+        # Round 2: end_turn with text (model wrote answer as markdown instead of calling exit tool)
+        round2 = _mock_provider_response(
+            "The result is S = k ln(W).", "end_turn", 150, 60
+        )
+        # Round 3: after recovery re-prompt, model calls submit_result
+        round3 = _mock_provider_response(
+            "", "tool_use", 150, 60,
+            tool_calls=[{"id": "t2", "name": "submit_result",
+                         "input": {"target_id": "WH-001", "description": "Entropy formula",
+                                   "method": "analytical", "result": "S = k ln(W)",
+                                   "confidence": "exact", "notes": "Standard result."}}],
+        )
+        provider.call.side_effect = [round1, round2, round3]
+
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.EXPLORE_TOOLS, max_rounds=5,
+        )
+
+        assert result.stop_reason == "executor_stop"
+        assert result.rounds == 3
+        # Recovery message was injected
+        calls = provider.call.call_args_list
+        round3_messages = calls[2].kwargs["messages"]
+        recovery_found = any(
+            isinstance(msg.get("content"), str) and "ready to conclude" in msg["content"]
+            for msg in round3_messages
+            if isinstance(msg, dict) and msg.get("role") == "user"
+        )
+        assert recovery_found, "Recovery re-prompt should mention ready to conclude"
+
+    @patch("sciralph.llm._get_provider")
+    def test_ready_conclude_no_recovery_without_flag(self, mock_get_provider):
+        """end_turn with text but no ready_to_conclude → normal end_turn (no recovery)."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: report_progress with ready_to_conclude=False
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "report_progress",
+                         "input": {"findings_so_far": "Still working",
+                                   "remaining_questions": "need more data",
+                                   "ready_to_conclude": False}}],
+        )
+        # Round 2: end_turn with text — should return normally (no recovery)
+        round2 = _mock_provider_response(
+            "Here is my conclusion.", "end_turn", 150, 60
+        )
+        provider.call.side_effect = [round1, round2]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+        )
+
+        assert result.stop_reason == "end_turn"
+        assert result.rounds == 2
+        assert provider.call.call_count == 2  # no recovery, no forced final
+
+    @patch("sciralph.llm._get_provider")
+    def test_ready_conclude_recovery_second_end_turn_falls_through(self, mock_get_provider):
+        """Recovery once → model again end_turn with text → falls through to normal end_turn."""
+        from sciralph.task import TaskType
+
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: report_progress with ready_to_conclude=True
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "report_progress",
+                         "input": {"findings_so_far": "Found answer",
+                                   "remaining_questions": "",
+                                   "ready_to_conclude": True}}],
+        )
+        # Round 2: end_turn with text → recovery injected
+        round2 = _mock_provider_response(
+            "The answer is 42.", "end_turn", 150, 60
+        )
+        # Round 3: end_turn with text AGAIN → falls through (no second recovery)
+        round3 = _mock_provider_response(
+            "I already told you, 42.", "end_turn", 150, 60
+        )
+        provider.call.side_effect = [round1, round2, round3]
+
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.EXPLORE_TOOLS, max_rounds=5,
+        )
+
+        # Second end_turn falls through to normal return
+        assert result.stop_reason == "end_turn"
+        assert result.rounds == 3
+        assert result.text == "I already told you, 42."
+
+
+class TestForcedFinalWithExitTool:
+    """Test forced final call keeps exit tool when ready_to_conclude (Part B)."""
+
+    @patch("sciralph.llm._get_provider")
+    def test_forced_final_includes_exit_tool_when_ready(self, mock_get_provider):
+        """max_rounds hit + ready_to_conclude → forced call with exit tool → executor_stop."""
+        from sciralph.task import TaskType
+
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: report_progress with ready_to_conclude=True
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "report_progress",
+                         "input": {"findings_so_far": "Answer found",
+                                   "remaining_questions": "",
+                                   "ready_to_conclude": True}}],
+        )
+        # Round 2: execute_python (model ignores and keeps computing — hits max_rounds)
+        round2 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t2", "name": "execute_python",
+                         "input": {"purpose": "Extra check", "code": "print(1)"}}],
+        )
+        # Forced final call: model calls submit_result via exit tool
+        forced_resp = _mock_provider_response(
+            "", "tool_use", 150, 60,
+            tool_calls=[{"id": "t3", "name": "submit_result",
+                         "input": {"target_id": "WH-001", "description": "Entropy",
+                                   "method": "analytical", "result": "S = k ln(W)",
+                                   "confidence": "exact", "notes": "Done."}}],
+        )
+        provider.call.side_effect = [round1, round2, forced_resp]
+
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.EXPLORE_TOOLS, max_rounds=2,
+        )
+
+        assert result.stop_reason == "executor_stop"
+        assert not result.truncated
+        # Forced call included the exit tool
+        forced_call = provider.call.call_args_list[-1]
+        assert forced_call.kwargs.get("tools") is not None
+        tool_names = {t["function"]["name"] for t in forced_call.kwargs["tools"]}
+        assert tool_names == {"submit_result"}
+        # submit_result was actually executed
+        assert any(tc.tool_name == "submit_result" for tc in result.tool_calls)
+
+    @patch("sciralph.llm._get_provider")
+    def test_forced_final_no_exit_tool_without_ready(self, mock_get_provider):
+        """max_rounds hit, no ready_to_conclude → forced call without tools (existing behavior)."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: execute_python (no report_progress, no ready signal)
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "execute_python",
+                         "input": {"purpose": "Check", "code": "print(1)"}}],
+        )
+        # Forced final call: text-only
+        forced_resp = _mock_provider_response(
+            "INCONCLUSIVE result.", "end_turn", 150, 60
+        )
+        provider.call.side_effect = [round1, forced_resp]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
+        )
+
+        assert result.stop_reason == "max_rounds_forced"
+        assert result.truncated
+        # Forced call had no tools parameter
+        forced_call = provider.call.call_args_list[-1]
+        assert forced_call.kwargs.get("tools") is None

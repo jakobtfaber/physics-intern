@@ -231,6 +231,7 @@ class ToolExecutor:
         self._counter = 0
         self._computations_dir = workspace_root / "computations"
         self._task_type = task_type
+        self.ready_to_conclude_signaled = False
 
     @property
     def exit_tool_name(self) -> str:
@@ -268,6 +269,7 @@ class ToolExecutor:
         exit_tool = self.exit_tool_name
         ready = params.get("ready_to_conclude", False)
         if ready:
+            self.ready_to_conclude_signaled = True
             return (
                 "Acknowledged. You have indicated you are ready to conclude. "
                 f"Call `{exit_tool}` now with your findings."
