@@ -371,7 +371,8 @@ class TestUpdateSection:
         assert "Natural units" in state.conventions
         assert ex.mutations_applied
 
-    def test_updates_open_questions(self):
+    def test_open_questions_returns_error(self):
+        """Open Questions section was removed — should return error."""
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
@@ -379,9 +380,18 @@ class TestUpdateSection:
             "section": "Open Questions",
             "content": "- Is string theory testable?",
         })
-        assert not tc.is_error
-        assert "string theory" in state.open_questions
-        assert ex.mutations_applied
+        assert "unknown" in tc.output.lower()
+
+    def test_dead_ends_returns_error(self):
+        """Dead Ends section was removed — should return error."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("update_section", {
+            "section": "Dead Ends",
+            "content": "Something.",
+        })
+        assert "unknown" in tc.output.lower()
 
     def test_unknown_section_returns_error(self):
         ws = _make_workspace()
@@ -392,6 +402,47 @@ class TestUpdateSection:
             "content": "x",
         })
         assert "not found" in tc.output or "unknown" in tc.output
+
+
+# ---------------------------------------------------------------------------
+# record_dead_end
+# ---------------------------------------------------------------------------
+
+class TestRecordDeadEnd:
+    def test_record_dead_end_creates_failed_approach(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("record_dead_end", {
+            "description": "Perturbation theory approach",
+            "reason": "Divergent series at all orders.",
+        })
+        assert not tc.is_error
+        assert len(state.failed_approaches) == 1
+        fa = state.failed_approaches[0]
+        assert fa.description == "Perturbation theory approach"
+        assert fa.reason == "Divergent series at all orders."
+        assert fa.iteration == 3
+
+    def test_record_dead_end_no_state_returns_error(self):
+        ws = _make_workspace()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
+        tc = ex.execute("record_dead_end", {
+            "description": "test",
+            "reason": "test",
+        })
+        assert "no research state" in tc.output
+
+    def test_record_dead_end_sets_mutations_applied(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        assert not ex.mutations_applied
+        ex.execute("record_dead_end", {
+            "description": "test",
+            "reason": "test",
+        })
+        assert ex.mutations_applied
 
 
 # ---------------------------------------------------------------------------
@@ -453,6 +504,7 @@ class TestNoResearchState:
             ("promote_hypothesis", {"id": "WH-001", "justification": "test"}),
             ("resolve_critique", {"critique_id": "CRIT-001", "resolution": "test"}),
             ("update_section", {"section": "Conventions", "content": "test"}),
+            ("record_dead_end", {"description": "test", "reason": "test"}),
         ]
         for tool_name, tool_input in mutation_calls:
             tc = ex.execute(tool_name, tool_input)

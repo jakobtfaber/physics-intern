@@ -184,7 +184,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                 "properties": {
                     "section": {
                         "type": "string",
-                        "enum": ["Conventions", "Open Questions", "Dead Ends"],
+                        "enum": ["Conventions"],
                         "description": "Which section to update.",
                     },
                     "content": {
@@ -249,6 +249,31 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "record_dead_end",
+            "description": (
+                "Record a dead-end approach directly, without creating and "
+                "abandoning a hypothesis. Use when you know an approach won't "
+                "work but never formulated it as a WH."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "description": "Description of the approach that failed or is known to fail.",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why this approach is a dead end.",
+                    },
+                },
+                "required": ["description", "reason"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "set_next_task",
             "description": (
                 "Set the next task for the research loop. "
@@ -266,7 +291,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                             "research_explore",
                             "compute_explore", "compute_verify",
                             "research_verify",
-                            "critique", "terminate",
+                            "critique", "terminate", "strategize",
                         ],
                     },
                     "priority": {
@@ -323,6 +348,7 @@ class OrchestratorToolExecutor:
             "update_section": self._update_section,
             "add_research_question": self._add_research_question,
             "resolve_research_question": self._resolve_research_question,
+            "record_dead_end": self._record_dead_end,
             "set_next_task": self._set_next_task,
         }
         handler = handlers.get(tool_name)
@@ -592,17 +618,34 @@ class OrchestratorToolExecutor:
 
         if section_name == "Conventions":
             state.conventions = content.strip()
-        elif section_name == "Open Questions":
-            state.open_questions = content.strip()
-        elif section_name == "Dead Ends":
-            # Dead Ends is a special case — content is free-form text
-            # We don't parse it into FailedApproach objects here
-            pass
         else:
             return f"Error: unknown section '{section_name}'"
 
         self.mutations_applied = True
         return f"Updated # {section_name}." + _BATCH_NUDGE
+
+    def _record_dead_end(self, args: dict) -> str:
+        from .research_state import FailedApproach
+
+        state = self.research_state
+        if not state:
+            return "Error: no research state available"
+
+        description = args.get("description", "")
+        reason = args.get("reason", "")
+
+        state.failed_approaches.append(FailedApproach(
+            description=description,
+            reason=reason,
+            iteration=self.iteration,
+        ))
+        self.mutations_applied = True
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "record_dead_end", f"{description[:120]}: {reason[:120]}",
+        )
+        console.print(f"  [bold red]Dead end:[/] {description[:80]}")
+        return f"Recorded dead end: {description}." + _BATCH_NUDGE
 
     def _add_research_question(self, args: dict) -> str:
         from .research_state import ResearchQuestion

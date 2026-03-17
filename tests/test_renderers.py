@@ -10,6 +10,7 @@ from sciralph.renderers import (
     render_critique_log_md,
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
+    render_research_plan,
     render_research_state_md,
     render_task_md,
 )
@@ -20,8 +21,10 @@ from sciralph.research_state import (
     FailedApproach,
     Hypothesis,
     HypothesisStatus,
+    ResearchPlan,
     ResearchState,
     Severity,
+    SubProblem,
     Verdict,
 )
 from sciralph.task import Task, TaskType
@@ -51,7 +54,6 @@ def populated_state():
         title="Hawking Temperature Derivation",
         problem_statement="Derive the Hawking temperature for a Schwarzschild black hole.",
         conventions="Natural units: G = c = hbar = k_B = 1.",
-        open_questions="Is the greybody factor significant at leading order?",
     )
 
     state.hypotheses["ER-001"] = Hypothesis(
@@ -227,11 +229,6 @@ class TestRenderResearchStateMd:
         assert "Direct Euclidean path integral approach" in dead_ends
         assert "Requires regularization" in dead_ends
 
-    def test_open_questions_section(self, populated_state):
-        md = render_research_state_md(populated_state)
-        assert "# Open Questions" in md
-        assert "greybody factor" in md
-
     def test_empty_state_valid_markdown(self, empty_state):
         md = render_research_state_md(empty_state)
         meta, body = parse_frontmatter(md)
@@ -240,7 +237,6 @@ class TestRenderResearchStateMd:
         assert "# Conventions" in body
         assert "# Dead Ends" in body
         assert "(None yet.)" in body
-        assert "# Open Questions" in body
 
     def test_conventions_placeholder_when_empty(self):
         state = ResearchState(problem_statement="Test", conventions="")
@@ -641,16 +637,6 @@ class TestRenderComputeResearchState:
         assert "# Dead Ends" in text
         assert "Abandoned WH-003" in text
 
-    def test_skips_empty_open_questions(self, empty_state):
-        text = render_compute_research_state(empty_state)
-        assert "# Open Questions" not in text
-
-    def test_includes_populated_open_questions(self, populated_state):
-        text = render_compute_research_state(populated_state)
-        assert "# Open Questions" in text
-        assert "greybody factor" in text
-
-
 class TestRenderOrchestratorResearchState:
 
     def test_no_frontmatter(self, populated_state):
@@ -680,16 +666,6 @@ class TestRenderOrchestratorResearchState:
         text = render_orchestrator_research_state(populated_state)
         assert "# Dead Ends" in text
         assert "Abandoned WH-003" in text
-
-    def test_skips_empty_open_questions(self, empty_state):
-        text = render_orchestrator_research_state(empty_state)
-        assert "# Open Questions" not in text
-
-    def test_includes_populated_open_questions(self, populated_state):
-        text = render_orchestrator_research_state(populated_state)
-        assert "# Open Questions" in text
-        assert "greybody factor" in text
-
 
 # ===========================================================================
 # render_orchestrator_critique_log
@@ -726,7 +702,6 @@ class TestSnapshotRegression:
         assert meta["title"] == "Hawking Temperature Derivation"
         assert "# Problem Statement" in body
         assert "# Dead Ends" in body
-        assert "# Open Questions" in body
 
     def test_research_state_md_empty_still_valid(self, empty_state):
         md = render_research_state_md(empty_state)
@@ -734,7 +709,6 @@ class TestSnapshotRegression:
         assert meta["iteration"] == 0
         assert "# Problem Statement" in body
         assert "(None yet.)" in body
-        assert "(None.)" in body
 
     def test_critique_log_md_still_has_frontmatter(self, populated_state):
         md = render_critique_log_md(populated_state)
@@ -748,3 +722,76 @@ class TestSnapshotRegression:
         md = render_critique_log_md(empty_state)
         meta, body = parse_frontmatter(md)
         assert meta["total_critiques"] == 0
+
+
+# ===========================================================================
+# render_research_plan
+# ===========================================================================
+
+class TestRenderResearchPlan:
+
+    def _make_plan_state(self):
+        state = ResearchState(problem_statement="Test problem")
+        state.research_plan = ResearchPlan(
+            sub_problems={
+                "SP-001": SubProblem(
+                    id="SP-001",
+                    description="Derive surface gravity",
+                    approach="Killing vector method",
+                    alternatives=["Euclidean method"],
+                    depends_on=[],
+                    status="open",
+                    initial_rqs=["RQ-001"],
+                    notes="Standard first step",
+                ),
+                "SP-002": SubProblem(
+                    id="SP-002",
+                    description="Apply first law",
+                    approach="T = kappa / (2 pi)",
+                    depends_on=["SP-001"],
+                    status="in_progress",
+                ),
+            },
+            strategy_summary="Derive Hawking temperature via surface gravity.",
+            known_pitfalls=["Don't confuse coordinate and invariant quantities."],
+            iteration_created=0,
+            iteration_updated=0,
+        )
+        return state
+
+    def test_render_research_plan_with_sub_problems(self):
+        state = self._make_plan_state()
+        text = render_research_plan(state)
+        assert "# Research Plan" in text
+        assert "Derive Hawking temperature via surface gravity." in text
+        assert "SP-001" in text
+        assert "[OPEN]" in text
+        assert "Derive surface gravity" in text
+        assert "**Approach:** Killing vector method" in text
+        assert "**Alternatives:** Euclidean method" in text
+        assert "SP-002" in text
+        assert "[IN_PROGRESS]" in text
+        assert "**Depends on:** SP-001" in text
+
+    def test_research_plan_none_renders_no_plan(self):
+        state = ResearchState(problem_statement="Test")
+        text = render_research_plan(state)
+        assert text == "(No research plan.)"
+
+    def test_research_plan_rendered_in_orchestrator_context(self):
+        state = self._make_plan_state()
+        text = render_orchestrator_research_state(state)
+        assert "# Research Plan" in text
+        assert "SP-001" in text
+        assert "SP-002" in text
+
+    def test_research_plan_not_in_compute_context(self):
+        state = self._make_plan_state()
+        text = render_compute_research_state(state)
+        assert "# Research Plan" not in text
+
+    def test_research_plan_none_renders_nothing_in_orchestrator(self):
+        """When plan is None, no research plan section in orchestrator context."""
+        state = ResearchState(problem_statement="Test")
+        text = render_orchestrator_research_state(state)
+        assert "# Research Plan" not in text

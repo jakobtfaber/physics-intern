@@ -58,6 +58,10 @@ Read `VERIFICATION.md` in the workspace folder.
 
 Read `RESEARCH_GRAPH.json` (this is the authoritative state, not the markdown files):
 
+**Initial strategy**:
+- Investigate "research_plan" and assess the strategy
+- It should be high level, with alternative routes investigated, but not too verbose.
+
 **Hypothesis integrity:**
 - Do any hypotheses have status `abandoned`? Are they recorded in `failed_approaches`?
 - Check `depends_on` fields — are dependency chains satisfied for established results?

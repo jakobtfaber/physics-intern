@@ -15,6 +15,7 @@ from .markdown import render_frontmatter
 from .research_state import (
     CritiqueStatus,
     HypothesisStatus,
+    ResearchPlan,
     ResearchState,
     RQStatus,
     Severity,
@@ -29,27 +30,73 @@ if TYPE_CHECKING:
 # Snapshot renderers (full Markdown files from state)
 # ---------------------------------------------------------------------------
 
+def _h(level: int, offset: int) -> str:
+    """Return a Markdown heading prefix at the given level + offset."""
+    return "#" * (level + offset)
+
+
+def render_research_plan(state: ResearchState, *, heading_offset: int = 0) -> str:
+    """Render the research plan section from ResearchState."""
+    plan = state.research_plan
+    if plan is None:
+        return "(No research plan.)"
+
+    h1 = _h(1, heading_offset)
+    h2 = _h(2, heading_offset)
+
+    parts: list[str] = [f"{h1} Research Plan\n"]
+    if plan.strategy_summary:
+        parts.append(plan.strategy_summary)
+        parts.append("")
+
+    for sp in sorted(plan.sub_problems.values(), key=lambda s: s.id):
+        status_tag = f"[{sp.status.upper()}]"
+        parts.append(f"{h2} {sp.id} {status_tag} — {sp.description}\n")
+        if sp.approach:
+            parts.append(f"**Approach:** {sp.approach}")
+        if sp.alternatives:
+            parts.append(f"**Alternatives:** {'; '.join(sp.alternatives)}")
+        if sp.depends_on:
+            parts.append(f"**Depends on:** {', '.join(sp.depends_on)}")
+        if sp.initial_rqs:
+            parts.append(f"**Initial RQs:** {', '.join(sp.initial_rqs)}")
+        if sp.notes:
+            parts.append(f"**Notes:** {sp.notes}")
+        parts.append("")
+
+    return "\n".join(parts)
+
+
 def _research_state_body(
     state: ResearchState,
     *,
     include_problem_statement: bool = True,
     skip_empty_dead_ends: bool = False,
-    skip_empty_open_questions: bool = False,
+    include_research_plan: bool = False,
+    heading_offset: int = 0,
 ) -> str:
     """Build the body text for a research state rendering.
 
     Shared by the snapshot renderer and orchestrator context renderer.
+    *heading_offset* shifts all heading levels (0 = H1/H2, 2 = H3/H4).
     """
+    h1 = _h(1, heading_offset)
+    h2 = _h(2, heading_offset)
     parts: list[str] = []
 
     # Problem Statement
     if include_problem_statement:
-        parts.append("# Problem Statement\n")
+        parts.append(f"{h1} Problem Statement\n")
         parts.append(state.problem_statement or "(No problem statement.)")
         parts.append("")
 
+    # Research Plan (when requested and present)
+    if include_research_plan and state.research_plan is not None:
+        parts.append(render_research_plan(state, heading_offset=heading_offset))
+        parts.append("")
+
     # Conventions
-    parts.append("# Conventions\n")
+    parts.append(f"{h1} Conventions\n")
     parts.append(state.conventions or "(To be populated by the orchestrator as conventions become clear.)")
     parts.append("")
 
@@ -57,22 +104,22 @@ def _research_state_body(
     open_rqs = [rq for rq in state.research_questions.values() if rq.status == RQStatus.OPEN]
     resolved_rqs = [rq for rq in state.research_questions.values() if rq.status != RQStatus.OPEN]
     if state.research_questions:
-        parts.append("# Research Questions\n")
+        parts.append(f"{h1} Research Questions\n")
         for rq in sorted(open_rqs, key=lambda r: r.id):
-            parts.append(f"## {rq.id} [OPEN] — {rq.question}")
+            parts.append(f"{h2} {rq.id} [OPEN] — {rq.question}")
             if rq.context:
                 parts.append(f"  Context: {rq.context}")
             parts.append("")
         for rq in sorted(resolved_rqs, key=lambda r: r.id):
             status_tag = f"[{rq.status.upper()}]"
-            parts.append(f"## {rq.id} {status_tag} — {rq.question}")
+            parts.append(f"{h2} {rq.id} {status_tag} — {rq.question}")
             if rq.resolved_to:
                 parts.append(f"  Resolved to: {', '.join(rq.resolved_to)}")
             parts.append("")
 
     # Working Hypotheses and Established Results
-    parts.append("# Working Hypotheses (WH) and Established Results (ER)\n")
-    parts.append("Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, pending).")
+    parts.append(f"{h1} Working Hypotheses (WH) and Established Results (ER)\n")
+    parts.append(f"Claims use {h2} ER-NNN (established, verified) or {h2} WH-NNN (working hypothesis, pending).")
     parts.append("")
 
     # Sort hypotheses: ER first (by number), then WH (by number)
@@ -84,7 +131,7 @@ def _research_state_body(
         if h.status == HypothesisStatus.ABANDONED:
             continue  # abandoned go in Dead Ends
         statement_part = f" — {h.statement}" if h.statement else ""
-        parts.append(f"## {h.id}{statement_part}\n")
+        parts.append(f"{h2} {h.id}{statement_part}\n")
         if h.depends_on:
             parts.append(f"**Depends on:** {', '.join(h.depends_on)}\n")
         if h.promotion_justification:
@@ -98,7 +145,7 @@ def _research_state_body(
         h.status == HypothesisStatus.ABANDONED for h in state.hypotheses.values()
     )
     if not (skip_empty_dead_ends and not has_dead_ends):
-        parts.append("# Dead Ends\n")
+        parts.append(f"{h1} Dead Ends\n")
         for fa in state.failed_approaches:
             parts.append(f"- {fa.description}")
             if fa.reason:
@@ -108,12 +155,6 @@ def _research_state_body(
                 parts.append(f"- Abandoned {h.id} — {h.statement}")
         if not has_dead_ends:
             parts.append("(None yet.)")
-        parts.append("")
-
-    # Open Questions
-    if not (skip_empty_open_questions and not state.open_questions):
-        parts.append("# Open Questions\n")
-        parts.append(state.open_questions or "(None.)")
         parts.append("")
 
     return "\n".join(parts)
@@ -288,7 +329,8 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
         state,
         include_problem_statement=False,
         skip_empty_dead_ends=True,
-        skip_empty_open_questions=True,
+        include_research_plan=True,
+        heading_offset=2,
     )
 
 
@@ -297,7 +339,7 @@ def render_compute_research_state(state: ResearchState) -> str:
     return _research_state_body(
         state,
         skip_empty_dead_ends=True,
-        skip_empty_open_questions=True,
+        heading_offset=2,
     )
 
 

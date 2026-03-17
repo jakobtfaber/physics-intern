@@ -125,6 +125,16 @@ class TestTaskTypeAgentMap:
         assert TASK_TYPE_AGENT_MAP[TaskType.RESEARCH_EXPLORE] == "research_explore"
 
 
+class TestStrategizeTaskType:
+    def test_strategize_task_type_exists(self):
+        assert TaskType.STRATEGIZE == "strategize"
+        assert TaskType("strategize") == TaskType.STRATEGIZE
+
+    def test_strategize_in_agent_map(self):
+        assert TaskType.STRATEGIZE in TASK_TYPE_AGENT_MAP
+        assert TASK_TYPE_AGENT_MAP[TaskType.STRATEGIZE] == "strategist"
+
+
 class TestTaskTargetClaim:
     """Tests for target_claim field on Task (Phase 2: COMP→WH registry)."""
 

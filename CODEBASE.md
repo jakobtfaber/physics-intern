@@ -82,7 +82,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 - **Fresh context per call.** Agents are stateless — each call starts from a fresh context built from the current state. No conversation history is carried between iterations.
 - **2x2 dispatch matrix.** Four specialized agents handle the explore/verify × reasoning/code matrix: `compute_verify`, `compute_explore`, `research_verify`, `research_explore`. Each has a focused prompt and tool set — no mode switching or conditional instructions.
 - **Mandatory critic passes.** The scaffold forces critic reviews every N iterations, regardless of agent judgment.
-- **Tool-based state mutation.** Six agents are agentic — orchestrator (9 tools via `OrchestratorToolExecutor`), four compute/research agents (2-3 tools via `ToolExecutor`, dynamic per task type), and critic (2 tools via `CriticToolExecutor`). Tool calls use the `stop_after_round` mechanism to signal completion.
+- **Tool-based state mutation.** Six agents are agentic — orchestrator (10 tools via `OrchestratorToolExecutor`), four compute/research agents (2-3 tools via `ToolExecutor`, dynamic per task type), and critic (2 tools via `CriticToolExecutor`). Tool calls use the `stop_after_round` mechanism to signal completion.
 - **Provider-agnostic.** LLM calls go through a `providers/` abstraction layer. Model selection is resolved via `models.yaml` registry (friendly key → provider + model_id + env_key + cost). The `verify.py` script is Anthropic-only.
 
 ### Source file map
@@ -241,7 +241,7 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Six agents are agentic: orchestrator (9 tools via `OrchestratorToolExecutor`), four compute/research agents (2-3 tools via `ToolExecutor`, dynamic per task type), and critic (2 tools via `CriticToolExecutor`). Two agents are one-shot: compressor and formatter.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Six agents are agentic: orchestrator (10 tools via `OrchestratorToolExecutor`), four compute/research agents (2-3 tools via `ToolExecutor`, dynamic per task type), and critic (2 tools via `CriticToolExecutor`). Two agents are one-shot: compressor and formatter.
 
 All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_verdict`/`submit_result`, `finish_review`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`.
 
@@ -258,7 +258,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `iteration_filed`, `iteration_resolved`
 - `FailedApproach` — `description`, `reason`, `related_comps`, `iteration`
 
-**ResearchState fields:** `hypotheses` (dict by ID), `research_questions` (dict by ID), `computations` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `iteration`, `problem_statement`, `conventions`, `open_questions`, `status`, `title`
+**ResearchState fields:** `hypotheses` (dict by ID), `research_questions` (dict by ID), `computations` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `iteration`, `problem_statement`, `conventions`, `status`, `title`, `research_plan` (ResearchPlan | None)
 
 **Key query methods:** `verified_comps_for()`, `has_verified_backing()`, `active_critiques_for()`, `unresolved_high_critiques()`, `established_hypotheses()`, `working_hypotheses()`, `explore_only_hypotheses()`, `refuted_targets()`, `detect_computation_stalls()`
 
@@ -844,7 +844,7 @@ The `messages` list grows unboundedly across rounds. Large tool outputs can push
 All documentation was synced with the codebase on 2026-03-17.
 
 - **ResearchState as source of truth** — `research_state.py` (523 lines) provides authoritative structured state; agents mutate via tools, Markdown rendered from state for git snapshots only
-- **Six agentic agents** — orchestrator (9 tools via `OrchestratorToolExecutor`), four compute/research agents (2-3 tools via `ToolExecutor`, dynamic per task type), critic (2 tools via `CriticToolExecutor`); all use `stop_after_round` mechanism
+- **Six agentic agents** — orchestrator (10 tools via `OrchestratorToolExecutor`), four compute/research agents (2-3 tools via `ToolExecutor`, dynamic per task type), critic (2 tools via `CriticToolExecutor`); all use `stop_after_round` mechanism
 - **2x2 dispatch matrix** — four specialized agents (compute_verify, compute_explore, research_verify, research_explore) inherit from `ComputationalistAgent`; each has focused prompt and tool set
 - **Renderers** — `renderers.py` produces Markdown snapshot files from ResearchState; agents render context from `self.research_state` via renderers; MD files rendered centrally by engine's `_render_files_for_git()`
 - **Formatter agent** — `agents/formatter.py` produces `ANSWER.md` on successful termination

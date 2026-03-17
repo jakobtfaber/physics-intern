@@ -18,6 +18,7 @@ class TaskType(StrEnum):
     CRITIQUE = "critique"
     TERMINATE = "terminate"
     FORMAT = "format"
+    STRATEGIZE = "strategize"
 
 
 TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
@@ -28,6 +29,7 @@ TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
     TaskType.CRITIQUE: "deep_critic",
     TaskType.TERMINATE: "orchestrator",
     TaskType.FORMAT: "formatter",
+    TaskType.STRATEGIZE: "strategist",
 }
 
 
