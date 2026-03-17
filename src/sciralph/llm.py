@@ -41,7 +41,34 @@ _TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
 _TRANSIENT_EXC_NAMES = {"ConnectionError", "TimeoutError", "ReadTimeout",
                          "ConnectTimeout", "ConnectionResetError",
                          "RemoteDisconnected", "BrokenPipeError",
-                         "APITimeoutError"}
+                         "APITimeoutError", "ServerError"}
+
+
+def _extract_status_code(exc: Exception) -> int | None:
+    """Extract a numeric HTTP status code from an exception, or None.
+
+    Providers store status codes in various attributes and formats — e.g.
+    google-genai sets .status to the string 'Bad Gateway' while .code holds
+    the int 502.  We try several common attribute names and silently skip
+    non-numeric values.
+    """
+    for attr in ("status_code", "code", "status"):
+        val = getattr(exc, attr, None)
+        if val is not None:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                continue
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        for attr in ("status_code", "status"):
+            val = getattr(resp, attr, None)
+            if val is not None:
+                try:
+                    return int(val)
+                except (ValueError, TypeError):
+                    continue
+    return None
 
 
 def _is_tool_call_failure(exc: Exception) -> bool:
@@ -73,12 +100,8 @@ def _is_provider_side_400(exc: Exception) -> bool:
     allow a small number of retries (capped in _call_provider_with_retry) but
     give up early instead of burning all 10 attempts.
     """
-    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
-    if status is None:
-        resp = getattr(exc, "response", None)
-        if resp is not None:
-            status = getattr(resp, "status_code", None)
-    if status is not None and int(status) == 400:
+    status = _extract_status_code(exc)
+    if status == 400:
         msg_lower = str(exc).lower()
         return any(p in msg_lower for p in _PROVIDER_SIDE_400_PATTERNS)
     return False
@@ -89,17 +112,10 @@ def _is_transient(exc: Exception) -> bool:
     # Tool-call generation failures are stochastic — retry may produce valid JSON
     if _is_tool_call_failure(exc):
         return True
-    # Check HTTP status code — try direct attrs first, then exc.response.status_code
-    # (httpx / huggingface_hub store the code on a nested response object)
-    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
-    if status is None:
-        resp = getattr(exc, "response", None)
-        if resp is not None:
-            status = getattr(resp, "status_code", None)
-    if status is not None:
-        status = int(status)
-        if status in _TRANSIENT_STATUS_CODES:
-            return True
+    # Check HTTP status code via robust extraction
+    status = _extract_status_code(exc)
+    if status is not None and status in _TRANSIENT_STATUS_CODES:
+        return True
     # Provider-side 400s (post processor crashes, etc.) — retryable but capped
     if _is_provider_side_400(exc):
         return True
