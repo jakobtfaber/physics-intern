@@ -312,6 +312,10 @@ class SciRalph:
             for v in self._state.pending_compute_verdicts:
                 lines.append(f"- {v['verdict']}: {v['claim'][:120]}")
                 lines.append(f"  Attempt {v['attempt']}/{self.config.stall_recompute_limit}")
+                if v.get('notes'):
+                    lines.append(f"  Notes: {v['notes']}")
+                if v.get('failure_detail'):
+                    lines.append(f"  Failure detail: {v['failure_detail']}")
                 if v['attempt'] >= self.config.stall_recompute_limit:
                     lines.append("  STALLED — do NOT schedule another compute_verify. Route to researcher.")
                 else:
@@ -534,6 +538,8 @@ class SciRalph:
                 "verdict": comp.verdict.value,
                 "claim": key,
                 "attempt": count,
+                "notes": (comp.notes or "")[:300],
+                "failure_detail": (comp.failure_detail or "")[:300],
             })
             log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
                                "compute_verdict_failed",

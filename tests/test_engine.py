@@ -234,6 +234,61 @@ class TestComputeVerdictTracking:
         assert engine._state.claim_failure_count["WH-001"] == 1
         assert engine._state.claim_failure_count.get("WH-002", 0) == 1
 
+    def test_refuted_with_notes_populates_dict(self):
+        """REFUTED comp with notes includes notes in pending_compute_verdicts."""
+        engine = self._make_engine()
+        from sciralph.research_state import Computation, Verdict
+        engine.research_state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001",
+            verdict=Verdict.REFUTED, kind="verify",
+            notes="Expected 1/(8*pi*M) but got 1/(4*pi*M)",
+            iteration=engine.iteration,
+        )
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify formula X = Y")
+        engine._track_computation(task)
+
+        assert len(engine._state.pending_compute_verdicts) == 1
+        v = engine._state.pending_compute_verdicts[0]
+        assert v["notes"] == "Expected 1/(8*pi*M) but got 1/(4*pi*M)"
+        assert v["failure_detail"] == ""
+
+    def test_context_prefix_renders_notes(self):
+        """Context prefix renders notes when present in verdict dict."""
+        engine = self._make_engine()
+        engine._state.pending_compute_verdicts = [{
+            "verdict": "REFUTED", "claim": "WH-001", "attempt": 1,
+            "notes": "Factor of 2 discrepancy",
+            "failure_detail": "",
+        }]
+        prefix = engine._build_context_prefix()
+        assert "Notes: Factor of 2 discrepancy" in prefix
+        assert "Failure detail" not in prefix  # empty should be omitted
+
+    def test_context_prefix_renders_failure_detail(self):
+        """Context prefix renders failure_detail when present."""
+        engine = self._make_engine()
+        engine._state.pending_compute_verdicts = [{
+            "verdict": "REFUTED", "claim": "WH-001", "attempt": 1,
+            "notes": "",
+            "failure_detail": "Division by zero at r=0",
+        }]
+        prefix = engine._build_context_prefix()
+        assert "Failure detail: Division by zero at r=0" in prefix
+        assert "Notes:" not in prefix  # empty should be omitted
+
+    def test_empty_notes_and_failure_detail_omitted(self):
+        """Empty notes and failure_detail are omitted from prefix."""
+        engine = self._make_engine()
+        engine._state.pending_compute_verdicts = [{
+            "verdict": "REFUTED", "claim": "WH-001", "attempt": 1,
+            "notes": "",
+            "failure_detail": "",
+        }]
+        prefix = engine._build_context_prefix()
+        assert "Notes:" not in prefix
+        assert "Failure detail:" not in prefix
+
     def test_compute_verdict_signal_in_context_prefix(self):
         """Non-VERIFIED verdict appears in context prefix with attempt count."""
         engine = self._make_engine()
