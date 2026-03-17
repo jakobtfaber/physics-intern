@@ -6,6 +6,7 @@ from sciralph.markdown import parse_frontmatter
 from sciralph.renderers import (
     render_computation_log_md,
     render_computation_log_tail,
+    render_compute_research_state,
     render_critique_log_md,
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
@@ -609,6 +610,46 @@ class TestRenderComputationLogTail:
 # ===========================================================================
 # render_orchestrator_research_state
 # ===========================================================================
+
+class TestRenderComputeResearchState:
+
+    def test_no_frontmatter(self, populated_state):
+        text = render_compute_research_state(populated_state)
+        assert "---" not in text
+
+    def test_includes_problem_statement(self, populated_state):
+        text = render_compute_research_state(populated_state)
+        assert "# Problem Statement" in text
+        assert "Derive the Hawking temperature" in text
+
+    def test_conventions_included(self, populated_state):
+        text = render_compute_research_state(populated_state)
+        assert "# Conventions" in text
+        assert "Natural units" in text
+
+    def test_hypotheses_included(self, populated_state):
+        text = render_compute_research_state(populated_state)
+        assert "## ER-001" in text
+        assert "## WH-002" in text
+
+    def test_skips_empty_dead_ends(self, empty_state):
+        text = render_compute_research_state(empty_state)
+        assert "# Dead Ends" not in text
+
+    def test_includes_populated_dead_ends(self, populated_state):
+        text = render_compute_research_state(populated_state)
+        assert "# Dead Ends" in text
+        assert "Abandoned WH-003" in text
+
+    def test_skips_empty_open_questions(self, empty_state):
+        text = render_compute_research_state(empty_state)
+        assert "# Open Questions" not in text
+
+    def test_includes_populated_open_questions(self, populated_state):
+        text = render_compute_research_state(populated_state)
+        assert "# Open Questions" in text
+        assert "greybody factor" in text
+
 
 class TestRenderOrchestratorResearchState:
 

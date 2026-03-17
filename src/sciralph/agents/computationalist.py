@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ..llm import AgentResult
-from ..renderers import render_research_state_md
+from ..renderers import render_compute_research_state
 from ..research_state import Computation, Verdict
 from ..tools import ToolExecutor
 from .base import BaseAgent
@@ -38,8 +38,8 @@ class ComputationalistAgent(BaseAgent):
         parts = [
             "## CURRENT_TASK.md\n",
             self.workspace.read_file("CURRENT_TASK.md"),
-            "\n## Relevant Research State (excerpts)\n",
-            render_research_state_md(self.research_state) if self.research_state else "",
+            "\n## Research State\n",
+            render_compute_research_state(self.research_state) if self.research_state else "",
         ]
         return "\n".join(parts)
 

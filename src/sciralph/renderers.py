@@ -287,6 +287,15 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
     )
 
 
+def render_compute_research_state(state: ResearchState) -> str:
+    """Render research state for compute agent context (no frontmatter, skips empties)."""
+    return _research_state_body(
+        state,
+        skip_empty_dead_ends=True,
+        skip_empty_open_questions=True,
+    )
+
+
 def render_orchestrator_critique_log(state: ResearchState) -> str:
     """Render critique log for orchestrator context (no frontmatter, compact when empty)."""
     if not state.critiques:

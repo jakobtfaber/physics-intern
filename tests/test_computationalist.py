@@ -374,3 +374,121 @@ class TestFreeTextFallthrough:
 
         comp = agent.research_state.computations["COMP-070"]
         assert comp.verdict.value == "INCONCLUSIVE"
+
+
+class TestBuildContext:
+    """Test context assembly for compute agents."""
+
+    def _make_agent_with_state(self, agent_cls):
+        from sciralph.research_state import Hypothesis, HypothesisStatus, ResearchState
+
+        config = MagicMock()
+        config.sympy_timeout_seconds = 10
+        config.tool_output_limit = 10_000
+        workspace = MagicMock()
+        workspace.root = MagicMock()
+        workspace.computations_dir = "/tmp"
+        workspace.read_file.return_value = "---\ntask_id: TASK-001\n---\n\nDo something."
+        metrics = MagicMock()
+        agent = agent_cls(config=config, workspace=workspace, metrics=metrics)
+        agent.research_state = ResearchState(
+            problem_statement="Derive the Hawking temperature.",
+            conventions="Natural units.",
+            iteration=3,
+        )
+        agent.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            statement="T = 1/(8 pi M)",
+            status=HypothesisStatus.WORKING,
+            iteration_created=1,
+        )
+        return agent
+
+    def test_compute_explore_context_has_task_and_state(self):
+        from sciralph.agents.compute_explore import ComputeExploreAgent
+
+        agent = self._make_agent_with_state(ComputeExploreAgent)
+        task = Task(task_id="TASK-001", task_type=TaskType.COMPUTE_EXPLORE, assigned_to="compute_explore")
+        ctx = agent.build_context(task, iteration=3)
+        assert "## CURRENT_TASK.md" in ctx
+        assert "## Research State" in ctx
+        assert "Derive the Hawking temperature" in ctx
+        assert "## WH-001" in ctx
+
+    def test_compute_verify_context_has_task_and_state(self):
+        from sciralph.agents.compute_verify import ComputeVerifyAgent
+
+        agent = self._make_agent_with_state(ComputeVerifyAgent)
+        task = Task(task_id="TASK-002", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify")
+        ctx = agent.build_context(task, iteration=3)
+        assert "## CURRENT_TASK.md" in ctx
+        assert "## Research State" in ctx
+        assert "Derive the Hawking temperature" in ctx
+
+    def test_context_has_no_frontmatter(self):
+        from sciralph.agents.compute_explore import ComputeExploreAgent
+
+        agent = self._make_agent_with_state(ComputeExploreAgent)
+        task = Task(task_id="TASK-001", task_type=TaskType.COMPUTE_EXPLORE, assigned_to="compute_explore")
+        ctx = agent.build_context(task, iteration=3)
+        # The research state portion should not contain YAML frontmatter metadata
+        assert "problem_id:" not in ctx
+        assert "status:" not in ctx
+
+    def test_context_skips_empty_dead_ends(self):
+        from sciralph.agents.compute_verify import ComputeVerifyAgent
+
+        agent = self._make_agent_with_state(ComputeVerifyAgent)
+        task = Task(task_id="TASK-002", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify")
+        ctx = agent.build_context(task, iteration=3)
+        assert "(None yet.)" not in ctx
+
+    def test_tools_set_correctly_for_explore(self):
+        from sciralph.agents.compute_explore import ComputeExploreAgent
+
+        agent = self._make_agent_with_state(ComputeExploreAgent)
+        task = Task(task_id="TASK-001", task_type=TaskType.COMPUTE_EXPLORE, assigned_to="compute_explore")
+        agent.build_context(task, iteration=3)
+        names = {t["function"]["name"] for t in agent.tools}
+        assert names == {"execute_python", "submit_result", "report_progress"}
+
+    def test_tools_set_correctly_for_verify(self):
+        from sciralph.agents.compute_verify import ComputeVerifyAgent
+
+        agent = self._make_agent_with_state(ComputeVerifyAgent)
+        task = Task(task_id="TASK-002", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify")
+        agent.build_context(task, iteration=3)
+        names = {t["function"]["name"] for t in agent.tools}
+        assert names == {"execute_python", "submit_verdict", "report_progress"}
+
+    def test_research_explore_adds_critique_context(self):
+        from sciralph.agents.research_explore import ResearchExploreAgent
+        from sciralph.research_state import Critique, CritiqueStatus, Severity
+
+        agent = self._make_agent_with_state(ResearchExploreAgent)
+        agent.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001",
+            targets=["WH-001"],
+            severity=Severity.HIGH,
+            argument="Derivation assumes thermal equilibrium.",
+            status=CritiqueStatus.ACTIVE,
+            iteration_filed=2,
+        )
+        task = Task(
+            task_id="TASK-003",
+            task_type=TaskType.RESEARCH_EXPLORE,
+            assigned_to="research_explore",
+            blocking_critiques=["CRIT-001"],
+        )
+        ctx = agent.build_context(task, iteration=3)
+        assert "## Relevant Critiques" in ctx
+        assert "CRIT-001" in ctx
+        assert "thermal equilibrium" in ctx
+
+    def test_research_explore_no_critiques_when_none_blocking(self):
+        from sciralph.agents.research_explore import ResearchExploreAgent
+
+        agent = self._make_agent_with_state(ResearchExploreAgent)
+        task = Task(task_id="TASK-003", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="research_explore")
+        ctx = agent.build_context(task, iteration=3)
+        assert "## Relevant Critiques" not in ctx

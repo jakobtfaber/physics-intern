@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..renderers import render_research_state_md
 from ..tools import ToolExecutor
 from .computationalist import ComputationalistAgent
 
@@ -18,16 +17,10 @@ class ResearchExploreAgent(ComputationalistAgent):
     tools = ToolExecutor.RESEARCH_EXPLORE_TOOLS
 
     def build_context(self, task: Task, iteration: int) -> str:
-        self.tools = ToolExecutor.RESEARCH_EXPLORE_TOOLS
-        parts = [
-            "## CURRENT_TASK.md\n",
-            self.workspace.read_file("CURRENT_TASK.md"),
-            "\n## Relevant Research State (excerpts)\n",
-            render_research_state_md(self.research_state) if self.research_state else "",
-        ]
-        # Include relevant critiques for resolve-type tasks
+        context = super().build_context(task, iteration)
+        # Append critique context for resolve-type tasks
         if task.blocking_critiques and self.research_state:
-            parts.append("\n## Relevant Critiques\n")
+            parts = ["\n## Relevant Critiques\n"]
             for crit_id in task.blocking_critiques:
                 if crit_id in self.research_state.critiques:
                     c = self.research_state.critiques[crit_id]
@@ -38,4 +31,5 @@ class ResearchExploreAgent(ComputationalistAgent):
                     if c.argument:
                         parts.append(c.argument)
                     parts.append("")
-        return "\n".join(parts)
+            context += "\n".join(parts)
+        return context
