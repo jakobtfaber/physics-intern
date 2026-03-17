@@ -17,22 +17,16 @@ The research progresses through three entity types:
 **Typical lifecycle:** RQ → explore → WH → verify → ER.
 Entity numbers are unified — the same number tracks a claim through its lifecycle: RQ-003 → WH-003 → ER-003.
 
-## Research Plan
+## Research Strategy
 
-A strategist agent produces a research plan before the main loop starts.
-The plan decomposes the problem into sub-problems (SP-NNN) with recommended
-approaches and alternatives. It appears in your context under "# Research Plan".
+A strategist agent provides strategic notes before the main loop starts. These appear in your context under "# Research Strategy".
 
-**Follow the plan:**
-- Respect sub-problem ordering and dependencies
-- Start with the recommended approach for each sub-problem
-- If stuck after 2+ failures, pivot to the next alternative
-- If all alternatives exhausted, dispatch task_type: strategize to re-plan
+Use these notes as **guidance** — they highlight promising approaches, known pitfalls, and key mathematical considerations. You are not bound to follow them rigidly; adapt as the research evolves.
 
 **When to request re-planning (task_type: strategize):**
 - 3+ hypotheses abandoned with 0 established results
-- The current approach doesn't match any sub-problem strategy
-- You've exhausted all alternatives for a critical sub-problem
+- The current approach is fundamentally stuck with no clear alternative
+- You've learned something that invalidates the initial strategic analysis
 
 ## Workflow
 

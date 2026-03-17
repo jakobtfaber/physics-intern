@@ -10,7 +10,7 @@ from sciralph.renderers import (
     render_critique_log_md,
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
-    render_research_plan,
+    render_research_strategy,
     render_research_state_md,
     render_task_md,
 )
@@ -21,10 +21,9 @@ from sciralph.research_state import (
     FailedApproach,
     Hypothesis,
     HypothesisStatus,
-    ResearchPlan,
     ResearchState,
+    ResearchStrategy,
     Severity,
-    SubProblem,
     Verdict,
 )
 from sciralph.task import Task, TaskType
@@ -725,73 +724,45 @@ class TestSnapshotRegression:
 
 
 # ===========================================================================
-# render_research_plan
+# render_research_strategy
 # ===========================================================================
 
-class TestRenderResearchPlan:
+class TestRenderResearchStrategy:
 
-    def _make_plan_state(self):
+    def _make_strategy_state(self):
         state = ResearchState(problem_statement="Test problem")
-        state.research_plan = ResearchPlan(
-            sub_problems={
-                "SP-001": SubProblem(
-                    id="SP-001",
-                    description="Derive surface gravity",
-                    approach="Killing vector method",
-                    alternatives=["Euclidean method"],
-                    depends_on=[],
-                    status="open",
-                    initial_rqs=["RQ-001"],
-                    notes="Standard first step",
-                ),
-                "SP-002": SubProblem(
-                    id="SP-002",
-                    description="Apply first law",
-                    approach="T = kappa / (2 pi)",
-                    depends_on=["SP-001"],
-                    status="in_progress",
-                ),
-            },
-            strategy_summary="Derive Hawking temperature via surface gravity.",
-            known_pitfalls=["Don't confuse coordinate and invariant quantities."],
+        state.research_strategy = ResearchStrategy(
+            strategy_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method first.",
             iteration_created=0,
             iteration_updated=0,
         )
         return state
 
-    def test_render_research_plan_with_sub_problems(self):
-        state = self._make_plan_state()
-        text = render_research_plan(state)
-        assert "# Research Plan" in text
+    def test_render_research_strategy_with_notes(self):
+        state = self._make_strategy_state()
+        text = render_research_strategy(state)
+        assert "# Research Strategy" in text
         assert "Derive Hawking temperature via surface gravity." in text
-        assert "SP-001" in text
-        assert "[OPEN]" in text
-        assert "Derive surface gravity" in text
-        assert "**Approach:** Killing vector method" in text
-        assert "**Alternatives:** Euclidean method" in text
-        assert "SP-002" in text
-        assert "[IN_PROGRESS]" in text
-        assert "**Depends on:** SP-001" in text
+        assert "Killing vector method" in text
 
-    def test_research_plan_none_renders_no_plan(self):
+    def test_research_strategy_none_renders_no_strategy(self):
         state = ResearchState(problem_statement="Test")
-        text = render_research_plan(state)
-        assert text == "(No research plan.)"
+        text = render_research_strategy(state)
+        assert text == "(No research strategy.)"
 
-    def test_research_plan_rendered_in_orchestrator_context(self):
-        state = self._make_plan_state()
+    def test_research_strategy_rendered_in_orchestrator_context(self):
+        state = self._make_strategy_state()
         text = render_orchestrator_research_state(state)
-        assert "# Research Plan" in text
-        assert "SP-001" in text
-        assert "SP-002" in text
+        assert "# Research Strategy" in text
+        assert "Killing vector method" in text
 
-    def test_research_plan_not_in_compute_context(self):
-        state = self._make_plan_state()
+    def test_research_strategy_not_in_compute_context(self):
+        state = self._make_strategy_state()
         text = render_compute_research_state(state)
-        assert "# Research Plan" not in text
+        assert "# Research Strategy" not in text
 
-    def test_research_plan_none_renders_nothing_in_orchestrator(self):
-        """When plan is None, no research plan section in orchestrator context."""
+    def test_research_strategy_none_renders_nothing_in_orchestrator(self):
+        """When strategy is None, no research strategy section in orchestrator context."""
         state = ResearchState(problem_statement="Test")
         text = render_orchestrator_research_state(state)
-        assert "# Research Plan" not in text
+        assert "# Research Strategy" not in text

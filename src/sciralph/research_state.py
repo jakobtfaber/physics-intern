@@ -123,24 +123,9 @@ class ResearchQuestion:
 
 
 @dataclass
-class SubProblem:
-    """A decomposed piece of the overall research problem."""
-    id: str                                         # SP-001, SP-002, ...
-    description: str = ""
-    approach: str = ""                              # Primary recommended approach
-    alternatives: list[str] = field(default_factory=list)
-    depends_on: list[str] = field(default_factory=list)  # Other SP-NNN IDs
-    status: str = "open"                            # open / in_progress / completed / blocked
-    initial_rqs: list[str] = field(default_factory=list)  # RQ IDs seeded from this
-    notes: str = ""
-
-
-@dataclass
-class ResearchPlan:
-    """Strategic research plan produced by the strategist agent."""
-    sub_problems: dict[str, SubProblem] = field(default_factory=dict)
-    strategy_summary: str = ""
-    known_pitfalls: list[str] = field(default_factory=list)
+class ResearchStrategy:
+    """Free-form strategic notes produced by the strategist agent."""
+    strategy_notes: str = ""
     iteration_created: int = 0
     iteration_updated: int = 0
 
@@ -168,7 +153,7 @@ class ResearchState:
     conventions: str = ""
     status: str = "in_progress"
     title: str = ""
-    research_plan: ResearchPlan | None = None
+    research_strategy: ResearchStrategy | None = None
 
     # --- Query methods ---
 
@@ -492,27 +477,13 @@ class ResearchState:
                 iteration=fdata.get("iteration", 0),
             ))
         state.critic_clean_reviews = data.get("critic_clean_reviews", [])
-        # Deserialize research_plan if present
-        plan_data = data.get("research_plan")
-        if plan_data and isinstance(plan_data, dict):
-            subs = {}
-            for sp_id, sp_data in plan_data.get("sub_problems", {}).items():
-                subs[sp_id] = SubProblem(
-                    id=sp_data.get("id", sp_id),
-                    description=sp_data.get("description", ""),
-                    approach=sp_data.get("approach", ""),
-                    alternatives=sp_data.get("alternatives", []),
-                    depends_on=sp_data.get("depends_on", []),
-                    status=sp_data.get("status", "open"),
-                    initial_rqs=sp_data.get("initial_rqs", []),
-                    notes=sp_data.get("notes", ""),
-                )
-            state.research_plan = ResearchPlan(
-                sub_problems=subs,
-                strategy_summary=plan_data.get("strategy_summary", ""),
-                known_pitfalls=plan_data.get("known_pitfalls", []),
-                iteration_created=plan_data.get("iteration_created", 0),
-                iteration_updated=plan_data.get("iteration_updated", 0),
+        # Deserialize research_strategy if present
+        strat_data = data.get("research_strategy")
+        if strat_data and isinstance(strat_data, dict):
+            state.research_strategy = ResearchStrategy(
+                strategy_notes=strat_data.get("strategy_notes", ""),
+                iteration_created=strat_data.get("iteration_created", 0),
+                iteration_updated=strat_data.get("iteration_updated", 0),
             )
         return state
 

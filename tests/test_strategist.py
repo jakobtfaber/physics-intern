@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock
 
 from sciralph.agents.strategist import StrategistAgent
-from sciralph.research_state import ResearchState, ResearchPlan, SubProblem
+from sciralph.research_state import ResearchState, ResearchStrategy
 from sciralph.task import Task, TaskType
 from sciralph.llm import LLMResponse
 
@@ -48,113 +48,70 @@ def test_build_context_replan():
     assert "Current Research State" in context
 
 
-# ---------- _parse_plan tests ----------
+# ---------- process_response tests ----------
 
-VALID_PLAN_JSON = """{
-    "strategy_summary": "Derive Hawking temperature from first principles.",
-    "sub_problems": [
-        {
-            "id": "SP-001",
-            "description": "Establish the Schwarzschild metric",
-            "approach": "Start from Einstein field equations",
-            "alternatives": ["Use Kerr metric as generalization"],
-            "depends_on": [],
-            "notes": ""
-        },
-        {
-            "id": "SP-002",
-            "description": "Compute surface gravity",
-            "approach": "Use Killing vector formalism",
-            "alternatives": [],
-            "depends_on": ["SP-001"],
-            "notes": "Standard approach"
-        }
-    ],
-    "initial_rqs": [
-        {
-            "question": "What is the surface gravity of a Schwarzschild black hole?",
-            "context": "Needed for temperature derivation",
-            "sub_problem": "SP-001"
-        },
-        {
-            "question": "How does the Unruh effect relate to Hawking radiation?",
-            "context": "Provides physical intuition",
-            "sub_problem": "SP-002"
-        }
-    ],
-    "known_pitfalls": [
-        "Do not confuse coordinate and invariant quantities."
-    ]
-}"""
+STRATEGY_TEXT = """The Hawking temperature derivation proceeds most naturally via the Euclidean
+path integral approach. The key insight is that requiring regularity of the
+Euclidean section at the horizon fixes the periodicity of imaginary time.
 
-FENCED_PLAN_JSON = f"""Here is my research plan:
+**Promising approaches:**
+- Euclidean continuation: Wick rotate, demand regularity at the horizon.
+- Surface gravity route: Compute kappa from the Killing vector norm gradient.
 
-```json
-{VALID_PLAN_JSON}
-```
-
-This plan addresses the core derivation."""
+**Pitfalls:**
+- Don't confuse coordinate-dependent and invariant quantities.
+- The naive WKB approximation breaks down near the horizon.
+"""
 
 
-def test_parse_plan_from_json_block():
-    """Valid JSON without fences is parsed correctly."""
+def test_process_response_stores_strategy():
+    """process_response stores the raw text as a ResearchStrategy."""
     agent = _make_agent()
-    plan, rqs = agent._parse_plan(VALID_PLAN_JSON, iteration=0)
+    response = LLMResponse(
+        text=STRATEGY_TEXT, input_tokens=100, output_tokens=200,
+        stop_reason="end_turn", duration=0.5,
+    )
+    agent.process_response(response, _make_task(), iteration=0)
 
-    assert plan is not None
-    assert isinstance(plan, ResearchPlan)
-    assert plan.strategy_summary == "Derive Hawking temperature from first principles."
+    assert agent.parsed_strategy is not None
+    assert isinstance(agent.parsed_strategy, ResearchStrategy)
+    assert "Euclidean" in agent.parsed_strategy.strategy_notes
+    assert agent.parsed_strategy.iteration_created == 0
 
 
-def test_parse_plan_from_fenced_json():
-    """JSON inside ```json fences is extracted and parsed."""
+def test_process_response_sets_iteration():
+    """iteration parameter is stored in the strategy."""
     agent = _make_agent()
-    plan, rqs = agent._parse_plan(FENCED_PLAN_JSON, iteration=0)
+    response = LLMResponse(
+        text="Re-plan notes.", input_tokens=50, output_tokens=50,
+        stop_reason="end_turn", duration=0.3,
+    )
+    agent.process_response(response, _make_task(), iteration=7)
 
-    assert plan is not None
-    assert isinstance(plan, ResearchPlan)
-    assert len(plan.sub_problems) == 2
+    assert agent.parsed_strategy.iteration_created == 7
+    assert agent.parsed_strategy.iteration_updated == 7
 
 
-def test_parse_plan_malformed_json_returns_empty():
-    """Malformed JSON gracefully returns None plan and empty rqs."""
+def test_process_response_empty_text():
+    """Empty response still creates a strategy (with empty notes)."""
     agent = _make_agent()
-    plan, rqs = agent._parse_plan("This is not valid JSON at all {{{", iteration=0)
+    response = LLMResponse(
+        text="", input_tokens=50, output_tokens=0,
+        stop_reason="end_turn", duration=0.1,
+    )
+    agent.process_response(response, _make_task(), iteration=0)
 
-    assert plan is None
-    assert rqs == []
+    assert agent.parsed_strategy is not None
+    assert agent.parsed_strategy.strategy_notes == ""
 
 
-def test_parsed_plan_has_sub_problems():
-    """Verify SubProblem objects are created from the plan JSON."""
+def test_process_response_strips_whitespace():
+    """Leading/trailing whitespace is stripped from strategy notes."""
     agent = _make_agent()
-    plan, _ = agent._parse_plan(VALID_PLAN_JSON, iteration=0)
+    response = LLMResponse(
+        text="  \n Some notes here. \n  ", input_tokens=50, output_tokens=50,
+        stop_reason="end_turn", duration=0.2,
+    )
+    agent.process_response(response, _make_task(), iteration=0)
 
-    assert plan is not None
-    assert len(plan.sub_problems) == 2
-    assert all(isinstance(sp, SubProblem) for sp in plan.sub_problems.values())
-    assert "SP-001" in plan.sub_problems
-    assert "SP-002" in plan.sub_problems
-    assert plan.sub_problems["SP-001"].description == "Establish the Schwarzschild metric"
-    assert plan.sub_problems["SP-002"].depends_on == ["SP-001"]
-
-
-def test_parsed_plan_has_initial_rqs():
-    """Verify initial_rqs list is populated from the plan JSON."""
-    agent = _make_agent()
-    _, rqs = agent._parse_plan(VALID_PLAN_JSON, iteration=0)
-
-    assert len(rqs) == 2
-    assert rqs[0]["question"] == "What is the surface gravity of a Schwarzschild black hole?"
-    assert rqs[0]["sub_problem"] == "SP-001"
-    assert rqs[1]["question"] == "How does the Unruh effect relate to Hawking radiation?"
-
-
-def test_parsed_plan_has_known_pitfalls():
-    """Verify known_pitfalls are extracted."""
-    agent = _make_agent()
-    plan, _ = agent._parse_plan(VALID_PLAN_JSON, iteration=0)
-
-    assert plan is not None
-    assert len(plan.known_pitfalls) == 1
-    assert "coordinate" in plan.known_pitfalls[0]
+    assert agent.parsed_strategy.strategy_notes == "Some notes here."

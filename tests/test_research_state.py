@@ -13,8 +13,7 @@ from sciralph.research_state import (
     Severity,
     CritiqueStatus,
     FailedApproach,
-    ResearchPlan,
-    SubProblem,
+    ResearchStrategy,
     _extract_hypothesis_sections,
     _extract_h1_section,
 )
@@ -366,7 +365,7 @@ class TestNewResearchStateFields:
         assert state.conventions == ""
         assert state.status == "in_progress"
         assert state.title == ""
-        assert state.research_plan is None
+        assert state.research_strategy is None
 
     def test_json_round_trip(self):
         state = ResearchState(
@@ -397,7 +396,7 @@ class TestNewResearchStateFields:
         assert state.conventions == ""
         assert state.status == "in_progress"
         assert state.title == ""
-        assert state.research_plan is None
+        assert state.research_strategy is None
 
     def test_backward_compat_open_questions_ignored(self):
         """Old JSON with open_questions field loads fine (silently ignored)."""
@@ -413,56 +412,29 @@ class TestNewResearchStateFields:
         assert state.iteration == 3
 
 
-class TestResearchPlanSerialization:
+class TestResearchStrategySerialization:
 
-    def test_research_plan_default_none(self):
+    def test_research_strategy_default_none(self):
         state = ResearchState()
-        assert state.research_plan is None
+        assert state.research_strategy is None
 
-    def test_research_plan_json_round_trip(self):
+    def test_research_strategy_json_round_trip(self):
         state = ResearchState(iteration=1)
-        state.research_plan = ResearchPlan(
-            sub_problems={
-                "SP-001": SubProblem(
-                    id="SP-001",
-                    description="Derive surface gravity",
-                    approach="Use Killing vector method",
-                    alternatives=["Euclidean method", "Tunneling method"],
-                    depends_on=[],
-                    status="open",
-                    initial_rqs=["RQ-001"],
-                    notes="Standard first step",
-                ),
-                "SP-002": SubProblem(
-                    id="SP-002",
-                    description="Apply first law",
-                    approach="T = kappa / (2 pi)",
-                    depends_on=["SP-001"],
-                    status="open",
-                ),
-            },
-            strategy_summary="Derive Hawking temperature via surface gravity.",
-            known_pitfalls=["Don't confuse coordinate and invariant quantities."],
+        state.research_strategy = ResearchStrategy(
+            strategy_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method.",
             iteration_created=0,
             iteration_updated=0,
         )
         json_str = state.to_json()
         restored = ResearchState.from_json(json_str)
-        assert restored.research_plan is not None
-        plan = restored.research_plan
-        assert plan.strategy_summary == "Derive Hawking temperature via surface gravity."
-        assert len(plan.sub_problems) == 2
-        sp1 = plan.sub_problems["SP-001"]
-        assert sp1.description == "Derive surface gravity"
-        assert sp1.approach == "Use Killing vector method"
-        assert sp1.alternatives == ["Euclidean method", "Tunneling method"]
-        assert sp1.initial_rqs == ["RQ-001"]
-        sp2 = plan.sub_problems["SP-002"]
-        assert sp2.depends_on == ["SP-001"]
-        assert plan.known_pitfalls == ["Don't confuse coordinate and invariant quantities."]
+        assert restored.research_strategy is not None
+        strategy = restored.research_strategy
+        assert "Hawking temperature" in strategy.strategy_notes
+        assert "Killing vector" in strategy.strategy_notes
+        assert strategy.iteration_created == 0
 
-    def test_backward_compat_missing_research_plan(self):
-        """Old JSON without research_plan loads fine."""
+    def test_missing_research_strategy_loads_as_none(self):
+        """JSON without research_strategy loads fine."""
         old_json = json.dumps({
             "iteration": 5,
             "hypotheses": {},
@@ -471,12 +443,12 @@ class TestResearchPlanSerialization:
             "failed_approaches": [],
         })
         state = ResearchState.from_json(old_json)
-        assert state.research_plan is None
+        assert state.research_strategy is None
 
-    def test_research_plan_none_serializes_as_null(self):
+    def test_research_strategy_none_serializes_as_null(self):
         state = ResearchState()
         data = json.loads(state.to_json())
-        assert data["research_plan"] is None
+        assert data["research_strategy"] is None
 
 
 # ---------------------------------------------------------------------------

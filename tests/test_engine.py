@@ -623,8 +623,7 @@ class TestDispatchFailureRecovery:
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()
             engine.strategist = MagicMock()
-            engine.strategist.parsed_plan = None
-            engine.strategist.initial_rqs = []
+            engine.strategist.parsed_strategy = None
         return engine
 
     def test_transient_error_continues_loop(self):
@@ -945,8 +944,7 @@ class TestSyncOnTermination:
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()
             engine.strategist = MagicMock()
-            engine.strategist.parsed_plan = None
-            engine.strategist.initial_rqs = []
+            engine.strategist.parsed_strategy = None
         return engine, ws
 
     def test_sync_called_on_termination(self):
@@ -1160,58 +1158,29 @@ class TestStrategistEngine:
 
             # Create mock strategist
             engine.strategist = MagicMock()
-            engine.strategist.parsed_plan = None
-            engine.strategist.initial_rqs = []
+            engine.strategist.parsed_strategy = None
         return engine
 
-    def test_apply_strategist_plan_seeds_rqs(self):
-        from sciralph.research_state import ResearchPlan, SubProblem
+    def test_apply_strategist_plan_stores_strategy(self):
+        from sciralph.research_state import ResearchStrategy
         engine = self._make_engine()
 
-        plan = ResearchPlan(
-            sub_problems={
-                "SP-001": SubProblem(id="SP-001", description="Derive kappa"),
-            },
-            strategy_summary="Test strategy.",
-            known_pitfalls=[],
+        strategy = ResearchStrategy(
+            strategy_notes="Derive kappa via Killing vectors first.",
             iteration_created=0,
+            iteration_updated=0,
         )
-        engine.strategist.parsed_plan = plan
-        engine.strategist.initial_rqs = [
-            {"question": "What is the surface gravity?", "context": "First step", "sub_problem": "SP-001"},
-        ]
+        engine.strategist.parsed_strategy = strategy
         engine._apply_strategist_plan()
 
-        assert engine.research_state.research_plan is not None
-        assert len(engine.research_state.research_questions) == 1
-        rq = list(engine.research_state.research_questions.values())[0]
-        assert rq.question == "What is the surface gravity?"
-        assert rq.context == "First step"
-        # RQ should be linked back to sub-problem
-        assert rq.id in plan.sub_problems["SP-001"].initial_rqs
-
-    def test_apply_strategist_plan_seeds_dead_ends(self):
-        from sciralph.research_state import ResearchPlan
-        engine = self._make_engine()
-
-        plan = ResearchPlan(
-            strategy_summary="Test",
-            known_pitfalls=["Don't use WKB near horizon.", "Avoid naive Euclidean approach."],
-        )
-        engine.strategist.parsed_plan = plan
-        engine.strategist.initial_rqs = []
-        engine._apply_strategist_plan()
-
-        assert len(engine.research_state.failed_approaches) == 2
-        descs = [fa.description for fa in engine.research_state.failed_approaches]
-        assert any("[Strategist]" in d for d in descs)
+        assert engine.research_state.research_strategy is not None
+        assert "Killing vectors" in engine.research_state.research_strategy.strategy_notes
 
     def test_apply_strategist_plan_none_does_nothing(self):
         engine = self._make_engine()
-        engine.strategist.parsed_plan = None
+        engine.strategist.parsed_strategy = None
         engine._apply_strategist_plan()
-        assert engine.research_state.research_plan is None
-        assert len(engine.research_state.research_questions) == 0
+        assert engine.research_state.research_strategy is None
 
     def test_strategize_dispatch(self):
         from sciralph.llm import LLMResponse
@@ -1219,11 +1188,10 @@ class TestStrategistEngine:
         engine.strategist.research_state = None
         engine.strategist._system_prompt = "cached"
         engine.strategist.run = MagicMock(return_value=LLMResponse(
-            text="{}", input_tokens=100, output_tokens=200,
+            text="Some strategy notes.", input_tokens=100, output_tokens=200,
             stop_reason="end_turn", duration=0.5,
         ))
-        engine.strategist.parsed_plan = None
-        engine.strategist.initial_rqs = []
+        engine.strategist.parsed_strategy = None
 
         task = Task(
             task_id="TASK-005", task_type=TaskType.STRATEGIZE,
@@ -1234,14 +1202,14 @@ class TestStrategistEngine:
         engine.strategist.run.assert_called_once()
 
     def test_should_suggest_replan_heuristic(self):
-        from sciralph.research_state import Hypothesis, HypothesisStatus, ResearchPlan
+        from sciralph.research_state import Hypothesis, HypothesisStatus, ResearchStrategy
         engine = self._make_engine()
 
-        # No plan → no suggestion
+        # No strategy → no suggestion
         assert not engine._should_suggest_replan()
 
-        # With plan but iteration too low
-        engine.research_state.research_plan = ResearchPlan(iteration_updated=0)
+        # With strategy but iteration too low
+        engine.research_state.research_strategy = ResearchStrategy(iteration_updated=0)
         engine.iteration = 3
         assert not engine._should_suggest_replan()
 
@@ -1256,8 +1224,8 @@ class TestStrategistEngine:
             )
         assert engine._should_suggest_replan()
 
-        # Plan recently updated → no suggestion
-        engine.research_state.research_plan.iteration_updated = 5
+        # Strategy recently updated → no suggestion
+        engine.research_state.research_strategy.iteration_updated = 5
         assert not engine._should_suggest_replan()
 
 

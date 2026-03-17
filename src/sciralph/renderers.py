@@ -15,7 +15,6 @@ from .markdown import render_frontmatter
 from .research_state import (
     CritiqueStatus,
     HypothesisStatus,
-    ResearchPlan,
     ResearchState,
     RQStatus,
     Severity,
@@ -35,33 +34,17 @@ def _h(level: int, offset: int) -> str:
     return "#" * (level + offset)
 
 
-def render_research_plan(state: ResearchState, *, heading_offset: int = 0) -> str:
-    """Render the research plan section from ResearchState."""
-    plan = state.research_plan
-    if plan is None:
-        return "(No research plan.)"
+def render_research_strategy(state: ResearchState, *, heading_offset: int = 0) -> str:
+    """Render the research strategy section from ResearchState."""
+    strategy = state.research_strategy
+    if strategy is None:
+        return "(No research strategy.)"
 
     h1 = _h(1, heading_offset)
-    h2 = _h(2, heading_offset)
 
-    parts: list[str] = [f"{h1} Research Plan\n"]
-    if plan.strategy_summary:
-        parts.append(plan.strategy_summary)
-        parts.append("")
-
-    for sp in sorted(plan.sub_problems.values(), key=lambda s: s.id):
-        status_tag = f"[{sp.status.upper()}]"
-        parts.append(f"{h2} {sp.id} {status_tag} — {sp.description}\n")
-        if sp.approach:
-            parts.append(f"**Approach:** {sp.approach}")
-        if sp.alternatives:
-            parts.append(f"**Alternatives:** {'; '.join(sp.alternatives)}")
-        if sp.depends_on:
-            parts.append(f"**Depends on:** {', '.join(sp.depends_on)}")
-        if sp.initial_rqs:
-            parts.append(f"**Initial RQs:** {', '.join(sp.initial_rqs)}")
-        if sp.notes:
-            parts.append(f"**Notes:** {sp.notes}")
+    parts: list[str] = [f"{h1} Research Strategy\n"]
+    if strategy.strategy_notes:
+        parts.append(strategy.strategy_notes)
         parts.append("")
 
     return "\n".join(parts)
@@ -72,7 +55,7 @@ def _research_state_body(
     *,
     include_problem_statement: bool = True,
     skip_empty_dead_ends: bool = False,
-    include_research_plan: bool = False,
+    include_research_strategy: bool = False,
     heading_offset: int = 0,
 ) -> str:
     """Build the body text for a research state rendering.
@@ -90,9 +73,9 @@ def _research_state_body(
         parts.append(state.problem_statement or "(No problem statement.)")
         parts.append("")
 
-    # Research Plan (when requested and present)
-    if include_research_plan and state.research_plan is not None:
-        parts.append(render_research_plan(state, heading_offset=heading_offset))
+    # Research Strategy (when requested and present)
+    if include_research_strategy and state.research_strategy is not None:
+        parts.append(render_research_strategy(state, heading_offset=heading_offset))
         parts.append("")
 
     # Conventions
@@ -329,7 +312,7 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
         state,
         include_problem_statement=False,
         skip_empty_dead_ends=True,
-        include_research_plan=True,
+        include_research_strategy=True,
         heading_offset=2,
     )
 

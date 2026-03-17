@@ -208,7 +208,7 @@ class SciRalph:
         return task
 
     def _run_strategist(self):
-        """Run strategist agent before the main loop to produce a research plan."""
+        """Run strategist agent before the main loop to produce a research strategy."""
         console.print("[cyan]Strategist[/cyan] analyzing problem...")
         self.strategist.research_state = self.research_state
         task = Task(
@@ -219,50 +219,25 @@ class SciRalph:
         self._apply_strategist_plan()
         self._sync_research_state()
         self._render_files_for_git()
-        self.workspace.git_commit("Iteration 0: strategist — research plan")
+        self.workspace.git_commit("Iteration 0: strategist — research strategy")
 
     def _apply_strategist_plan(self):
-        """Seed RQs and dead ends from the strategist's parsed plan."""
-        from .research_state import FailedApproach, ResearchQuestion
-
-        plan = self.strategist.parsed_plan
-        if plan is None:
+        """Store the strategist's parsed strategy in research state."""
+        strategy = self.strategist.parsed_strategy
+        if strategy is None:
             return
 
-        self.research_state.research_plan = plan
-
-        # Seed initial RQs
-        for rq_entry in self.strategist.initial_rqs:
-            num = self.research_state.next_entity_num()
-            rq_id = f"RQ-{num:03d}"
-            self.research_state.research_questions[rq_id] = ResearchQuestion(
-                id=rq_id,
-                question=rq_entry.get("question", ""),
-                context=rq_entry.get("context", ""),
-                iteration_created=0,
-            )
-            # Link back to sub-problem
-            sp_id = rq_entry.get("sub_problem", "")
-            if sp_id and sp_id in plan.sub_problems:
-                plan.sub_problems[sp_id].initial_rqs.append(rq_id)
-
-        # Seed known pitfalls as FailedApproaches
-        for pitfall in plan.known_pitfalls:
-            self.research_state.failed_approaches.append(FailedApproach(
-                description=f"[Strategist] {pitfall}",
-                reason="Known pitfall identified during strategic planning.",
-                iteration=0,
-            ))
+        self.research_state.research_strategy = strategy
 
     def _should_suggest_replan(self) -> bool:
         """Heuristic: suggest re-planning when the research is stalled."""
         if self.iteration < 5:
             return False
-        plan = self.research_state.research_plan
-        if plan is None:
+        strategy = self.research_state.research_strategy
+        if strategy is None:
             return False
-        # Don't suggest if plan was updated recently
-        if self.iteration - plan.iteration_updated <= 3:
+        # Don't suggest if strategy was updated recently
+        if self.iteration - strategy.iteration_updated <= 3:
             return False
         abandoned_count = len(self.research_state.abandoned_hypotheses())
         established_count = len(self.research_state.established_hypotheses())
