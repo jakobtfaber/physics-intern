@@ -310,23 +310,28 @@ def can_terminate(
                 "Call resolve_research_question or abandon it before terminating."
             )
 
-    # Build set of WHs with VERIFIED backing for a more specific message
+    # Build set of WHs with VERIFIED verify-kind backing (matching promotion guardrail)
+    verify_kinds = {"verify", "research_verify"}
     verified_wh_ids: set[str] = set()
     for comp in research_state.computations.values():
-        if comp.verdict == Verdict.VERIFIED and comp.target_hypothesis:
+        if (comp.verdict == Verdict.VERIFIED
+                and comp.target_hypothesis
+                and comp.kind in verify_kinds):
             verified_wh_ids.add(comp.target_hypothesis)
 
     for h in research_state.hypotheses.values():
         if h.status == HypothesisStatus.WORKING:
             if h.id in verified_wh_ids:
                 blockers.append(
-                    f"{h.id} has VERIFIED computation backing but was not promoted. "
-                    "Call promote_hypothesis or abandon_hypothesis before terminating."
+                    f"{h.id} has VERIFIED verify-kind computation but was not promoted. "
+                    f"Call promote_hypothesis(id=\"{h.id}\") or "
+                    f"abandon_hypothesis(id=\"{h.id}\") before terminating."
                 )
             else:
                 blockers.append(
-                    f"{h.id} is still a working hypothesis. "
-                    "Promote, verify, or abandon it before terminating."
+                    f"{h.id} has no VERIFIED verify-kind computation. "
+                    f"Emit task_type: compute_verify or research_verify targeting {h.id}, "
+                    f"or call abandon_hypothesis(id=\"{h.id}\"), before terminating."
                 )
 
     return (len(blockers) == 0, blockers)

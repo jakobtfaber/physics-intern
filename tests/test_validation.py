@@ -437,3 +437,23 @@ class TestCanTerminate:
             research_state=state,
         )
         assert allowed
+
+    def test_wh_with_verified_explore_only_gets_verify_message(self):
+        """WH with only VERIFIED explore comp should say 'emit compute_verify', not 'promote'."""
+        state = self._make_state()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001",
+            verdict=Verdict.VERIFIED, kind="explore", iteration=1,
+        )
+        allowed, blockers = can_terminate(
+            MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
+            research_state=state,
+        )
+        assert not allowed
+        # Should NOT say "promote" — no verify-kind VERIFIED exists
+        wh_blocker = [b for b in blockers if "WH-001" in b][0]
+        assert "compute_verify" in wh_blocker
+        assert "promote_hypothesis" not in wh_blocker

@@ -44,6 +44,7 @@ class Config:
     tool_output_limit: int = DEFAULTS["tool_output_limit"]
     stall_threshold: int = DEFAULTS["stall_threshold"]
     stall_recompute_limit: int = DEFAULTS["stall_recompute_limit"]
+    max_termination_retries: int = DEFAULTS["max_termination_retries"]
     min_er_for_completion: int = DEFAULTS["min_er_for_completion"]
     api_retry_max: int = DEFAULTS["api_retry_max"]
     api_retry_initial_delay: float = DEFAULTS["api_retry_initial_delay"]

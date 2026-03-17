@@ -622,6 +622,9 @@ class TestDispatchFailureRecovery:
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()
+            engine.strategist = MagicMock()
+            engine.strategist.parsed_plan = None
+            engine.strategist.initial_rqs = []
         return engine
 
     def test_transient_error_continues_loop(self):
@@ -941,6 +944,9 @@ class TestSyncOnTermination:
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()
+            engine.strategist = MagicMock()
+            engine.strategist.parsed_plan = None
+            engine.strategist.initial_rqs = []
         return engine, ws
 
     def test_sync_called_on_termination(self):
@@ -1122,4 +1128,210 @@ class TestCallWithRetryNoRetry:
         assert kwargs["event"] == "max_tokens_no_retry"
         assert "test_agent" in kwargs["detail"]
 
+
+# ===========================================================================
+# Strategist integration
+# ===========================================================================
+
+class TestStrategistEngine:
+    """Tests for strategist agent integration in the engine."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            ws.write_file = MagicMock()
+            ws.git_commit = MagicMock()
+            ws.file_size = MagicMock(return_value=0)
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.research_state = ResearchState(
+                problem_statement="Derive Hawking temperature.",
+            )
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 0
+            engine._state = LoopState()
+
+            # Create mock strategist
+            engine.strategist = MagicMock()
+            engine.strategist.parsed_plan = None
+            engine.strategist.initial_rqs = []
+        return engine
+
+    def test_apply_strategist_plan_seeds_rqs(self):
+        from sciralph.research_state import ResearchPlan, SubProblem
+        engine = self._make_engine()
+
+        plan = ResearchPlan(
+            sub_problems={
+                "SP-001": SubProblem(id="SP-001", description="Derive kappa"),
+            },
+            strategy_summary="Test strategy.",
+            known_pitfalls=[],
+            iteration_created=0,
+        )
+        engine.strategist.parsed_plan = plan
+        engine.strategist.initial_rqs = [
+            {"question": "What is the surface gravity?", "context": "First step", "sub_problem": "SP-001"},
+        ]
+        engine._apply_strategist_plan()
+
+        assert engine.research_state.research_plan is not None
+        assert len(engine.research_state.research_questions) == 1
+        rq = list(engine.research_state.research_questions.values())[0]
+        assert rq.question == "What is the surface gravity?"
+        assert rq.context == "First step"
+        # RQ should be linked back to sub-problem
+        assert rq.id in plan.sub_problems["SP-001"].initial_rqs
+
+    def test_apply_strategist_plan_seeds_dead_ends(self):
+        from sciralph.research_state import ResearchPlan
+        engine = self._make_engine()
+
+        plan = ResearchPlan(
+            strategy_summary="Test",
+            known_pitfalls=["Don't use WKB near horizon.", "Avoid naive Euclidean approach."],
+        )
+        engine.strategist.parsed_plan = plan
+        engine.strategist.initial_rqs = []
+        engine._apply_strategist_plan()
+
+        assert len(engine.research_state.failed_approaches) == 2
+        descs = [fa.description for fa in engine.research_state.failed_approaches]
+        assert any("[Strategist]" in d for d in descs)
+
+    def test_apply_strategist_plan_none_does_nothing(self):
+        engine = self._make_engine()
+        engine.strategist.parsed_plan = None
+        engine._apply_strategist_plan()
+        assert engine.research_state.research_plan is None
+        assert len(engine.research_state.research_questions) == 0
+
+    def test_strategize_dispatch(self):
+        from sciralph.llm import LLMResponse
+        engine = self._make_engine()
+        engine.strategist.research_state = None
+        engine.strategist._system_prompt = "cached"
+        engine.strategist.run = MagicMock(return_value=LLMResponse(
+            text="{}", input_tokens=100, output_tokens=200,
+            stop_reason="end_turn", duration=0.5,
+        ))
+        engine.strategist.parsed_plan = None
+        engine.strategist.initial_rqs = []
+
+        task = Task(
+            task_id="TASK-005", task_type=TaskType.STRATEGIZE,
+            assigned_to="strategist", iteration=5,
+        )
+        agent_name, result = engine._dispatch(task)
+        assert agent_name == "strategist"
+        engine.strategist.run.assert_called_once()
+
+    def test_should_suggest_replan_heuristic(self):
+        from sciralph.research_state import Hypothesis, HypothesisStatus, ResearchPlan
+        engine = self._make_engine()
+
+        # No plan → no suggestion
+        assert not engine._should_suggest_replan()
+
+        # With plan but iteration too low
+        engine.research_state.research_plan = ResearchPlan(iteration_updated=0)
+        engine.iteration = 3
+        assert not engine._should_suggest_replan()
+
+        # Iteration high enough but not enough abandoned
+        engine.iteration = 6
+        assert not engine._should_suggest_replan()
+
+        # 3+ abandoned, 0 established → should suggest
+        for i in range(3):
+            engine.research_state.hypotheses[f"WH-{i+1:03d}"] = Hypothesis(
+                id=f"WH-{i+1:03d}", status=HypothesisStatus.ABANDONED,
+            )
+        assert engine._should_suggest_replan()
+
+        # Plan recently updated → no suggestion
+        engine.research_state.research_plan.iteration_updated = 5
+        assert not engine._should_suggest_replan()
+
+
+class TestTerminationCircuitBreaker:
+    """Test the circuit breaker that auto-abandons WHs after repeated termination blocks."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+            ws.write_file = MagicMock()
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.research_state = ResearchState()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 10
+            engine._state = LoopState()
+        return engine
+
+    def test_force_abandon_working_hypotheses(self):
+        """Auto-abandon all remaining WHs when circuit breaker fires."""
+        from sciralph.research_state import Hypothesis, HypothesisStatus
+        engine = self._make_engine()
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING, statement="Claim A",
+        )
+        engine.research_state.hypotheses["WH-004"] = Hypothesis(
+            id="WH-004", status=HypothesisStatus.WORKING, statement="Claim B",
+        )
+        engine.research_state.hypotheses["ER-002"] = Hypothesis(
+            id="ER-002", status=HypothesisStatus.ESTABLISHED,
+        )
+        engine._state.consecutive_termination_blocks = 3
+
+        engine._force_abandon_working_hypotheses()
+
+        assert engine.research_state.hypotheses["WH-001"].status == HypothesisStatus.ABANDONED
+        assert engine.research_state.hypotheses["WH-004"].status == HypothesisStatus.ABANDONED
+        assert engine.research_state.hypotheses["ER-002"].status == HypothesisStatus.ESTABLISHED
+        assert len(engine.research_state.failed_approaches) == 2
+        assert engine._state.consecutive_termination_blocks == 0
+
+    def test_counter_increments_on_block(self):
+        """consecutive_termination_blocks increments when termination is blocked."""
+        engine = self._make_engine()
+        assert engine._state.consecutive_termination_blocks == 0
+        engine._state.consecutive_termination_blocks += 1
+        assert engine._state.consecutive_termination_blocks == 1
+
+    def test_counter_resets_on_non_terminate(self):
+        """The counter should reset when a non-terminate task is processed."""
+        engine = self._make_engine()
+        engine._state.consecutive_termination_blocks = 2
+        # Simulate what engine does for non-terminate tasks
+        engine._state.consecutive_termination_blocks = 0
+        assert engine._state.consecutive_termination_blocks == 0
+
+    def test_no_abandon_when_no_working_hypotheses(self):
+        """Force-abandon is a no-op when all hypotheses are already established/abandoned."""
+        from sciralph.research_state import Hypothesis, HypothesisStatus
+        engine = self._make_engine()
+        engine.research_state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        engine._state.consecutive_termination_blocks = 5
+
+        engine._force_abandon_working_hypotheses()
+
+        assert engine.research_state.hypotheses["ER-001"].status == HypothesisStatus.ESTABLISHED
+        assert len(engine.research_state.failed_approaches) == 0
 

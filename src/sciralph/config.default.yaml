@@ -19,6 +19,8 @@ tool_output_limit: 10000
 stall_threshold: 2
 # Max consecutive non-VERIFIED verdicts on same claim before stall escalation
 stall_recompute_limit: 2
+# Max consecutive termination blocks before auto-abandoning remaining WHs
+max_termination_retries: 3
 min_er_for_completion: 3
 api_retry_max: 10
 api_retry_initial_delay: 10.0

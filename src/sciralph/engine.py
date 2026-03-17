@@ -24,6 +24,7 @@ from .agents.research_explore import ResearchExploreAgent
 from .agents.critic import CriticAgent
 from .agents.compressor import CompressorAgent
 from .agents.formatter import FormatterAgent
+from .agents.strategist import StrategistAgent
 
 console = Console()
 
@@ -33,6 +34,7 @@ class LoopState:
     """Inter-iteration state for the main research loop."""
     claim_failure_count: dict[str, int] = field(default_factory=dict)
     last_content_iteration: int = 0
+    consecutive_termination_blocks: int = 0
     # Consumed-once feedback accumulators (cleared after orchestrator reads them)
     pending_violations: list = field(default_factory=list)
     pending_termination_blockers: list[str] = field(default_factory=list)
@@ -72,10 +74,13 @@ class SciRalph:
         self.critic = CriticAgent(self.config, self.workspace, self.metrics)
         self.compressor = CompressorAgent(self.config, self.workspace, self.metrics)
         self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
+        self.strategist = StrategistAgent(self.config, self.workspace, self.metrics)
 
     def run(self):
-        """Main loop: orchestrate → validate → override → dispatch → compress → git."""
+        """Main loop: strategize → orchestrate → validate → override → dispatch → compress → git."""
         console.print(Panel("SciRalph Research System", style="bold blue"))
+
+        self._run_strategist()
 
         while self.iteration < self.config.max_iterations:
             self.iteration += 1
@@ -121,10 +126,17 @@ class SciRalph:
                     self._render_files_for_git()
                     self._sync_research_state()
                     break
+                self._state.consecutive_termination_blocks += 1
                 self._state.pending_termination_blockers = blockers
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "termination_blocked",
-                                   f"blockers: {'; '.join(b[:60] for b in blockers)}")
+                                   f"blockers: {'; '.join(b[:60] for b in blockers)}, "
+                                   f"consecutive={self._state.consecutive_termination_blocks}")
+                # Circuit breaker: after repeated blocks, auto-abandon remaining WHs
+                if self._state.consecutive_termination_blocks >= self.config.max_termination_retries:
+                    self._force_abandon_working_hypotheses()
                 continue  # re-enter loop
+            else:
+                self._state.consecutive_termination_blocks = 0
 
             # 5. Dispatch to agent
             try:
@@ -194,6 +206,67 @@ class SciRalph:
         task = self.orchestrator.parse_task(orch_response.text, iteration=self.iteration)
         self._print_task(task)
         return task
+
+    def _run_strategist(self):
+        """Run strategist agent before the main loop to produce a research plan."""
+        console.print("[cyan]Strategist[/cyan] analyzing problem...")
+        self.strategist.research_state = self.research_state
+        task = Task(
+            task_id="STRATEGY-000", task_type=TaskType.STRATEGIZE,
+            assigned_to="strategist", iteration=0,
+        )
+        self.strategist.run(task, 0)
+        self._apply_strategist_plan()
+        self._sync_research_state()
+        self._render_files_for_git()
+        self.workspace.git_commit("Iteration 0: strategist — research plan")
+
+    def _apply_strategist_plan(self):
+        """Seed RQs and dead ends from the strategist's parsed plan."""
+        from .research_state import FailedApproach, ResearchQuestion
+
+        plan = self.strategist.parsed_plan
+        if plan is None:
+            return
+
+        self.research_state.research_plan = plan
+
+        # Seed initial RQs
+        for rq_entry in self.strategist.initial_rqs:
+            num = self.research_state.next_entity_num()
+            rq_id = f"RQ-{num:03d}"
+            self.research_state.research_questions[rq_id] = ResearchQuestion(
+                id=rq_id,
+                question=rq_entry.get("question", ""),
+                context=rq_entry.get("context", ""),
+                iteration_created=0,
+            )
+            # Link back to sub-problem
+            sp_id = rq_entry.get("sub_problem", "")
+            if sp_id and sp_id in plan.sub_problems:
+                plan.sub_problems[sp_id].initial_rqs.append(rq_id)
+
+        # Seed known pitfalls as FailedApproaches
+        for pitfall in plan.known_pitfalls:
+            self.research_state.failed_approaches.append(FailedApproach(
+                description=f"[Strategist] {pitfall}",
+                reason="Known pitfall identified during strategic planning.",
+                iteration=0,
+            ))
+
+    def _should_suggest_replan(self) -> bool:
+        """Heuristic: suggest re-planning when the research is stalled."""
+        if self.iteration < 5:
+            return False
+        plan = self.research_state.research_plan
+        if plan is None:
+            return False
+        # Don't suggest if plan was updated recently
+        if self.iteration - plan.iteration_updated <= 3:
+            return False
+        abandoned_count = len(self.research_state.abandoned_hypotheses())
+        established_count = len(self.research_state.established_hypotheses())
+        return abandoned_count >= 3 and established_count == 0
 
     def _record_agent_failures(self, task: Task, agent_name: str, result):
         """Inspect agent result for failure signals and record for orchestrator context."""
@@ -276,6 +349,11 @@ class SciRalph:
                 lines.append(f"  - {f['task_id']} ({f['agent']}): {f['event']}. {f['detail']}")
             lines.append(">>> END AGENT FAILURES <<<\n")
             self._state.agent_failures.clear()
+        if self._should_suggest_replan():
+            lines.append(
+                ">>> STRATEGIC STALL: 3+ abandoned hypotheses with 0 established results. "
+                "Consider dispatching task_type: strategize to re-evaluate your approach. <<<"
+            )
         return "\n".join(lines)
 
     def _dispatch(self, task: Task) -> tuple[str, "LLMResponse | AgentResult"]:
@@ -336,6 +414,14 @@ class SciRalph:
                     )
                 )
             return "deep_critic", response
+
+        elif tt == TaskType.STRATEGIZE:
+            console.print("[cyan]Strategist[/cyan] re-planning...")
+            self.strategist.research_state = self.research_state
+            self.strategist._system_prompt = None  # Reset cached prompt for fresh context
+            result = self.strategist.run(task, self.iteration)
+            self._apply_strategist_plan()
+            return "strategist", result
 
         else:
             console.print(f"[yellow]Unknown task type '{tt}', defaulting to research_explore[/yellow]")
@@ -516,6 +602,40 @@ class SciRalph:
         self.workspace.git_commit(
             f"Iteration {self.iteration}: formatter - ANSWER.md"
         )
+
+    def _force_abandon_working_hypotheses(self):
+        """Circuit breaker: auto-abandon all remaining WHs after repeated termination blocks."""
+        from .research_state import FailedApproach, HypothesisStatus
+
+        working = self.research_state.working_hypotheses()
+        if not working:
+            return
+        ids = []
+        for h in working:
+            h.status = HypothesisStatus.ABANDONED
+            h.iteration_modified = self.iteration
+            self.research_state.failed_approaches.append(FailedApproach(
+                description=f"Auto-abandoned {h.id} — {h.statement or h.id}",
+                reason=(
+                    f"Scaffolding circuit breaker: orchestrator attempted to terminate "
+                    f"{self.config.max_termination_retries} times but {h.id} blocked it. "
+                    f"No verify-kind VERIFIED computation was scheduled."
+                ),
+                iteration=self.iteration,
+            ))
+            ids.append(h.id)
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+            "termination_circuit_breaker",
+            f"auto-abandoned {', '.join(ids)} after "
+            f"{self._state.consecutive_termination_blocks} consecutive blocks",
+        )
+        console.print(
+            f"[yellow]Circuit breaker: auto-abandoned {', '.join(ids)} "
+            f"after {self._state.consecutive_termination_blocks} consecutive "
+            f"termination blocks[/yellow]"
+        )
+        self._state.consecutive_termination_blocks = 0
 
     def _check_status_field(self) -> bool:
         """Check termination conditions beyond max_iterations."""
