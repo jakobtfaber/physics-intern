@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from sciralph.config import Config
-from sciralph.llm import _is_transient, _is_tool_call_failure, _is_provider_side_400, _call_provider_with_retry
+from sciralph.llm import _is_transient, _is_tool_call_failure, _is_provider_side_400, _extract_status_code, _call_provider_with_retry
 from sciralph.providers.base import ProviderResponse
 
 
@@ -25,6 +25,15 @@ class FakeStatusError(Exception):
     def __init__(self, status):
         self.status = status
         super().__init__(f"status {status}")
+
+
+class FakeGoogleServerError(Exception):
+    """Mimics google.genai.errors.ServerError: .status is a string, .code holds the int."""
+    def __init__(self, code, status_str):
+        self.code = code
+        self.status = status_str
+        super().__init__(f"{code} {status_str}")
+FakeGoogleServerError.__name__ = "ServerError"
 
 
 class FakeConnectionError(ConnectionError):
@@ -67,6 +76,8 @@ class FakeAuthError(Exception):
     FakeResponseStatusError(502),
     FakeResponseStatusError(503),
     FakeResponseStatusError(504),
+    FakeGoogleServerError(502, "Bad Gateway"),
+    FakeGoogleServerError(503, "Service Unavailable"),
     FakeConnectionError("connection reset"),
     FakeTimeoutError("timed out"),
     FakeReadTimeout(),
@@ -92,6 +103,27 @@ def test_is_transient_true(exc):
 ])
 def test_is_transient_false(exc):
     assert _is_transient(exc) is False
+
+
+# ---------------------------------------------------------------------------
+# _extract_status_code
+# ---------------------------------------------------------------------------
+
+def test_extract_status_code_from_status_code_attr():
+    assert _extract_status_code(FakeHTTPError(502)) == 502
+
+def test_extract_status_code_from_status_attr_int():
+    assert _extract_status_code(FakeStatusError(429)) == 429
+
+def test_extract_status_code_from_response_attr():
+    assert _extract_status_code(FakeResponseStatusError(503)) == 503
+
+def test_extract_status_code_skips_string_status():
+    """Google ServerError: .status='Bad Gateway', .code=502 → returns 502."""
+    assert _extract_status_code(FakeGoogleServerError(502, "Bad Gateway")) == 502
+
+def test_extract_status_code_none_when_no_code():
+    assert _extract_status_code(ValueError("no status")) is None
 
 
 # ---------------------------------------------------------------------------
