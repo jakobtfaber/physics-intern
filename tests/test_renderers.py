@@ -674,6 +674,46 @@ class TestRenderOrchestratorResearchState:
         assert "# Dead Ends" in text
         assert "Abandoned WH-003" in text
 
+    def test_computation_history_present(self, populated_state):
+        """Orchestrator context includes per-hypothesis computation history."""
+        text = render_orchestrator_research_state(populated_state)
+        assert "Computation history:" in text
+        # ER-001 has COMP-001 (verify, VERIFIED)
+        assert "COMP-001 (verify, VERIFIED)" in text
+
+    def test_computation_history_excludes_zero_output(self, populated_state):
+        """zero_output computations excluded from computation history."""
+        populated_state.computations["COMP-003"] = Computation(
+            id="COMP-003", target_hypothesis="ER-001",
+            verdict=Verdict.INCONCLUSIVE, kind="verify",
+            zero_output=True, iteration=4,
+        )
+        text = render_orchestrator_research_state(populated_state)
+        assert "COMP-003" not in text
+
+    def test_no_computation_history_for_hypothesis_without_comps(self):
+        """Hypothesis with no computations has no computation history line."""
+        state = ResearchState(problem_statement="Test")
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="No comps",
+            status=HypothesisStatus.WORKING,
+        )
+        text = render_orchestrator_research_state(state)
+        assert "Computation history:" not in text
+
+
+class TestComputationHistoryNotInOtherRenderers:
+    """Computation history only appears in orchestrator context."""
+
+    def test_not_in_research_state_md(self, populated_state):
+        text = render_research_state_md(populated_state)
+        assert "Computation history:" not in text
+
+    def test_not_in_compute_research_state(self, populated_state):
+        text = render_compute_research_state(populated_state)
+        assert "Computation history:" not in text
+
+
 # ===========================================================================
 # render_orchestrator_critique_log
 # ===========================================================================

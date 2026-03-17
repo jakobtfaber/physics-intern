@@ -56,6 +56,7 @@ def _research_state_body(
     include_problem_statement: bool = True,
     skip_empty_dead_ends: bool = False,
     include_research_strategy: bool = False,
+    include_computation_history: bool = False,
     heading_offset: int = 0,
 ) -> str:
     """Build the body text for a research state rendering.
@@ -122,6 +123,18 @@ def _research_state_body(
         if h.derivation:
             parts.append(h.derivation)
             parts.append("")
+        if include_computation_history:
+            h_comps = sorted(
+                [c for c in state.computations.values()
+                 if c.target_hypothesis == h.id and not c.zero_output],
+                key=lambda c: (c.iteration, c.id),
+            )
+            if h_comps:
+                summary = " → ".join(
+                    f"{c.id} ({c.kind}, {c.verdict.value})"
+                    for c in h_comps
+                )
+                parts.append(f"**Computation history:** {summary}\n")
 
     # Dead Ends
     has_dead_ends = bool(state.failed_approaches) or any(
@@ -322,6 +335,7 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
         include_problem_statement=False,
         skip_empty_dead_ends=True,
         include_research_strategy=True,
+        include_computation_history=True,
         heading_offset=2,
     )
 
