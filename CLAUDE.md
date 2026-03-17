@@ -50,7 +50,7 @@ src/sciralph/
     formatter.py       — Produces ANSWER.md from final research state (one-shot)
     strategist.py      — Strategic research planner: produces free-form strategic notes (one-shot)
   prompts/             — Static .md system prompt files (one per agent, plus verifier): orchestrator.md, computationalist.md, compute_verify.md, compute_explore.md, research_verify.md, research_explore.md, deep_critic.md, compressor.md, formatter.md, strategist.md, verifier.md, process_auditor.md
-tests/                 — ~753 pytest tests across 24+ files (engine, validation, markdown, llm_retry, report_recommendations, verify, orchestrator, orchestrator_tools, tools, config, computationalist, critic_tools, renderers, research_state, workspace, provider_smoke, huggingface_repair, task, metrics, conversation_log, reasoning_tokens, sandbox, scaffold_log, strategist)
+tests/                 — ~810 pytest tests across 24+ files (engine, validation, markdown, llm_retry, report_recommendations, verify, orchestrator, orchestrator_tools, tools, config, computationalist, critic_tools, renderers, research_state, workspace, provider_smoke, huggingface_repair, task, metrics, conversation_log, reasoning_tokens, sandbox, scaffold_log, strategist)
 problems/
   tier1/               — 10 core problem definitions
   tier2/               — 12 advanced problem definitions
@@ -106,10 +106,10 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 - BaseAgent `tools` class attribute: non-empty → agentic loop, empty → one-shot `call_llm`
 - Critique regex constants (`CRIT_ID_RE`, `CRIT_HEADER_RE`, `CRIT_UNRESOLVED_RE`) and helpers (`recount_critique_metadata`, `ensure_critique_metadata_consistent`) are in `markdown.py`
 - Critique ID format: `CRIT-NNN` (regex also accepts `CRITIQUE-NNN` for LLM drift tolerance)
-- Inter-iteration state is consolidated in `LoopState` dataclass under `self._state` (claim_failure_count, last_content_iteration, pending_violations, pending_termination_blockers, pending_compute_verdicts, pending_explore_results, agent_failures)
-- `_track_computation()` dispatches to explore or verify handling: explore results go into `_state.pending_explore_results` (rendered in context prefix as EXPLORE RESULTS banner); non-VERIFIED verify verdicts go into `_state.pending_compute_verdicts` (COMPUTATION VERDICTS banner); maintains per-claim failure counters (`_state.claim_failure_count`); appends to `_state.agent_failures`; no auto-recompute or stall escalation
+- Inter-iteration state is consolidated in `LoopState` dataclass under `self._state` (claim_failure_count, last_content_iteration, pending_violations, pending_termination_blockers, pending_compute_verdicts, pending_verified_results, pending_explore_results, agent_failures)
+- `_track_computation()` dispatches to explore or verify handling: explore results go into `_state.pending_explore_results` (rendered in context prefix as EXPLORE RESULTS banner); VERIFIED verify verdicts go into `_state.pending_verified_results` (VERIFIED COMPUTATIONS banner) and clear failure count; non-VERIFIED verify verdicts go into `_state.pending_compute_verdicts` with `notes` and `failure_detail` (COMPUTATION VERDICTS banner); maintains per-claim failure counters (`_state.claim_failure_count`); appends to `_state.agent_failures`; no auto-recompute or stall escalation
 - `_dispatch()` returns `(agent_name, result)` tuple; `_record_agent_failures()` inspects the result for `max_tokens`, `max_rounds_forced` stop reasons and appends to `_state.agent_failures`
-- `_build_context_prefix()` emits 5 banner sections (consumed once then cleared): violations → termination blockers → computation verdicts → explore results → agent failures
+- `_build_context_prefix()` emits 6 banner sections (consumed once then cleared): violations → termination blockers → explore results → verified computations → computation verdicts (with notes/failure_detail) → agent failures
 - Post-integration checks are pure functions in `validation.py` taking `research_state: ResearchState` and returning `list[Violation]`; 4 checks total (ER demotion safety, phantom labels, stale unverified labels, critique resolution consistency); violations inject into orchestrator context via `context_prefix` (except `er_demotion_safety` demotions, which are enforced silently by state rewrite to prevent re-promotion churn)
 - Agents render context from `self.research_state` via renderers — no file read-back from disk; `render_computation_log_tail(state, n)` in renderers.py provides recent computation context
 - MD files (RESEARCH_STATE.md, COMPUTATION_LOG.md, CRITIQUE_LOG.md) are write-only for git snapshots and verify.py — rendered once per iteration by `_render_files_for_git()` in engine.py
@@ -151,7 +151,7 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-All core functionality is implemented and working (~753 tests passing):
+All core functionality is implemented and working (~810 tests passing):
 
 - **Core loop** — nine agent roles (strategist, orchestrator, research_explore, compute_verify, compute_explore, research_verify, deep critic, compressor, formatter) following a 2x2 dispatch matrix (reasoning/code × explore/verify), main loop with strategist pre-pass (iteration 0), orchestrator integration via EXPLORE RESULTS banner, forced critic pre-check, compute verdict signaling, termination gates (`can_terminate`), `_sync_research_state` on termination (A3); unified entity numbering (RQ/WH/ER share one counter, `next_entity_num()`); `_render_files_for_git()` consolidates all MD file writes; strategic stall heuristic (`_should_suggest_replan`) injects banner when 3+ abandoned hypotheses with 0 established results
 - **Validation pipeline** — 4 post-integration checks operating on ResearchState directly (ER demotion safety, phantom labels, stale unverified labels, critique resolution consistency), violation injection into orchestrator context; WH→ER promotion via orchestrator's `promote_hypothesis` tool with dependency-aware guardrails (blocks on unestablished `depends_on`), requires VERIFIED computation with kind in {verify, research_verify}

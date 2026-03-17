@@ -166,6 +166,7 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │                                                                      │
 │  7. POST-DISPATCH CHECKS                                             │
 │     └─ _track_computation(): explore → pending_explore_results,      │
+│        verify VERIFIED → pending_verified_results,                   │
 │        verify non-VERIFIED → pending_compute_verdicts                │
 │     └─ _record_agent_failures(): max_tokens/max_rounds detection     │
 │                                                                      │
@@ -189,7 +190,7 @@ Two hooks run inline in `run()` before dispatch, replacing the old override chai
 | Forced critic | `_critic_overdue()` — more than `critic_every_n` since last critic AND new content exists | Skip orchestrator entirely, dispatch critic directly (saves an LLM call) |
 | Compute enrichment | `_enrich_compute_task_with_prior_failures()` — COMPUTE task with prior failures on same claim | Append failure excerpts (METHOD+RESULT+NOTES) to task body |
 
-Non-VERIFIED compute verdicts are no longer auto-recomputed. Instead they are stored in `pending_compute_verdicts` and rendered as a COMPUTATION VERDICTS banner in the orchestrator's next context. The orchestrator decides what to do (recompute, re-derive, or accept provisionally). Stall warnings appear when attempts reach `stall_recompute_limit`.
+Non-VERIFIED compute verdicts are no longer auto-recomputed. Instead they are stored in `pending_compute_verdicts` (with `notes` and `failure_detail`) and rendered as a COMPUTATION VERDICTS banner in the orchestrator's next context. VERIFIED verdicts go to `pending_verified_results` and render as a VERIFIED COMPUTATIONS banner. The orchestrator decides what to do (recompute, re-derive, promote, or accept provisionally). Stall warnings appear when attempts reach `stall_recompute_limit`.
 
 ### Termination paths
 
@@ -256,7 +257,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `ResearchQuestion` — `id` (RQ-NNN), `question`, `context`, `resolved_to` (list of hypothesis IDs), `status` (`RQStatus`: OPEN/RESOLVED/ABANDONED), `iteration_created`, `iteration_resolved`
 - `Computation` — `id`, `target_hypothesis`, `verdict` (`Verdict`: VERIFIED/REFUTED/INCONCLUSIVE), `claim`, `method`, `key_results`, `code_path`, `failure_detail`, `iteration`, `kind` ("explore"/"verify"/"research_verify"), `zero_output`, `confidence`, `notes`, `result`
 - `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `iteration_filed`, `iteration_resolved`
-- `FailedApproach` — `description`, `reason`, `related_comps`, `iteration`
+- `FailedApproach` — `description`, `reason`, `related_comps`, `iteration`, `derivation_excerpt`
 
 **ResearchState fields:** `hypotheses` (dict by ID), `research_questions` (dict by ID), `computations` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `iteration`, `problem_statement`, `conventions`, `status`, `title`, `research_plan` (ResearchPlan | None)
 
@@ -293,7 +294,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `set_next_task` — emits next task; triggers `stop_after_round` to end agent loop
 
 **Context (largest in the system):**
-- `context_prefix` from engine — violations, termination blockers, computation verdicts, explore results, agent failures (5 consumed-once banners)
+- `context_prefix` from engine — violations, termination blockers, explore results, verified computations, computation verdicts (with notes/failure_detail), agent failures (6 consumed-once banners)
 - Completion analysis banner (if ER count sufficient, or budget pressure) — includes synthesis instruction
 - Computation stall warnings from `research_state.detect_computation_stalls()`
 - Full research state, critique log, tail of computation log, and metrics — all rendered from `self.research_state` via renderers (not from file reads)
@@ -710,7 +711,7 @@ All 4 checks run after every orchestrator pass via `validate_post_integration(re
 | Forced critic | `_critic_overdue()` + `_make_forced_critic_task()` | Overdue AND new content exists | Skip orchestrator, dispatch critic directly (saves an LLM call) | Orchestrator skipping critic indefinitely |
 | Compute enrichment | `_enrich_compute_task_with_prior_failures()` | COMPUTE task with prior failures on same claim | Append last failure's METHOD+RESULT+NOTES excerpt to task body | Model repeating identical failing code |
 
-Non-VERIFIED verify verdicts go to `pending_compute_verdicts` in `LoopState`, rendered as a COMPUTATION VERDICTS banner in `_build_context_prefix()`. Explore results go to `pending_explore_results`, rendered as an EXPLORE RESULTS banner. The orchestrator decides how to respond (recompute, re-derive, or accept). No auto-recompute.
+Non-VERIFIED verify verdicts go to `pending_compute_verdicts` in `LoopState` (with `notes` and `failure_detail`), rendered as a COMPUTATION VERDICTS banner in `_build_context_prefix()`. VERIFIED verdicts go to `pending_verified_results`, rendered as a VERIFIED COMPUTATIONS banner. Explore results go to `pending_explore_results`, rendered as an EXPLORE RESULTS banner. The orchestrator decides how to respond (recompute, re-derive, promote, or accept). No auto-recompute.
 
 #### Engine-level guards
 
@@ -722,9 +723,9 @@ Non-VERIFIED verify verdicts go to `pending_compute_verdicts` in `LoopState`, re
 | Scaffolding-maintained iteration counter | `_update_research_iteration()` | Updates `iteration` on ResearchState unconditionally at the top of each iteration | LLM forgetting or corrupting iteration count |
 | Status field safety-net exit | `_check_status_field()` | Reads ResearchState for `status: completed/abandoned/partially_complete` → exits loop | Loop continuing past a declared terminal state |
 | NO_CRITIQUES_FILED handling | `_dispatch()` | Detects `_no_critiques_filed` flag on critic agent → files `critic_clean` violation telling orchestrator to proceed to synthesize | Empty critic looping indefinitely |
-| Dispatch-level computation tracking | `_track_computation()` | Dispatches to explore or verify handling: explore → `pending_explore_results`; verify non-VERIFIED → `pending_compute_verdicts` with attempt count; VERIFIED clears failure count | Orchestrator unaware of computation results |
+| Dispatch-level computation tracking | `_track_computation()` | Dispatches to explore or verify handling: explore → `pending_explore_results`; verify VERIFIED → `pending_verified_results` (clears failure count); verify non-VERIFIED → `pending_compute_verdicts` with attempt count, notes, failure_detail | Orchestrator unaware of computation results |
 | Agent failure routing | `_record_agent_failures()` + `_build_context_prefix()` | Records max_tokens truncation, max_rounds exhaustion, and non-VERIFIED compute verdicts; shows "AGENT FAILURES" banner to orchestrator on next pass | Orchestrator re-issuing identical failing tasks without awareness of prior failures |
-| Violations/blockers/verdicts/explore/failures as context prefix | `_build_context_prefix()` | 5 sections: violations (except ER demotion safety, enforced silently), termination blockers, computation verdicts (with stall warnings at limit), explore results, agent failures — serialised into orchestrator's next user message; all consumed-once (cleared after read) | Orchestrator ignoring validation failures or computation results |
+| Violations/blockers/verdicts/explore/verified/failures as context prefix | `_build_context_prefix()` | 6 sections: violations, termination blockers, explore results, verified computations, computation verdicts (with notes/failure_detail and stall warnings at limit), agent failures — serialised into orchestrator's next user message; all consumed-once (cleared after read) | Orchestrator ignoring validation failures or computation results |
 | Compression at soft threshold | `_check_compression()` | Compresses files exceeding `compress_soft_multiplier` × threshold (single tier) | Runaway file growth crashing context window |
 
 ### output_normalization — Agent-level corrections and parsing tolerance
