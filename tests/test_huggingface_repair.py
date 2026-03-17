@@ -356,3 +356,68 @@ class TestFormatAssistantMessage:
         assert tc["function"]["name"] == "execute_python"
         # arguments is a JSON string in the message format
         assert json.loads(tc["function"]["arguments"]) == {"code": "print(99)"}
+
+
+# ---------------------------------------------------------------------------
+# Post-processor error repair
+# ---------------------------------------------------------------------------
+
+def _make_post_processor_exc(failed_generation: str | None) -> Exception:
+    """Build a fake 'gpt oss post processor' exception."""
+    msg = "Encountered Exception during gpt oss post processor"
+    if failed_generation is not None:
+        body = {"error": msg, "failed_generation": failed_generation}
+    else:
+        body = {"error": msg}
+    exc = Exception(msg)
+    exc.status_code = 400
+    exc.response = FakeResponse(body)
+    return exc
+
+
+class TestPostProcessorRepair:
+
+    def test_repair_succeeds_with_failed_generation(self):
+        """Post-processor error with failed_generation → repaired."""
+        provider = _make_provider()
+        raw = '{"name": "execute_python", "arguments": import numpy as np\nprint(np.pi)}'
+        exc = _make_post_processor_exc(raw)
+        result = provider._repair_failed_tool_call(exc)
+        assert result is not None
+        assert result.stop_reason == "tool_use"
+        assert result.tool_calls[0]["name"] == "execute_python"
+        assert "numpy" in result.tool_calls[0]["input"]["code"]
+
+    def test_repair_fails_without_failed_generation(self):
+        """Post-processor error without failed_generation → None."""
+        provider = _make_provider()
+        exc = _make_post_processor_exc(None)
+        assert provider._repair_failed_tool_call(exc) is None
+
+    def test_call_catches_post_processor_error(self):
+        """call() catches 'post processor' errors and attempts repair."""
+        provider = _make_provider()
+        raw = '{"name": "execute_python", "arguments": print("post_proc")}'
+        exc = _make_post_processor_exc(raw)
+        provider._client.chat.completions.create = MagicMock(side_effect=exc)
+
+        tools = [{"type": "function", "function": {"name": "execute_python"}}]
+        result = provider.call(
+            model="test-model", max_tokens=4096,
+            system="sys", messages=[], tools=tools,
+        )
+        assert result.stop_reason == "tool_use"
+        assert result.tool_calls[0]["input"] == {"code": 'print("post_proc")'}
+
+    def test_call_reraises_post_processor_when_repair_fails(self):
+        """Post-processor error without failed_generation → re-raised."""
+        provider = _make_provider()
+        exc = _make_post_processor_exc(None)
+        provider._client.chat.completions.create = MagicMock(side_effect=exc)
+
+        tools = [{"type": "function", "function": {"name": "execute_python"}}]
+        with pytest.raises(Exception, match="post processor"):
+            provider.call(
+                model="test-model", max_tokens=4096,
+                system="sys", messages=[], tools=tools,
+            )
