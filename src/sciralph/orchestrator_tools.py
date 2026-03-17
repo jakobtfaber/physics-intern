@@ -423,7 +423,10 @@ class OrchestratorToolExecutor:
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
             "add_hypothesis", detail,
         )
-        console.print(f"  [bold yellow]+{new_id}[/] {statement[:80]}")
+        if from_rq:
+            console.print(f"  [bold cyan]{from_rq}[/] → [bold yellow]+{new_id}[/] {statement[:80]}")
+        else:
+            console.print(f"  [bold yellow]+{new_id}[/] {statement[:80]}")
         return f"Added {new_id} — {statement}." + _BATCH_NUDGE
 
     def _update_hypothesis(self, args: dict) -> str:
@@ -697,7 +700,7 @@ class OrchestratorToolExecutor:
             "resolve_research_question", detail,
         )
         if resolved_to:
-            console.print(f"  [dim]{rq_id} → {', '.join(resolved_to)}[/] resolved")
+            console.print(f"  [bold yellow]{rq_id} → {', '.join(resolved_to)}[/] promoted")
         else:
             console.print(f"  [dim]{rq_id}[/] abandoned")
         return f"Resolved {rq_id} → {', '.join(resolved_to)}." + _BATCH_NUDGE

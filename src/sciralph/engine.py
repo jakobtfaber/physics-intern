@@ -654,6 +654,8 @@ class SciRalph:
         text.append("Task: ", style="bold")
         text.append(f"{task.task_id} ", style="cyan")
         text.append(f"[{task.task_type}] ", style="yellow")
+        if task.target_claim:
+            text.append(f"{task.target_claim} ", style="bold magenta")
         text.append(f"-> {task.assigned_to}", style="green")
         console.print(text)
 
