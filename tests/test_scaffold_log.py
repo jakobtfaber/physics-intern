@@ -48,20 +48,22 @@ class TestValidatePostIntegrationLogs:
     """Integration test: validate_post_integration writes state_invariants events."""
 
     def test_violations_are_logged(self, tmp_path):
-        """Set up workspace with a phantom reference, verify EVENT_LOG.jsonl gets state_invariants event."""
+        """Set up state with phantom VERIFIED label, verify EVENT_LOG.jsonl gets state_invariants event."""
         from sciralph.workspace import WorkspaceManager
         from sciralph.validation import validate_post_integration
+        from sciralph.research_state import ResearchState, Hypothesis
 
         config = Config(workspace_dir=str(tmp_path / "ws"))
         ws = WorkspaceManager(config)
         ws.init("Test problem.")
 
-        # Inject a phantom COMP reference into RESEARCH_STATE
-        state = ws.read_file("RESEARCH_STATE.md")
-        state = state.replace("# Open Questions", "COMP-999 is referenced here.\n\n# Open Questions")
-        ws.write_file("RESEARCH_STATE.md", state)
+        # Create state with unsubstantiated VERIFIED in derivation
+        research_state = ResearchState()
+        research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", derivation="WH-001 is VERIFIED by computation.",
+        )
 
-        violations = validate_post_integration(ws, config, iteration=3)
+        violations = validate_post_integration(research_state, iteration=3, workspace=ws)
         assert len(violations) > 0
 
         logfile = ws.root / "EVENT_LOG.jsonl"
@@ -69,7 +71,7 @@ class TestValidatePostIntegrationLogs:
         entries = [json.loads(line) for line in logfile.read_text().strip().split("\n")]
         state_inv = [e for e in entries if e["category"] == "state_invariants"]
         assert len(state_inv) > 0
-        assert any(e["event"] == "phantom_references" for e in state_inv)
+        assert any(e["event"] == "phantom_labels" for e in state_inv)
         assert all(e["iter"] == 3 for e in state_inv)
 
 

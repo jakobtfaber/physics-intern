@@ -8,16 +8,12 @@ from rich.text import Text
 
 from .config import Config
 from .llm import _is_transient
-from .markdown import (
-    parse_frontmatter,
-    render_frontmatter,
-)
 from .metrics import MetricsTracker
 from .task import Task, TaskType
 from .categories import CompensationCategory as CC
-from .research_state import build_from_workspace as _build_research_state, ResearchState
+from .research_state import ResearchState
 from .renderers import render_research_state_md, render_computation_log_md, render_critique_log_md
-from .validation import validate_post_integration, can_terminate, check_phantom_references, Violation, ViolationSeverity
+from .validation import validate_post_integration, can_terminate, Violation, ViolationSeverity
 from .workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
 from .agents.computationalist import ComputationalistAgent
@@ -102,9 +98,9 @@ class SciRalph:
 
             # 2. Post-integration validation
             violations = validate_post_integration(
-                self.workspace, self.config,
+                self.research_state,
                 iteration=self.iteration,
-                research_state=getattr(self, "research_state", None),
+                workspace=self.workspace,
             )
             if violations:
                 self._state.pending_violations.extend(violations)
@@ -122,6 +118,7 @@ class SciRalph:
                     console.print("[green]Orchestrator signaled completion.[/green]")
                     self._run_formatter()
                     self._set_research_status("completed")
+                    self._render_files_for_git()
                     self._sync_research_state()
                     break
                 self._state.pending_termination_blockers = blockers
@@ -165,17 +162,11 @@ class SciRalph:
             if task.task_type in (TaskType.COMPUTE_EXPLORE, TaskType.COMPUTE_VERIFY, TaskType.RESEARCH_VERIFY, TaskType.RESEARCH_EXPLORE):
                 self._track_computation(task)
 
-            # 6b. Post-dispatch phantom check — catch refs introduced by agents
-            post_phantoms = check_phantom_references(self.workspace)
-            if post_phantoms:
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "post_dispatch_phantom",
-                                   f"count={len(post_phantoms)}")
-                self._state.pending_violations.extend(post_phantoms)
-
-            # 7. Compression, metrics, structured state snapshot, git
+            # 7. Compression, metrics, structured state snapshot, render files, git
             self._check_compression()
             self._update_metrics()
             self._sync_research_state()
+            self._render_files_for_git()
             self.workspace.git_commit(
                 f"Iteration {self.iteration}: {agent_name} - {task.task_id}"
             )
@@ -193,8 +184,8 @@ class SciRalph:
 
         # Set context prefix for violations/blockers
         self.orchestrator.context_prefix = self._build_context_prefix()
-        # Pass research state reference for tool executor
-        self.orchestrator._research_state_ref = getattr(self, "research_state", None)
+        # Pass research state reference for tool executor and context rendering
+        self.orchestrator.research_state = self.research_state
 
         orch_task = Task(
             task_id="", task_type=TaskType.RESEARCH_EXPLORE,
@@ -324,6 +315,7 @@ class SciRalph:
 
         elif tt == TaskType.FORMAT:
             console.print("[cyan]Formatter[/cyan] producing ANSWER.md...")
+            self.formatter.research_state = self.research_state
             result = self.formatter.run(task, self.iteration)
             return "formatter", result
 
@@ -498,25 +490,18 @@ class SciRalph:
                     self.compressor.run(compress_task, self.iteration)
 
     def _update_research_iteration(self):
-        """Update the iteration field in research state and RESEARCH_STATE.md frontmatter."""
+        """Update the iteration field in research state."""
         self.research_state.iteration = self.iteration
-        # Also update markdown for agents that still read files
-        text = self.workspace.read_file("RESEARCH_STATE.md")
-        if not text:
-            return
-        meta, body = parse_frontmatter(text)
-        meta["iteration"] = self.iteration
-        self.workspace.write_file("RESEARCH_STATE.md", render_frontmatter(meta, body))
 
     def _set_research_status(self, status: str):
-        """Update the status field in research state and RESEARCH_STATE.md frontmatter."""
+        """Update the status field in research state."""
         self.research_state.status = status
-        text = self.workspace.read_file("RESEARCH_STATE.md")
-        if not text:
-            return
-        meta, body = parse_frontmatter(text)
-        meta["status"] = status
-        self.workspace.write_file("RESEARCH_STATE.md", render_frontmatter(meta, body))
+
+    def _render_files_for_git(self):
+        """Render markdown files from ResearchState for git snapshots and verify.py."""
+        self.workspace.write_file("RESEARCH_STATE.md", render_research_state_md(self.research_state))
+        self.workspace.write_file("COMPUTATION_LOG.md", render_computation_log_md(self.research_state))
+        self.workspace.write_file("CRITIQUE_LOG.md", render_critique_log_md(self.research_state))
 
     def _run_formatter(self):
         """Run the formatter agent to produce ANSWER.md."""
@@ -527,7 +512,9 @@ class SciRalph:
             assigned_to="formatter",
             iteration=self.iteration,
         )
+        self.formatter.research_state = self.research_state
         self.formatter.run(fmt_task, self.iteration)
+        self._render_files_for_git()
         self.workspace.git_commit(
             f"Iteration {self.iteration}: formatter - ANSWER.md"
         )
@@ -582,6 +569,7 @@ class SciRalph:
     def _final_report(self):
         """Flush metrics and print final summary."""
         self._update_metrics()
+        self._render_files_for_git()
         self.workspace.git_commit(f"Final metrics flush (iteration {self.iteration})")
         console.rule("[bold green]SESSION COMPLETE[/bold green]")
         console.print(f"Total iterations: {self.iteration}")

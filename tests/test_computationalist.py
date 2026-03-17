@@ -80,6 +80,7 @@ class TestToolsAttribute:
 
 def _make_agent():
     """Create a ComputationalistAgent with mocked dependencies."""
+    from sciralph.research_state import ResearchState
     config = MagicMock()
     config.sympy_timeout_seconds = 10
     config.tool_output_limit = 10_000
@@ -87,14 +88,15 @@ def _make_agent():
     workspace.root = MagicMock()
     workspace.computations_dir = "/tmp"
     metrics = MagicMock()
-    return ComputationalistAgent(config=config, workspace=workspace, metrics=metrics)
+    agent = ComputationalistAgent(config=config, workspace=workspace, metrics=metrics)
+    agent.research_state = ResearchState()
+    return agent
 
 
 class TestAgenticResponse:
     def test_process_without_exit_tool_is_inconclusive(self):
         """Text with VERIFIED but no submit_verdict → INCONCLUSIVE (tool call required)."""
         agent = _make_agent()
-        agent.workspace.read_file.return_value = ""
 
         result = AgentResult(
             text=(
@@ -113,15 +115,11 @@ class TestAgenticResponse:
 
         agent.process_response(result, Task(task_id="COMP-020", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify"), iteration=7)
 
-        # Without research_state, falls back to append_file
-        assert agent.workspace.append_file.call_count >= 1  # JSONL at minimum
-        # JSONL entry written
-        jsonl_text = agent.workspace.append_file.call_args_list[-1][0][1]
-        assert "INCONCLUSIVE" in jsonl_text
+        comp = agent.research_state.computations["COMP-020"]
+        assert comp.verdict.value == "INCONCLUSIVE"
 
     def test_process_agentic_response_empty_text(self):
         agent = _make_agent()
-        agent.workspace.read_file.return_value = ""
 
         result = AgentResult(
             text="",
@@ -133,14 +131,11 @@ class TestAgenticResponse:
 
         agent.process_response(result, Task(task_id="TASK-010", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify"), iteration=10)
 
-        # Without research_state, falls back to append_file for markdown
-        assert agent.workspace.append_file.call_count == 1
-        appended_md = agent.workspace.append_file.call_args_list[0][0][1]
-        assert "INCONCLUSIVE" in appended_md
+        comp = agent.research_state.computations["TASK-010"]
+        assert comp.verdict.value == "INCONCLUSIVE"
 
     def test_process_empty_text_extracts_claim_from_task_body(self):
         agent = _make_agent()
-        agent.workspace.read_file.return_value = ""
 
         result = AgentResult(
             text="",
@@ -157,9 +152,8 @@ class TestAgenticResponse:
         )
         agent.process_response(result, task, iteration=5)
 
-        # JSONL entry should have the target_id
-        jsonl_text = agent.workspace.append_file.call_args_list[-1][0][1]
-        assert "WH-005" in jsonl_text
+        comp = agent.research_state.computations["TASK-005"]
+        assert comp.target_hypothesis == "WH-005"
 
 
 class TestSubmitVerdictProcessing:
@@ -168,7 +162,6 @@ class TestSubmitVerdictProcessing:
     def test_process_response_uses_submit_verdict_data(self):
         """Empty text + submit_verdict tool call → formatted COMP entry."""
         agent = _make_agent()
-        agent.workspace.read_file.return_value = ""
 
         verdict_params = {
             "target_id": "WH-003",
@@ -193,16 +186,13 @@ class TestSubmitVerdictProcessing:
                     assigned_to="compute_verify", body="Verify WH-003 entropy")
         agent.process_response(result, task, iteration=8)
 
-        # Without research_state: append_file for md only (JSONL removed)
-        assert agent.workspace.append_file.call_count == 1
-        appended_md = agent.workspace.append_file.call_args_list[0][0][1]
-        assert "COMP-030" in appended_md
-        assert "VERIFIED" in appended_md
+        comp = agent.research_state.computations["COMP-030"]
+        assert comp.id == "COMP-030"
+        assert comp.verdict.value == "VERIFIED"
 
     def test_process_response_prefers_submit_verdict_over_text(self):
         """When both free text and submit_verdict exist, tool data wins."""
         agent = _make_agent()
-        agent.workspace.read_file.return_value = ""
 
         verdict_params = {
             "target_id": "WH-001",
@@ -226,14 +216,12 @@ class TestSubmitVerdictProcessing:
                     assigned_to="compute_verify")
         agent.process_response(result, task, iteration=3)
 
-        # JSONL should have VERIFIED from tool data
-        jsonl_text = agent.workspace.append_file.call_args_list[-1][0][1]
-        assert "VERIFIED" in jsonl_text
+        comp = agent.research_state.computations["COMP-050"]
+        assert comp.verdict.value == "VERIFIED"
 
     def test_process_response_inconclusive_without_submit_verdict(self):
         """No submit_verdict in tool_calls → INCONCLUSIVE stub."""
         agent = _make_agent()
-        agent.workspace.read_file.return_value = ""
 
         result = AgentResult(
             text="## COMP-010: Test\n**CLAIM:** x = 1\n**VERDICT:** VERIFIED\n**NOTES:** OK.",
@@ -249,9 +237,8 @@ class TestSubmitVerdictProcessing:
                     assigned_to="compute_verify")
         agent.process_response(result, task, iteration=5)
 
-        # Without exit tool, result is INCONCLUSIVE
-        jsonl_text = agent.workspace.append_file.call_args_list[-1][0][1]
-        assert "INCONCLUSIVE" in jsonl_text
+        comp = agent.research_state.computations["COMP-010"]
+        assert comp.verdict.value == "INCONCLUSIVE"
 
 
 class TestZeroOutputOnMaxRoundsForced:
@@ -372,7 +359,6 @@ class TestFreeTextFallthrough:
     def test_text_without_verdict_is_inconclusive(self):
         """Text with VERIFIED but no submit_verdict → INCONCLUSIVE stub."""
         agent = _make_agent()
-        agent.workspace.read_file.return_value = ""
 
         result = AgentResult(
             text="## COMP-070: Test\n**CLAIM:** WH-003\n**VERDICT:** VERIFIED\n**NOTES:** OK.",
@@ -386,5 +372,5 @@ class TestFreeTextFallthrough:
                     assigned_to="compute_verify")
         agent.process_response(result, task, iteration=2)
 
-        jsonl_text = agent.workspace.append_file.call_args_list[-1][0][1]
-        assert "INCONCLUSIVE" in jsonl_text
+        comp = agent.research_state.computations["COMP-070"]
+        assert comp.verdict.value == "INCONCLUSIVE"

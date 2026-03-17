@@ -2,15 +2,21 @@
 
 ## CANDIDATE FIXES
 
+### Naming con
+why "computationalist" knowing research also derives from it, should make it Abstract Base Class, remove it prompt file ?
+deep critic / critique / critic
+
 ## OTHER IDEAS
 
 ### Improve orchestrator
 
 - prompt the orchestrator for better problem decomposition
+- better explain the possible role for each agent.
 - create some warm up problems
 - gather some background knowledge about the problem domain
 - Add a more open ended "brainstorm" task and maybe a dedicated section in the research state for ideas, possible routes, alternatives, etc.
 - brainstorm internal consistency checks ?
+open questions and dead ends ??
 
 ### Agent tool use
 
@@ -42,5 +48,6 @@
 ### Misc ideas
 - compare with direct call ?
 - add timing outputs in console
+- should we clean the tests ?
 - Add a linting step for computation scripts to avoid running obviously broken code (syntax errors, missing imports). This could be a lightweight static check before execution.
 - Human-in-the-loop breakpoints — allow the operator to pause the loop, inspect state, and intervene

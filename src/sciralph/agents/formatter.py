@@ -5,11 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..llm import LLMResponse
+from ..renderers import render_computation_log_md, render_research_state_md
 from .base import BaseAgent
 
 if TYPE_CHECKING:
     from ..config import Config
     from ..metrics import MetricsTracker
+    from ..research_state import ResearchState
     from ..task import Task
     from ..workspace import WorkspaceManager
 
@@ -22,13 +24,14 @@ class FormatterAgent(BaseAgent):
                  metrics: MetricsTracker, answer_template: str = ""):
         super().__init__(config, workspace, metrics)
         self.answer_template = answer_template
+        self.research_state: ResearchState | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [
             "## RESEARCH_STATE.md\n",
-            self.workspace.read_file("RESEARCH_STATE.md"),
+            render_research_state_md(self.research_state) if self.research_state else "",
             "\n## COMPUTATION_LOG.md\n",
-            self.workspace.read_file("COMPUTATION_LOG.md"),
+            render_computation_log_md(self.research_state) if self.research_state else "",
         ]
         if self.answer_template:
             parts.append("\n## Answer Template\n")

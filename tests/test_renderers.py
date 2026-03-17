@@ -2,14 +2,11 @@
 
 import pytest
 
-from sciralph.config import Config
 from sciralph.markdown import parse_frontmatter
 from sciralph.renderers import (
     render_computation_log_md,
-    render_computationalist_context,
-    render_critic_context,
+    render_computation_log_tail,
     render_critique_log_md,
-    render_orchestrator_context,
     render_research_state_md,
     render_task_md,
 )
@@ -163,15 +160,6 @@ def resolve_task():
         blocking_critiques=["CRIT-001"],
         body="Resolve the critique about thermal equilibrium.",
     )
-
-
-@pytest.fixture
-def config():
-    """Config with deterministic defaults for testing."""
-    cfg = Config.__new__(Config)
-    cfg.max_iterations = 20
-    cfg.orchestrator_comp_log_tail = 5
-    return cfg
 
 
 # ===========================================================================
@@ -585,158 +573,32 @@ class TestRenderTaskMd:
 
 
 # ===========================================================================
-# render_orchestrator_context
+# render_computation_log_tail
 # ===========================================================================
 
-class TestRenderOrchestratorContext:
+class TestRenderComputationLogTail:
 
-    def test_includes_context_prefix(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            context_prefix="ALERT: violations detected",
-            config=config,
-            iteration=5,
+    def test_returns_last_n_entries(self, populated_state):
+        text = render_computation_log_tail(populated_state, 1)
+        assert "COMP-002" in text
+        assert "COMP-001" not in text
+
+    def test_returns_all_when_n_exceeds_count(self, populated_state):
+        text = render_computation_log_tail(populated_state, 10)
+        assert "COMP-001" in text
+        assert "COMP-002" in text
+
+    def test_empty_state_returns_empty(self, empty_state):
+        text = render_computation_log_tail(empty_state, 5)
+        assert text == ""
+
+    def test_zero_output_collapsed(self):
+        from sciralph.research_state import ResearchState
+        state = ResearchState()
+        state.computations["TASK-003"] = Computation(
+            id="TASK-003", target_hypothesis="WH-001",
+            claim="Test", zero_output=True, iteration=3, kind="verify",
         )
-        assert "ALERT: violations detected" in ctx
-
-    def test_no_prefix_when_empty(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            context_prefix="",
-            config=config,
-            iteration=5,
-        )
-        # Should start with iteration info, not an empty prefix artifact
-        lines = ctx.strip().splitlines()
-        assert lines[0].startswith("# Current Iteration")
-
-    def test_iteration_budget_info(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            config=config,
-            iteration=5,
-        )
-        assert "5 of 20" in ctx
-        assert "15 remaining" in ctx
-
-    def test_contains_research_state(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            config=config,
-            iteration=5,
-        )
-        assert "## RESEARCH_STATE.md" in ctx
-        assert "# Problem Statement" in ctx
-
-    def test_contains_critique_log(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            config=config,
-            iteration=5,
-        )
-        assert "## CRITIQUE_LOG.md" in ctx
-
-    def test_contains_computation_log_tail(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            config=config,
-            iteration=5,
-        )
-        assert "## COMPUTATION_LOG.md" in ctx
-        assert f"last {config.orchestrator_comp_log_tail} entries" in ctx
-
-    def test_comp_log_tail_override(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            config=config,
-            iteration=5,
-            comp_log_tail="## COMP-099: Custom tail",
-        )
-        assert "COMP-099: Custom tail" in ctx
-
-    def test_comp_log_tail_auto_render(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            config=config,
-            iteration=5,
-        )
-        # Both computations should appear in the tail (only 2 entries, tail=5)
-        assert "COMP-001" in ctx
-        assert "COMP-002" in ctx
-
-    def test_metrics_text_included(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            config=config,
-            iteration=5,
-            metrics_text="Total tokens: 50000",
-        )
-        assert "## METRICS.md (summary)" in ctx
-        assert "Total tokens: 50000" in ctx
-
-    def test_budget_at_last_iteration(self, populated_state, config):
-        ctx = render_orchestrator_context(
-            populated_state,
-            config=config,
-            iteration=20,
-        )
-        assert "20 of 20" in ctx
-        assert "0 remaining" in ctx
-
-
-# ===========================================================================
-# render_computationalist_context
-# ===========================================================================
-
-class TestRenderComputationalistContext:
-
-    def test_includes_task(self, populated_state, sample_task):
-        ctx = render_computationalist_context(populated_state, sample_task)
-        assert "## CURRENT_TASK.md" in ctx
-        assert "TASK-005" in ctx
-
-    def test_includes_research_state(self, populated_state, sample_task):
-        ctx = render_computationalist_context(populated_state, sample_task)
-        assert "## Relevant Research State (excerpts)" in ctx
-        assert "# Problem Statement" in ctx
-
-    def test_includes_hypotheses(self, populated_state, sample_task):
-        ctx = render_computationalist_context(populated_state, sample_task)
-        assert "ER-001" in ctx
-        assert "WH-002" in ctx
-
-
-# ===========================================================================
-# render_critic_context
-# ===========================================================================
-
-class TestRenderCriticContext:
-
-    def test_includes_research_state(self, populated_state):
-        ctx = render_critic_context(populated_state)
-        assert "## RESEARCH_STATE.md" in ctx
-        assert "# Problem Statement" in ctx
-
-    def test_includes_computation_log(self, populated_state):
-        ctx = render_critic_context(populated_state)
-        assert "## COMPUTATION_LOG.md" in ctx
-        assert "COMP-001" in ctx
-
-    def test_includes_previous_critiques(self, populated_state):
-        ctx = render_critic_context(populated_state)
-        assert "## Your Previous Critiques (do not repeat)" in ctx
-        assert "CRIT-001" in ctx
-        assert "CRIT-002" in ctx
-
-    def test_all_three_sections_present(self, populated_state):
-        ctx = render_critic_context(populated_state)
-        assert "## RESEARCH_STATE.md" in ctx
-        assert "## COMPUTATION_LOG.md" in ctx
-        assert "## Your Previous Critiques (do not repeat)" in ctx
-
-    def test_section_ordering(self, populated_state):
-        ctx = render_critic_context(populated_state)
-        rs_pos = ctx.index("## RESEARCH_STATE.md")
-        cl_pos = ctx.index("## COMPUTATION_LOG.md")
-        crit_pos = ctx.index("## Your Previous Critiques")
-        assert rs_pos < cl_pos < crit_pos
+        text = render_computation_log_tail(state, 5)
+        assert "TASK-003: FAILED" in text
+        assert "**CLAIM:**" not in text

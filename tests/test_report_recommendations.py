@@ -10,8 +10,14 @@ from unittest.mock import MagicMock, patch
 
 from sciralph.config import Config, DEFAULTS
 from sciralph.llm import AgentResult, run_agent_loop
-from sciralph.markdown import render_frontmatter
 from sciralph.providers.base import ProviderResponse
+from sciralph.research_state import (
+    Computation,
+    Hypothesis,
+    HypothesisStatus,
+    ResearchState,
+    Verdict,
+)
 from sciralph.task import Task, TaskType
 from sciralph.tools import ToolExecutor
 from sciralph.validation import (
@@ -25,19 +31,6 @@ from sciralph.validation import (
 # ---------------------------------------------------------------------------
 # Shared test helpers
 # ---------------------------------------------------------------------------
-
-class MockWorkspace:
-    """Simple mock workspace for validation tests."""
-
-    def __init__(self, files: dict[str, str] | None = None):
-        self._files = files or {}
-
-    def read_file(self, filename: str) -> str:
-        return self._files.get(filename, "")
-
-    def write_file(self, filename: str, content: str):
-        self._files[filename] = content
-
 
 def _mock_provider_response(text="", stop_reason="end_turn",
                              input_tokens=100, output_tokens=50,
@@ -332,315 +325,177 @@ class TestTokenAlert:
 # ---------------------------------------------------------------------------
 
 class TestStaleUnverifiedLabels:
-    """P2-A: [unverified] labels promoted to VERIFIED when computation backs them."""
+    """P2-A: [unverified] labels promoted to VERIFIED when computation backs them.
+
+    check_stale_unverified_labels operates on ResearchState: it scans
+    hypothesis.derivation for [unverified] text and replaces with VERIFIED
+    when backed by a VERIFIED computation.  The function always returns []
+    (mutations are in-place on state), so tests verify derivation changes.
+    """
 
     def test_unverified_promoted_when_backed(self):
-        """[unverified] → VERIFIED when COMPUTATION_LOG has matching VERIFIED entry."""
-        meta = {"total_computations": 1}
-        body = """# Computations
-
-## COMP-001
-
-**CLAIM**: Verify ER-001 Hawking temperature
-**VERDICT**: VERIFIED
-**RESULT**:
-Confirmed.
-"""
-        state = "ER-001 is [unverified] pending computation.\n"
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": render_frontmatter(meta, body),
-        })
-        violations = check_stale_unverified_labels(ws)
-
-        assert len(violations) == 1
-        assert violations[0].check == "stale_unverified_labels"
-        assert violations[0].severity == ViolationSeverity.WARNING
-        updated = ws.read_file("RESEARCH_STATE.md")
-        assert "VERIFIED" in updated
-        assert "[unverified]" not in updated
+        """[unverified] → VERIFIED when a VERIFIED computation targets the hypothesis."""
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001",
+            derivation="ER-001 is [unverified] pending computation.",
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="ER-001",
+            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        )
+        check_stale_unverified_labels(state)
+        assert "VERIFIED" in state.hypotheses["ER-001"].derivation
+        assert "[unverified]" not in state.hypotheses["ER-001"].derivation
 
     def test_unverified_kept_when_no_backing(self):
         """[unverified] stays when no VERIFIED computation exists."""
-        state = "ER-001 is [unverified] pending computation.\n"
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": "",
-        })
-        violations = check_stale_unverified_labels(ws)
-
-        assert len(violations) == 0
-        assert "[unverified]" in ws.read_file("RESEARCH_STATE.md")
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            derivation="WH-001 is [unverified] pending.",
+        )
+        check_stale_unverified_labels(state)
+        assert "[unverified]" in state.hypotheses["WH-001"].derivation
 
     def test_no_unverified_no_action(self):
-        """No violations when no [unverified] labels exist."""
-        state = "ER-001 result is established.\n"
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": "",
-        })
-        violations = check_stale_unverified_labels(ws)
-        assert len(violations) == 0
+        """No mutations when no [unverified] labels exist."""
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001",
+            derivation="ER-001 result is established.",
+        )
+        result = check_stale_unverified_labels(state)
+        assert result == []
+        assert state.hypotheses["ER-001"].derivation == "ER-001 result is established."
 
     def test_mixed_ids_only_backed_promoted(self):
-        """Only IDs with VERIFIED backing are promoted."""
-        meta = {"total_computations": 1}
-        body = """# Computations
-
-## COMP-001
-
-**CLAIM**: Verify ER-001
-**VERDICT**: VERIFIED
-**RESULT**: OK.
-"""
-        state = (
-            "ER-001 is [unverified].\n"
-            "ER-002 is [unverified].\n"
+        """Only hypotheses with VERIFIED backing are promoted."""
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001",
+            derivation="ER-001 is [unverified].",
         )
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": render_frontmatter(meta, body),
-        })
-        violations = check_stale_unverified_labels(ws)
-
-        assert len(violations) == 1
-        updated = ws.read_file("RESEARCH_STATE.md")
-        assert "ER-001" in violations[0].detail
-        assert "VERIFIED" in updated.split("\n")[0]  # first line promoted
-        assert "[unverified]" in updated.split("\n")[1]  # second line unchanged
-
-    def test_promoted_wh_to_er_matched_in_table(self):
-        """[unverified] promoted when computation verified WH-NNN that was later promoted to ER-NNN."""
-        meta = {"total_computations": 1}
-        # Computation references WH-001 (original ID when computation ran)
-        body = """# Computations
-
-## COMP-001
-
-**CLAIM**: Verify WH-001 partition function
-**VERDICT**: VERIFIED
-**RESULT**: OK.
-"""
-        # State has ER-001 as section header (WH-001 was promoted) and a synthesis
-        # table that references ER-001 with [unverified]
-        state = (
-            "## ER-001 — Partition Function\n\n"
-            "Z = 1/(2 sinh(x/2)). VERIFIED.\n\n"
-            "# Final Synthesis\n\n"
-            "| Quantity | Formula | Status |\n"
-            "|---|---|---|\n"
-            "| Partition function | `Z = 1/(2 sinh(x/2))` | ER-001 — [unverified] |\n"
+        state.hypotheses["ER-002"] = Hypothesis(
+            id="ER-002",
+            derivation="ER-002 is [unverified].",
         )
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": render_frontmatter(meta, body),
-        })
-        violations = check_stale_unverified_labels(ws)
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="ER-001",
+            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        )
+        check_stale_unverified_labels(state)
+        assert "VERIFIED" in state.hypotheses["ER-001"].derivation
+        assert "[unverified]" not in state.hypotheses["ER-001"].derivation
+        assert "[unverified]" in state.hypotheses["ER-002"].derivation
 
-        assert len(violations) == 1
-        updated = ws.read_file("RESEARCH_STATE.md")
-        assert "[unverified]" not in updated
-        assert "ER-001 — VERIFIED" in updated
+    def test_wh_renamed_to_er_in_promoted(self):
+        """[unverified] promoted and WH-NNN renamed to ER-NNN when WH was promoted to ER."""
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+            derivation="WH-001 was [unverified] but now promoted.",
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001",
+            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        )
+        check_stale_unverified_labels(state)
+        assert "ER-001" in state.hypotheses["ER-001"].derivation
+        assert "WH-001" not in state.hypotheses["ER-001"].derivation
+        assert "VERIFIED" in state.hypotheses["ER-001"].derivation
+        assert "[unverified]" not in state.hypotheses["ER-001"].derivation
 
     def test_no_promotion_when_wh_not_promoted_to_er(self):
-        """[unverified] stays when WH-002 is verified but ER-002 doesn't exist as section."""
-        meta = {"total_computations": 1}
-        body = """# Computations
-
-## COMP-001
-
-**CLAIM**: Verify WH-002
-**VERDICT**: VERIFIED
-**RESULT**: OK.
-"""
-        # ER-002 doesn't exist as a section — WH-002 was never promoted
-        state = (
-            "## WH-002 — Some Hypothesis\n\n"
-            "Details.\n\n"
-            "# Summary\n"
-            "| Result | Status |\n"
-            "|---|---|\n"
-            "| Something | ER-002 — [unverified] |\n"
+        """[unverified] stays when WH-002 is verified but ER-002 doesn't exist in state."""
+        state = ResearchState()
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002",
+            derivation="ER-002 — [unverified] result.",
         )
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": render_frontmatter(meta, body),
-        })
-        violations = check_stale_unverified_labels(ws)
-
-        # ER-002 is not a section header, so WH-002 → ER-002 mapping is not made
-        # But WH-002 IS in verified_ids and the table line contains ER-002 not WH-002
-        # No promotion should happen because ER-002 is not an ER section
-        assert len(violations) == 0
-        assert "[unverified]" in ws.read_file("RESEARCH_STATE.md")
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-002",
+            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        )
+        check_stale_unverified_labels(state)
+        # ER-002 doesn't exist in state, so WH-002→ER-002 mapping is not made.
+        # The derivation line references ER-002 (not WH-002), which is not in
+        # verified_ids, so no promotion occurs.
+        assert "[unverified]" in state.hypotheses["WH-002"].derivation
 
 
 # ---------------------------------------------------------------------------
 # P2-B: Fix WH-to-ER Header Renaming on Promotion
 # ---------------------------------------------------------------------------
 
-class TestWhToErHeaderPromotion:
-    """P2-B: Auto-promotion removed — promotion is now handled by the orchestrator tool.
-    These tests verify that check_er_demotion_safety does NOT auto-promote WHs."""
+class TestErDemotionNoAutoPromote:
+    """P2-B: check_er_demotion_safety demotes ER→WH on REFUTED computations,
+    but does NOT auto-promote WHs.  Operates on ResearchState directly."""
 
-    def test_wh_not_auto_promoted_even_with_er_in_body(self):
-        """WH header stays WH even with ER-NNN in body and VERIFIED backing (no auto-promotion)."""
-        state = """# Working Hypotheses (WH) and Established Results (ER)
+    def test_demotion_fires_when_refuted(self):
+        """ER-001 demoted to WH-001 when REFUTED computation exists with no VERIFIED."""
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="ER-001",
+            verdict=Verdict.REFUTED, kind="verify", iteration=1,
+        )
+        violations = check_er_demotion_safety(state)
+        assert len(violations) == 1
+        assert "WH-001" in state.hypotheses
+        assert "ER-001" not in state.hypotheses
 
-## WH-001 Hawking Temperature
+    def test_no_demotion_when_verified_supersedes(self):
+        """ER-001 stays ER when both REFUTED and VERIFIED exist (VERIFIED supersedes)."""
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="ER-001",
+            verdict=Verdict.REFUTED, kind="verify", iteration=1,
+        )
+        state.computations["COMP-002"] = Computation(
+            id="COMP-002", target_hypothesis="ER-001",
+            verdict=Verdict.VERIFIED, kind="verify", iteration=2,
+        )
+        violations = check_er_demotion_safety(state)
+        assert len(violations) == 0
+        assert "ER-001" in state.hypotheses
 
-Result: ER-001 is the Hawking temperature T = hbar*kappa/(2*pi*k_B).
-"""
-        meta = {"total_computations": 1}
-        comp_body = """# Computations
+    def test_no_promotion_without_verified(self):
+        """WH-001 stays WH — no auto-promotion even with VERIFIED backing."""
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001",
+            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        )
+        violations = check_er_demotion_safety(state)
+        assert len(violations) == 0
+        # WH-001 stays as WH — no auto-promotion
+        assert "WH-001" in state.hypotheses
+        assert "ER-001" not in state.hypotheses
 
-## COMP-001
-
-**CLAIM**: Verify WH-001 Hawking temperature
-**VERDICT**: VERIFIED
-**RESULT**: Confirmed.
-"""
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
-        })
-        violations = check_er_demotion_safety(ws)
-
-        # No auto-promotion — WH stays as WH
-        promotion_vs = [v for v in violations if "Promoted" in v.message]
-        assert len(promotion_vs) == 0
-        updated = ws.read_file("RESEARCH_STATE.md")
-        assert "## WH-001" in updated
-
-    def test_wh_not_auto_promoted_without_er_in_body(self):
-        """WH header stays WH when VERIFIED backing exists but no auto-promotion."""
-        state = """# Working Hypotheses (WH) and Established Results (ER)
-
-## WH-001 Some Hypothesis
-
-Just a regular WH, no ER reference.
-"""
-        meta = {"total_computations": 1}
-        comp_body = """# Computations
-
-## COMP-001
-
-**CLAIM**: Verify WH-001
-**VERDICT**: VERIFIED
-**RESULT**: OK.
-"""
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": render_frontmatter(meta, comp_body),
-        })
-        violations = check_er_demotion_safety(ws)
-
-        # No auto-promotion — WH stays as WH
-        promotion_vs = [v for v in violations if "Promoted" in v.message]
-        assert len(promotion_vs) == 0
-        updated = ws.read_file("RESEARCH_STATE.md")
-        assert "## WH-001" in updated
-
-    def test_wh_header_not_promoted_without_verified(self):
-        """WH header stays WH when no VERIFIED computation exists."""
-        state = """# Working Hypotheses (WH) and Established Results (ER)
-
-## WH-001 Something
-
-ER-001 appears in body text.
-"""
-        ws = MockWorkspace({
-            "RESEARCH_STATE.md": state,
-            "COMPUTATION_LOG.md": "",
-        })
-        violations = check_er_demotion_safety(ws)
-
-        promotion_vs = [v for v in violations if "Promoted" in v.message]
-        assert len(promotion_vs) == 0
+    def test_no_demotion_when_no_refuted(self):
+        """ER-001 stays ER when no REFUTED computation exists."""
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="ER-001",
+            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        )
+        violations = check_er_demotion_safety(state)
+        assert len(violations) == 0
+        assert "ER-001" in state.hypotheses
 
 
-# ---------------------------------------------------------------------------
-# P2-C: Fix total_computations Counter
-# ---------------------------------------------------------------------------
-
-class TestComputationCounter:
-    """P2-C: Only COMP- headers counted, not TASK- sub-entries."""
-
-    def test_only_comp_headers_counted(self):
-        """_update_computation_metadata counts COMP-NNN but not TASK-NNN."""
-        from sciralph.agents.computationalist import ComputationalistAgent
-
-        config = MagicMock()
-        workspace = MagicMock()
-        metrics = MagicMock()
-        agent = ComputationalistAgent(config=config, workspace=workspace, metrics=metrics)
-
-        body = """# Computations
-
-## COMP-001: First check
-
-**CLAIM**: test
-**VERDICT**: VERIFIED
-
-### TASK-A: subtask
-
-Some sub-result.
-
-## COMP-002: Second check
-
-**CLAIM**: test2
-**VERDICT**: REFUTED
-
-## TASK-003: This is a task entry not a comp
-
-**CLAIM**: test3
-**VERDICT**: INCONCLUSIVE
-"""
-        content = render_frontmatter({"total_computations": 0}, body)
-        workspace.read_file.return_value = content
-
-        written = {}
-        def capture(fn, c):
-            written[fn] = c
-        workspace.write_file.side_effect = capture
-
-        agent._update_computation_metadata()
-
-        from sciralph.markdown import parse_frontmatter
-        meta, _ = parse_frontmatter(written["COMPUTATION_LOG.md"])
-        # Only COMP-001 and COMP-002, not TASK-003 or TASK-A
-        assert meta["total_computations"] == 2
-
-    def test_count_goes_down_after_compression(self):
-        """Counter should reflect actual count, not max() with previous."""
-        from sciralph.agents.computationalist import ComputationalistAgent
-
-        config = MagicMock()
-        workspace = MagicMock()
-        metrics = MagicMock()
-        agent = ComputationalistAgent(config=config, workspace=workspace, metrics=metrics)
-
-        body = """# Computations
-
-## COMP-001: Only entry
-
-**CLAIM**: test
-**VERDICT**: VERIFIED
-"""
-        # Previous count was 5 (before compression)
-        content = render_frontmatter({"total_computations": 5}, body)
-        workspace.read_file.return_value = content
-
-        written = {}
-        def capture(fn, c):
-            written[fn] = c
-        workspace.write_file.side_effect = capture
-
-        agent._update_computation_metadata()
-
-        from sciralph.markdown import parse_frontmatter
-        meta, _ = parse_frontmatter(written["COMPUTATION_LOG.md"])
-        assert meta["total_computations"] == 1  # Not max(5, 1) = 5
 
 
 # ---------------------------------------------------------------------------

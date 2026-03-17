@@ -8,6 +8,16 @@ from sciralph.agents.orchestrator import OrchestratorAgent
 from sciralph.config import Config
 from sciralph.llm import LLMResponse
 from sciralph.metrics import MetricsTracker
+from sciralph.research_state import (
+    Computation,
+    Critique,
+    CritiqueStatus,
+    Hypothesis,
+    HypothesisStatus,
+    ResearchState,
+    Severity,
+    Verdict,
+)
 from sciralph.task import Task, TaskType
 from sciralph.workspace import WorkspaceManager
 
@@ -29,16 +39,6 @@ def orchestrator(workspace):
     metrics = MetricsTracker()
     return OrchestratorAgent(config, workspace, metrics)
 
-
-RESEARCH_STATE = """---
-problem_id: test
-status: in_progress
----
-
-# Working Hypotheses (WH) and Established Results (ER)
-
-Result A is proven.
-"""
 
 TASK_TEXT = """---
 task_id: TASK-002
@@ -75,10 +75,12 @@ class TestParseTask:
 
 class TestCompletionAnalysis:
     def test_triggers(self, orchestrator, workspace):
-        state = "---\nstatus: in_progress\n---\n\n## ER-001\nA\n## ER-002\nB\n## ER-003\nC\n## ER-004\nD\n## ER-005\nE\n"
-        critique = "---\nunresolved_high: 0\nunresolved_medium: 0\n---\nNo issues.\n"
-        workspace.write_file("RESEARCH_STATE.md", state)
-        workspace.write_file("CRITIQUE_LOG.md", critique)
+        rs = ResearchState()
+        for i in range(1, 6):
+            rs.hypotheses[f"ER-{i:03d}"] = Hypothesis(
+                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
+            )
+        orchestrator.research_state = rs
         result = orchestrator._completion_analysis()
         assert result is not None
         assert "COMPLETION CHECK" in result
@@ -86,41 +88,49 @@ class TestCompletionAnalysis:
         assert "synthesize" not in result
 
     def test_not_triggered_with_wh(self, orchestrator, workspace):
-        state = "---\nstatus: in_progress\n---\n\n## ER-001\nA\n## ER-002\nB\n## ER-003\nC\n## WH-001\nPending\n"
-        critique = "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n"
-        workspace.write_file("RESEARCH_STATE.md", state)
-        workspace.write_file("CRITIQUE_LOG.md", critique)
+        rs = ResearchState()
+        for i in range(1, 4):
+            rs.hypotheses[f"ER-{i:03d}"] = Hypothesis(
+                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
+            )
+        rs.hypotheses["WH-001"] = Hypothesis(id="WH-001", status=HypothesisStatus.WORKING)
+        orchestrator.research_state = rs
         assert orchestrator._completion_analysis() is None
 
     def test_blocked_by_critiques(self, orchestrator, workspace):
-        state = "---\nstatus: in_progress\n---\n\n## ER-001\nA\n## ER-002\nB\n## ER-003\nC\n"
-        critique = "---\nunresolved_high: 1\nunresolved_medium: 0\n---\n"
-        workspace.write_file("RESEARCH_STATE.md", state)
-        workspace.write_file("CRITIQUE_LOG.md", critique)
+        rs = ResearchState()
+        for i in range(1, 4):
+            rs.hypotheses[f"ER-{i:03d}"] = Hypothesis(
+                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
+            )
+        rs.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
+        )
+        orchestrator.research_state = rs
         assert orchestrator._completion_analysis() is None
 
 
 class TestBudgetAwareTermination:
     """Test budget-aware synthesis triggers when iterations are running low."""
 
-    STATE_WITH_WH = (
-        "---\nstatus: in_progress\n---\n\n"
-        "## ER-001\nA\n## ER-002\nB\n## ER-003\nC\n## WH-001\nPending\n"
-    )
-    CRITIQUE_WITH_UNRESOLVED = (
-        "---\nunresolved_high: 1\nunresolved_medium: 0\n---\n"
-    )
-    CRITIQUE_CLEAN = "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n"
+    def _make_state_with_wh(self):
+        """State with 3 ERs and 1 WH (blocks normal completion)."""
+        rs = ResearchState()
+        for i in range(1, 4):
+            rs.hypotheses[f"ER-{i:03d}"] = Hypothesis(
+                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
+            )
+        rs.hypotheses["WH-001"] = Hypothesis(id="WH-001", status=HypothesisStatus.WORKING)
+        return rs
 
     def test_budget_banner_when_low(self, workspace):
-        """Budget synthesis banner fires when ≤3 iterations remain, even with WHs."""
+        """Budget synthesis banner fires when <=3 iterations remain, even with WHs."""
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
-        workspace.write_file("RESEARCH_STATE.md", self.STATE_WITH_WH)
-        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_CLEAN)
+        orch.research_state = self._make_state_with_wh()
 
-        # iteration 18 of 20 → 2 remaining → should fire
+        # iteration 18 of 20 -> 2 remaining -> should fire
         result = orch._completion_analysis(iteration=18)
         assert result is not None
         assert "BUDGET SYNTHESIS REQUIRED" in result
@@ -131,10 +141,9 @@ class TestBudgetAwareTermination:
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
-        workspace.write_file("RESEARCH_STATE.md", self.STATE_WITH_WH)
-        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_CLEAN)
+        orch.research_state = self._make_state_with_wh()
 
-        # iteration 10 of 20 → 10 remaining → should NOT fire
+        # iteration 10 of 20 -> 10 remaining -> should NOT fire
         assert orch._completion_analysis(iteration=10) is None
 
     def test_budget_banner_with_unresolved_critiques(self, workspace):
@@ -142,8 +151,11 @@ class TestBudgetAwareTermination:
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
-        workspace.write_file("RESEARCH_STATE.md", self.STATE_WITH_WH)
-        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_WITH_UNRESOLVED)
+        rs = self._make_state_with_wh()
+        rs.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
+        )
+        orch.research_state = rs
 
         result = orch._completion_analysis(iteration=19)
         assert result is not None
@@ -155,11 +167,14 @@ class TestBudgetAwareTermination:
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
-        state = "---\nstatus: in_progress\n---\n\n## ER-001\nA\n## ER-002\nB\n## ER-003\nC\n"
-        workspace.write_file("RESEARCH_STATE.md", state)
-        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_CLEAN)
+        rs = ResearchState()
+        for i in range(1, 4):
+            rs.hypotheses[f"ER-{i:03d}"] = Hypothesis(
+                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
+            )
+        orch.research_state = rs
 
-        # No WHs, no critiques, ≤3 remaining → normal completion check wins
+        # No WHs, no critiques, <=3 remaining -> normal completion check wins
         result = orch._completion_analysis(iteration=18)
         assert result is not None
         assert "COMPLETION CHECK" in result
@@ -172,9 +187,9 @@ class TestBudgetAwareTermination:
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
-        state = "---\nstatus: in_progress\n---\n\n## WH-001\nPending\n"
-        workspace.write_file("RESEARCH_STATE.md", state)
-        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_CLEAN)
+        rs = ResearchState()
+        rs.hypotheses["WH-001"] = Hypothesis(id="WH-001", status=HypothesisStatus.WORKING)
+        orch.research_state = rs
 
         assert orch._completion_analysis(iteration=19) is None
 
@@ -183,12 +198,10 @@ class TestBudgetAwareTermination:
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
-        workspace.write_file("RESEARCH_STATE.md", "---\nstatus: in_progress\n---\n\nNothing yet.\n")
-        workspace.write_file("CRITIQUE_LOG.md", self.CRITIQUE_CLEAN)
-        workspace.write_file("COMPUTATION_LOG.md", "---\n---\n")
+        orch.research_state = ResearchState()
         workspace.write_file("METRICS.md", "---\n---\n")
 
-        context = orch.build_context(_EMPTY_TASK,iteration=5)
+        context = orch.build_context(_EMPTY_TASK, iteration=5)
         assert "5 of 20" in context
         assert "15 remaining" in context
 
@@ -196,87 +209,33 @@ class TestBudgetAwareTermination:
 class TestConventionReminder:
     """Test the gentle nudge when the Conventions section is still placeholder."""
 
-    RESEARCH_STATE_PLACEHOLDER = (
-        "---\nproblem_id: test\nstatus: in_progress\n---\n\n"
-        "# Problem Statement\n\nDerive something.\n\n"
-        "# Conventions\n\n(To be populated by the orchestrator as conventions become clear.)\n\n"
-        "# Working Hypotheses (WH) and Established Results (ER)\n\nNone yet.\n"
-    )
-
-    RESEARCH_STATE_POPULATED = (
-        "---\nproblem_id: test\nstatus: in_progress\n---\n\n"
-        "# Problem Statement\n\nDerive something.\n\n"
-        "# Conventions\n\n- Natural units: ħ = c = k_B = 1\n- Metric signature: (−, +, +, +)\n\n"
-        "# Working Hypotheses (WH) and Established Results (ER)\n\nNone yet.\n"
-    )
-
     def test_convention_reminder_at_iteration_3(self, orchestrator, workspace):
-        workspace.write_file("RESEARCH_STATE.md", self.RESEARCH_STATE_PLACEHOLDER)
-        workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
+        orchestrator.research_state = ResearchState()  # conventions is empty by default
         workspace.write_file("METRICS.md", "---\n---\n")
-        context = orchestrator.build_context(_EMPTY_TASK,iteration=3)
+        context = orchestrator.build_context(_EMPTY_TASK, iteration=3)
         assert "REMINDER" in context
         assert "Conventions" in context
 
     def test_no_reminder_when_conventions_populated(self, orchestrator, workspace):
-        workspace.write_file("RESEARCH_STATE.md", self.RESEARCH_STATE_POPULATED)
-        workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
+        rs = ResearchState()
+        rs.conventions = "- Natural units: h = c = k_B = 1\n- Metric signature: (-, +, +, +)"
+        orchestrator.research_state = rs
         workspace.write_file("METRICS.md", "---\n---\n")
-        context = orchestrator.build_context(_EMPTY_TASK,iteration=5)
+        context = orchestrator.build_context(_EMPTY_TASK, iteration=5)
         assert "REMINDER" not in context
 
     def test_no_reminder_at_iteration_1(self, orchestrator, workspace):
-        workspace.write_file("RESEARCH_STATE.md", self.RESEARCH_STATE_PLACEHOLDER)
-        workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
+        orchestrator.research_state = ResearchState()  # conventions is empty by default
         workspace.write_file("METRICS.md", "---\n---\n")
-        context = orchestrator.build_context(_EMPTY_TASK,iteration=1)
+        context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
         assert "REMINDER" not in context
-
-
 
 
 class TestStallBannerInContext:
     """Test that computation stall banners appear in orchestrator context."""
 
-    COMP_LOG_WITH_STALL = """\
----
-total_computations: 3
----
-
-## COMP-001: Check WH-002
-- **CLAIM**: Verify WH-002 partition function
-- **VERDICT**: INCONCLUSIVE
-- **RESULT**:
-  Failed attempt 1.
-
-## COMP-002: Retry WH-002
-- **CLAIM**: Verify WH-002 partition function
-- **VERDICT**: INCONCLUSIVE
-- **RESULT**:
-  Failed attempt 2.
-
-## COMP-003: Retry WH-002 again
-- **CLAIM**: Verify WH-002 partition function
-- **VERDICT**: INCONCLUSIVE
-- **RESULT**:
-  Failed attempt 3.
-"""
-
-    COMP_LOG_BELOW_THRESHOLD = """\
----
-total_computations: 1
----
-
-## COMP-001: Check WH-002
-- **CLAIM**: Verify WH-002 partition function
-- **VERDICT**: INCONCLUSIVE
-- **RESULT**:
-  Failed attempt 1.
-"""
-
     def test_stall_banner_in_context(self, workspace):
         """3 consecutive INCONCLUSIVE (>= stall_threshold=2) -> banner in context."""
-        from sciralph.research_state import ResearchState, Computation, Verdict
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
@@ -288,10 +247,7 @@ total_computations: 1
                 verdict=Verdict.INCONCLUSIVE, kind="verify",
                 claim="Verify WH-002 partition function", iteration=i,
             )
-        orch._research_state_ref = rs
-        workspace.write_file("RESEARCH_STATE.md", "---\nstatus: in_progress\n---\n\nNothing yet.\n")
-        workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
-        workspace.write_file("COMPUTATION_LOG.md", self.COMP_LOG_WITH_STALL)
+        orch.research_state = rs
         workspace.write_file("METRICS.md", "---\n---\n")
 
         context = orch.build_context(_EMPTY_TASK, iteration=5)
@@ -301,7 +257,6 @@ total_computations: 1
 
     def test_no_stall_banner_below_threshold(self, workspace):
         """1 failure (< stall_threshold=2) -> no banner."""
-        from sciralph.research_state import ResearchState, Computation, Verdict
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
@@ -310,13 +265,8 @@ total_computations: 1
             id="COMP-001", target_hypothesis="WH-002",
             verdict=Verdict.INCONCLUSIVE, kind="verify", iteration=1,
         )
-        orch._research_state_ref = rs
-        workspace.write_file("RESEARCH_STATE.md", "---\nstatus: in_progress\n---\n\nNothing yet.\n")
-        workspace.write_file("CRITIQUE_LOG.md", "---\nunresolved_high: 0\nunresolved_medium: 0\n---\n")
-        workspace.write_file("COMPUTATION_LOG.md", self.COMP_LOG_BELOW_THRESHOLD)
+        orch.research_state = rs
         workspace.write_file("METRICS.md", "---\n---\n")
 
         context = orch.build_context(_EMPTY_TASK, iteration=5)
         assert "COMPUTATION STALL" not in context
-
-

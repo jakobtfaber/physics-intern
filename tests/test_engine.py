@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch, PropertyMock, call
 
 from sciralph.config import Config
 from sciralph.engine import LoopState
-from sciralph.markdown import parse_frontmatter, render_frontmatter
 from sciralph.research_state import ResearchState
 from sciralph.task import Task, TaskType
 from sciralph.validation import Violation, ViolationSeverity
@@ -64,40 +63,17 @@ class TestCheckCompression:
 
 
 class TestSetResearchStatus:
-    """Test _set_research_status updates frontmatter correctly."""
+    """Test _set_research_status updates research state."""
 
     def test_set_research_status(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
+        from sciralph.engine import SciRalph
+        engine = SciRalph.__new__(SciRalph)
+        engine.config = Config()
+        engine.research_state = ResearchState()
 
-            original = render_frontmatter(
-                {"status": "in_progress", "title": "Test"},
-                "# Problem\n\nSome content\n",
-            )
-            ws.read_file = MagicMock(return_value=original)
-            written = {}
+        engine._set_research_status("completed")
 
-            def capture_write(filename, content):
-                written[filename] = content
-            ws.write_file = MagicMock(side_effect=capture_write)
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config()
-            engine.research_state = ResearchState()
-            engine.workspace = ws
-
-            engine._set_research_status("completed")
-
-            assert "RESEARCH_STATE.md" in written
-            meta, body = parse_frontmatter(written["RESEARCH_STATE.md"])
-            assert meta["status"] == "completed"
-            assert meta["title"] == "Test"
-            assert "Some content" in body
+        assert engine.research_state.status == "completed"
 
 
 class TestEnrichComputeTask:
@@ -585,79 +561,26 @@ class TestDispatchNewAgents:
 
 
 class TestUpdateResearchIteration:
-    """Test engine-side iteration counter update (Fix 3)."""
-
-    def _make_engine(self, state_text=""):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
-            written = {}
-
-            def capture_write(filename, content):
-                written[filename] = content
-            ws.write_file = MagicMock(side_effect=capture_write)
-            ws.read_file = MagicMock(return_value=state_text)
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config()
-            engine.research_state = ResearchState()
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.iteration = 3
-        return engine, written
+    """Test engine-side iteration counter update."""
 
     def test_iteration_field_updated(self):
-        """iteration field in frontmatter is updated and body preserved."""
-        state = render_frontmatter(
-            {"status": "in_progress", "iteration": 1},
-            "# Working Hypotheses (WH) and Established Results (ER)\n\nSome findings.\n",
-        )
-        engine, written = self._make_engine(state)
+        from sciralph.engine import SciRalph
+        engine = SciRalph.__new__(SciRalph)
+        engine.config = Config()
+        engine.research_state = ResearchState()
         engine.iteration = 5
         engine._update_research_iteration()
+        assert engine.research_state.iteration == 5
 
-        assert "RESEARCH_STATE.md" in written
-        meta, body = parse_frontmatter(written["RESEARCH_STATE.md"])
-        assert meta["iteration"] == 5
-        assert "Some findings" in body
-
-    def test_other_frontmatter_preserved(self):
-        """Other frontmatter fields are not disturbed."""
-        state = render_frontmatter(
-            {"status": "in_progress", "iteration": 2, "verified_results": ["ER-001"]},
-            "# Body\n",
-        )
-        engine, written = self._make_engine(state)
-        engine.iteration = 7
+    def test_iteration_starts_at_zero(self):
+        from sciralph.engine import SciRalph
+        engine = SciRalph.__new__(SciRalph)
+        engine.config = Config()
+        engine.research_state = ResearchState()
+        assert engine.research_state.iteration == 0
+        engine.iteration = 1
         engine._update_research_iteration()
-
-        meta, _ = parse_frontmatter(written["RESEARCH_STATE.md"])
-        assert meta["iteration"] == 7
-        assert meta["status"] == "in_progress"
-        assert "ER-001" in meta["verified_results"]
-
-    def test_empty_file_early_return(self):
-        """Empty RESEARCH_STATE.md -> no write."""
-        engine, written = self._make_engine("")
-        engine._update_research_iteration()
-        assert "RESEARCH_STATE.md" not in written
-
-    def test_missing_iteration_field_created(self):
-        """If iteration field is absent, it's created."""
-        state = render_frontmatter(
-            {"status": "in_progress"},
-            "# Body\n",
-        )
-        engine, written = self._make_engine(state)
-        engine.iteration = 4
-        engine._update_research_iteration()
-
-        meta, _ = parse_frontmatter(written["RESEARCH_STATE.md"])
-        assert meta["iteration"] == 4
+        assert engine.research_state.iteration == 1
 
 
 class TestDispatchFailureRecovery:
@@ -674,7 +597,6 @@ class TestDispatchFailureRecovery:
             ws.read_file = MagicMock(return_value="")
             ws.write_file = MagicMock()
             ws.file_size = MagicMock(return_value=0)
-            ws.validate_comp_references = MagicMock(return_value=[])
             ws.git_commit = MagicMock()
 
             from sciralph.engine import SciRalph

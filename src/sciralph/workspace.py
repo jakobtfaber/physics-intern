@@ -1,7 +1,6 @@
 """Workspace manager for SciRalph file I/O and git operations."""
 
 import json
-import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -142,53 +141,6 @@ Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, p
         now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
         dest = self.archive_dir / f"{src.stem}_{now}{src.suffix}"
         shutil.copy2(str(src), str(dest))
-
-    def validate_comp_references(self) -> list[str]:
-        """Strip phantom COMP/TASK references from RESEARCH_STATE.md.
-
-        Returns list of stripped reference IDs for alerting.
-        """
-        from .markdown import _parse_comp_entries, flatten_unverified_brackets
-        from .validation import _build_task_comp_mapping
-
-        state = self.read_file("RESEARCH_STATE.md")
-        comp_log = self.read_file("COMPUTATION_LOG.md")
-
-        # Flatten nested bracket markers first
-        state = flatten_unverified_brackets(state)
-
-        # Get valid IDs from COMPUTATION_LOG
-        entries = _parse_comp_entries(comp_log)
-        valid_ids = {e["id"] for e in entries}
-
-        # Expand valid_ids: accept TASK-NNN when a corresponding COMP exists
-        task_comp = _build_task_comp_mapping(entries)
-        for task_id, comp_set in task_comp.items():
-            if comp_set & valid_ids:
-                valid_ids.add(task_id)
-
-        # Find bare COMP-NNN / TASK-NNN references (exclude already-wrapped)
-        ref_pattern = re.compile(r'(?<!\[)\b((?:COMP|TASK)-\d+)\b(?!:unverified\])')
-        found_refs = set(ref_pattern.findall(state))
-
-        # Identify phantoms
-        phantoms = sorted(found_refs - valid_ids)
-
-        # Write back if we flattened brackets or found phantoms
-        original = self.read_file("RESEARCH_STATE.md")
-        if not phantoms and state == original:
-            return []
-
-        # Strip phantom references: replace bare "COMP-NNN" with "[COMP-NNN:unverified]"
-        for phantom in phantoms:
-            state = re.sub(
-                r'(?<!\[)\b' + re.escape(phantom) + r'\b(?!:unverified\])',
-                f'[{phantom}:unverified]',
-                state,
-            )
-
-        self.write_file("RESEARCH_STATE.md", state)
-        return phantoms
 
     def git_commit(self, message: str):
         """Stage all changes and commit."""

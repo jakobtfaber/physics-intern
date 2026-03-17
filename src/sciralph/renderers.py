@@ -22,7 +22,6 @@ from .research_state import (
 )
 
 if TYPE_CHECKING:
-    from .config import Config
     from .task import Task
 
 
@@ -209,6 +208,40 @@ def render_critique_log_md(state: ResearchState) -> str:
     return render_frontmatter(meta, body)
 
 
+def render_computation_log_tail(state: ResearchState, n: int) -> str:
+    """Render the last *n* computation entries from ResearchState."""
+    comps = sorted(state.computations.values(), key=lambda c: (c.iteration, c.id))
+    tail = comps[-n:] if comps else []
+    parts: list[str] = []
+    for c in tail:
+        if c.zero_output:
+            parts.append(f"## {c.id}: FAILED (no result produced, iteration {c.iteration})\n")
+            continue
+        if c.kind == "explore":
+            parts.append(f"## {c.id}: Exploration\n")
+            parts.append(f"**TARGET:** {c.target_hypothesis}")
+            parts.append(f"**DESCRIPTION:** {c.claim}")
+            parts.append(f"**METHOD:** {c.method}")
+            parts.append(f"**RESULT:** {c.result}\n")
+            parts.append(f"**CONFIDENCE:** {c.confidence}")
+            if c.notes:
+                parts.append(f"**NOTES:** {c.notes}")
+        else:
+            parts.append(f"## {c.id}: Computation\n")
+            claim_prefix = f"{c.target_hypothesis} — " if c.target_hypothesis else ""
+            parts.append(f"**CLAIM:** {claim_prefix}{c.claim}")
+            parts.append(f"**METHOD:** {c.method}")
+            parts.append(f"**RESULT:** {c.result}\n")
+            parts.append(f"**VERDICT:** {c.verdict}")
+            if c.notes:
+                parts.append(f"**NOTES:** {c.notes}")
+            elif c.failure_detail:
+                parts.append(f"**NOTES:** {c.failure_detail}")
+        parts.append(f"\n- **Iteration:** {c.iteration}")
+        parts.append("")
+    return "\n".join(parts)
+
+
 def render_task_md(task: Task) -> str:
     """Render CURRENT_TASK.md from a Task object."""
     return task.to_markdown()
@@ -218,88 +251,3 @@ def render_task_md(task: Task) -> str:
 # Per-agent context renderers
 # ---------------------------------------------------------------------------
 
-def render_orchestrator_context(
-    state: ResearchState,
-    *,
-    context_prefix: str = "",
-    metrics_text: str = "",
-    config: Config,
-    iteration: int,
-    comp_log_tail: str = "",
-) -> str:
-    """Render orchestrator user-message context from ResearchState.
-
-    Structurally equivalent to OrchestratorAgent.build_context().
-    """
-    parts: list[str] = []
-
-    if context_prefix:
-        parts.append(context_prefix)
-
-    budget_remaining = config.max_iterations - iteration
-    parts.append(
-        f"# Current Iteration: {iteration} of {config.max_iterations} "
-        f"({budget_remaining} remaining)\n"
-    )
-
-    parts.append("## RESEARCH_STATE.md\n")
-    parts.append(render_research_state_md(state))
-
-    parts.append("\n## CRITIQUE_LOG.md\n")
-    parts.append(render_critique_log_md(state))
-
-    parts.append(f"\n## COMPUTATION_LOG.md (last {config.orchestrator_comp_log_tail} entries)\n")
-    if comp_log_tail:
-        parts.append(comp_log_tail)
-    else:
-        # Render last N computation entries
-        comps = sorted(state.computations.values(), key=lambda c: (c.iteration, c.id))
-        tail = comps[-config.orchestrator_comp_log_tail:] if comps else []
-        for c in tail:
-            if c.kind == "explore":
-                parts.append(f"## {c.id}: Exploration\n")
-                parts.append(f"**TARGET:** {c.target_hypothesis}")
-                parts.append(f"**DESCRIPTION:** {c.claim}")
-                parts.append(f"**RESULT:** {c.result}\n")
-                parts.append(f"**CONFIDENCE:** {c.confidence}")
-            else:
-                claim_prefix = f"{c.target_hypothesis} — " if c.target_hypothesis else ""
-                parts.append(f"## {c.id}: Computation\n")
-                parts.append(f"**CLAIM:** {claim_prefix}{c.claim}")
-                parts.append(f"**VERDICT:** {c.verdict}")
-            parts.append(f"- **Iteration:** {c.iteration}\n")
-
-    parts.append("\n## METRICS.md (summary)\n")
-    parts.append(metrics_text)
-
-    return "\n".join(parts)
-
-
-def render_computationalist_context(state: ResearchState, task: Task) -> str:
-    """Render computationalist user-message context from ResearchState.
-
-    Structurally equivalent to ComputationalistAgent.build_context().
-    """
-    parts = [
-        "## CURRENT_TASK.md\n",
-        task.to_markdown(),
-        "\n## Relevant Research State (excerpts)\n",
-        render_research_state_md(state),
-    ]
-    return "\n".join(parts)
-
-
-def render_critic_context(state: ResearchState) -> str:
-    """Render critic user-message context from ResearchState.
-
-    Structurally equivalent to CriticAgent.build_context().
-    """
-    parts = [
-        "## RESEARCH_STATE.md\n",
-        render_research_state_md(state),
-        "\n## COMPUTATION_LOG.md\n",
-        render_computation_log_md(state),
-        "\n## Your Previous Critiques (do not repeat)\n",
-        render_critique_log_md(state),
-    ]
-    return "\n".join(parts)

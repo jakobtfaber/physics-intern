@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ..critic_tools import CriticToolExecutor
 from ..llm import AgentResult, LLMResponse, run_agent_loop
-from ..markdown import (
-    parse_frontmatter,
-    render_frontmatter,
-    insert_into_active_critiques,
-    ensure_critique_metadata_consistent,
+from ..renderers import (
+    render_computation_log_md,
+    render_critique_log_md,
+    render_research_state_md,
 )
-from ..renderers import render_critique_log_md
 from ..research_state import Critique, CritiqueStatus, Severity
 from ..tools import ToolCall
 from .base import BaseAgent
@@ -40,11 +37,11 @@ class CriticAgent(BaseAgent):
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [
             "## RESEARCH_STATE.md\n",
-            self.workspace.read_file("RESEARCH_STATE.md"),
+            render_research_state_md(self.research_state) if self.research_state else "",
             "\n## COMPUTATION_LOG.md\n",
-            self.workspace.read_file("COMPUTATION_LOG.md"),
+            render_computation_log_md(self.research_state) if self.research_state else "",
             "\n## Your Previous Critiques (do not repeat)\n",
-            self.workspace.read_file("CRITIQUE_LOG.md"),
+            render_critique_log_md(self.research_state) if self.research_state else "",
         ]
         return "\n".join(parts)
 
@@ -60,7 +57,7 @@ class CriticAgent(BaseAgent):
         if self.research_state:
             existing_count = self.research_state.next_critique_num() - 1
         else:
-            existing_count = self._count_existing_critiques()
+            existing_count = 0
         self._tool_executor = CriticToolExecutor(existing_critique_count=existing_count)
 
         result = run_agent_loop(
@@ -103,7 +100,7 @@ class CriticAgent(BaseAgent):
                 self.workspace.root, iteration, CC.LOOP_CONTROL,
                 "no_critiques_filed", f"summary={self._tool_executor.review_summary[:100]}",
             )
-        else:
+        elif self.research_state:
             # Write Critique objects to research state
             for critique_data in filed:
                 sev = Severity(critique_data["severity"])
@@ -115,51 +112,10 @@ class CriticAgent(BaseAgent):
                     status=CritiqueStatus.ACTIVE,
                     iteration_filed=iteration,
                 )
-                if self.research_state:
-                    self.research_state.critiques[crit.id] = crit
-                    # Link to hypothesis
-                    for t in crit.targets:
-                        if t in self.research_state.hypotheses:
-                            h = self.research_state.hypotheses[t]
-                            if crit.id not in h.critiques:
-                                h.critiques.append(crit.id)
-
-            if self.research_state:
-                # Render CRITIQUE_LOG.md from state
-                self.workspace.write_file("CRITIQUE_LOG.md", render_critique_log_md(self.research_state))
-            else:
-                # Fallback: insert markdown directly
-                md_blocks = []
-                for critique_data in filed:
-                    block = (
-                        f"## {critique_data['id']} [{critique_data['severity']}] [UNRESOLVED]\n"
-                        f"- **Target:** {critique_data['target_id']}\n"
-                        f"- **Filed:** iteration {iteration}\n\n"
-                        f"{critique_data['argument']}\n"
-                    )
-                    if critique_data.get("suggested_verification"):
-                        block += f"\n- **Suggested verification:** {critique_data['suggested_verification']}\n"
-                    md_blocks.append(block)
-                critique_text = "\n".join(md_blocks)
-                content = self.workspace.read_file("CRITIQUE_LOG.md")
-                content = insert_into_active_critiques(content, critique_text)
-                self.workspace.write_file("CRITIQUE_LOG.md", content)
-                self._update_critique_metadata()
-
-        # Update last_critic_pass timestamp
-        if not self.research_state:
-            self._update_critique_metadata()
-
-    def _count_existing_critiques(self) -> int:
-        """Count existing CRIT-NNN entries for auto-numbering (fallback)."""
-        import re
-        content = self.workspace.read_file("CRITIQUE_LOG.md")
-        return len(re.findall(r'CRIT-\d+', content))
-
-    def _update_critique_metadata(self):
-        """Recount unresolved critiques and update frontmatter (fallback)."""
-        content = self.workspace.read_file("CRITIQUE_LOG.md")
-        updated = ensure_critique_metadata_consistent(content)
-        meta, body = parse_frontmatter(updated)
-        meta["last_critic_pass"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self.workspace.write_file("CRITIQUE_LOG.md", render_frontmatter(meta, body))
+                self.research_state.critiques[crit.id] = crit
+                # Link to hypothesis
+                for t in crit.targets:
+                    if t in self.research_state.hypotheses:
+                        h = self.research_state.hypotheses[t]
+                        if crit.id not in h.critiques:
+                            h.critiques.append(crit.id)

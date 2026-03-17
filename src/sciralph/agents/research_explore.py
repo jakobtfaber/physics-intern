@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..renderers import render_research_state_md
 from ..tools import ToolExecutor
 from .computationalist import ComputationalistAgent
 
@@ -22,19 +23,19 @@ class ResearchExploreAgent(ComputationalistAgent):
             "## CURRENT_TASK.md\n",
             self.workspace.read_file("CURRENT_TASK.md"),
             "\n## Relevant Research State (excerpts)\n",
-            self.workspace.read_file("RESEARCH_STATE.md"),
+            render_research_state_md(self.research_state) if self.research_state else "",
         ]
         # Include relevant critiques for resolve-type tasks
-        if task.blocking_critiques:
-            critique_log = self.workspace.read_file("CRITIQUE_LOG.md")
-            if critique_log:
-                parts.append("\n## Relevant Critiques\n")
-                for crit_id in task.blocking_critiques:
-                    # Extract the section for this critique ID
-                    import re
-                    pattern = rf"(## {re.escape(crit_id)}.*?)(?=\n## |\Z)"
-                    match = re.search(pattern, critique_log, re.DOTALL)
-                    if match:
-                        parts.append(match.group(1).strip())
-                        parts.append("")
+        if task.blocking_critiques and self.research_state:
+            parts.append("\n## Relevant Critiques\n")
+            for crit_id in task.blocking_critiques:
+                if crit_id in self.research_state.critiques:
+                    c = self.research_state.critiques[crit_id]
+                    sev_tag = f"[{c.severity}]"
+                    parts.append(f"## {c.id} {sev_tag}\n")
+                    targets_str = ", ".join(c.targets) if c.targets else "general"
+                    parts.append(f"**Target:** {targets_str}\n")
+                    if c.argument:
+                        parts.append(c.argument)
+                    parts.append("")
         return "\n".join(parts)

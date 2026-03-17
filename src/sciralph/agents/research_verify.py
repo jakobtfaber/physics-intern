@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..renderers import render_research_state_md
 from ..tools import ToolExecutor
 from .computationalist import ComputationalistAgent
 
@@ -22,6 +23,6 @@ class ResearchVerifyAgent(ComputationalistAgent):
             "## CURRENT_TASK.md\n",
             self.workspace.read_file("CURRENT_TASK.md"),
             "\n## Relevant Research State (excerpts)\n",
-            self.workspace.read_file("RESEARCH_STATE.md"),
+            render_research_state_md(self.research_state) if self.research_state else "",
         ]
         return "\n".join(parts)

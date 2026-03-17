@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 
 from ..llm import AgentResult, LLMResponse, run_agent_loop
-from ..markdown import (
-    parse_frontmatter,
-    render_frontmatter,
-    count_er_sections,
-    count_wh_sections,
-    flatten_unverified_brackets,
-)
 from ..orchestrator_tools import OrchestratorToolExecutor
-from ..renderers import render_research_state_md, render_critique_log_md
+from ..renderers import (
+    render_computation_log_tail,
+    render_critique_log_md,
+    render_research_state_md,
+)
+from ..research_state import CritiqueStatus, Severity
 from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from ..tools import ToolCall
 from .base import BaseAgent
@@ -31,17 +28,19 @@ class OrchestratorAgent(BaseAgent):
         super().__init__(config, workspace, metrics)
         self.context_prefix: str = ""
         self._tool_executor: OrchestratorToolExecutor | None = None
+        self.research_state: ResearchState | None = None
 
     def _completion_analysis(self, iteration: int = 0) -> str | None:
         """Check if research appears complete; return banner if so."""
-        state = self.workspace.read_file("RESEARCH_STATE.md")
-        critique = self.workspace.read_file("CRITIQUE_LOG.md")
-        crit_meta, _ = parse_frontmatter(critique)
+        if not self.research_state:
+            return None
 
-        er_count = count_er_sections(state)
-        wh_count = count_wh_sections(state)
-        high = crit_meta.get("unresolved_high", 0) or 0
-        medium = crit_meta.get("unresolved_medium", 0) or 0
+        er_count = len(self.research_state.established_hypotheses())
+        wh_count = len(self.research_state.working_hypotheses())
+        high = len([c for c in self.research_state.critiques.values()
+                     if c.status == CritiqueStatus.ACTIVE and c.severity == Severity.HIGH])
+        medium = len([c for c in self.research_state.critiques.values()
+                       if c.status == CritiqueStatus.ACTIVE and c.severity == Severity.MEDIUM])
 
         if er_count >= self.config.min_er_for_completion and wh_count == 0 and high == 0 and medium == 0:
             return (
@@ -76,22 +75,15 @@ class OrchestratorAgent(BaseAgent):
         banner = self._completion_analysis(iteration)
         if banner:
             parts.append(f"{banner}\n")
-        state = self.workspace.read_file("RESEARCH_STATE.md")
-        # Clean phantom markers to prevent LLM from copying bracketed form
-        before = state
-        state = flatten_unverified_brackets(state)
-        if state != before:
-            log_scaffold_event(self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION, "bracket_flattened", "")
-        state = re.sub(r'\[((COMP|TASK)-\d+):unverified\]', r'\1 (unverified)', state)
-        if iteration >= 3 and "To be populated by the orchestrator" in state:
+        state_text = render_research_state_md(self.research_state) if self.research_state else ""
+        if iteration >= 3 and self.research_state and not self.research_state.conventions:
             parts.append(
                 ">>> REMINDER: The '# Conventions' section in RESEARCH_STATE.md "
                 "is still empty. Consider populating it with the unit system, "
                 "sign conventions, and variable definitions being used. <<<\n"
             )
         # Computation stall detection from research state
-        research_state = getattr(self, "_research_state_ref", None)
-        stalls = research_state.detect_computation_stalls(threshold=self.config.stall_threshold) if research_state else []
+        stalls = self.research_state.detect_computation_stalls(threshold=self.config.stall_threshold) if self.research_state else []
         for stall in stalls:
             parts.append(
                 f">>> COMPUTATION STALL: {stall['count']} consecutive failures "
@@ -105,11 +97,11 @@ class OrchestratorAgent(BaseAgent):
             f"# Current Iteration: {iteration} of {self.config.max_iterations} "
             f"({budget_remaining} remaining)\n",
             "## RESEARCH_STATE.md\n",
-            state,
+            state_text,
             "\n## CRITIQUE_LOG.md\n",
-            self.workspace.read_file("CRITIQUE_LOG.md"),
+            render_critique_log_md(self.research_state) if self.research_state else "",
             f"\n## COMPUTATION_LOG.md (last {self.config.orchestrator_comp_log_tail} entries)\n",
-            self.workspace.read_file_tail("COMPUTATION_LOG.md", n_entries=self.config.orchestrator_comp_log_tail),
+            render_computation_log_tail(self.research_state, self.config.orchestrator_comp_log_tail) if self.research_state else "",
             "\n## METRICS.md (summary)\n",
             self.workspace.read_file("METRICS.md"),
         ])
@@ -123,11 +115,9 @@ class OrchestratorAgent(BaseAgent):
         on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
     ) -> AgentResult:
         """Run the orchestrator with state-mutation tools."""
-        # Pass research_state if the engine set it on us
-        research_state = getattr(self, "_research_state_ref", None)
         self._tool_executor = OrchestratorToolExecutor(
             workspace=self.workspace, iteration=iteration,
-            research_state=research_state,
+            research_state=self.research_state,
         )
         result = run_agent_loop(
             system=self.system_prompt,
@@ -157,15 +147,9 @@ class OrchestratorAgent(BaseAgent):
         return result
 
     def process_response(self, response: LLMResponse | AgentResult, task: Task, iteration: int):
-        """Process orchestrator output — render state to markdown after tool mutations."""
+        """Process orchestrator output — state already mutated by tool executor."""
         if not (self._tool_executor and self._tool_executor.mutations_applied):
             return
-
-        research_state = self._tool_executor.research_state
-        if research_state:
-            # Render state to markdown files
-            self.workspace.write_file("RESEARCH_STATE.md", render_research_state_md(research_state))
-            self.workspace.write_file("CRITIQUE_LOG.md", render_critique_log_md(research_state))
 
         # Write CURRENT_TASK.md from set_next_task tool call
         if self._tool_executor.task_data:
