@@ -155,10 +155,12 @@ class OrchestratorAgent(BaseAgent):
 
     def process_response(self, response: LLMResponse | AgentResult, task: Task, iteration: int):
         """Process orchestrator output — state already mutated by tool executor."""
-        if not (self._tool_executor and self._tool_executor.mutations_applied):
+        if not self._tool_executor:
             return
 
-        # Write CURRENT_TASK.md from set_next_task tool call
+        # Always write CURRENT_TASK.md when a task was dispatched, even if no
+        # state mutations occurred.  Without this, verify agents read a stale
+        # file and target the wrong hypothesis.
         if self._tool_executor.task_data:
             task_obj = self._task_from_tool_data(self._tool_executor.task_data, iteration)
             self.workspace.write_file("CURRENT_TASK.md", task_obj.to_markdown())
