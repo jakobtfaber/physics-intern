@@ -199,7 +199,6 @@ class TestBudgetAwareTermination:
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
         orch.research_state = ResearchState()
-        workspace.write_file("METRICS.md", "---\n---\n")
 
         context = orch.build_context(_EMPTY_TASK, iteration=5)
         assert "5 of 20" in context
@@ -211,7 +210,6 @@ class TestConventionReminder:
 
     def test_convention_reminder_at_iteration_3(self, orchestrator, workspace):
         orchestrator.research_state = ResearchState()  # conventions is empty by default
-        workspace.write_file("METRICS.md", "---\n---\n")
         context = orchestrator.build_context(_EMPTY_TASK, iteration=3)
         assert "REMINDER" in context
         assert "Conventions" in context
@@ -220,13 +218,11 @@ class TestConventionReminder:
         rs = ResearchState()
         rs.conventions = "- Natural units: h = c = k_B = 1\n- Metric signature: (-, +, +, +)"
         orchestrator.research_state = rs
-        workspace.write_file("METRICS.md", "---\n---\n")
         context = orchestrator.build_context(_EMPTY_TASK, iteration=5)
         assert "REMINDER" not in context
 
     def test_no_reminder_at_iteration_1(self, orchestrator, workspace):
         orchestrator.research_state = ResearchState()  # conventions is empty by default
-        workspace.write_file("METRICS.md", "---\n---\n")
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
         assert "REMINDER" not in context
 
@@ -248,7 +244,6 @@ class TestStallBannerInContext:
                 claim="Verify WH-002 partition function", iteration=i,
             )
         orch.research_state = rs
-        workspace.write_file("METRICS.md", "---\n---\n")
 
         context = orch.build_context(_EMPTY_TASK, iteration=5)
         assert "COMPUTATION STALL" in context
@@ -266,7 +261,40 @@ class TestStallBannerInContext:
             verdict=Verdict.INCONCLUSIVE, kind="verify", iteration=1,
         )
         orch.research_state = rs
-        workspace.write_file("METRICS.md", "---\n---\n")
 
         context = orch.build_context(_EMPTY_TASK, iteration=5)
         assert "COMPUTATION STALL" not in context
+
+
+class TestSystemPrompt:
+    """Test that system_prompt includes the problem statement."""
+
+    def test_system_prompt_includes_problem_statement(self, orchestrator):
+        orchestrator.research_state = ResearchState(
+            problem_statement="Derive the Hawking temperature for a Schwarzschild black hole.",
+        )
+        prompt = orchestrator.system_prompt
+        assert "## Problem Statement" in prompt
+        assert "Derive the Hawking temperature" in prompt
+
+    def test_system_prompt_without_research_state(self, orchestrator):
+        # No research_state set — should still return the base prompt
+        prompt = orchestrator.system_prompt
+        assert "## Problem Statement" not in prompt
+
+    def test_system_prompt_cached(self, orchestrator):
+        orchestrator.research_state = ResearchState(
+            problem_statement="Test problem.",
+        )
+        first = orchestrator.system_prompt
+        second = orchestrator.system_prompt
+        assert first is second  # same object, not recomputed
+
+
+class TestNoMetricsInContext:
+    """Verify METRICS.md is no longer included in orchestrator context."""
+
+    def test_no_metrics_in_context(self, orchestrator):
+        orchestrator.research_state = ResearchState()
+        context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
+        assert "METRICS" not in context

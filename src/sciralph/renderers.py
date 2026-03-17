@@ -29,27 +29,24 @@ if TYPE_CHECKING:
 # Snapshot renderers (full Markdown files from state)
 # ---------------------------------------------------------------------------
 
-def render_research_state_md(state: ResearchState) -> str:
-    """Render RESEARCH_STATE.md from ResearchState."""
-    er_ids = sorted(
-        h.id for h in state.hypotheses.values()
-        if h.id.startswith("ER-")
-    )
-    meta: dict = {
-        "problem_id": "research-session",
-        "title": state.title or state.problem_statement[:80],
-        "status": state.status,
-        "iteration": state.iteration,
-    }
-    if er_ids:
-        meta["verified_results"] = er_ids
+def _research_state_body(
+    state: ResearchState,
+    *,
+    include_problem_statement: bool = True,
+    skip_empty_dead_ends: bool = False,
+    skip_empty_open_questions: bool = False,
+) -> str:
+    """Build the body text for a research state rendering.
 
+    Shared by the snapshot renderer and orchestrator context renderer.
+    """
     parts: list[str] = []
 
     # Problem Statement
-    parts.append("# Problem Statement\n")
-    parts.append(state.problem_statement or "(No problem statement.)")
-    parts.append("")
+    if include_problem_statement:
+        parts.append("# Problem Statement\n")
+        parts.append(state.problem_statement or "(No problem statement.)")
+        parts.append("")
 
     # Conventions
     parts.append("# Conventions\n")
@@ -97,27 +94,47 @@ def render_research_state_md(state: ResearchState) -> str:
             parts.append("")
 
     # Dead Ends
-    parts.append("# Dead Ends\n")
-    for fa in state.failed_approaches:
-        parts.append(f"- {fa.description}")
-        if fa.reason:
-            parts.append(f"  Reason: {fa.reason}")
-    # Also include abandoned hypotheses
-    for h in sorted_hyps:
-        if h.status == HypothesisStatus.ABANDONED:
-            parts.append(f"- Abandoned {h.id} — {h.statement}")
-    if not state.failed_approaches and not any(
+    has_dead_ends = bool(state.failed_approaches) or any(
         h.status == HypothesisStatus.ABANDONED for h in state.hypotheses.values()
-    ):
-        parts.append("(None yet.)")
-    parts.append("")
+    )
+    if not (skip_empty_dead_ends and not has_dead_ends):
+        parts.append("# Dead Ends\n")
+        for fa in state.failed_approaches:
+            parts.append(f"- {fa.description}")
+            if fa.reason:
+                parts.append(f"  Reason: {fa.reason}")
+        for h in sorted_hyps:
+            if h.status == HypothesisStatus.ABANDONED:
+                parts.append(f"- Abandoned {h.id} — {h.statement}")
+        if not has_dead_ends:
+            parts.append("(None yet.)")
+        parts.append("")
 
     # Open Questions
-    parts.append("# Open Questions\n")
-    parts.append(state.open_questions or "(None.)")
-    parts.append("")
+    if not (skip_empty_open_questions and not state.open_questions):
+        parts.append("# Open Questions\n")
+        parts.append(state.open_questions or "(None.)")
+        parts.append("")
 
-    body = "\n".join(parts)
+    return "\n".join(parts)
+
+
+def render_research_state_md(state: ResearchState) -> str:
+    """Render RESEARCH_STATE.md from ResearchState."""
+    er_ids = sorted(
+        h.id for h in state.hypotheses.values()
+        if h.id.startswith("ER-")
+    )
+    meta: dict = {
+        "problem_id": "research-session",
+        "title": state.title or state.problem_statement[:80],
+        "status": state.status,
+        "iteration": state.iteration,
+    }
+    if er_ids:
+        meta["verified_results"] = er_ids
+
+    body = _research_state_body(state)
     return render_frontmatter(meta, body)
 
 
@@ -162,22 +179,13 @@ def render_computation_log_md(state: ResearchState) -> str:
     return render_frontmatter(meta, body)
 
 
-def render_critique_log_md(state: ResearchState) -> str:
-    """Render CRITIQUE_LOG.md from ResearchState."""
+def _critique_log_body(state: ResearchState) -> str:
+    """Build the body text for a critique log rendering.
+
+    Shared by the snapshot renderer and orchestrator context renderer.
+    """
     active = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
     resolved = [c for c in state.critiques.values() if c.status in (CritiqueStatus.RESOLVED, CritiqueStatus.WITHDRAWN)]
-
-    # Compute unresolved counts
-    unresolved_high = sum(1 for c in active if c.severity == Severity.HIGH)
-    unresolved_medium = sum(1 for c in active if c.severity == Severity.MEDIUM)
-    unresolved_low = sum(1 for c in active if c.severity == Severity.LOW)
-
-    meta = {
-        "total_critiques": len(state.critiques),
-        "unresolved_high": unresolved_high,
-        "unresolved_medium": unresolved_medium,
-        "unresolved_low": unresolved_low,
-    }
 
     parts: list[str] = ["# Active Critiques\n"]
 
@@ -204,7 +212,25 @@ def render_critique_log_md(state: ResearchState) -> str:
             parts.append(f"- **Resolution:** {c.resolution}")
         parts.append("")
 
-    body = "\n".join(parts)
+    return "\n".join(parts)
+
+
+def render_critique_log_md(state: ResearchState) -> str:
+    """Render CRITIQUE_LOG.md from ResearchState."""
+    active = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
+
+    unresolved_high = sum(1 for c in active if c.severity == Severity.HIGH)
+    unresolved_medium = sum(1 for c in active if c.severity == Severity.MEDIUM)
+    unresolved_low = sum(1 for c in active if c.severity == Severity.LOW)
+
+    meta = {
+        "total_critiques": len(state.critiques),
+        "unresolved_high": unresolved_high,
+        "unresolved_medium": unresolved_medium,
+        "unresolved_low": unresolved_low,
+    }
+
+    body = _critique_log_body(state)
     return render_frontmatter(meta, body)
 
 
@@ -250,4 +276,20 @@ def render_task_md(task: Task) -> str:
 # ---------------------------------------------------------------------------
 # Per-agent context renderers
 # ---------------------------------------------------------------------------
+
+def render_orchestrator_research_state(state: ResearchState) -> str:
+    """Render research state for orchestrator context (no frontmatter, no problem statement)."""
+    return _research_state_body(
+        state,
+        include_problem_statement=False,
+        skip_empty_dead_ends=True,
+        skip_empty_open_questions=True,
+    )
+
+
+def render_orchestrator_critique_log(state: ResearchState) -> str:
+    """Render critique log for orchestrator context (no frontmatter, compact when empty)."""
+    if not state.critiques:
+        return "No critiques filed."
+    return _critique_log_body(state)
 

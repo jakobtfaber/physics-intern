@@ -7,6 +7,8 @@ from sciralph.renderers import (
     render_computation_log_md,
     render_computation_log_tail,
     render_critique_log_md,
+    render_orchestrator_critique_log,
+    render_orchestrator_research_state,
     render_research_state_md,
     render_task_md,
 )
@@ -602,3 +604,106 @@ class TestRenderComputationLogTail:
         text = render_computation_log_tail(state, 5)
         assert "TASK-003: FAILED" in text
         assert "**CLAIM:**" not in text
+
+
+# ===========================================================================
+# render_orchestrator_research_state
+# ===========================================================================
+
+class TestRenderOrchestratorResearchState:
+
+    def test_no_frontmatter(self, populated_state):
+        text = render_orchestrator_research_state(populated_state)
+        assert "---" not in text
+
+    def test_no_problem_statement(self, populated_state):
+        text = render_orchestrator_research_state(populated_state)
+        assert "# Problem Statement" not in text
+        assert "Derive the Hawking temperature" not in text
+
+    def test_conventions_included(self, populated_state):
+        text = render_orchestrator_research_state(populated_state)
+        assert "# Conventions" in text
+        assert "Natural units" in text
+
+    def test_hypotheses_included(self, populated_state):
+        text = render_orchestrator_research_state(populated_state)
+        assert "## ER-001" in text
+        assert "## WH-002" in text
+
+    def test_skips_empty_dead_ends(self, empty_state):
+        text = render_orchestrator_research_state(empty_state)
+        assert "# Dead Ends" not in text
+
+    def test_includes_populated_dead_ends(self, populated_state):
+        text = render_orchestrator_research_state(populated_state)
+        assert "# Dead Ends" in text
+        assert "Abandoned WH-003" in text
+
+    def test_skips_empty_open_questions(self, empty_state):
+        text = render_orchestrator_research_state(empty_state)
+        assert "# Open Questions" not in text
+
+    def test_includes_populated_open_questions(self, populated_state):
+        text = render_orchestrator_research_state(populated_state)
+        assert "# Open Questions" in text
+        assert "greybody factor" in text
+
+
+# ===========================================================================
+# render_orchestrator_critique_log
+# ===========================================================================
+
+class TestRenderOrchestratorCritiqueLog:
+
+    def test_empty_returns_compact(self, empty_state):
+        text = render_orchestrator_critique_log(empty_state)
+        assert text == "No critiques filed."
+
+    def test_no_frontmatter(self, populated_state):
+        text = render_orchestrator_critique_log(populated_state)
+        assert "---" not in text
+
+    def test_body_without_frontmatter(self, populated_state):
+        text = render_orchestrator_critique_log(populated_state)
+        assert "# Active Critiques" in text
+        assert "CRIT-001" in text
+        assert "# Resolved Critiques" in text
+        assert "CRIT-002" in text
+
+
+# ===========================================================================
+# Snapshot regression: helpers don't break existing renderers
+# ===========================================================================
+
+class TestSnapshotRegression:
+    """Guard against helper extraction breaking snapshot renderers."""
+
+    def test_research_state_md_still_has_frontmatter(self, populated_state):
+        md = render_research_state_md(populated_state)
+        meta, body = parse_frontmatter(md)
+        assert meta["title"] == "Hawking Temperature Derivation"
+        assert "# Problem Statement" in body
+        assert "# Dead Ends" in body
+        assert "# Open Questions" in body
+
+    def test_research_state_md_empty_still_valid(self, empty_state):
+        md = render_research_state_md(empty_state)
+        meta, body = parse_frontmatter(md)
+        assert meta["iteration"] == 0
+        assert "# Problem Statement" in body
+        assert "(None yet.)" in body
+        assert "(None.)" in body
+
+    def test_critique_log_md_still_has_frontmatter(self, populated_state):
+        md = render_critique_log_md(populated_state)
+        meta, body = parse_frontmatter(md)
+        assert meta["total_critiques"] == 2
+        assert meta["unresolved_high"] == 1
+        assert "# Active Critiques" in body
+        assert "# Resolved Critiques" in body
+
+    def test_critique_log_md_empty_still_valid(self, empty_state):
+        md = render_critique_log_md(empty_state)
+        meta, body = parse_frontmatter(md)
+        assert meta["total_critiques"] == 0

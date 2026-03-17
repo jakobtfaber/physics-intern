@@ -8,13 +8,13 @@ from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..orchestrator_tools import OrchestratorToolExecutor
 from ..renderers import (
     render_computation_log_tail,
-    render_critique_log_md,
-    render_research_state_md,
+    render_orchestrator_critique_log,
+    render_orchestrator_research_state,
 )
 from ..research_state import CritiqueStatus, Severity
 from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from ..tools import ToolCall
-from .base import BaseAgent
+from .base import PROMPTS_DIR, BaseAgent
 from ..categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event
 
@@ -29,6 +29,15 @@ class OrchestratorAgent(BaseAgent):
         self.context_prefix: str = ""
         self._tool_executor: OrchestratorToolExecutor | None = None
         self.research_state: ResearchState | None = None
+
+    @property
+    def system_prompt(self) -> str:
+        if self._system_prompt is None:
+            base = (PROMPTS_DIR / self.prompt_file).read_text()
+            if self.research_state and self.research_state.problem_statement:
+                base += "\n\n## Problem Statement\n\n" + self.research_state.problem_statement
+            self._system_prompt = base
+        return self._system_prompt
 
     def _completion_analysis(self, iteration: int = 0) -> str | None:
         """Check if research appears complete; return banner if so."""
@@ -75,7 +84,7 @@ class OrchestratorAgent(BaseAgent):
         banner = self._completion_analysis(iteration)
         if banner:
             parts.append(f"{banner}\n")
-        state_text = render_research_state_md(self.research_state) if self.research_state else ""
+        state_text = render_orchestrator_research_state(self.research_state) if self.research_state else ""
         if iteration >= 3 and self.research_state and not self.research_state.conventions:
             parts.append(
                 ">>> REMINDER: The '# Conventions' section in RESEARCH_STATE.md "
@@ -96,14 +105,12 @@ class OrchestratorAgent(BaseAgent):
         parts.extend([
             f"# Current Iteration: {iteration} of {self.config.max_iterations} "
             f"({budget_remaining} remaining)\n",
-            "## RESEARCH_STATE.md\n",
+            "## Research State\n",
             state_text,
-            "\n## CRITIQUE_LOG.md\n",
-            render_critique_log_md(self.research_state) if self.research_state else "",
-            f"\n## COMPUTATION_LOG.md (last {self.config.orchestrator_comp_log_tail} entries)\n",
+            "\n## Critique Log\n",
+            render_orchestrator_critique_log(self.research_state) if self.research_state else "",
+            f"\n## Computation Log (last {self.config.orchestrator_comp_log_tail} entries)\n",
             render_computation_log_tail(self.research_state, self.config.orchestrator_comp_log_tail) if self.research_state else "",
-            "\n## METRICS.md (summary)\n",
-            self.workspace.read_file("METRICS.md"),
         ])
         return "\n".join(parts)
 
