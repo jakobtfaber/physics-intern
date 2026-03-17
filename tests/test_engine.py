@@ -209,7 +209,7 @@ class TestComputeVerdictTracking:
         assert "do NOT schedule another compute" in prefix
 
     def test_verified_clears_failure_count(self):
-        """VERIFIED clears the failure counter for that claim."""
+        """VERIFIED clears the failure counter and populates pending_verified_results."""
         engine = self._make_engine()
         self._add_comp(engine, "COMP-001", "WH-001", "VERIFIED")
         engine._state.claim_failure_count["WH-001"] = 1
@@ -220,6 +220,75 @@ class TestComputeVerdictTracking:
 
         assert "WH-001" not in engine._state.claim_failure_count
         assert len(engine._state.pending_compute_verdicts) == 0
+        assert len(engine._state.pending_verified_results) == 1
+
+    def test_verified_populates_dict_with_correct_keys(self):
+        """VERIFIED comp populates dict with claim, comp_id, kind, confidence."""
+        engine = self._make_engine()
+        from sciralph.research_state import Computation, Verdict
+        engine.research_state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001",
+            verdict=Verdict.VERIFIED, kind="verify",
+            confidence="exact", iteration=engine.iteration,
+        )
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify formula X = Y")
+        engine._track_computation(task)
+
+        assert len(engine._state.pending_verified_results) == 1
+        v = engine._state.pending_verified_results[0]
+        assert v["claim"] == "WH-001"
+        assert v["comp_id"] == "COMP-001"
+        assert v["kind"] == "verify"
+        assert v["confidence"] == "exact"
+
+    def test_verified_banner_renders_and_consumed_once(self):
+        """VERIFIED COMPUTATIONS banner renders in context prefix and is consumed."""
+        engine = self._make_engine()
+        engine._state.pending_verified_results = [{
+            "claim": "WH-001", "comp_id": "COMP-001",
+            "kind": "verify", "confidence": "",
+        }]
+        prefix = engine._build_context_prefix()
+        assert "VERIFIED COMPUTATIONS" in prefix
+        assert "COMP-001 VERIFIED WH-001 (verify)" in prefix
+        assert "Consider resolving related critiques" in prefix
+        # Consumed
+        assert len(engine._state.pending_verified_results) == 0
+        # Second call should be empty
+        prefix2 = engine._build_context_prefix()
+        assert "VERIFIED COMPUTATIONS" not in prefix2
+
+    def test_verified_banner_with_confidence(self):
+        """VERIFIED banner includes confidence when present."""
+        engine = self._make_engine()
+        engine._state.pending_verified_results = [{
+            "claim": "WH-001", "comp_id": "COMP-001",
+            "kind": "research_verify", "confidence": "exact",
+        }]
+        prefix = engine._build_context_prefix()
+        assert "confidence: exact" in prefix
+
+    def test_verified_banner_ordering(self):
+        """VERIFIED banner appears after explore results, before computation verdicts."""
+        engine = self._make_engine()
+        engine._state.pending_explore_results = [{
+            "target_id": "WH-002", "description": "Explore result",
+            "result": "x = 42", "confidence": "exact",
+        }]
+        engine._state.pending_verified_results = [{
+            "claim": "WH-001", "comp_id": "COMP-001",
+            "kind": "verify", "confidence": "",
+        }]
+        engine._state.pending_compute_verdicts = [{
+            "verdict": "REFUTED", "claim": "WH-003", "attempt": 1,
+            "notes": "", "failure_detail": "",
+        }]
+        prefix = engine._build_context_prefix()
+        explore_pos = prefix.index("EXPLORE RESULTS")
+        verified_pos = prefix.index("VERIFIED COMPUTATIONS")
+        verdicts_pos = prefix.index("COMPUTATION VERDICTS")
+        assert explore_pos < verified_pos < verdicts_pos
 
     def test_different_claims_tracked_independently(self):
         """Two different WH IDs have separate counters."""

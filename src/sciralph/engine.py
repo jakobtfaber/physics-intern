@@ -39,6 +39,7 @@ class LoopState:
     pending_violations: list = field(default_factory=list)
     pending_termination_blockers: list[str] = field(default_factory=list)
     pending_compute_verdicts: list[dict] = field(default_factory=list)
+    pending_verified_results: list[dict] = field(default_factory=list)
     pending_explore_results: list[dict] = field(default_factory=list)
     agent_failures: list[dict] = field(default_factory=list)
 
@@ -307,6 +308,17 @@ class SciRalph:
                 lines.append("  Consider: formulate a concrete WH from this result, or integrate directly.")
             lines.append(">>> END EXPLORE RESULTS <<<\n")
             self._state.pending_explore_results.clear()
+        if self._state.pending_verified_results:
+            lines.append(">>> VERIFIED COMPUTATIONS (previous iteration) <<<")
+            for v in self._state.pending_verified_results:
+                line = f"- {v['comp_id']} VERIFIED {v['claim']} ({v['kind']}"
+                if v.get('confidence'):
+                    line += f", confidence: {v['confidence']}"
+                line += ")"
+                lines.append(line)
+            lines.append("  Consider resolving related critiques and proceeding to promotion.")
+            lines.append(">>> END VERIFIED COMPUTATIONS <<<\n")
+            self._state.pending_verified_results.clear()
         if self._state.pending_compute_verdicts:
             lines.append(">>> COMPUTATION VERDICTS (previous iteration) <<<")
             for v in self._state.pending_compute_verdicts:
@@ -530,6 +542,12 @@ class SciRalph:
             if not key:
                 return
             if comp.verdict == Verdict.VERIFIED:
+                self._state.pending_verified_results.append({
+                    "claim": key,
+                    "comp_id": comp.id,
+                    "kind": comp.kind,
+                    "confidence": comp.confidence or "",
+                })
                 self._state.claim_failure_count.pop(key, None)
                 return
             count = self._state.claim_failure_count.get(key, 0) + 1
