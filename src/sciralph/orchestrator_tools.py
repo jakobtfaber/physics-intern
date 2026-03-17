@@ -293,6 +293,9 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
 # Tool executor
 # ---------------------------------------------------------------------------
 
+_BATCH_NUDGE = " Continue with other mutations or call set_next_task to dispatch."
+
+
 class OrchestratorToolExecutor:
     """Dispatches state-mutation tool calls for the orchestrator."""
 
@@ -395,7 +398,7 @@ class OrchestratorToolExecutor:
             "add_hypothesis", detail,
         )
         console.print(f"  [bold yellow]+{new_id}[/] {statement[:80]}")
-        return f"Added {new_id} — {statement}"
+        return f"Added {new_id} — {statement}." + _BATCH_NUDGE
 
     def _update_hypothesis(self, args: dict) -> str:
         state = self.research_state
@@ -413,7 +416,7 @@ class OrchestratorToolExecutor:
             h.derivation = args["derivation"]
         h.iteration_modified = self.iteration
         self.mutations_applied = True
-        return f"Updated {hid}"
+        return f"Updated {hid}." + _BATCH_NUDGE
 
     def _abandon_hypothesis(self, args: dict) -> str:
         from .research_state import FailedApproach, HypothesisStatus
@@ -467,7 +470,7 @@ class OrchestratorToolExecutor:
                 "Their promotion will be blocked until you remove this "
                 "dependency (update or abandon them too)."
             )
-        return msg
+        return msg + _BATCH_NUDGE
 
     def _promote_hypothesis(self, args: dict) -> str:
         from .research_state import HypothesisStatus, Severity, CritiqueStatus
@@ -550,7 +553,7 @@ class OrchestratorToolExecutor:
         console.print(f"  [bold green]{wh_id} → {er_id}[/] promoted")
 
         self.mutations_applied = True
-        return f"Promoted {wh_id} → {er_id}"
+        return f"Promoted {wh_id} → {er_id}." + _BATCH_NUDGE
 
     def _resolve_critique(self, args: dict) -> str:
         from .research_state import CritiqueStatus
@@ -577,7 +580,7 @@ class OrchestratorToolExecutor:
             "resolve_critique", f"{crit_id}: {resolution[:120]}",
         )
         console.print(f"  [dim]{crit_id}[/] resolved")
-        return f"Resolved {crit_id}"
+        return f"Resolved {crit_id}." + _BATCH_NUDGE
 
     def _update_section(self, args: dict) -> str:
         state = self.research_state
@@ -599,7 +602,7 @@ class OrchestratorToolExecutor:
             return f"Error: unknown section '{section_name}'"
 
         self.mutations_applied = True
-        return f"Updated # {section_name}"
+        return f"Updated # {section_name}." + _BATCH_NUDGE
 
     def _add_research_question(self, args: dict) -> str:
         from .research_state import ResearchQuestion
@@ -625,7 +628,7 @@ class OrchestratorToolExecutor:
             "add_research_question", f"{rq_id}: {question[:120]}",
         )
         console.print(f"  [bold cyan]+{rq_id}[/] {question[:80]}")
-        return f"Added {rq_id} — {question}"
+        return f"Added {rq_id} — {question}." + _BATCH_NUDGE
 
     def _resolve_research_question(self, args: dict) -> str:
         from .research_state import RQStatus
@@ -654,7 +657,7 @@ class OrchestratorToolExecutor:
             console.print(f"  [dim]{rq_id} → {', '.join(resolved_to)}[/] resolved")
         else:
             console.print(f"  [dim]{rq_id}[/] abandoned")
-        return f"Resolved {rq_id} → {', '.join(resolved_to)}"
+        return f"Resolved {rq_id} → {', '.join(resolved_to)}." + _BATCH_NUDGE
 
     def _set_next_task(self, args: dict) -> str:
         self.task_data = args

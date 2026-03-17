@@ -29,7 +29,12 @@ Each turn you do four things:
 
 4. **Dispatch** — Call `set_next_task` with a focused task description and a `target_claim`.
 
-**IMPORTANT:** Call `set_next_task` EXACTLY ONCE — it terminates the round. Include ALL mutations (add_hypothesis, promote_hypothesis, resolve_critique, etc.) in the SAME response, before `set_next_task`.
+**IMPORTANT:** Call `set_next_task` EXACTLY ONCE — it terminates the round. Include ALL mutations (add_hypothesis, promote_hypothesis, resolve_critique, etc.) in the SAME response, before `set_next_task`. Never call a mutation tool alone — always pair it with `set_next_task` in one response.
+
+**Example — integrating an explore result (single response with all tool calls):**
+1. `add_hypothesis` — create WH from explore result
+2. `update_section` — update conventions if needed
+3. `set_next_task` — dispatch verification
 
 ## Task Dispatch
 
