@@ -65,6 +65,25 @@ _PROVIDER_SIDE_400_PATTERNS = {
 }
 
 
+def _is_provider_side_400(exc: Exception) -> bool:
+    """Return True if *exc* is an HTTP 400 from a provider-side processing failure.
+
+    These are input-dependent (deterministic), not truly transient — retrying
+    the identical request will almost always produce the same error.  We still
+    allow a small number of retries (capped in _call_provider_with_retry) but
+    give up early instead of burning all 10 attempts.
+    """
+    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    if status is None:
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            status = getattr(resp, "status_code", None)
+    if status is not None and int(status) == 400:
+        msg_lower = str(exc).lower()
+        return any(p in msg_lower for p in _PROVIDER_SIDE_400_PATTERNS)
+    return False
+
+
 def _is_transient(exc: Exception) -> bool:
     """Return True if *exc* looks like a transient / retryable API error."""
     # Tool-call generation failures are stochastic — retry may produce valid JSON
@@ -81,12 +100,9 @@ def _is_transient(exc: Exception) -> bool:
         status = int(status)
         if status in _TRANSIENT_STATUS_CODES:
             return True
-        # Some providers return 400 for server-side processing failures —
-        # treat as transient when the message matches known patterns
-        if status == 400:
-            msg_lower = str(exc).lower()
-            if any(p in msg_lower for p in _PROVIDER_SIDE_400_PATTERNS):
-                return True
+    # Provider-side 400s (post processor crashes, etc.) — retryable but capped
+    if _is_provider_side_400(exc):
+        return True
     # Check exception type name anywhere in the MRO
     for cls in type(exc).__mro__:
         if cls.__name__ in _TRANSIENT_EXC_NAMES:
@@ -105,6 +121,9 @@ def _call_provider_with_retry(provider: LLMProvider, config: Config,
             return provider.call(**call_kwargs)
         except Exception as exc:
             if not _is_transient(exc) or attempt == config.api_retry_max:
+                raise
+            # Provider-side 400s are deterministic — cap at 1 retry (2 attempts total)
+            if _is_provider_side_400(exc) and attempt >= 1:
                 raise
             console.print(
                 f"[yellow]Transient API error (attempt {attempt + 1}/"
@@ -244,6 +263,18 @@ def run_agent_loop(
                 loop_exit_reason = "tool_call_failure"
                 if config.workspace_dir:
                     log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "tool_call_failure_fallback",
+                                       f"round={round_num}")
+                break
+            if _is_provider_side_400(exc):
+                console.print(
+                    f"[yellow]Provider-side 400 after retries "
+                    f"(round {round_num}): {exc} — falling back to "
+                    f"text-only response[/yellow]"
+                )
+                tool_call_failure = True
+                loop_exit_reason = "provider_side_400"
+                if config.workspace_dir:
+                    log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "provider_side_400_fallback",
                                        f"round={round_num}")
                 break
             raise
@@ -471,6 +502,7 @@ def run_agent_loop(
     _reasons_human = {
         "max_rounds": "You have reached the maximum number of tool-use rounds.",
         "tool_call_failure": "The tool-calling interface is unavailable due to a provider error.",
+        "provider_side_400": "The tool-calling interface is unavailable due to a provider-side processing error.",
         "empty_end_turn": "Your previous responses produced no output after repeated attempts.",
     }
     reason = _reasons_human.get(loop_exit_reason, _reasons_human["max_rounds"])

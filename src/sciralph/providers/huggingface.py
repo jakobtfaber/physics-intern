@@ -217,7 +217,8 @@ class HuggingFaceProvider(LLMProvider):
         try:
             response = self._client.chat.completions.create(**kwargs)
         except Exception as exc:
-            if "tool_use_failed" in str(exc).lower():
+            exc_msg = str(exc).lower()
+            if "tool_use_failed" in exc_msg or "post processor" in exc_msg:
                 repaired = self._repair_failed_tool_call(exc)
                 if repaired is not None:
                     return repaired

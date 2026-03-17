@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from sciralph.config import Config
-from sciralph.llm import _is_transient, _is_tool_call_failure, _call_provider_with_retry
+from sciralph.llm import _is_transient, _is_tool_call_failure, _is_provider_side_400, _call_provider_with_retry
 from sciralph.providers.base import ProviderResponse
 
 
@@ -157,6 +157,68 @@ def test_is_tool_call_failure_oss_model_patterns(exc):
 def test_is_transient_true_for_oss_model_errors(exc):
     """OSS model tool-choice errors are transient (retryable)."""
     assert _is_transient(exc) is True
+
+
+# ---------------------------------------------------------------------------
+# _is_provider_side_400
+# ---------------------------------------------------------------------------
+
+class FakePostProcessorError(Exception):
+    """Mimics HF 400 with 'gpt oss post processor' message."""
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "BadRequestError: Encountered Exception during gpt oss post processor"
+        )
+
+
+class FakeInternalError400(Exception):
+    """Mimics provider 400 with 'internal error' message."""
+    def __init__(self):
+        self.status_code = 400
+        super().__init__("BadRequestError: internal error during processing")
+
+
+class FakeBackendError400(Exception):
+    """Mimics provider 400 with 'backend error' message."""
+    def __init__(self):
+        self.status_code = 400
+        super().__init__("BadRequestError: backend error in model output")
+
+
+class FakePostProcessorResponseError(Exception):
+    """Mimics httpx-style error where status is on .response.status_code."""
+    def __init__(self):
+        self.response = MagicMock(status_code=400)
+        super().__init__(
+            "Encountered Exception during gpt oss post processor"
+        )
+
+
+@pytest.mark.parametrize("exc", [
+    FakePostProcessorError(),
+    FakeInternalError400(),
+    FakeBackendError400(),
+    FakePostProcessorResponseError(),
+])
+def test_is_provider_side_400_true(exc):
+    assert _is_provider_side_400(exc) is True
+
+
+@pytest.mark.parametrize("exc", [
+    FakeHTTPError(400),           # plain 400 without matching message
+    FakeHTTPError(500),           # 500 is not a 400
+    FakeToolCallFailure(),        # tool_use_failed is a different category
+    ValueError("post processor"), # no status code
+    RuntimeError("internal error"),  # no status code
+])
+def test_is_provider_side_400_false(exc):
+    assert _is_provider_side_400(exc) is False
+
+
+def test_is_transient_true_for_provider_side_400():
+    """Provider-side 400s are classified as transient (retryable, but capped)."""
+    assert _is_transient(FakePostProcessorError()) is True
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +408,42 @@ def test_retry_with_timeout_error():
         )
 
     assert result.text == "ok"
+
+
+def test_provider_side_400_capped_at_2_attempts():
+    """Provider-side 400s are retried once, then raised (2 attempts total)."""
+    provider = MagicMock()
+    provider.call.side_effect = FakePostProcessorError()
+    config = _make_config(api_retry_max=10)  # would do 11 attempts normally
+
+    with patch("sciralph.llm.time.sleep"):
+        with pytest.raises(FakePostProcessorError):
+            _call_provider_with_retry(
+                provider, config, model="m", max_tokens=100,
+                system="s", messages=[],
+            )
+
+    # Only 2 attempts: initial + 1 retry, NOT 11
+    assert provider.call.call_count == 2
+
+
+def test_provider_side_400_succeeds_on_retry():
+    """Provider-side 400 on first attempt, success on retry."""
+    provider = MagicMock()
+    provider.call.side_effect = [
+        FakePostProcessorError(),
+        _make_provider_response("recovered"),
+    ]
+    config = _make_config(api_retry_max=10)
+
+    with patch("sciralph.llm.time.sleep"):
+        result = _call_provider_with_retry(
+            provider, config, model="m", max_tokens=100,
+            system="s", messages=[],
+        )
+
+    assert result.text == "recovered"
+    assert provider.call.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -607,6 +705,58 @@ class TestPenultimateRoundMessage:
         # The forced text-only call should NOT include tools
         final_call = provider.call.call_args_list[-1]
         assert "tools" not in final_call.kwargs
+
+    def test_provider_side_400_graceful_degradation(self):
+        """run_agent_loop degrades to forced text-only call on provider-side 400."""
+        from sciralph.llm import run_agent_loop
+        from sciralph.tools import ToolExecutor, ToolCall
+
+        max_rounds = 5
+        provider = MagicMock()
+        provider.prepare_messages.side_effect = lambda msgs: msgs
+
+        # Provider raises post-processor error on the very first round
+        post_proc_exc = FakePostProcessorError()
+        final_response = self._make_final_response(
+            "## COMP-001: Fallback\n**VERDICT:** INCONCLUSIVE"
+        )
+        # First call raises, second call (forced text-only) succeeds
+        provider.call = MagicMock(side_effect=[post_proc_exc, final_response])
+        provider.format_assistant_message = MagicMock(
+            return_value={"role": "assistant", "content": "tool"}
+        )
+        provider.build_tool_result_messages = MagicMock(
+            return_value=[{"role": "user", "content": "result"}]
+        )
+
+        tool_executor = MagicMock(spec=ToolExecutor)
+        config = _make_config(api_retry_max=0)  # no retries — fail immediately
+        config.max_tokens = 4096
+        config.logs_dir = ""
+        config.computation_token_alert = 999999
+        config.progress_check_interval = 999
+
+        with patch("sciralph.llm._get_provider", return_value=provider), \
+             patch("sciralph.llm.time.sleep"):
+            result = run_agent_loop(
+                system="test", user_content="test", config=config,
+                tool_executor=tool_executor,
+                tools=[{"type": "function", "function": {"name": "execute_python"}}],
+                max_rounds=max_rounds,
+            )
+
+        assert result.stop_reason == "max_rounds_forced"
+        assert "COMP-001" in result.text
+        # The forced text-only call should NOT include tools
+        final_call = provider.call.call_args_list[-1]
+        assert "tools" not in final_call.kwargs
+        # The forced message should mention provider-side processing error
+        final_messages = final_call.kwargs.get("messages", [])
+        forced_msgs = [m for m in final_messages
+                       if isinstance(m, dict) and m.get("role") == "user"
+                       and isinstance(m.get("content"), str)
+                       and "provider-side processing error" in m["content"]]
+        assert len(forced_msgs) == 1
 
     def test_forced_final_call_uses_user_message_not_system_mutation(self):
         """The forced text-only call uses a user message, not a mutated system prompt."""
