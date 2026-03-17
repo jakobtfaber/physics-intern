@@ -474,9 +474,15 @@ class OrchestratorToolExecutor:
         h.status = HypothesisStatus.ABANDONED
         h.iteration_modified = self.iteration
 
+        related_comp_ids = [
+            c.id for c in state.computations.values()
+            if c.target_hypothesis == hid
+        ]
         state.failed_approaches.append(FailedApproach(
             description=f"Abandoned {hid} — {title}",
             reason=reason,
+            related_comps=related_comp_ids,
+            derivation_excerpt=(h.derivation[:300] if h.derivation else ""),
             iteration=self.iteration,
         ))
 

@@ -125,6 +125,7 @@ def populated_state():
         reason="Requires regularization scheme not yet implemented",
         related_comps=["COMP-001"],
         iteration=2,
+        derivation_excerpt="Euclidean continuation t -> -i tau, period beta = 1/T.",
     ))
 
     return state
@@ -227,6 +228,13 @@ class TestRenderResearchStateMd:
         dead_ends = md[dead_ends_start:]
         assert "Direct Euclidean path integral approach" in dead_ends
         assert "Requires regularization" in dead_ends
+
+    def test_dead_ends_renders_derivation_and_related_comps(self, populated_state):
+        md = render_research_state_md(populated_state)
+        dead_ends_start = md.index("# Dead Ends")
+        dead_ends = md[dead_ends_start:]
+        assert "Derivation: Euclidean continuation" in dead_ends
+        assert "Related computations: COMP-001" in dead_ends
 
     def test_empty_state_valid_markdown(self, empty_state):
         md = render_research_state_md(empty_state)

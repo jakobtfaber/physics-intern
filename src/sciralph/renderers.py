@@ -133,6 +133,10 @@ def _research_state_body(
             parts.append(f"- {fa.description}")
             if fa.reason:
                 parts.append(f"  Reason: {fa.reason}")
+            if fa.derivation_excerpt:
+                parts.append(f"  Derivation: {fa.derivation_excerpt}")
+            if fa.related_comps:
+                parts.append(f"  Related computations: {', '.join(fa.related_comps)}")
         # Only render abandoned hypotheses not already covered by failed_approaches
         # (abandon_hypothesis tool adds to both, so skip those to avoid duplicates)
         fa_descriptions = {fa.description for fa in state.failed_approaches}

@@ -108,6 +108,7 @@ class FailedApproach:
     reason: str = ""
     related_comps: list[str] = field(default_factory=list)
     iteration: int = 0
+    derivation_excerpt: str = ""
 
 
 @dataclass
@@ -475,6 +476,7 @@ class ResearchState:
                 reason=fdata.get("reason", ""),
                 related_comps=fdata.get("related_comps", []),
                 iteration=fdata.get("iteration", 0),
+                derivation_excerpt=fdata.get("derivation_excerpt", ""),
             ))
         state.critic_clean_reviews = data.get("critic_clean_reviews", [])
         # Deserialize research_strategy if present

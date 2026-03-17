@@ -178,7 +178,39 @@ class TestAbandonHypothesis:
         assert "WH-001" in fa.description
         assert "Spin prediction was wrong." in fa.reason
         assert fa.iteration == 3
+        assert fa.derivation_excerpt == "Photon has spin-1."
         assert ex.mutations_applied
+
+    def test_abandon_populates_related_comps(self):
+        """Abandoning a hypothesis with targeting computations populates related_comps."""
+        ws = _make_workspace()
+        state = _make_state()
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="WH-001",
+            verdict=Verdict.REFUTED, kind="verify",
+        )
+        state.computations["COMP-002"] = Computation(
+            id="COMP-002", target_hypothesis="WH-002",
+            verdict=Verdict.VERIFIED, kind="verify",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        ex.execute("abandon_hypothesis", {
+            "id": "WH-001", "reason": "Refuted.",
+        })
+        fa = state.failed_approaches[0]
+        assert fa.related_comps == ["COMP-001"]
+
+    def test_abandon_long_derivation_truncated(self):
+        """Long derivation is truncated to 300 chars in derivation_excerpt."""
+        ws = _make_workspace()
+        state = _make_state()
+        state.hypotheses["WH-001"].derivation = "A" * 500
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        ex.execute("abandon_hypothesis", {
+            "id": "WH-001", "reason": "Too long.",
+        })
+        fa = state.failed_approaches[0]
+        assert len(fa.derivation_excerpt) == 300
 
     def test_missing_id_returns_error(self):
         ws = _make_workspace()
