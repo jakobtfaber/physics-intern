@@ -90,32 +90,32 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | File | Lines | Purpose |
 |------|------:|---------|
 | `main.py` | 82 | CLI entry point, arg parsing, workspace naming (includes model label in dir name) |
-| `engine.py` | 599 | `SciRalph` class, `LoopState` dataclass: main loop, dispatch, compression, scaffolding log events |
-| `research_state.py` | 695 | `ResearchState` dataclass: authoritative structured state (hypotheses, research_questions, computations, critiques, failed_approaches), query/mutation methods, JSON serialization |
-| `renderers.py` | 340 | Snapshot renderers (state → `RESEARCH_STATE.md`, `COMPUTATION_LOG.md`, `CRITIQUE_LOG.md`) + `render_computation_log_tail()` helper |
+| `engine.py` | 585 | `SciRalph` class, `LoopState` dataclass: main loop, dispatch, `_render_files_for_git()`, compression, scaffolding log events |
+| `research_state.py` | 523 | `ResearchState` dataclass: authoritative structured state (hypotheses, research_questions, computations, critiques, failed_approaches), query/mutation methods, JSON serialization |
+| `renderers.py` | 253 | Snapshot renderers (state → `RESEARCH_STATE.md`, `COMPUTATION_LOG.md`, `CRITIQUE_LOG.md`) + `render_computation_log_tail()` helper |
 | `orchestrator_tools.py` | 662 | `OrchestratorToolExecutor`: 9 state-mutation tools for orchestrator agent |
 | `critic_tools.py` | 154 | `CriticToolExecutor`: `submit_critique` + `finish_review` tools for critic agent |
 | `tools.py` | 335 | `ToolExecutor`, `ToolCall`, `execute_python` + `submit_verdict`/`submit_result` + `report_progress` tool schemas; `tools_for_task_type()` |
 | `categories.py` | 10 | `CompensationCategory` enum (call_reliability, state_invariants, loop_control, output_normalization) |
-| `validation.py` | 603 | Post-integration checks (4 checks), `can_terminate()` gates, `Violation` dataclass |
+| `validation.py` | 332 | Post-integration checks (4 checks on ResearchState), `can_terminate()` gates, `Violation` dataclass |
 | `config.py` | 168 | `Config` dataclass, 3-tier config builder, model resolution from `models.yaml` |
 | `task.py` | 86 | `Task` dataclass, `TaskType` enum, `TASK_TYPE_AGENT_MAP`, YAML serialization |
 | `llm.py` | 757 | Provider-agnostic LLM wrapper (`call_llm`, `run_agent_loop`), retry, logging, event log entries |
-| `workspace.py` | 262 | File I/O, git ops, `log_scaffold_event()`, `log_llm_call()` |
+| `workspace.py` | 214 | File I/O, git ops, `log_scaffold_event()`, `log_llm_call()` |
 | `markdown.py` | 507 | Frontmatter parsing, critique lifecycle, comp parsing |
 | `sandbox.py` | 49 | `subprocess.run` wrapper with timeout |
 | `metrics.py` | 116 | `MetricsTracker`, `METRICS.md` rendering |
 | `verify.py` | 894 | Independent verification script (science + process audit) |
 | `agents/base.py` | 161 | `BaseAgent` ABC, template method, retry logic, tool-use dispatch |
-| `agents/orchestrator.py` | 198 | Agentic: state mutation via `OrchestratorToolExecutor`, emits `CURRENT_TASK.md` |
-| `agents/computationalist.py` | 251 | Base agentic code execution; writes `Computation` objects to `ResearchState` |
-| `agents/compute_verify.py` | 28 | `ComputeVerifyAgent`: verify mode (`execute_python` + `submit_verdict` + `report_progress`) |
-| `agents/compute_explore.py` | 28 | `ComputeExploreAgent`: explore mode (`execute_python` + `submit_result` + `report_progress`) |
-| `agents/research_verify.py` | 27 | `ResearchVerifyAgent`: analytical verification (`submit_verdict` + `report_progress`, no `execute_python`) |
-| `agents/research_explore.py` | 40 | `ResearchExploreAgent`: analytical exploration (`submit_result` + `report_progress`, no `execute_python`) |
-| `agents/critic.py` | 165 | Agentic: adversarial review via `CriticToolExecutor`, writes `Critique` objects to `ResearchState` |
+| `agents/orchestrator.py` | 182 | Agentic: state mutation via `OrchestratorToolExecutor`, emits `CURRENT_TASK.md` |
+| `agents/computationalist.py` | 208 | Base agentic code execution; writes `Computation` objects to `ResearchState` |
+| `agents/compute_verify.py` | 29 | `ComputeVerifyAgent`: verify mode (`execute_python` + `submit_verdict` + `report_progress`) |
+| `agents/compute_explore.py` | 29 | `ComputeExploreAgent`: explore mode (`execute_python` + `submit_result` + `report_progress`) |
+| `agents/research_verify.py` | 28 | `ResearchVerifyAgent`: analytical verification (`submit_verdict` + `report_progress`, no `execute_python`) |
+| `agents/research_explore.py` | 41 | `ResearchExploreAgent`: analytical exploration (`submit_result` + `report_progress`, no `execute_python`) |
+| `agents/critic.py` | 121 | Agentic: adversarial review via `CriticToolExecutor`, writes `Critique` objects to `ResearchState` |
 | `agents/compressor.py` | 27 | One-shot: file size management |
-| `agents/formatter.py` | 40 | One-shot: produces `ANSWER.md` from final research state |
+| `agents/formatter.py` | 43 | One-shot: produces `ANSWER.md` from final research state |
 | `providers/__init__.py` | 24 | `create_provider()` factory + re-exports |
 | `providers/base.py` | 75 | `LLMProvider` ABC + `ProviderResponse` dataclass |
 | `providers/anthropic.py` | 126 | Anthropic Claude adapter |
@@ -123,7 +123,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `providers/google.py` | 155 | Google Gemini adapter |
 | `providers/huggingface.py` | 306 | HuggingFace Inference Providers adapter |
 | `models.yaml` | ~100 | Model registry (friendly keys → provider, model_id, env_key, cost) |
-| **Total** | **~8,197** | |
+| **Total** | **~7,381** | |
 
 ---
 
@@ -718,7 +718,7 @@ Non-VERIFIED verify verdicts go to `pending_compute_verdicts` in `LoopState`, re
 |-----------|----------|--------------|---------------------|
 | Transient-error catch at dispatch | `run()` try/except | If a transient error escapes retry logic, skip iteration with `continue` and file a `dispatch_failure` violation | API errors crashing the entire session |
 | Routing conflict auto-correction | `_dispatch()` | Checks `assigned_to` against `TASK_TYPE_AGENT_MAP`; corrects empty/invalid values; routes by task type if `assigned_to` disagrees | Orchestrator assigning wrong agent |
-| Unknown task type fallback | `_dispatch()` | Routes unknown types to researcher | LLM hallucinating task types |
+| Unknown task type fallback | `_dispatch()` | Routes unknown types to research_explore | LLM hallucinating task types |
 | Scaffolding-maintained iteration counter | `_update_research_iteration()` | Updates `iteration` on ResearchState unconditionally at the top of each iteration | LLM forgetting or corrupting iteration count |
 | Status field safety-net exit | `_check_status_field()` | Reads ResearchState for `status: completed/abandoned/partially_complete` → exits loop | Loop continuing past a declared terminal state |
 | NO_CRITIQUES_FILED handling | `_dispatch()` | Detects `_no_critiques_filed` flag on critic agent → files `critic_clean` violation telling orchestrator to proceed to synthesize | Empty critic looping indefinitely |
@@ -784,7 +784,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 
 ## 9. Testing
 
-**693 tests** across 23 test files. Run with `uv run python -m pytest -v`.
+**668 tests** across 23 test files. Run with `uv run python -m pytest -v`.
 
 | Test file | Lines | What it covers |
 |-----------|------:|----------------|
@@ -825,14 +825,6 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 
 ## 10. Known Issues
 
-### `_check_status_field` uses string matching
-
-```python
-if f'status: "{status}"' in state or f"status: {status}" in state:
-```
-
-Checks for both quoted and unquoted YAML values by substring match on raw file text. A comment containing `status: completed` would trigger false termination.
-
 ### `Task.from_frontmatter` iteration-0 gotcha
 
 ```python
@@ -840,10 +832,6 @@ meta.get("iteration", fallback_iteration) or fallback_iteration
 ```
 
 The `or` treats `0` as falsy. A task explicitly written with `iteration: 0` silently falls back. Unlikely in practice.
-
-### `_enforce_problem_statement` edge case
-
-Uses a DOTALL lookahead `(?=\n# )` to find the next top-level heading. If Problem Statement is the last section (no following `# ` heading), the regex won't match and the problem statement won't be enforced.
 
 ### Context accumulation in `run_agent_loop`
 
@@ -853,9 +841,9 @@ The `messages` list grows unboundedly across rounds. Large tool outputs can push
 
 ## 11. Documentation Status
 
-All documentation was synced with the codebase on 2026-03-16.
+All documentation was synced with the codebase on 2026-03-17.
 
-- **ResearchState as source of truth** — `research_state.py` (695 lines) provides authoritative structured state; agents mutate via tools, Markdown rendered from state
+- **ResearchState as source of truth** — `research_state.py` (523 lines) provides authoritative structured state; agents mutate via tools, Markdown rendered from state for git snapshots only
 - **Six agentic agents** — orchestrator (9 tools via `OrchestratorToolExecutor`), four compute/research agents (2-3 tools via `ToolExecutor`, dynamic per task type), critic (2 tools via `CriticToolExecutor`); all use `stop_after_round` mechanism
 - **2x2 dispatch matrix** — four specialized agents (compute_verify, compute_explore, research_verify, research_explore) inherit from `ComputationalistAgent`; each has focused prompt and tool set
 - **Renderers** — `renderers.py` produces Markdown snapshot files from ResearchState; agents render context from `self.research_state` via renderers; MD files rendered centrally by engine's `_render_files_for_git()`

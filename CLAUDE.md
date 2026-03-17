@@ -49,7 +49,7 @@ src/sciralph/
     compressor.py      — File size management
     formatter.py       — Produces ANSWER.md from final research state (one-shot)
   prompts/             — Static .md system prompt files (one per agent, plus verifier): orchestrator.md, computationalist.md, compute_verify.md, compute_explore.md, research_verify.md, research_explore.md, deep_critic.md, compressor.md, formatter.md, verifier.md, process_auditor.md
-tests/                 — ~693 pytest tests across 23+ files (engine, validation, markdown, llm_retry, report_recommendations, verify, orchestrator, orchestrator_tools, tools, config, computationalist, critic_tools, renderers, research_state, workspace, provider_smoke, huggingface_repair, task, metrics, conversation_log, reasoning_tokens, sandbox, scaffold_log)
+tests/                 — ~668 pytest tests across 23+ files (engine, validation, markdown, llm_retry, report_recommendations, verify, orchestrator, orchestrator_tools, tools, config, computationalist, critic_tools, renderers, research_state, workspace, provider_smoke, huggingface_repair, task, metrics, conversation_log, reasoning_tokens, sandbox, scaffold_log)
 problems/
   tier1/               — 10 core problem definitions
   tier2/               — 12 advanced problem definitions
@@ -149,7 +149,7 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-All core functionality is implemented and working (~693 tests passing):
+All core functionality is implemented and working (~668 tests passing):
 
 - **Core loop** — eight agent roles (orchestrator, research_explore, compute_verify, compute_explore, research_verify, deep critic, compressor, formatter) following a 2x2 dispatch matrix (reasoning/code × explore/verify), main loop, orchestrator integration via EXPLORE RESULTS banner, forced critic pre-check, compute verdict signaling, termination gates (`can_terminate`), `_sync_research_state` on termination (A3); unified entity numbering (RQ/WH/ER share one counter, `next_entity_num()`); `_render_files_for_git()` consolidates all MD file writes
 - **Validation pipeline** — 4 post-integration checks operating on ResearchState directly (ER demotion safety, phantom labels, stale unverified labels, critique resolution consistency), violation injection into orchestrator context; WH→ER promotion via orchestrator's `promote_hypothesis` tool with dependency-aware guardrails (blocks on unestablished `depends_on`), requires VERIFIED computation with kind in {verify, research_verify}
@@ -164,4 +164,4 @@ All core functionality is implemented and working (~693 tests passing):
 - **Scaffolding log** — `EVENT_LOG.jsonl` instrumentation across all 4 categories; every compensation mechanism emits structured events via `log_scaffold_event()` and LLM calls via `log_llm_call()` for profiling which mechanisms actually fire per model; `executor_stop_signal` and `orchestrator_tool_mutations` events removed for noise reduction (E1)
 - **LLM loop resilience** — empty end-turn recovery (C1), context-aware exit tool names in warnings (C2), `loop_exit_reason` tracking (C5)
 
-Next steps: Simplify `markdown.py` by removing functions only used by eliminated code paths; remove legacy `computationalist` agent name from dispatch; further reduce dead code now that agents use renderers exclusively, validation operates on ResearchState, and `computation_index.py`/`critique_index.py` are deleted
+Next steps: Simplify `markdown.py` by removing functions only used by eliminated code paths (e.g. `count_unresolved_critiques`, `_parse_comp_entries`, `detect_computation_stalls`, `find_prior_failures_for_claim`); remove legacy `computationalist` agent name from dispatch

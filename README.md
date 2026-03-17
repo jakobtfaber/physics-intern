@@ -8,7 +8,7 @@ SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temp
 
 **How it works.** Eight specialised LLM agent roles (orchestrator, compute_verify, compute_explore, research_verify, research_explore, deep critic, compressor, formatter) take turns in a loop following a 2x2 dispatch matrix (reasoning/code × explore/verify). No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. The orchestrator plans the next step, a worker agent executes it, and the cycle repeats. A layered verification stack — SymPy/NumPy computations, adversarial critique with severity tracking, and dependency-aware result promotion — acts as backpressure against errors. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
 
-**Current status.** Core functionality is complete (762 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 4 categories) compensates for predictable LLM failures: premature result promotion, hallucinated IDs, malformed YAML, ignored instructions, empty outputs, and premature termination. Every mechanism is instrumented — `EVENT_LOG.jsonl` records each intervention with category, event key, and detail, enabling profiling of which mechanisms actually fire per model. See `CODEBASE.md` §7 for the full catalog.
+**Current status.** Core functionality is complete (668 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 4 categories) compensates for predictable LLM failures: premature result promotion, hallucinated IDs, malformed YAML, ignored instructions, empty outputs, and premature termination. Every mechanism is instrumented — `EVENT_LOG.jsonl` records each intervention with category, event key, and detail, enabling profiling of which mechanisms actually fire per model. See `CODEBASE.md` §7 for the full catalog.
 
 ## Quick Start
 
@@ -100,16 +100,16 @@ The four compute/research agents follow a 2x2 dispatch matrix:
 | **Reasoning** | research_explore     | research_verify      |
 | **Code**      | compute_explore      | compute_verify       |
 
-| Agent | Role | Mode | Reads | Writes |
-|-------|------|------|-------|--------|
-| **Orchestrator** | Plans next task, mutates state via tools | Agentic (9 tools) | All state files | `RESEARCH_STATE.md`, `CRITIQUE_LOG.md`, `CURRENT_TASK.md` |
-| **ComputeVerify** | Numerical verification via code | Agentic (3 tools) | Task + research state | `COMPUTATION_LOG.md`, code files |
-| **ComputeExplore** | Exploratory computation via code | Agentic (3 tools) | Task + research state | `COMPUTATION_LOG.md`, code files |
-| **ResearchVerify** | Analytical verification without code | Agentic (2 tools) | Task + research state | `COMPUTATION_LOG.md` |
-| **ResearchExplore** | Analytical exploration, derivation | Agentic (2 tools) | Task + research state | `COMPUTATION_LOG.md` |
-| **Deep Critic** | Adversarial review — finds flaws, gaps, errors | Agentic (2 tools) | Research state + logs | `CRITIQUE_LOG.md` |
+| Agent | Role | Mode | Context source | Mutates |
+|-------|------|------|----------------|---------|
+| **Orchestrator** | Plans next task, mutates state via tools | Agentic (9 tools) | ResearchState via renderers + METRICS.md | ResearchState, `CURRENT_TASK.md` |
+| **ComputeVerify** | Numerical verification via code | Agentic (3 tools) | ResearchState via renderers + CURRENT_TASK.md | ResearchState (Computation objects) |
+| **ComputeExplore** | Exploratory computation via code | Agentic (3 tools) | ResearchState via renderers + CURRENT_TASK.md | ResearchState (Computation objects) |
+| **ResearchVerify** | Analytical verification without code | Agentic (2 tools) | ResearchState via renderers + CURRENT_TASK.md | ResearchState (Computation objects) |
+| **ResearchExplore** | Analytical exploration, derivation | Agentic (2 tools) | ResearchState via renderers + CURRENT_TASK.md | ResearchState (Computation objects) |
+| **Deep Critic** | Adversarial review — finds flaws, gaps, errors | Agentic (2 tools) | ResearchState via renderers | ResearchState (Critique objects) |
 | **Compressor** | Archives and shrinks files exceeding size thresholds | One-shot | Target file | Compressed target file |
-| **Formatter** | Produces clean `ANSWER.md` from final research state | One-shot | Research state + log | `ANSWER.md` |
+| **Formatter** | Produces clean `ANSWER.md` from final research state | One-shot | ResearchState via renderers | `ANSWER.md` |
 
 ### Verification Stack
 
@@ -119,7 +119,7 @@ Results go through layered verification before being promoted to "Established":
 2. **Adversarial critique** — Deep Critic reviews with no unresolved HIGH critiques
 3. **Dependency tracking** — All prerequisite results must themselves be Established
 
-The orchestrator enforces these promotion criteria via its `promote_hypothesis` tool and forces periodic critic passes every N iterations. A post-integration validation pipeline (`validation.py`) runs 8 checks after every orchestrator pass — demoting unverified ERs, stripping phantom labels, fixing agent routing, ensuring critique resolutions were actually applied. Termination goes through gates requiring critic review, no unresolved HIGH critiques, and numerical verification when required by the problem. See `CODEBASE.md` §7 for the full LLM failure compensation catalog.
+The orchestrator enforces these promotion criteria via its `promote_hypothesis` tool and forces periodic critic passes every N iterations. A post-integration validation pipeline (`validation.py`) runs 4 checks on ResearchState after every orchestrator pass — demoting unverified ERs, stripping phantom labels, and ensuring critique resolution consistency. Termination goes through gates requiring critic review, no unresolved HIGH critiques, and numerical verification when required by the problem. See `CODEBASE.md` §7 for the full LLM failure compensation catalog.
 
 ### Workspace Files
 
@@ -149,7 +149,7 @@ src/sciralph/
   critic_tools.py      — CriticToolExecutor: submit_critique + finish_review tools for deep critic
   tools.py             — ToolExecutor + ToolCall for compute/research agents (execute_python, submit_verdict/submit_result, report_progress)
   categories.py        — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
-  validation.py        — Post-integration checks (8 checks) + termination gates
+  validation.py        — Post-integration checks (4 checks on ResearchState) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
   config.py            — Config dataclass (model, provider, thresholds, timeouts)
   llm.py               — Provider-agnostic LLM wrapper (call_llm, run_agent_loop) with retry + audit logging
@@ -177,7 +177,7 @@ src/sciralph/
     google.py          — Google Gemini adapter
     huggingface.py     — HuggingFace Inference Providers adapter
   models.yaml          — Model registry (friendly keys → provider + model_id + env_key + cost)
-tests/                 — 762 pytest tests across 23 files
+tests/                 — 668 pytest tests across 23 files
 problems/
   tier1/               — 10 core problems
   tier2/               — 12 advanced problems

@@ -8,8 +8,6 @@ description: "Investigates SciRalph workspace run by reading the verification re
 Given a workspace directory (under `workspaces/` in the SciRalph project), perform a systematic post-mortem analysis of the run and its possible failure modes or inefficiencies.
 The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
 
-**Tools:** This is a read-only analysis. Use only `Read`, `Glob`, and `Grep`. Do NOT use `Bash` — all data is in workspace files that can be read directly.
-
 ## Workspace Structure
 
 A workspace contains these key files:
@@ -17,14 +15,16 @@ A workspace contains these key files:
 | File | Purpose |
 |---|---|
 | `VERIFICATION.md` | Independent verification report (science + process audit) |
-| `RESEARCH_GRAPH.json` | Formal research state: hypotheses, computations, critiques, failed_approaches with explicit cross-links |
-| `RESEARCH_STATE.md` | Rendered Markdown view of hypotheses and derivations |
-| `COMPUTATION_LOG.md` | All computation entries with CLAIM/VERDICT/METHOD/RESULT |
-| `CRITIQUE_LOG.md` | Active and resolved critiques |
-| `EVENT_LOG.jsonl` | Structured scaffold events (compensations, overrides, tool mutations) |
+| `RESEARCH_GRAPH.json` | Authoritative structured state: hypotheses, research_questions, computations, critiques, failed_approaches with explicit cross-links |
+| `RESEARCH_STATE.md` | Rendered snapshot of the research state (from ResearchState, write-only for git/audit) |
+| `COMPUTATION_LOG.md` | Rendered snapshot of all computations (from ResearchState, write-only for git/audit) |
+| `CRITIQUE_LOG.md` | Rendered snapshot of all critiques (from ResearchState, write-only for git/audit) |
+| `EVENT_LOG.jsonl` | Structured scaffold events (4 categories) and LLM call metadata |
 | `METRICS.md` | Per-iteration token counts and alerts |
-| `ANSWER.md` | Final formatted answer |
+| `ANSWER.md` | Final formatted answer (produced by formatter agent on successful termination) |
 | `logs/` | Per-iteration LLM call logs (system prompt, user content, response) |
+
+**Important:** `RESEARCH_GRAPH.json` is the authoritative source of truth. The `.md` files (RESEARCH_STATE, COMPUTATION_LOG, CRITIQUE_LOG) are rendered snapshots — useful for human reading but derived from the JSON.
 
 ## Verification Report Structure
 
@@ -48,28 +48,36 @@ The verification report (`VERIFICATION.md`) is produced by two independent LLM c
 
 Read `VERIFICATION.md` in the workspace folder.
 
+- If the science is INVALID, your main goal will be to trace back to the core reason of the failure.
+- If the science is correct, move to the process audit section.
 - Focus on the process audit section and reported FAILURE or MIXED events.
-- Check for **alerts** (tool_loop_truncated, max_tokens_hit, budget_override)
 - Read the recommendations.
 - Note any problem or event that seems to come from a flaw in the multi-agent process.
 
 ### Step 2: Examine the formal research state
 
-Read `RESEARCH_GRAPH.json` and cross-reference with `RESEARCH_STATE.md`:
+Read `RESEARCH_GRAPH.json` (this is the authoritative state, not the markdown files):
 
 **Hypothesis integrity:**
-- Are all WH/ER sections in RESEARCH_STATE.md reflected in the graph?
-- Do any hypotheses have status `abandoned`? Are they also in Dead Ends in the Markdown?
-- Is the `supporting_comps` list on each hypothesis complete (every VERIFIED comp targeting it)?
+- Do any hypotheses have status `abandoned`? Are they recorded in `failed_approaches`?
+- Check `depends_on` fields — are dependency chains satisfied for established results?
+- Do promoted ERs have `promotion_justification` filled in?
+
+**Research questions:**
+- Are RQs resolved (`status: resolved`) with `resolved_to` pointing to WH/ER IDs?
+- Are there abandoned or stale open RQs?
+- Check entity numbering: RQ-NNN → WH-NNN → ER-NNN should share numbers when a question was explored then promoted.
 
 **Computation link quality:**
-- Does every computation in the graph have a non-empty `target_hypothesis`?
-- Are any targets stale (pointing to a WH-NNN that was promoted to ER-NNN)?
-- Are there phantom TASK-* stubs (entries with empty claim/target from orchestrator bailouts)?
+- Does every computation have a non-empty `target_hypothesis`?
+- Are there `zero_output: true` entries? These indicate agent bailouts.
+- Check `kind` field distribution: `explore` vs `verify` vs `research_verify` vs `research_explore`.
+- Are VERIFIED computations targeting the right WH/ER IDs?
 
 **Critique tracking:**
 - Do resolved critiques have `iteration_resolved` set (not null)?
 - Are resolution texts specific (not generic "addressed by integration")?
+- Are there unresolved HIGH-severity critiques that should have blocked promotion?
 
 **Failed approaches:**
 - Are there entries in `failed_approaches`? Do they correspond to REFUTED/INCONCLUSIVE computations?
@@ -77,35 +85,59 @@ Read `RESEARCH_GRAPH.json` and cross-reference with `RESEARCH_STATE.md`:
 
 ### Step 3: Investigate scaffold events
 
-Read `EVENT_LOG.jsonl` and look for:
+Read `EVENT_LOG.jsonl`. Events fall into 4 categories: `call_reliability`, `state_invariants`, `loop_control`, `output_normalization`.
 
-**Orchestrator tool usage:**
-- Count `orchestrator_tool_mutations` events — how many show `mutations=True` (tool path) vs any legacy fallback?
-- If the orchestrator used tools: did it over-call `set_next_task` (multiple times per iteration)?
+**State mutations (state_invariants category) — the research narrative:**
+- `add_hypothesis` — new WH created; check if from_rq and depends_on are noted
+- `promote_hypothesis` — WH→ER promotion; check timing relative to VERIFIED computations
+- `abandon_hypothesis` — check if dependents are noted and handled
+- `resolve_critique` — critique resolution; check if resolution text is meaningful
+- `add_research_question` / `resolve_research_question` — RQ lifecycle tracking
 
-**Demotion safety and promotion:**
-- Count `er_demotion_safety` events — how many times did the demotion check fire? (1-2 is healthy; 5+ suggests a compute loop problem)
-- Count `promote_hypothesis` events — tracks orchestrator-driven WH→ER promotions
-- Did the orchestrator promote WHs promptly after VERIFIED verdicts?
+**Validation checks (state_invariants category):**
+- `er_demotion_safety` — ER was demoted back to WH (1-2 is healthy; 5+ suggests a compute loop)
+- `phantom_labels` — references to non-existent hypotheses
+- `stale_unverified_labels` — ERs without verification evidence
+- `critique_resolution_consistency` — resolved critiques that shouldn't be
 
-**Failure enrichment:**
-- Did `p6_enrichment` fire? If there were REFUTED/INCONCLUSIVE computations, was the retry enriched with prior failure context?
+**Loop control events — process health:**
+- `forced_critic` — critic was forced because it hadn't run recently
+- `termination_blocked` — orchestrator tried to terminate but was blocked (read blockers)
+- `dispatch_failure` — agent dispatch failed (transient error)
+- `compute_enrichment` — prior failure context injected into compute task
+- `compute_verdict_failed` — non-VERIFIED verdict with attempt counter (watch for high counts = stall)
+- `explore_result_suppressed` — explore result was dropped (zero_output or missing target)
+- `agent_failure_max_tokens` — agent hit token limit
+- `agent_failure_max_rounds` — agent exhausted tool-use rounds
+- `max_tokens_no_retry` — one-shot agent hit max_tokens
+- `no_critiques_filed` — critic found nothing to critique (healthy if late in run)
+- `status_field_exit` — run ended via status field check
 
-**Bailout events:**
-- Count `progress_check`, `forced_final_call` events
-- Did any bailout produce phantom computation entries?
+**Call reliability events — LLM interaction health:**
+- `api_retry` — API call needed retry (transient errors)
+- `tool_call_failure_fallback` — tool-calling broke, fell back to text-only
+- `empty_end_turn_recovery` — agent produced empty response, recovery attempted
+- `empty_end_turn_fallthrough` — recovery failed, forced final call
+- `progress_check` — agent was reminded to wrap up after many consecutive execute_python calls
+- `forced_final_call` — agent exhausted rounds, forced text-only final response
+- `forced_final_call_failed` — even the forced final call errored
+- `tool_timeout` — tool execution timed out
+- `tool_output_truncation` — tool output was truncated
 
-**Other events:**
-- `problem_statement_enforced` — how frequently? (should decrease with tool-based orchestrator)
-- `termination_blocked` — was termination correctly gated?
-- `task_agent_routing` violations
+**Output normalization:**
+- `empty_response_stub` — agent produced no output, stub computation created
+
+**LLM call entries** (`event: llm_call`):
+- Track `agent`, `model`, `input_tokens`, `output_tokens`, `duration`, `round` (for agentic calls)
+- Use these to compute per-agent token budgets and identify bloated contexts
 
 ### Step 4: Trace specific issues
 
 For any issue from Steps 1-3 that lacks sufficient explanation:
 
 - Read the relevant LLM call logs in `logs/` (e.g., `iter003_orchestrator_1.md` for iteration 3)
-- Check `COMPUTATION_LOG.md` for the specific COMP entries involved
+- Check `COMPUTATION_LOG.md` for the specific computation entries involved
+- Check `CRITIQUE_LOG.md` for unresolved critiques and their severity
 - Look at `METRICS.md` for token usage anomalies (context bloat, max_tokens hits)
 - Key failures to look for: empty/truncated outputs, computational failures, repeating the same task, tool loops cut off by max_rounds or max_tokens
 
@@ -113,8 +145,8 @@ For any issue from Steps 1-3 that lacks sufficient explanation:
 
 Combine findings into a complete picture:
 
-- **Architecture health:** Did the structured state (RESEARCH_GRAPH.json) stay consistent with the Markdown files? Were tool mutations working correctly?
-- **Process efficiency:** How many iterations to completion? What fraction of tokens went to the orchestrator vs productive agents? Any wasted iterations?
+- **Science quality:** Are the established results (ERs) well-supported by verified computations? Any gaps in the derivation chain?
+- **Process efficiency:** How many iterations to completion? What fraction of tokens went to the orchestrator vs productive agents? Any wasted iterations (stalled verify loops, redundant explorations)?
 - **Failure patterns:** Identify 0-3 key failure patterns (if any) that are not just LLM stochasticity but reflect real issues in the process design.
 - For each pattern, provide a recommendation for how to address it.
 - If no significant failure patterns are found, state that clearly.
