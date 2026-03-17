@@ -133,9 +133,14 @@ def _research_state_body(
             parts.append(f"- {fa.description}")
             if fa.reason:
                 parts.append(f"  Reason: {fa.reason}")
+        # Only render abandoned hypotheses not already covered by failed_approaches
+        # (abandon_hypothesis tool adds to both, so skip those to avoid duplicates)
+        fa_descriptions = {fa.description for fa in state.failed_approaches}
         for h in sorted_hyps:
             if h.status == HypothesisStatus.ABANDONED:
-                parts.append(f"- Abandoned {h.id} — {h.statement}")
+                desc = f"Abandoned {h.id} — {h.statement}"
+                if desc not in fa_descriptions:
+                    parts.append(f"- {desc}")
         if not has_dead_ends:
             parts.append("(None yet.)")
         parts.append("")
