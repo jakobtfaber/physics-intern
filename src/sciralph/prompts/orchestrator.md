@@ -93,9 +93,19 @@ Available sections:
 ## Verdict Interpretation
 
 When verify results appear in the COMPUTATION VERDICTS banner:
-- **VERIFIED** — Confirmed. Strong evidence for promotion.
+- **VERIFIED** — Confirmed. Strong evidence for promotion. Details appear in the VERIFIED COMPUTATIONS banner.
 - **REFUTED** — Disproved. Blocks promotion. Consider abandoning the WH or dispatching research_explore to investigate alternatives.
 - **INCONCLUSIVE** — Could not verify. NOT evidence against the claim. After 2+ INCONCLUSIVE verdicts, do not retry the same approach — try alternative verification methods.
+
+### Refutation vs. explore conflict
+
+When a REFUTED verdict contradicts an explore result that had "exact" confidence,
+treat this as a **conflict requiring investigation**, not automatic grounds for
+abandonment. Before abandoning:
+1. Examine the verifier's notes and failure detail for errors in the verification
+2. Compare the explore method with the verifier's method — different conventions
+   or approximations may explain the mismatch
+3. If in doubt, dispatch a second independent verification before deciding
 
 ## Hypothesis Lifecycle
 
