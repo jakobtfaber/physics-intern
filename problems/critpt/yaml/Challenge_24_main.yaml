@@ -1,0 +1,69 @@
+problem: |
+  # Problem setup:
+  In the framework of large-momentum effective theory (LaMET), the parton distribution function (PDF) $f(x ,\mu)$ can be expanded with fixed large momentum $p_z$ in the LaMET framework. The expansion formula is
+  \begin{align}
+  \begin{aligned}
+  f(x, \mu)&=\int_{-\infty}^{\infty} \frac{d y}{y} C_2\left(\frac{y}{x}, \frac{p_z}{\mu}\right) \tilde{f}\left(y, \frac{p_z}{\mu}\right) ~,
+  \end{aligned}
+  \end{align}
+  where $C_2$ is the matching kernel, $\tilde{f}\left(y, \frac{p_z}{\mu}\right)$ is the quasi-PDF, and the power corrections are dropped.
+
+  In the Coulomb gauge (CG), the quasi-PDF is defined as
+  \begin{align}
+      \tilde{f}\left(y, p_z, \mu\right)=p_z \int_{-\infty}^{\infty} \frac{d z}{2 \pi} e^{i y p_z z} \tilde{h}\left(z, p_z, \mu\right) ~,
+  \end{align}
+  \begin{align}
+      \tilde{h}\left(z, p_z, \mu\right)=\frac{1}{2 p_z}\langle P| \left. \bar{\psi}(z) \gamma^z \psi(0)\right|_{\vec{\nabla} \cdot \vec{A}=0}|P\rangle ~.
+  \end{align}
+
+  To extract the matching kernel $C_2$, we need to calculate the quasi-distribution in a free massless quark state using perturbation theory.
+
+  # Main problem:
+
+  Using perturbation theory with dimensional regularization, calculate the CG quasi-distribution
+  \begin{align}
+      \tilde{f}_q (y,p_z) = \int \frac{d z}{ 2\pi } e^{i y p_z z} \langle q(p)|\bar{q}(z) \left. \frac{\gamma^z}{2} q(0)\right|_{\vec{\nabla} \cdot \vec{A}=0} |q(p)\rangle
+  \end{align}
+  in the $\overline{\rm MS}$ scheme up to 1-loop. The $|q(p)\rangle $ is a free massless quark state with momentum $p^\mu$. The 1-loop result should be expressed in the form as
+  \begin{align}
+      \tilde{f}_q (y,p_z,\epsilon_{\rm IR},\mu) = \delta(1- y) + \frac{\alpha_s C_F}{2 \pi} \tilde{f}_q^{(1)}(y,p_z,\epsilon_{\rm IR},\mu) ~,
+  \end{align}
+  where $\delta$ is the Dirac delta function, $\alpha_s$ is the strong coupling, $C_F$ is the Casimir constant, and $\epsilon_{\rm IR}$ is the infrared regulator in the dimensional regularization. Give the final expression of 1-loop correction $\tilde{f}_q^{(1)}(y,p_z,\epsilon_{\rm IR},\mu)$ in three intervals: $y < 0$, $0 < y < 1$ and $y > 1$.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+
+  y, p_z, epsilon_IR, mu = sp.symbols('y p_z epsilon_IR mu')
+
+  def answer(y, p_z, epsilon_IR, mu):
+      r"""
+      Return the expressions of $\tilde{f}_q^{(1)}(y,p_z,\epsilon_{\rm IR},\mu)$
+      in three intervals (i) $y < 0$, (ii) $0 < y < 1$, (iii) $y > 1$
+      in Sympy format.
+
+      Inputs
+      ----------
+      y: sympy.Symbol, momentum fraction in quasi-PDF, $y$
+      p_z: sympy.Symbol, large momentum, $p_z$
+      epsilon_IR: sympy.Symbol, infrared regulator, $\epsilon_{\rm IR}$
+      mu: sympy.Symbol, renormalization scale, $\mu$
+
+      Outputs
+      ----------
+      expr_neg: sympy.Expr, 1–loop correction $\tilde{f}_q^{(1)}(y,p_z,\epsilon_{\rm IR},\mu)$ for $y < 0$
+      expr_mid: sympy.Expr, 1–loop correction $\tilde{f}_q^{(1)}(y,p_z,\epsilon_{\rm IR},\mu)$ for $0 < y < 1$
+      expr_pos: sympy.Expr, 1–loop correction $\tilde{f}_q^{(1)}(y,p_z,\epsilon_{\rm IR},\mu)$ for $y > 1$
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      expr_neg = ...  # SymPy expression for y < 0
+      expr_mid = ...  # SymPy expression for 0 < y < 1
+      expr_pos = ...  # SymPy expression for y > 1
+      # ---------------------------------------------------------------
+
+      return expr_neg, expr_mid, expr_pos

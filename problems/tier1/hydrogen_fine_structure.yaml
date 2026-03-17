@@ -1,9 +1,44 @@
 problem: |
-  Compute the fine structure corrections to the hydrogen atom energy levels.
-  Identify all relevant physical effects at order alpha^2, evaluate their
-  contributions, and show that the total fine structure shift depends only
-  on n and j (not l separately). The expected combined result is:
-  Delta E_fs = (alpha^2 / n^2) * E_n^(0) * [n/(j+1/2) - 3/4].
-  Numerically compute the splittings for n=1,2,3 in eV.
+  # Problem setup:
+  The hydrogen atom energy levels receive corrections at order $\alpha^2$ relative to the Bohr energies $E_n^{(0)} = -m_e c^2 \alpha^2 / (2n^2)$, where $\alpha$ is the fine-structure constant, $m_e$ the electron mass, $c$ the speed of light, and $n$ the principal quantum number.
+
+  Three physical effects contribute at this order: the relativistic kinetic energy correction (mass-velocity term) from expanding the relativistic kinetic energy $\sqrt{p^2 c^2 + m_e^2 c^4} - m_e c^2$ to order $p^4$; the spin-orbit coupling $H_{\rm SO} \propto \mathbf{L} \cdot \mathbf{S} / r^3$ arising from the interaction of the electron's magnetic moment with the magnetic field seen in its rest frame; and the Darwin term, a contact interaction proportional to $\delta^3(\mathbf{r})$ arising from the Zitterbewegung of the electron.
+
+  A remarkable result is that when all three contributions are summed, the total fine-structure shift depends only on the quantum numbers $n$ and $j$ (the total angular momentum), not on $l$ (the orbital angular momentum) separately.
+
+  # Main problem:
+  What is the total fine-structure energy shift $\Delta E_{\rm fs}(n, j)$ of the hydrogen atom, expressed in terms of $m_e$, $c$, $\alpha$, $n$, and $j$?
 
 requires_numerical: true
+
+answer: |
+  Delta_E_fs = -m_e * c**2 * alpha**4 / (2 * n**3) * (1 / (j + sp.Rational(1, 2)) - 3 / (4 * n))
+
+answer_template: |
+  import sympy as sp
+
+  m_e, c, alpha = sp.symbols('m_e c alpha', positive=True)
+  n, j = sp.symbols('n j')
+
+  def answer(m_e, c, alpha, n, j):
+      r"""
+      Return the total fine-structure energy shift of the hydrogen atom.
+
+      Inputs
+      ----------
+      m_e   : sympy.Symbol, electron mass
+      c     : sympy.Symbol, speed of light
+      alpha : sympy.Symbol, fine-structure constant
+      n     : sympy.Symbol, principal quantum number
+      j     : sympy.Symbol, total angular momentum quantum number
+
+      Outputs
+      ----------
+      Delta_E_fs : sympy.Expr, the fine-structure energy shift
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      Delta_E_fs = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return Delta_E_fs

@@ -1,0 +1,32 @@
+problem: |
+  # Problem setup:
+  Consider the following Hamiltonian: $H=-\frac{1}{2}\sum_{a=1}^N\sum_{i,j,k,l=1}^N C_{ij}^a C_{kl}^a\chi_i\chi_j\chi_k\chi_l$, where $\chi$ are Majorana fermions and $N^2\langle C_{ij}^a C_{kl}^b\rangle=J\delta_{ab}(\delta_{ik}\delta_{jl}-\delta_{il}\delta_{jk})$. Consider the large $N$ limit. Define the zero-temperature entropy as $S= \lim_{T\to 0}\frac{\partial F}{\partial T}$, where $F$ is the free energy of the system.
+
+  # Main problem:
+
+  Calculate the numerical value of $S/N$ to four decimal places.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the numerical value of S/N.
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      S_per_N: float, The zero temperature entropy per particle, $S/N$
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      S_per_N = ...
+      # ---------------------------------------------------------------
+
+      return S_per_N

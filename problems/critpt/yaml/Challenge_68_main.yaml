@@ -1,0 +1,35 @@
+problem: |
+  # Problem setup:
+  The quantum $f$-divergence is defined by \begin{align*}
+      D^{\mathrm{std}}_f(\rho \|\sigma) =  \int_0^\infty \mathrm{tr}\bigl[ (\rho - \sigma) \frac{1}{L_\rho + s R_\sigma}(\rho-\sigma) \bigr] d\mu(s),
+  \end{align*}
+  where $\mu$ a positive measure on $(0,\infty)$ such that $\int_0^\infty \frac{1}{1+s} d\mu(s) < \infty$. We study the derivatives of the $f$-divergence. Let $\rho_t = \sigma + t(\rho - \sigma)$.
+
+  # Main problem:
+
+  Calculate $\frac{d}{dt} D^{\mathrm{std}}_f(\rho_t \|\sigma)$ at $t = 0.5$. Please be as accurate as possible
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the value of $\frac{d}{dt} D^{\mathrm{std}}_f(\rho_t \|\sigma)$ at $t = 0.5$.
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      first_derivative: float, the first derivative $\frac{d}{dt} D^{\mathrm{std}}_f(\rho_t \|\sigma)$ at $t = 0.5$
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      first_derivative = ...
+      # ---------------------------------------------------------------
+
+      return first_derivative

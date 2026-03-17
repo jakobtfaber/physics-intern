@@ -1,15 +1,34 @@
 problem: |
-  Derive the exact critical temperature of the 2D Ising model on a
-  square lattice with nearest-neighbour coupling J, using the transfer
-  matrix method. The expected result is sinh(2*J/(k_B*T_c)) = 1,
-  giving k_B*T_c/J = 2/ln(1 + sqrt(2)) ~ 2.269. Construct the row-to-row
-  transfer matrix, reduce its diagonalisation to a free-fermion problem
-  (via Jordan-Wigner or Clifford algebra methods), and identify the
-  critical point as the vanishing of the fermion mass gap. Derive the
-  exact free energy per spin in zero external field:
-  -beta*f = ln(2) + (1/(2*pi^2)) * int_0^pi int_0^pi
-  ln[cosh^2(2*beta*J) - sinh(2*beta*J)*(cos(q1) + cos(q2))] dq1 dq2.
-  Verify the critical temperature and the logarithmic singularity of
-  the specific heat numerically.
+  # Problem setup:
+  Consider the two-dimensional Ising model on an infinite square lattice with nearest-neighbour ferromagnetic coupling $J > 0$ and zero external magnetic field. Each spin $s_{i,j} = \pm 1$ sits on a lattice site, and the Hamiltonian is $\mathcal{H} = -J \sum_{\langle i,j \rangle} s_i s_j$, where the sum runs over all nearest-neighbour pairs.
+
+  In 1944, Onsager provided the first exact solution, showing that this model has a continuous phase transition at a critical temperature $T_c$ separating a disordered paramagnetic phase ($T > T_c$) from an ordered ferromagnetic phase ($T < T_c$). The critical temperature can be determined from the condition that the fermion mass gap in the transfer matrix formulation vanishes, or equivalently from the self-duality relation $\sinh(2J/(k_B T_c)) = 1$.
+
+  Let $k_B$ be the Boltzmann constant.
+
+  # Main problem:
+  What is the dimensionless critical temperature $k_B T_c / J$ of the 2D Ising model on a square lattice?
 
 requires_numerical: true
+
+answer: |
+  kBTc_over_J = 2 / sp.log(1 + sp.sqrt(2))
+
+answer_template: |
+  import sympy as sp
+
+  def answer():
+      r"""
+      Return the dimensionless critical temperature k_B T_c / J of the
+      2D Ising model on a square lattice.
+
+      Outputs
+      ----------
+      kBTc_over_J : sympy.Expr, the dimensionless critical temperature
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      kBTc_over_J = ...  # a SymPy expression
+      # ---------------------------------------------------------------
+
+      return kBTc_over_J

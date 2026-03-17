@@ -1,17 +1,46 @@
 problem: |
-  Derive the classical bremsstrahlung spectral energy distribution for
-  an electron scattered by a Coulomb field (nucleus of charge Ze).
-  Parametrise the hyperbolic orbit, compute the acceleration as a function
-  of time, and evaluate the Fourier transform of the dipole moment to
-  obtain the radiated spectral energy per unit frequency dW/d(omega).
-  Show that in the soft-photon limit (omega -> 0), the spectrum is flat,
-  and derive the Kramers result:
-  dW/d(omega) = (16*pi/(3*sqrt(3))) * (e^2/c) * (Z*e^2/(m*v^2*c))^2
-  for hbar*omega < (1/2)*m*v^2. Compute the classical Gaunt factor
-  g_ff(omega, v) as the ratio of the exact classical result to the
-  Kramers formula, and verify that g_ff -> 1 for small omega.
-  Integrate over a thermal velocity distribution to obtain the total
-  thermal bremsstrahlung emissivity. Verify all results numerically,
-  including numerical Fourier transforms of the orbit.
+  # Problem setup:
+  Consider a non-relativistic electron (mass $m_e$, charge $e$) scattered by the Coulomb field of a nucleus of charge $Ze$. The electron follows a classical hyperbolic trajectory, and the time-varying acceleration during the encounter causes it to radiate electromagnetic energy — a process known as bremsstrahlung ("braking radiation").
+
+  The spectral energy radiated per unit frequency $dW/d\omega$ is obtained from the Fourier transform of the electric dipole moment $\mathbf{d}(t) = e\,\mathbf{r}(t)$ along the trajectory. In the soft-photon limit ($\omega \to 0$), the spectrum becomes flat, and the result simplifies to the Kramers formula for bremsstrahlung.
+
+  The Kramers spectral energy depends on the electron's velocity $v$ at infinity (the asymptotic speed far from the nucleus), the nuclear charge $Ze$, and the electron charge and mass. It represents the frequency-independent floor of the bremsstrahlung spectrum, valid for photon energies $\hbar\omega \ll \tfrac{1}{2}m_e v^2$.
+
+  Let $e$ denote the electron charge magnitude and $c$ the speed of light.
+
+  # Main problem:
+  What is the Kramers spectral energy $dW/d\omega$ in the soft-photon limit ($\omega \to 0$) for classical bremsstrahlung of an electron in a Coulomb field of charge $Ze$, expressed in terms of $Z$, $e$, $m_e$, $v$, and $c$?
 
 requires_numerical: true
+
+answer: |
+  dW_domega = 16 * sp.pi * Z**2 * e_charge**6 / (3 * sp.sqrt(3) * m_e**2 * c**3 * v**2)
+
+answer_template: |
+  import sympy as sp
+
+  Z, e_charge, m_e, v, c = sp.symbols('Z e m_e v c', positive=True)
+
+  def answer(Z, e_charge, m_e, v, c):
+      r"""
+      Return the Kramers spectral energy dW/d(omega) in the soft-photon
+      limit for classical bremsstrahlung.
+
+      Inputs
+      ----------
+      Z        : sympy.Symbol, nuclear charge number
+      e_charge : sympy.Symbol, electron charge magnitude
+      m_e      : sympy.Symbol, electron mass
+      v        : sympy.Symbol, electron asymptotic velocity
+      c        : sympy.Symbol, speed of light
+
+      Outputs
+      ----------
+      dW_domega : sympy.Expr, Kramers spectral energy dW/d(omega)
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      dW_domega = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return dW_domega

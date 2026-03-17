@@ -1,7 +1,44 @@
 problem: |
-  Derive the Hawking temperature T_H(M) for a Schwarzschild black hole
-  of mass M. The expected result is T_H = hbar*c^3 / (8*pi*G*M*k_B).
-  Verify the result numerically for a solar-mass black hole.
+  # Problem setup:
+  Consider a Schwarzschild black hole of mass $M$ in 3+1 dimensions, described by the metric $ds^2 = -(1 - r_s/r)\,c^2\,dt^2 + (1 - r_s/r)^{-1}\,dr^2 + r^2\,d\Omega^2$, where $r_s = 2GM/c^2$ is the Schwarzschild radius, $G$ is Newton's gravitational constant, and $c$ is the speed of light.
+
+  In 1974, Hawking showed that quantum effects near the event horizon cause the black hole to emit thermal radiation. This can be derived by studying quantum field theory in the curved Schwarzschild spacetime: performing a Wick rotation $t \to -i\tau$ near the horizon, one finds that the Euclidean metric is regular only if the imaginary time $\tau$ is periodic with period $\beta = 8\pi GM/c^2$. By the standard relation between periodicity in imaginary time and temperature, this identifies the Hawking temperature.
+
+  Let $\hbar$ be the reduced Planck constant and $k_B$ the Boltzmann constant.
+
+  # Main problem:
+  What is the Hawking temperature $T_H$ of a Schwarzschild black hole of mass $M$, expressed in terms of $\hbar$, $c$, $G$, $M$, and $k_B$?
 
 requires_numerical: true
 
+answer: |
+  T_H = hbar * c**3 / (8 * sp.pi * G * M * k_B)
+
+answer_template: |
+  import sympy as sp
+
+  hbar, c, G, M, k_B = sp.symbols('hbar c G M k_B', positive=True)
+
+  def answer(hbar, c, G, M, k_B):
+      r"""
+      Return the Hawking temperature of a Schwarzschild black hole
+      of mass M.
+
+      Inputs
+      ----------
+      hbar : sympy.Symbol, reduced Planck constant
+      c    : sympy.Symbol, speed of light
+      G    : sympy.Symbol, Newton's gravitational constant
+      M    : sympy.Symbol, black hole mass
+      k_B  : sympy.Symbol, Boltzmann constant
+
+      Outputs
+      ----------
+      T_H : sympy.Expr, the Hawking temperature
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      T_H = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return T_H

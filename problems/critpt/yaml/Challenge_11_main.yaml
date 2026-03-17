@@ -1,0 +1,48 @@
+problem: |
+  # Problem setup:
+  Consider a (1+1)-D Lagrangian that consists of a Majorana fermion $\chi$ and boson $\phi$ with compactification radius $\sqrt{\frac{K}{m}}$:
+
+  $\\
+  L=\frac{i}{2}\bar{\chi}\not\!{\partial}\chi+\frac{m}{2\pi K}(\partial_\mu \phi)^2+\frac{\Delta}{2}i\bar{\chi}\chi\cos(2m\phi).\\
+  $
+
+  In this problem, $x\equiv [\Delta]$, where $[\Delta]$ is the scaling dimension of the coupling constant $\Delta$
+
+  # Main problem:
+
+  Find the beta functions for coupling constants $\Delta$ and $x$ at one-loop level, with the convention that a positive beta function means that the
+  system flows to strong coupling in the IR.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+
+  Delta, x, K, m = sp.symbols('Delta x K m')
+
+  def answer(Delta, x, K, m):
+      r"""
+      Return the expressions of the beta functions in Sympy format.
+
+      Inputs
+      ----------
+      Delta: sympy.Symbol, coupling constant $\Delta$
+      x: sympy.Symbol, scaling dimension of $\Delta$, $x\equiv [\Delta]$
+      K: sympy.Symbol, parameter $K$
+      m: sympy.Symbol, parameter $m$
+
+      Outputs
+      ----------
+      beta_Delta: sympy.Expr, beta function for coupling constant $\Delta$, $\beta(\Delta)$
+      beta_x: sympy.Expr, beta function for $x$, $\beta(x)$
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      beta_Delta = ...  # a SymPy expression of inputs
+      beta_x = ...      # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return beta_Delta, beta_x

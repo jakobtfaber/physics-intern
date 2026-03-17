@@ -1,0 +1,43 @@
+problem: |
+  # Problem setup:
+  Consider a four-dimensional hypercubic lattice with lattice spacing $a$ and nearest-neighbor hopping amplitude $t$. The system includes an on-site Hubbard interaction of strength $U$, and the chemical potential is near the bottom of the conduction band.
+
+  The Hubbard interaction will give a correction to the real part of the finite-frequency paramagnetic conductivity.
+
+  # Main problem:
+
+
+  At zero temperature, to the second order in $U$, what's the leading power law dependence of the Fermi momentum $k_F$ of this correction along $y$ direction per unit volume in the zero frequency limit? At zero temperature, to the second order in $U$, what's the leading power law dependence of the Fermi momentum $k_F$ of the quasiparticle scattering rate and transport scattering rate on the Fermi surface in the zero frequency limit?
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the values of the exponents of the leading power law dependence on the Fermi momentum
+      of the correction along $y$ direction per unit volume, the quasiparticle scattering rate
+      and transport scattering rate on the Fermi surface in the zero frequency limit.
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      exponent_correction: float, the exponent of the leading power law dependence on the Fermi momentum
+          of the correction along $y$ direction per unit volume in the zero frequency limit.
+      exponent_quasiparticle: float, the exponent of the leading power law dependence on the Fermi momentum
+          of the quasiparticle scattering rate on the Fermi surface in the zero frequency limit.
+      exponent_transport: float, the exponent of the leading power law dependence on the Fermi momentum
+          of the transport scattering rate on the Fermi surface in the zero frequency limit.
+      """
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      exponent_correction = ...
+      exponent_quasiparticle = ...
+      exponent_transport = ...
+      # ---------------------------------------------------------------
+
+      return exponent_correction, exponent_quasiparticle, exponent_transport

@@ -1,0 +1,38 @@
+problem: |
+  # Problem setup:
+  We study the fundamental limit of a quantum channel called the private channel. To be more specific, the Choi operator of the channel is given by the private state, with the input space given by the private system and shield system. Our channel is determined by the following Werner state: $$ q |\psi_+\rangle \langle \psi_+|^{a_0b_0} \otimes \frac{1}{d_{\text{sym}}} P_{\mathrm{sym}}^{A_0B_0} + (1-q) |\psi_-\rangle \langle \psi_-|^{a_0b_0} \otimes \frac{1}{d_{\mathrm{asym}}} P_{\mathrm{asym}}^{A_0B_0},\ q\in [0,1],$$
+  where $a_0,b_0$ have dimension 2 and $A_0,B_0$ have dimension $d$. $P_{\mathrm{sym}}$ is the projection onto the symmetric subspace.
+
+
+  # Main problem:
+
+  What is the quantum capacity of this channel when $q = \frac{d+1}{2d}$?
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+
+  d = sp.symbols('d', integer=True)
+
+  def answer(d):
+      r"""
+      Return the expression of the quantum capacity of the channel in Sympy format.
+
+      Inputs
+      ----------
+      d: sympy.Symbol, dimension paramter, $d$
+
+      Outputs
+      ----------
+      quantum_capacity: sympy.Expr, the quantum capacity of the channel.
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      quantum_capacity = ... # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return quantum_capacity

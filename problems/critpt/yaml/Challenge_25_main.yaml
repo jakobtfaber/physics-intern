@@ -1,0 +1,99 @@
+problem: |
+  # Problem setup:
+
+  A distant energetic astrophysical object contains a single, spherical emission blob moving relativistically down its jet with bulk Doppler factor $\delta$. Inside the blob, shock-accelerated protons interact with the blob's own synchrotron photon field. The resulting cascade emission converts part of the proton power into electromagnetic (EM) radiation. Only a fraction of that cascade luminosity, $L_{X,\mathrm{lim}}$, appears in the observed 0.3–10 keV X-ray band.
+
+  ---
+
+  **Symbols and parameters**
+
+  | Symbol | Description |
+  | ------ | ----------- |
+  | $z$ | Source redshift |
+  | $t_v$ | Observer-frame variability time-scale |
+  | $R'_b$ | Co-moving radius of the blob |
+  | $E_s$ | Characteristic synchrotron-photon energy (observer frame) |
+  | $L_s$ | Isotropic-equivalent synchrotron luminosity at $E_s$ |
+  | $\beta$ | X-ray photon index ($F_\varepsilon \propto \varepsilon^{-\beta}$) |
+  | $E_p$ | Proton energy satisfying the photopion threshold |
+  | $E_p L_{E_p}$ | Proton power per logarithmic bin at $E_p$ |
+  | $\hat{\sigma}_{p\pi}$ | Inelasticity-weighted photopion cross-section |
+  | $\bar{\epsilon}_\Delta$ | Photon energy (in proton rest frame) at the $\Delta(1232)$-resonance peak ($\sim 0.3\ \mathrm{GeV}$) |
+  | $\bar{\Delta}$ | Mean fractional proton energy transferred to pions |
+  | $f_x$ | Fraction of cascade luminosity emerging in 0.3 - 10 keV X-ray band |
+  | $L_{X,\mathrm{lim}}$ | Observational upper limit on 0.3 – 10 keV luminosity |
+  | $m_p$ | Proton mass |
+  | $c$ | Speed of light |
+  | $f(\beta)$ | Spectral function $f(\beta)=\frac{2}{1+\beta}(\frac{5}{16} + g(\beta)/2)=\frac{2}{1+\beta}(\frac{5}{16}+\frac{1}{200}\cdot 30^{\beta-1})$ |
+
+  ---
+
+  **Relevant physical relations**
+
+  * **Causality / light-crossing**
+
+    $$R'_b \approx \frac{c\,t_v\,\delta}{1+z}.$$
+
+  * **Delta-resonance threshold**
+
+    $$E_p E_s \approx \frac{m_p c^{2}\,\bar{\epsilon}_\Delta}{2(1+z)^{2}}\,\delta^{2}.$$
+
+  * **Cascade luminosity constraint**
+
+    $$L_{\mathrm{cascade},X} = f_x\,(E_pL_{E_p})\,\tau_{p\gamma}\;\le\;L_{X,\mathrm{lim}}.$$
+
+  # Main problem:
+
+  Assuming that a fraction $f_x$ of the bolometric cascade luminosity will emerge in the X-ray band, derive the minimum Doppler factor $\delta_{\min}^{2 + 2\beta}$ of the emission region using only the quantities:
+
+  $z$, $c$, $t_v$, $m_p$, $E_s$, $E_pL_{E_p}$, $L_s$, $L_{X,\mathrm{lim}}$, $\hat{\sigma}_{p\pi}$, $\beta$, $\bar{\Delta}$, $\bar{\epsilon}_\Delta$, and $f_x$.
+
+  Your final answer should be a closed-form symbolic expression; do not insert numerical values.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+  from sympy.physics.units import speed_of_light as c
+
+  z, t_v, m_p, E_s, E_pL_Ep, L_s, L_X_lim, sigma_hat_p_pi, beta, bar_Delta, bar_epsilon_Delta, f_x = sp.symbols(
+      'z, t_v, m_p, E_s, E_pL_Ep, L_s, L_X_lim, sigma_hat_p_pi, beta, bar_Delta, bar_epsilon_Delta, f_x')
+
+  f_beta = 2 / (1 + beta) * (5 / 16 + 1 / 200 * 30 ** (beta-1))
+  E_p = m_p * c**2 * bar_epsilon_Delta / (2 * (1 + z)**2) * bar_Delta**2 / E_s
+
+  def answer(z, c, t_v, m_p, E_s, E_p, E_pL_Ep, L_s, L_X_lim, sigma_hat_p_pi, beta, bar_Delta, bar_epsilon_Delta, f_x, f_beta):
+      r"""
+      Return the expression of $\delta_{\min}^{2 + 2\beta}$ in Sympy format.
+
+      Inputs
+      ----------
+      z                  : sympy.Symbol, source redshift, $z$
+      c                  : sympy.Symbol, speed of light, $c$
+      t_v                : sympy.Symbol, variability time-scale, $t_v$
+      m_p                : sympy.Symbol, proton mass, $m_p$
+      E_s                : sympy.Symbol, characteristic synchrotron photon energy, $E_s$
+      E_p                : sympy.Symbol, proton energy satisfying the photopion threshold, $E_p$
+      E_pL_Ep            : sympy.Symbol, proton power per logarithmic bin at $E_p$, $E_p L_{E_p}$
+      L_s                : sympy.Symbol, isotropic-equivalent synchrotron luminosity at $E_s$, $L_s$
+      L_X_lim            : sympy.Symbol, upper limit on 0.3 – 10 keV luminosity, $L_{X,\mathrm{lim}}$
+      sigma_hat_p_pi     : sympy.Symbol, inelasticity-weighted photopion cross-section, $\hat{\sigma}_{p\pi}$
+      beta               : sympy.Symbol, X-ray photon index, $\beta$
+      bar_Delta          : sympy.Symbol, mean fractional proton energy transferred to pions, $\bar{\Delta}$
+      bar_epsilon_Delta  : sympy.Symbol, photon energy (in proton rest frame) at the $\Delta(1232)$-resonance peak, $\bar{\epsilon}_\Delta$
+      f_x                : sympy.Symbol, fraction of cascade luminosity emerging in 0.3 – 10 keV luminosity
+      f_beta             : sympy.Symbol, spectral function, $f(\beta)$
+
+      Outputs
+      ----------
+      delta_min_pow      : sympy.Expr, minimum Doppler factor of the emission region, $\delta_{\min}^{2 + 2\beta}$
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      delta_min_pow = ...  # SymPy expression involving the inputs above
+      # ---------------------------------------------------------------
+
+      return delta_min_pow

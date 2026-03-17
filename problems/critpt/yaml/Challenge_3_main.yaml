@@ -1,0 +1,42 @@
+problem: |
+  # Problem setup:
+  In the AdS$_3$/BCFT$_2$ correspondence, consider a setup where the bulk black hole geometry—characterized by an inverse temperature $\beta = \frac{2\pi}{r_0}$—is given by
+  \begin{equation}
+  ds^2=f(r)d\tau_E^2+\frac{dr^2}{f(r)}+r^2 d\phi^2, \qquad f(r)=r^2-r_0^2,
+  \end{equation}
+  with $\phi \sim \phi + 2\pi$ and $\tau_E \sim \tau_E + \beta = \tau_E + \frac{2\pi}{r_0}$, and this geometry is terminated by a spherically symmetric brane of tension $\eta$, where $0<\eta<1$, behind the horizon. Let $\mathcal{O}(x)$ be a scalar primary operator in the BCFT, whose bulk dual is a massive scalar field of mass $m$. For simplicity, assume the operator is inserted at the Euclidean time-reflection symmetric slice $\tau_E = 0$.
+
+  # Main problem:
+
+  Using the geodesic approximation, determine the form of the one-point function $\langle \mathcal{O}(x) \rangle$. How does the result depend on the mass $m$ of the bulk field, the black hole radius $r_0$ and the brane tension $\eta$?
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+
+  m, r0, eta = sp.symbols('m r0 eta', positive=True)
+
+  def answer(m, eta, r0):
+      r"""
+      Return expression of the one-point function
+
+      Inputs
+      ----------
+      m: sympy.Symbol, mass of the buld field, $m$
+      eta: sympy.Symbol, the brane tension, $\eta$
+      r0: sympy.Symbol, the black hole radius, $r_0$
+
+      Output
+      ----------
+      O_x: sympy.Expr, the one-point function, $\langle \mathcal{O}(x) \rangle$
+      """
+
+      # ------------------ FILL IN YOUR RESULT BELOW ------------------
+      O_x = ...   # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return O_x

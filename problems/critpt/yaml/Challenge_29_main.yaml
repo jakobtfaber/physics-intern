@@ -1,0 +1,54 @@
+problem: |
+  # Problem setup:
+
+  Fermionic atoms trapped in an optical lattice are used to simulate the Hubbard model. Specifically, two pairs of counter-propagating beams intersect at 90 degrees. The beams have equal wavelength $\lambda$, amplitude $E$, beam waists $W$, and are polarized normal to the plane in which they intersect. The atoms are trapped in the resulting interference pattern because of their polarizability $\alpha$ at a wavelength of $\lambda$. The atoms have a mass $m$ and an $s$-wave scattering length of $a_s$.
+
+  # Main problem:
+
+  Compute the tunneling energy $t$ and contact interaction $U$ associated with the resulting Hubbard model.
+
+  To obtain analytical answers, assume that the Wannier functions can be approximated by the harmonic-oscillator eigenstates and that $W\gg\lambda$ and $V_0\gg E_R$.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+  import sympy.physics.quantum.constants
+
+  lambda_ = sp.symbols('lambda')
+  E       = sp.symbols('E')
+  W       = sp.symbols('W')
+  alpha   = sp.symbols('alpha')
+  m       = sp.symbols('m')
+  a_s     = sp.symbols('a_s')
+  hbar    = sp.physics.quantum.constants.hbar
+
+  def answer(lambda_, E, W, alpha, m, a_s, hbar):
+      r"""
+      Return the expressions of tunneling energy t and contact interaction U in Sympy format.
+
+      Inputs
+      ----------
+      lambda_:      sympy.Symbol, wavelength, $\lambda$
+      E      :      sympy.Symbol, beam amplitude, $E$
+      W      :      sympy.Symbol, beam waist, $W$
+      alpha  :      sympy.Symbol, atomic polarizability, $\alpha$
+      m      :      sympy.Symbol, atomic mass, $m$
+      a_s    :      sympy.Symbol, s-wave scattering length, $a_s$
+      hbar   :      sympy.Symbol, reduced Planck constant, $\hbar$
+
+      Outputs
+      ----------
+      t      :      sympy.Expr, the expression of tunneling energy t associated with the Hubbard model
+      U      :      sympy.Expr, the expression of contact interaction U associated with the Hubbard model
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      t = ...  # a SymPy expression for the tunneling energy
+      U = ...  # a SymPy expression for the contact interaction
+      # ---------------------------------------------------------------
+
+      return t, U

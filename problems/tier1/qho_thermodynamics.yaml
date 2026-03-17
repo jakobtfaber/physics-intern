@@ -1,8 +1,44 @@
 problem: |
-  Derive the thermodynamic properties of a quantum harmonic oscillator
-  with frequency omega at temperature T: the partition function, mean energy,
-  and heat capacity. The expected heat capacity is
-  C_V = k_B * (beta*hbar*omega)^2 * exp(beta*hbar*omega) / (exp(beta*hbar*omega) - 1)^2.
-  Verify the classical (high-T) and quantum (low-T) limiting behaviours.
+  # Problem setup:
+  Consider a quantum harmonic oscillator with angular frequency $\omega$ in thermal equilibrium at inverse temperature $\beta = 1/(k_B T)$, where $k_B$ is the Boltzmann constant and $T$ the temperature. The energy eigenvalues are $E_n = \hbar\omega(n + 1/2)$ for $n = 0, 1, 2, \ldots$
+
+  The canonical partition function is $Z = \sum_{n=0}^{\infty} e^{-\beta E_n} = \frac{e^{-\beta\hbar\omega/2}}{1 - e^{-\beta\hbar\omega}}$. From $Z$, one derives all thermodynamic quantities: the Helmholtz free energy $F = -k_B T \ln Z$, the mean energy $\langle E \rangle = -\partial \ln Z / \partial \beta$, and the heat capacity $C_V = -k_B \beta^2\, \partial^2 \ln Z / \partial \beta^2$.
+
+  The heat capacity exhibits two important limits: at high temperature ($\beta\hbar\omega \ll 1$), $C_V \to k_B$ (the classical equipartition result), and at low temperature ($\beta\hbar\omega \gg 1$), $C_V$ is exponentially suppressed, reflecting the quantum freezing-out of the oscillator.
+
+  Let $\hbar$ be the reduced Planck constant.
+
+  # Main problem:
+  What is the heat capacity $C_V(\beta, \omega)$ of a single quantum harmonic oscillator, expressed in terms of $k_B$, $\beta$, $\hbar$, and $\omega$?
 
 requires_numerical: true
+
+answer: |
+  C_V = k_B * (beta * hbar * omega)**2 * sp.exp(beta * hbar * omega) / (sp.exp(beta * hbar * omega) - 1)**2
+
+answer_template: |
+  import sympy as sp
+
+  k_B, beta, hbar, omega = sp.symbols('k_B beta hbar omega', positive=True)
+
+  def answer(k_B, beta, hbar, omega):
+      r"""
+      Return the heat capacity of a single quantum harmonic oscillator.
+
+      Inputs
+      ----------
+      k_B   : sympy.Symbol, Boltzmann constant
+      beta  : sympy.Symbol, inverse temperature 1/(k_B T)
+      hbar  : sympy.Symbol, reduced Planck constant
+      omega : sympy.Symbol, angular frequency
+
+      Outputs
+      ----------
+      C_V : sympy.Expr, the heat capacity
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      C_V = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return C_V

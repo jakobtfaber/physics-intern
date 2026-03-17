@@ -1,14 +1,44 @@
 problem: |
-  Derive the full differential scattering cross section for the
-  Aharonov-Bohm effect: a charged particle scattering off an infinite
-  solenoid carrying magnetic flux Phi. Using partial wave analysis in
-  the presence of the vector potential (with B=0 outside the solenoid),
-  show that the scattering amplitude depends on the fractional part of
-  the flux parameter alpha = e*Phi/(2*pi*hbar*c). Derive the exact
-  Aharonov-Bohm cross section:
-  d sigma/d theta = (1/(2*pi*k)) * sin^2(pi*alpha) / sin^2(theta/2).
-  Discuss the forward scattering singularity and its physical origin.
-  Verify the partial wave expansion numerically by summing a finite
-  number of partial waves and comparing with the closed-form result.
+  # Problem setup:
+  Consider a charged particle (charge $e$, wave number $k$) scattering off an infinitely long, impenetrable solenoid of negligible radius carrying a total magnetic flux $\Phi$. Outside the solenoid the magnetic field is zero ($\mathbf{B} = 0$), but the vector potential $\mathbf{A}$ is non-zero and given by $\mathbf{A} = \Phi/(2\pi r)\,\hat{\boldsymbol{\phi}}$ in cylindrical coordinates.
+
+  The Schrödinger equation in the presence of $\mathbf{A}$ (with $\mathbf{B} = 0$) is equivalent to the free-particle equation but with shifted angular momentum quantum numbers: $m \to m - \alpha$, where $\alpha = e\Phi/(2\pi\hbar c)$ is the dimensionless flux parameter. The scattering depends only on the fractional part of $\alpha$, a consequence of the Aharonov-Bohm effect — a purely quantum mechanical phenomenon where a charged particle is affected by the vector potential even in a region where the magnetic field vanishes.
+
+  Using partial wave analysis with the shifted angular momenta, one can sum the series to obtain a closed-form expression for the differential scattering cross section (per unit length of the solenoid) in two dimensions.
+
+  Let $\theta$ be the scattering angle ($\theta \neq 0$).
+
+  # Main problem:
+  What is the Aharonov-Bohm differential scattering cross section $d\sigma/d\theta$ as a function of $k$, $\alpha$, and $\theta$?
 
 requires_numerical: true
+
+answer: |
+  dsigma_dtheta = sp.sin(sp.pi * alpha)**2 / (2 * sp.pi * k * sp.sin(theta / 2)**2)
+
+answer_template: |
+  import sympy as sp
+
+  k, alpha, theta = sp.symbols('k alpha theta')
+
+  def answer(k, alpha, theta):
+      r"""
+      Return the Aharonov-Bohm differential scattering cross section
+      d(sigma)/d(theta).
+
+      Inputs
+      ----------
+      k     : sympy.Symbol, wave number of the incident particle
+      alpha : sympy.Symbol, dimensionless flux parameter e*Phi/(2*pi*hbar*c)
+      theta : sympy.Symbol, scattering angle
+
+      Outputs
+      ----------
+      dsigma_dtheta : sympy.Expr, the differential cross section
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      dsigma_dtheta = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return dsigma_dtheta

@@ -1,0 +1,34 @@
+problem: |
+  # Problem setup:
+  Consider flow between two parallel plates heated from below and cooled from above (i.e., Rayleigh-Benard convection) with Prandtl number $Pr=1$ and horizontally periodic boundary conditions. The boundary condition on the top wall is free-slip with fixed temperature, and the boundary condition on the bottom wall is no-slip with constant heat flux.
+
+
+  # Main problem:
+   What are the critical Rayleigh number (allowing $\pm 0.5$ error) and associated critical horizontal wavenumber (allowing $\pm 0.02$ error), where above this critical Rayleigh number, the conduction base state is linearly unstable?
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the value of critical Rayleigh number and associated critical horizontal wavenumber.
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      Ra_c: float, critical Rayleigh number
+      kx: float, associated critical horizontal wavenumber
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      Ra_c = ...
+      kx = ...
+      # ---------------------------------------------------------------
+
+      return Ra_c, kx

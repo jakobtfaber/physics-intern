@@ -1,0 +1,42 @@
+problem: |
+  # Problem setup:
+  Consider a graphene layer sitting on a 3D substrate. The substrate has charged impurities of which the density is $n_i$ $\AA^{-3}$. Assume domains with characteristic linear size $\xi$ will form,  in which the 3D substrate and the sample layer together are charge neutral and form a thermal equilibrium. Such domains lead to electron and hole puddles. As a result, there will be a plateau in conductivity when changing the gate voltage $V_g$.
+
+  # Main problem:
+
+  How will $\xi$ and the width of the plateau $\Delta V_g$ scale with the impurity density $n_i$?  Assuming $\xi\propto n_i^{\alpha}$, $\Delta V_g\propto n_i^{\beta}$, find $\alpha$ and $\beta$. Will such a plateau appear in a 3D topological insulator? Are the charged impurities still important there? Do charged impurities give long-range or short-range scattering? Will the long-range scattering in both graphene and a 3D topological insulator give longer mean free path than short-range scattering?
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the values of scaling exponents $\alpha$ and $\beta$.
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      alpha: float, scaling exponent in $\xi\propto n_i^{\alpha}$.
+      beta: float, scaling exponent in $\Delta V_g\propto n_i^{\beta}$.
+      have_plateau: bool, True if such plateau appear in 3D topological insulator.
+      are_important: bool, True if charge impuritis are still important.
+      is_long_range: bool, True if long-range scattering give longer mean free path, False if short-range scattering.
+      is_longer: bool, True if long-range scattering in both graphene and 3D topological insulator give longer mean free path.
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      alpha = ...
+      beta = ...
+      have_plateau = ...
+      are_important = ...
+      is_long_range = ...
+      is_longer = ...
+      # ---------------------------------------------------------------
+
+      return alpha, beta, have_plateau, are_important, is_long_range, is_longer

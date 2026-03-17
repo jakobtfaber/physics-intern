@@ -1,13 +1,36 @@
 problem: |
-  Derive the Tolman-Oppenheimer-Volkoff (TOV) equation for hydrostatic
-  equilibrium in general relativity, starting from Einstein's field
-  equations for a static, spherically symmetric perfect fluid. Then solve
-  the TOV equation exactly for a star of uniform energy density. From this
-  interior Schwarzschild solution, derive Buchdahl's bound: 2GM/(Rc^2) < 8/9,
-  by requiring that the central pressure remains finite. Show that the
-  interior metric matches the exterior Schwarzschild metric at the stellar
-  surface. Numerically integrate the TOV equation for the uniform-density
-  case and verify that the central pressure diverges as the compactness
-  approaches the Buchdahl limit.
+  # Problem setup:
+  In general relativity, the structure of a static, spherically symmetric star composed of a perfect fluid is governed by the Tolman-Oppenheimer-Volkoff (TOV) equation: $dP/dr = -(G/c^2)\,(\rho + P/c^2)(m(r) + 4\pi r^3 P/c^2)/(r(r - 2Gm(r)/c^2))$, where $P(r)$ is the pressure, $\rho(r)$ the energy density, and $m(r)$ the enclosed gravitational mass.
+
+  For a star of uniform energy density $\rho = \text{const}$, the TOV equation can be solved analytically. The interior Schwarzschild solution gives the pressure as a function of radius, with the central pressure $P_c$ diverging as the compactness $2GM/(Rc^2)$ approaches a critical value — the Buchdahl bound.
+
+  Buchdahl's theorem (1959) states that for any static, spherically symmetric perfect fluid star satisfying $\rho(r) \geq 0$ and $d\rho/dr \leq 0$ (density non-increasing outward), the compactness is bounded above. The bound is saturated by the uniform-density solution.
+
+  Let $G$ be Newton's gravitational constant, $M$ the total mass, $R$ the surface radius, and $c$ the speed of light.
+
+  # Main problem:
+  What is the maximum compactness $2GM/(Rc^2)$ allowed by Buchdahl's bound?
 
 requires_numerical: true
+
+answer: |
+  max_compactness = sp.Rational(8, 9)
+
+answer_template: |
+  import sympy as sp
+
+  def answer():
+      r"""
+      Return the maximum compactness 2GM/(Rc^2) allowed by
+      Buchdahl's bound.
+
+      Outputs
+      ----------
+      max_compactness : sympy.Expr, the Buchdahl bound
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      max_compactness = ...  # a SymPy expression
+      # ---------------------------------------------------------------
+
+      return max_compactness

@@ -1,9 +1,46 @@
 problem: |
-  Derive the anomalous perihelion precession of Mercury from general
-  relativity. Starting from the Schwarzschild metric, obtain the precession
-  angle per orbit: Delta phi = 6*pi*G*M / (a*(1-e^2)*c^2). Compute the
-  result for Mercury in arcseconds per century (expected: ~43 arcsec/century).
-  Verify by numerically integrating the full relativistic orbital equation
-  and measuring the precession directly.
+  # Problem setup:
+  In general relativity, a test particle orbiting a central mass $M$ follows a geodesic of the Schwarzschild metric. The effective potential for the radial motion acquires an additional $-GMl^2/(m c^2 r^3)$ term compared to Newtonian gravity (where $l$ is the specific angular momentum), which causes the orbit to precess.
+
+  For a bound orbit with semi-major axis $a$ and eccentricity $e$, the orbit equation in Newtonian gravity yields a closed ellipse. In general relativity, the orbit is nearly elliptical but the perihelion advances by a small angle $\Delta\phi$ each orbit. This effect was famously confirmed for Mercury, whose anomalous precession of $\sim 43''$ per century was one of the first experimental tests of general relativity.
+
+  The precession can be computed perturbatively by expanding the relativistic orbit equation $d^2 u/d\phi^2 + u = GM/(l^2/m) + 3GMu^2/c^2$ (where $u = 1/r$) to first order in the small relativistic correction.
+
+  Let $G$ be Newton's gravitational constant and $c$ the speed of light.
+
+  # Main problem:
+  What is the perihelion precession angle $\Delta\phi$ per orbit for a test particle in a Schwarzschild spacetime, expressed in terms of $G$, $M$, $a$, $e$, and $c$?
 
 requires_numerical: true
+
+answer: |
+  Delta_phi = 6 * sp.pi * G * M / (a * (1 - e**2) * c**2)
+
+answer_template: |
+  import sympy as sp
+
+  G, M, a, e, c = sp.symbols('G M a e c', positive=True)
+
+  def answer(G, M, a, e, c):
+      r"""
+      Return the perihelion precession angle per orbit for a test
+      particle in a Schwarzschild spacetime.
+
+      Inputs
+      ----------
+      G : sympy.Symbol, Newton's gravitational constant
+      M : sympy.Symbol, central mass
+      a : sympy.Symbol, semi-major axis
+      e : sympy.Symbol, orbital eccentricity
+      c : sympy.Symbol, speed of light
+
+      Outputs
+      ----------
+      Delta_phi : sympy.Expr, precession angle per orbit (radians)
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      Delta_phi = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return Delta_phi

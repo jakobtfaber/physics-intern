@@ -1,14 +1,48 @@
 problem: |
-  Solve the hydrogen atom in parabolic coordinates (xi, eta, phi) by
-  separating the Schrodinger equation into two independent ODE problems.
-  Identify the parabolic quantum numbers (n1, n2, m) and show their
-  relation to the principal quantum number n = n1 + n2 + |m| + 1.
-  Then derive the linear Stark effect: apply a uniform electric field E
-  along the z-axis and show, using first-order degenerate perturbation
-  theory in parabolic coordinates, that the energy splitting is
-  Delta_E = 3*e*E*a_0*n*(n1 - n2)/2. For the n=2 level, compute the
-  explicit matrix elements, diagonalise the perturbation, and verify the
-  splitting Delta_E = +/- 3*e*E*a_0. Verify the matrix elements and
-  energy splittings numerically.
+  # Problem setup:
+  The hydrogen atom can be solved in parabolic coordinates $(\xi, \eta, \phi)$, defined by $\xi = r + z$, $\eta = r - z$, $\phi = \arctan(y/x)$, where $(r, \theta, \phi)$ are the usual spherical coordinates. In these coordinates, the Schrödinger equation separates into three independent equations, introducing the parabolic quantum numbers $n_1, n_2 \geq 0$ (non-negative integers) and the magnetic quantum number $m$. The principal quantum number is $n = n_1 + n_2 + |m| + 1$.
+
+  When a uniform static electric field $\mathbf{E} = E\hat{z}$ is applied (the Stark effect), parabolic coordinates are the natural basis for perturbation theory because the perturbation $H' = eEz = \tfrac{1}{2}eE(\xi - \eta)$ separates in these coordinates. This means the unperturbed parabolic states are already the correct zeroth-order states for degenerate perturbation theory — no diagonalisation is needed.
+
+  The first-order energy correction is obtained by evaluating $\langle n_1, n_2, m | H' | n_1, n_2, m \rangle$ using the known expectation values of $\xi$ and $\eta$ in the parabolic eigenstates.
+
+  Let $e$ denote the electron charge magnitude, $a_0$ the Bohr radius, and $E$ the applied electric field strength.
+
+  # Main problem:
+  What is the first-order (linear) Stark energy shift $\Delta E$ for a hydrogen state with quantum numbers $(n, n_1, n_2)$, expressed in terms of $e$, $E$ (the electric field), $a_0$, $n$, $n_1$, and $n_2$?
 
 requires_numerical: true
+
+answer: |
+  Delta_E = 3 * e_charge * E_field * a_0 * n * (n_1 - n_2) / 2
+
+answer_template: |
+  import sympy as sp
+
+  e_charge, E_field, a_0 = sp.symbols('e E a_0', positive=True)
+  n, n_1, n_2 = sp.symbols('n n_1 n_2')
+
+  def answer(e_charge, E_field, a_0, n, n_1, n_2):
+      r"""
+      Return the first-order (linear) Stark energy shift for hydrogen
+      in parabolic coordinates.
+
+      Inputs
+      ----------
+      e_charge : sympy.Symbol, electron charge magnitude
+      E_field  : sympy.Symbol, applied electric field strength
+      a_0      : sympy.Symbol, Bohr radius
+      n        : sympy.Symbol, principal quantum number
+      n_1      : sympy.Symbol, parabolic quantum number
+      n_2      : sympy.Symbol, parabolic quantum number
+
+      Outputs
+      ----------
+      Delta_E : sympy.Expr, the first-order Stark energy shift
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      Delta_E = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return Delta_E

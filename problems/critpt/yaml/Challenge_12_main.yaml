@@ -1,0 +1,49 @@
+problem: |
+  # Problem setup:
+  Consider $Z_N$ ($N$ is any integer) parafermion zero-mode operators on four sites $\alpha_i$ with $i=1,2,3,4$ and a four-stage tunneling process described by
+
+  $
+  H_{34}\rightarrow H_{23} \rightarrow H_{12}\rightarrow H_{13}\rightarrow H_{34},
+  $
+
+  where
+  $
+  H_{ij}=t\left(e^{-i\phi_{ij}/N}\alpha_i^\dagger\alpha_j+H.c.\right)
+  $, $\phi_{ij}$ is a phase between sites $i$ and $j$, and $H.c.$ stands for Hermitian conjugate. This tunneling process is followed by a permutation between zero modes $(\alpha_1,\alpha_2)$ and $(\alpha_3,\alpha_4)$, respectively.
+
+  # Main problem:
+  Find the phase between the initial ground state of the process $|\psi^i(q)\rangle$ and final ground state of the process $|\psi^f(q)\rangle$, where $q$ is the fusion channel between the unpaired zero modes. Your answer should depend on $k_{ij}\in Z_N$, where $k_{ij}<-\frac{\phi_{ij}}{2\pi}<k_{ij}+1$. Note that, for a Josephson phase between sites i and j, k_ij is a ground-state fusion channel.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+
+  t, k_12, k_13, k_23, k_34, N, q = sp.symbols('t k_{12} k_{13} k_{23} k_{34} N q')
+
+  def answer(t, k_12, k_13, k_23, k_34, N, q):
+      r"""
+      Return the expression of the phase between $|\psi^i(q)\rangle$ and $|\psi^f(q)\rangle$ in Sympy format.
+
+      Inputs
+      ----------
+      t: sympy.Symbol, tunneling amplitude $t$
+      k_12, k_13, k_23, k_34: sympy.Symbol, ground-state fusion channels
+            $k_{ij}\in Z_N$ with $k_{ij}<-\frac{\phi_{ij}}{2\pi}<k_{ij}+1$
+      N: sympy.Symbol, integer N defining $Z_N$
+      q: sympy.Symbol, fusion channel between the unpaired zero modes
+
+      Outputs
+      ----------
+      phase: sympy.Expr, the expression of the phase between the initial ground state $|\psi^i(q)\rangle$
+            and final ground state $|\psi^f(q)\rangle$
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      phase = ...  # a SymPy expression of the inputs
+      # ---------------------------------------------------------------
+
+      return phase

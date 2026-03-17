@@ -1,0 +1,67 @@
+problem: |
+  # Problem setup:
+  Consider a population of genetically identical bacterial cells in balanced growth. Each cell starts with some initial size $v_b$ and grows according to the equation
+  \begin{equation}
+      \frac{dv}{dt} = \lambda_t v(t),
+  \end{equation}
+  where the growth rate $\lambda_t$ is a two-state stochastic process that jumps between values $\lambda^+$ and $\lambda^-$ and has the gamma-distributed waiting times with densities
+  \begin{equation}
+      f_\pm(t) = \frac{k_\pm^{\alpha}\, t^{\alpha-1} e^{-k_\pm t}}{\Gamma(\alpha)}.
+  \end{equation}
+  Each cell divides symmetrically when it reaches a final division size given by
+  \begin{equation}
+      v_d = 2v_b^{1-\beta}\bar v_b^\beta + \xi.
+  \end{equation}
+  Here, $v_b$ is the birth size of the cell, $\bar v_b>0$ is a constant representing average birth size, $0<\beta\leq 1$ is a parameter determining the degree of cell-size regulation, and the division noise $\xi>0$ is a narrowly distributed random variable with mean zero and variance $\sigma^2$. You can assume this noise is Gaussian distributed and sufficiently narrow to ignore the probability that $v_d$ is ever smaller than $v_b$.
+
+  A population of such cells grows asymptotically exponentially with growth rate $\Lambda$, i.e., $N(t) \propto e^{\Lambda t}$ for large $t$.
+
+  # Main problem:
+
+  Find the asymptotic population growth rate $\Lambda$ in terms of the model parameters $\lambda^+$, $\lambda^-$, $k_+$, $k_-$, $\alpha$, $\bar v_b$, $\beta$, and $\sigma^2$ for small $\sigma^2/\bar v_b^2$. Give your answer to first order in $\sigma^2/\bar v_b^2$. Explain how $\beta$ and $\sigma^2$ affect the population growth rate.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+
+  lambda_plus, lambda_minus = sp.symbols('lambda_plus lambda_minus')
+  k_plus, k_minus = sp.symbols('k_plus k_minus')
+  alpha = sp.symbols('alpha')
+  vbar_b = sp.symbols('vbar_b')
+  beta = sp.symbols('beta')
+  sigma2 = sp.symbols('sigma2')
+
+  def answer(lambda_plus, lambda_minus, k_plus, k_minus, alpha, vbar_b, beta, sigma2):
+      r"""
+      Return the expression of $\Lambda$ in Sympy format, and the answer to the multiple choice question.
+
+      Inputs
+      ----------
+      lambda_plus : sympy.Symbol, growth-rate state $\lambda^{+}$
+      lambda_minus : sympy.Symbol, growth-rate state $\lambda^{-}$
+      k_plus, k_minus, alpha: sympy.Symbol, parameters of the gamma-distribution
+      vbar_b: sympy.Symbol, average birth size, $\bar v_b$
+      beta: sympy.Symbol, parameter determining the degree of cell-size regulation, $0<\beta\leq 1$
+      sigma2: sympy.Symbol, variance of the division noise, $\sigma^2$
+
+      Outputs
+      ----------
+      Lambda : sympy.Expr, asymptotic population growth rate $\Lambda$ to first order in $\sigma^2/\bar v_b^2$.
+      answer_beta, answer_sigma2 : str, answers to the following multiple choice question.
+          How $\beta$ and $\sigma^2$ affect the population growth rate?
+            A. Increase B. Decrease C. Not affected D. Change nonmonotonically
+          answer_beta: the answer for $\beta$, one of {'A', 'B', 'C', 'D'}
+          answer_sigma2: the answer for $\sigma^2$, one of {'A', 'B', 'C', 'D'}
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      Lambda = ...  # a SymPy expression of inputs
+      answer_beta = ...  # one of {'A', 'B', 'C', 'D'}
+      answer_sigma2 = ...  # one of {'A', 'B', 'C', 'D'}
+      # ---------------------------------------------------------------
+
+      return Lambda, answer_beta, answer_sigma2

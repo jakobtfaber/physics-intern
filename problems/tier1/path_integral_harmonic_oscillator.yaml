@@ -1,9 +1,47 @@
 problem: |
-  Evaluate the path integral for the quantum harmonic oscillator exactly
-  and derive the propagator K(x_f, t_f; x_i, t_i) in closed form (the
-  Mehler kernel). Extract the energy spectrum E_n = hbar*omega*(n+1/2)
-  from the propagator and verify consistency with the operator formalism.
-  Include numerical checks by evaluating the discretised path integral
-  and comparing with the exact result.
+  # Problem setup:
+  Consider a non-relativistic quantum particle of mass $m$ in a harmonic potential $V(x) = \tfrac{1}{2} m \omega^2 x^2$, where $\omega$ is the angular frequency. The quantum propagator $K(x_f, T; x_i, 0)$ gives the probability amplitude for the particle to travel from position $x_i$ at time $0$ to position $x_f$ at time $T$.
+
+  In Feynman's path integral formulation, the propagator is expressed as a functional integral over all paths $x(t)$ connecting $(x_i, 0)$ to $(x_f, T)$: $K = \int \mathcal{D}[x]\, e^{iS[x]/\hbar}$, where $S[x] = \int_0^T \left[\tfrac{1}{2}m\dot{x}^2 - \tfrac{1}{2}m\omega^2 x^2\right] dt$ is the classical action.
+
+  For the harmonic oscillator, the path integral can be evaluated exactly because the action is quadratic in $x(t)$. Writing $x(t) = x_{\rm cl}(t) + y(t)$ where $x_{\rm cl}(t)$ is the classical trajectory satisfying the boundary conditions, the fluctuation integral over $y(t)$ factorises and yields a prefactor independent of the endpoints. The result is the Mehler kernel.
+
+  Let $\hbar$ be the reduced Planck constant and $i$ the imaginary unit.
+
+  # Main problem:
+  What is the exact propagator $K(x_f, T; x_i, 0)$ for the quantum harmonic oscillator, expressed in terms of $m$, $\omega$, $\hbar$, $T$, $x_i$, and $x_f$?
 
 requires_numerical: true
+
+answer: |
+  K = sp.sqrt(m*omega/(2*sp.pi*sp.I*hbar*sp.sin(omega*T))) * sp.exp(sp.I*m*omega/(2*hbar*sp.sin(omega*T)) * ((x_f**2 + x_i**2)*sp.cos(omega*T) - 2*x_f*x_i))
+
+answer_template: |
+  import sympy as sp
+
+  m, omega, hbar, T, x_i, x_f = sp.symbols('m omega hbar T x_i x_f')
+
+  def answer(m, omega, hbar, T, x_i, x_f):
+      r"""
+      Return the exact propagator (Mehler kernel) for the quantum
+      harmonic oscillator.
+
+      Inputs
+      ----------
+      m     : sympy.Symbol, particle mass
+      omega : sympy.Symbol, angular frequency
+      hbar  : sympy.Symbol, reduced Planck constant
+      T     : sympy.Symbol, time interval
+      x_i   : sympy.Symbol, initial position
+      x_f   : sympy.Symbol, final position
+
+      Outputs
+      ----------
+      K : sympy.Expr, the propagator K(x_f, T; x_i, 0)
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      K = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return K

@@ -1,9 +1,39 @@
 problem: |
-  Perform the one-loop renormalisation of scalar phi^4 theory in d=4
-  dimensions. Compute all one-loop 1PI diagrams, extract the divergences,
-  determine the counterterms, and derive the one-loop beta function.
-  The expected result is beta(lambda) = 3*lambda^2 / (16*pi^2).
-  Discuss asymptotic freedom (or lack thereof) and locate the Landau pole.
-  Verify the Feynman parameter integrals numerically for specific kinematics.
+  # Problem setup:
+  Consider the massless $\phi^4$ scalar field theory in $d = 4$ spacetime dimensions with Lagrangian density $\mathcal{L} = \tfrac{1}{2}(\partial_\mu \phi)^2 - \tfrac{\lambda}{4!}\phi^4$, where $\lambda$ is the quartic coupling constant.
+
+  At one-loop order, the coupling constant $\lambda$ receives quantum corrections from a single Feynman diagram: the "sunset" (or "bubble") diagram contributing to the four-point vertex function. This diagram involves one loop momentum integral with two internal propagators. After dimensional regularisation (working in $d = 4 - \epsilon$ dimensions) and renormalisation (e.g. in the $\overline{\rm MS}$ scheme), the divergent part of this correction determines how $\lambda$ runs with the renormalisation scale $\mu$.
+
+  The beta function $\beta(\lambda) = \mu \, d\lambda/d\mu$ encodes this running. At one loop, there are three identical diagrams (from the three ways to pair the four external legs), each contributing equally. The sign of the beta function determines whether the theory is asymptotically free ($\beta < 0$) or not ($\beta > 0$).
+
+  # Main problem:
+  What is the one-loop beta function $\beta(\lambda)$ for massless $\phi^4$ theory in $d = 4$ dimensions?
 
 requires_numerical: false
+
+answer: |
+  beta_lambda = 3 * lam**2 / (16 * sp.pi**2)
+
+answer_template: |
+  import sympy as sp
+
+  lam = sp.symbols('lambda', positive=True)
+
+  def answer(lam):
+      r"""
+      Return the one-loop beta function of massless phi^4 theory in d=4.
+
+      Inputs
+      ----------
+      lam : sympy.Symbol, the quartic coupling constant lambda
+
+      Outputs
+      ----------
+      beta_lambda : sympy.Expr, the one-loop beta function beta(lambda)
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      beta_lambda = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return beta_lambda

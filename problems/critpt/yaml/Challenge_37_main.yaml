@@ -1,0 +1,69 @@
+problem: |
+  # Problem setup:
+  Consider a single-particle Hamiltonian on a lattice.
+
+  Given a generic isolated set of $N$ bands with projector $P_{\boldsymbol{k}}$ constructed by the perodic part of the Bloch states,
+  we can define the quantum metric as
+  \begin{equation}
+  g_{ij}(\boldsymbol{k}) = \frac{1}{2}\mathrm{Tr}[\partial_{k_i} P_{\boldsymbol{k}} \partial_{k_j} P_{\boldsymbol{k}}]\ .
+  \end{equation}
+
+  The gauge invariant part of the Wannier spread of the isolated set of bands is proportional to
+  \begin{equation}
+  \mathop{\mathrm{Tr}}\mathcal{G} = \int d^2 k\ \mathop{\mathrm{Tr}}[g(\boldsymbol{k})]\ ,
+  \end{equation}
+  where the integration ranges over the first Brillouin zone.
+
+  Given the following 2D Hamiltonian,
+  \begin{align}\begin{split}
+  H & = \int d^2 r\ c^\dagger_{\boldsymbol{r}} \left[ - \frac{1}{2 m} \nabla^2 + \lambda (- \mathrm{i} \partial_y \sigma_x +  \mathrm{i} \partial_x \sigma_y)  + \Delta_1 \sum_{i=1}^{3} \sum_{s=\pm} e^{ s  \mathrm{i} \boldsymbol{g}_i^{(1)}\cdot\boldsymbol{r}}  \right] c_{\boldsymbol{r}}  \\
+  & \qquad + \int d^2 r\ c^\dagger_{\boldsymbol{r}} \left[  \mathrm{i} \Delta_2 \sum_{i=1}^{3} \sum_{s=\pm} s e^{ s  \mathrm{i} \boldsymbol{g}_i^{(1)}\cdot\boldsymbol{r}}   +  \sum_{i=1}^{3} \sum_{s=\pm} (\Delta_3 + s  \mathrm{i} \Delta_4)e^{s  \mathrm{i} \boldsymbol{g}_i^{(2)}\cdot\boldsymbol{r}}  \right] c_{\boldsymbol{r}} \ ,
+  \end{split}\end{align}
+  where $c^\dagger_{\boldsymbol{r}} = (c^\dagger_{\boldsymbol{r},\uparrow}, c^\dagger_{\boldsymbol{r},\downarrow})$, $c^\dagger_{\boldsymbol{r},s}$ creates an electron at 2D coordinate $\boldsymbol{r}$ and with spin $s$, the primitive reciprocal lattice vectors reads $\boldsymbol{b}_{M,1} = (0,1)$ and $\boldsymbol{b}_{M,2} = C_6 \boldsymbol{b}_{M,1}$, and $\boldsymbol{g}_i^{(1)} = C_3^{i-1}\boldsymbol{b}_{M,1}  $, and $\boldsymbol{g}_i^{(2)} = C_3^{i-1}(\boldsymbol{b}_{M,1} + \boldsymbol{b}_{M,2})  $.
+
+  We choose
+  \begin{equation}
+  2 m = 1,\ \lambda = 1.9,\ \Delta_1 = 0.12,\ \Delta_2 = 0.005,\ \Delta_3 = 0.05,\ \Delta_4 = 0.01\ .
+  \end{equation}
+
+
+  # Main problem:
+
+  Is the set of the lowest two bands isolated?
+  What is the direct energy gap between the lowest two bands?
+  What is $\frac{1}{2\pi}\mathop{\mathrm{Tr}}\mathcal{G}$ for the set of the lowest two bands?
+  Is the Kane-Mele time-reversal $Z_2$ topology of the set of the lowest two bands trivial or nontrivial?
+  Can the set of the lowest two bands be expressed in terms of two exponentially localized Wannier functions?
+
+  For all numerical calculations, please use the 43 shortest reciprocal lattice vectors, use a $60\times 60$ equal-spacing hexagonal-symmetric momentum mesh in the Brillouin zone, and keep four decimal places for all numerical answers.
+  If any quantity is ill-defined, use N/A as the answer.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return a tuple of answers (isolated, gap, TrG_over_2pi, Z2_topology, wannier_expressible).
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      result: a tuple whose entries are
+          isolated            – "Yes", "No", or "N/A"
+          gap                 – float (4 decimal places) or "N/A"
+          TrG_over_2pi        – float (4 decimal places) or "N/A"
+          Z2_topology         – "Trivial", "Nontrivial", or "N/A"
+          wannier_expressible – "Yes", "No", or "N/A"
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      result = ...  # a SymPy tuple of the five requested quantities
+      # ---------------------------------------------------------------
+
+      return result

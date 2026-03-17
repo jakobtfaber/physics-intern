@@ -1,0 +1,55 @@
+problem: |
+  # Problem setup:
+  Suppose the quantum amplitude damping channel acting on a qubit system is defined by
+  \begin{align*}
+      \mathcal A_{\gamma}\begin{pmatrix}
+          \rho_{00} & \rho_{01} \\
+          \rho_{10} & \rho_{11}
+      \end{pmatrix} = \begin{pmatrix}
+          \rho_{00}+ \gamma \rho_{11} & \sqrt{1-\gamma}\rho_{01} \\
+          \sqrt{1-\gamma} \rho_{10} & (1-\gamma)\rho_{11}
+      \end{pmatrix}.
+  \end{align*}
+  The quantum relative entropy is defined by
+  \begin{equation*}
+  D(\rho||\sigma)= \begin{cases}
+   \mathrm{tr}\Big(\rho\big(\log(\rho)-\log(\sigma)\big)\Big) &\text{ if } \text{supp}(\rho)\subseteq \text{supp}(\sigma), \\
+  \infty &\text{ else}.
+  \end{cases}
+  \end{equation*}
+
+
+  # Main problem:
+
+  Denote
+  \begin{align*}
+      f(\gamma):=\sup_{\rho \neq \sigma}\frac{D(\mathcal{A}_{\gamma}(\rho) \|\mathcal{A}_{\gamma}(\sigma))}{D(\rho \|\sigma)},\quad \gamma \in [0,1],
+  \end{align*}
+  where the supremum is taken over all density operators $\rho$ and $\sigma$. Calculate $$f(\frac{1}{8}) + f(\frac{1}{4}) + f(\frac{1}{2}).$$
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the value of $f(\frac{1}{8}) + f(\frac{1}{4}) + f(\frac{1}{2})$.
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      sum: float
+          Value of $f(\frac{1}{8}) + f(\frac{1}{4}) + f(\frac{1}{2})$,
+          where $f(\gamma):=\sup_{\rho \neq \sigma}\frac{D(\mathcal{A}_{\gamma}(\rho) \|\mathcal{A}_{\gamma}(\sigma))}{D(\rho \|\sigma)},\quad \gamma \in [0,1]$.
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      sum = ...
+      # ---------------------------------------------------------------
+
+      return sum

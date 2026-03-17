@@ -1,15 +1,34 @@
 problem: |
-  Compute the ground-state potential energy curve E(R) for the hydrogen
-  molecule ion H2+ as a function of internuclear distance R, using two
-  approaches. First, use the LCAO-MO (linear combination of atomic
-  orbitals) variational method with 1s orbitals centred on each proton:
-  compute the overlap integral S(R), the Coulomb integral J(R), and the
-  exchange integral K(R) analytically, and obtain the bonding (sigma_g)
-  and antibonding (sigma_u) energy curves. Second, exploit the exact
-  separability of H2+ in prolate spheroidal coordinates (xi, eta, phi)
-  to obtain the numerically exact energy curve. Compare the two methods.
-  The expected equilibrium bond length is R_eq ~ 2.0 a_0 (exact: 1.997 a_0)
-  and dissociation energy D_e ~ 2.79 eV (exact: 2.791 eV). Verify
-  both the LCAO integrals and the exact separation numerically.
+  # Problem setup:
+  The hydrogen molecular ion $\mathrm{H}_2^+$ consists of two protons and a single electron. It is the simplest molecule in nature and the only one for which the electronic Schrödinger equation can be solved exactly (by separation in prolate spheroidal coordinates).
+
+  In the Born-Oppenheimer approximation, the two protons are held at fixed separation $R$, and one solves for the electronic energy $E(R)$. In prolate spheroidal coordinates $(\xi, \eta, \phi)$, where $\xi = (r_A + r_B)/R$ and $\eta = (r_A - r_B)/R$ with $r_A, r_B$ the distances from the electron to each proton, the Schrödinger equation separates into three independent ODEs. The resulting ground-state energy curve $E(R)$ has a minimum at the equilibrium bond length $R_{\rm eq} \approx 2.00\,a_0$ (Bohr radii).
+
+  The dissociation energy $D_e$ is defined as the depth of this potential well: $D_e = E(\infty) - E(R_{\rm eq})$, where $E(\infty) = -0.5\,E_h$ is the energy of a hydrogen atom (the dissociation limit), and $E_h$ is the Hartree energy ($\approx 27.211\,\mathrm{eV}$).
+
+  # Main problem:
+  What is the dissociation energy $D_e$ of the $\mathrm{H}_2^+$ molecular ion, in electron volts (eV)?
 
 requires_numerical: true
+
+answer: 2.791
+
+answer_template: |
+  def answer():
+      r"""
+      Return the dissociation energy D_e of H2+ in electron volts.
+
+      Obtain this by solving for the exact ground-state energy curve
+      E(R) using separation in prolate spheroidal coordinates, finding
+      the equilibrium bond length, and computing the well depth.
+
+      Outputs
+      ----------
+      D_e : float, dissociation energy in eV
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      D_e = ...  # a float
+      # ---------------------------------------------------------------
+
+      return D_e

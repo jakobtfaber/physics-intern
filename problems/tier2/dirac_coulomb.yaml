@@ -1,15 +1,45 @@
 problem: |
-  Solve the Dirac equation exactly for an electron in a Coulomb potential
-  V(r) = -Z*e^2/r. Separate the equation using the standard angular
-  decomposition into radial Dirac equations for the large and small
-  components. Solve the resulting coupled first-order system using a
-  power series method (analogous to the non-relativistic hydrogen atom),
-  and derive the exact Sommerfeld fine-structure formula:
-  E_{n,j} = m_e*c^2 * [1 + (Z*alpha / (n - (j+1/2) + sqrt((j+1/2)^2
-  - Z^2*alpha^2)))^2]^{-1/2}.
-  Expand to order (Z*alpha)^4 and show that the O(alpha^2) term
-  reproduces the standard perturbative fine-structure result from tier 1.
-  Identify the O(alpha^4) corrections. Compute numerical energy levels
-  for hydrogen (Z=1) for n=1,2,3 and compare with the perturbative values.
+  # Problem setup:
+  The Dirac equation for an electron (mass $m_e$) in the Coulomb potential of a nucleus with charge $Ze$ can be solved exactly. After separating the angular part using spinor spherical harmonics labelled by total angular momentum $j$ and parity quantum number $\kappa$, the radial Dirac equations form a coupled system for the large and small components.
+
+  Solving by a power series method (analogous to the confluent hypergeometric solution for the non-relativistic hydrogen atom) and imposing regularity and normalisability, one obtains the Sommerfeld fine-structure formula for the bound-state energy levels. This exact formula depends on the principal quantum number $n$, the total angular momentum quantum number $j$, the nuclear charge $Z$, and the fine-structure constant $\alpha = e^2/(\hbar c)$.
+
+  The formula is valid for $Z\alpha < j + 1/2$ (for larger $Z$, the point-nucleus solution becomes singular). When expanded to order $(Z\alpha)^4$, the Sommerfeld formula reproduces the non-relativistic Bohr energy plus the perturbative fine-structure correction.
+
+  # Main problem:
+  What is the exact Dirac-Coulomb energy spectrum $E_{n,j}$ for a bound electron in a Coulomb potential of charge $Ze$, expressed in terms of $m_e$, $c$, $Z$, $\alpha$, $n$, and $j$?
 
 requires_numerical: true
+
+answer: |
+  E_nj = m_e * c**2 * (1 + (Z * alpha / (n - (j + sp.Rational(1,2)) + sp.sqrt((j + sp.Rational(1,2))**2 - Z**2 * alpha**2)))**2)**(-sp.Rational(1,2))
+
+answer_template: |
+  import sympy as sp
+
+  m_e, c, alpha = sp.symbols('m_e c alpha', positive=True)
+  Z, n, j = sp.symbols('Z n j')
+
+  def answer(m_e, c, Z, alpha, n, j):
+      r"""
+      Return the exact Dirac-Coulomb energy spectrum (Sommerfeld formula).
+
+      Inputs
+      ----------
+      m_e   : sympy.Symbol, electron mass
+      c     : sympy.Symbol, speed of light
+      Z     : sympy.Symbol, nuclear charge number
+      alpha : sympy.Symbol, fine-structure constant
+      n     : sympy.Symbol, principal quantum number
+      j     : sympy.Symbol, total angular momentum quantum number
+
+      Outputs
+      ----------
+      E_nj : sympy.Expr, the bound-state energy
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      E_nj = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return E_nj

@@ -1,0 +1,64 @@
+problem: |
+  # Problem setup:
+  Consider a three-level atom with two ground states, $|b\rangle$ and $|d\rangle$, and a single excited state $|e\rangle$. The atom is placed in a lossless cavity that is prepared in a coherent state, i.e., $\hat \rho_c(t=0) = |\alpha\rangle\langle\alpha|$. The cavity is resonant with the ''bright'' $|b\rangle \leftrightarrow |e\rangle$ atomic transition. Setting $\hbar \equiv 1$, the Hamiltonian describing the atom-cavity interaction is then
+  \begin{equation}
+  \hat H = \frac{g}{2} \Big(|b\rangle\langle e| \hat a^\dagger +  |e\rangle\langle b| \hat a\Big).
+  \end{equation}
+  The atom undergoes spontaneous emission into free space (but not into the cavity) from $|e\rangle$ to $|d\rangle$. But once this happens, this atom no longer interacts with the cavity and hence becomes ''dark.'' The spontaneous emission is described by the dissipator
+  \begin{equation}
+      \mathcal{D} \hat \rho =
+  		\hat J \hat \rho \hat J^\dagger
+  		- \frac{1}{2} \left(
+  		\hat J^\dagger \hat J \hat \rho + \hat \rho \hat J^\dagger \hat J
+  		\right),
+  \end{equation}
+  where $\hat J = \sqrt{\gamma} |d\rangle\langle e|$, so that the evolution of the atom-cavity system is governed by the quantum master equation
+  \begin{equation}
+      \frac{d\hat \rho}{dt} = -i\left[ \hat H, \hat \rho \right] + \mathcal{D} \hat \rho.
+  \end{equation}
+  Assume the atom is prepared in the bright state so that the initial atom-cavity state is $\hat \rho_0 = |b\rangle\langle b| \otimes  |\alpha\rangle\langle\alpha|$.
+
+  # Main problem:
+
+  Derive an expression for the cavity field coherences,  $\langle n'| \hat \rho_{c,ss}|n\rangle$, in steady state.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+
+  n, np = sp.symbols('n n_prime', integer=True, nonnegative=True)
+  g, gamma = sp.symbols('g gamma', positive=True)
+  alpha = sp.symbols('alpha')
+
+  def answer(n, np, g, gamma, alpha):
+      r"""
+      Return the expression of the steady-state cavity coherence in SymPy format.
+
+      Inputs
+      ----------
+      n : sympy.Symbol
+          Photon number in state $|n\rangle$.
+      np : sympy.Symbol
+          Photon number in state $|n'\rangle$.
+      g : sympy.Symbol
+          Atom-cavity coupling constant $g$.
+      gamma : sympy.Symbol
+          Spontaneous-emission rate from $|e\rangle$ to $|d\rangle$, $\gamma$.
+      alpha : sympy.Symbol
+          Complex amplitude of the initial coherent state $|\alpha\rangle$.
+
+      Outputs
+      ----------
+      coherence : sympy.Expr
+          Symbolic expression for the steady-state cavity coherence $\langle n'| \hat \rho_{c,ss}|n\rangle$.
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      coherence = ...  # a SymPy expression of the inputs
+      # ---------------------------------------------------------------
+
+      return coherence

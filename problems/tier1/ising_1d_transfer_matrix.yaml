@@ -1,10 +1,42 @@
 problem: |
-  Solve the one-dimensional Ising model with nearest-neighbour coupling J
-  and external magnetic field h exactly for a chain of N spins with periodic
-  boundary conditions. Derive closed-form expressions for the free energy,
-  magnetisation, susceptibility, and correlation length in the thermodynamic
-  limit (N -> infinity). Verify that there is no spontaneous magnetisation
-  at finite temperature and that the susceptibility diverges as T -> 0 at
-  h = 0. Include numerical plots of the magnetisation curve.
+  # Problem setup:
+  Consider the one-dimensional Ising model on a chain of $N$ spins $s_i = \pm 1$ with nearest-neighbour coupling $J$ and an external magnetic field $h$, with periodic boundary conditions ($s_{N+1} = s_1$). The Hamiltonian is $\mathcal{H} = -J \sum_{i=1}^{N} s_i s_{i+1} - h \sum_{i=1}^{N} s_i$.
+
+  The partition function can be written as a trace of the $N$-th power of a $2 \times 2$ transfer matrix $T$, whose elements are $T_{s, s'} = \exp[\beta J s s' + \tfrac{1}{2}\beta h (s + s')]$, where $\beta = 1/(k_B T)$ is the inverse temperature. The two eigenvalues of $T$ are $\lambda_{\pm} = e^{\beta J}\left[\cosh(\beta h) \pm \sqrt{\sinh^2(\beta h) + e^{-4\beta J}}\right]$.
+
+  In the thermodynamic limit $N \to \infty$, the partition function is dominated by the largest eigenvalue $\lambda_+$, and the free energy per spin is $f = -(1/\beta) \ln \lambda_+$.
+
+  # Main problem:
+  What is the free energy per spin $f(\beta, J, h)$ in the thermodynamic limit, expressed in terms of $\beta$, $J$, and $h$?
 
 requires_numerical: false
+
+answer: |
+  f = -1/beta * sp.log(sp.exp(beta*J) * (sp.cosh(beta*h) + sp.sqrt(sp.sinh(beta*h)**2 + sp.exp(-4*beta*J))))
+
+answer_template: |
+  import sympy as sp
+
+  beta, J, h = sp.symbols('beta J h')
+
+  def answer(beta, J, h):
+      r"""
+      Return the free energy per spin of the 1D Ising model in the
+      thermodynamic limit.
+
+      Inputs
+      ----------
+      beta : sympy.Symbol, inverse temperature 1/(k_B T)
+      J    : sympy.Symbol, nearest-neighbour coupling
+      h    : sympy.Symbol, external magnetic field
+
+      Outputs
+      ----------
+      f : sympy.Expr, free energy per spin
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      f = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return f

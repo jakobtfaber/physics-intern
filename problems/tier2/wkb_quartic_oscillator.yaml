@@ -1,15 +1,34 @@
 problem: |
-  Apply the WKB (semiclassical) approximation to the pure quartic
-  oscillator V(x) = lambda*x^4. Derive the Bohr-Sommerfeld quantisation
-  condition and evaluate the resulting action integral, which involves
-  the complete Beta function B(1/2, 1/4+1/2) = B(1/2, 3/4). Show that
-  the WKB energy eigenvalues scale as
-  E_n ~ (hbar^2/m)^{2/3} * lambda^{1/3} * C * (n + 1/2)^{4/3}
-  where C is an explicit numerical constant involving Gamma functions.
-  Derive the connection formulae at the classical turning points.
-  Then compute the exact eigenvalues numerically by diagonalising the
-  Hamiltonian in a harmonic oscillator basis (or by Numerov integration).
-  Compare the WKB eigenvalues with the numerical ones for n = 0 through
-  n = 20. Discuss the accuracy of WKB as a function of quantum number.
+  # Problem setup:
+  Consider the pure quartic oscillator in one dimension with potential $V(x) = \lambda x^4$, where $\lambda > 0$ is the coupling constant. The time-independent Schrödinger equation is $-(\hbar^2/2m)\,\psi''(x) + \lambda x^4\,\psi(x) = E\,\psi(x)$.
+
+  In the WKB (semiclassical) approximation, the energy eigenvalues are determined by the Bohr-Sommerfeld quantisation condition: $\oint p(x)\,dx = 2\pi\hbar(n + 1/2)$, where $p(x) = \sqrt{2m(E - \lambda x^4)}$ is the classical momentum and the integral runs between the two classical turning points $\pm x_0 = \pm (E/\lambda)^{1/4}$.
+
+  The action integral evaluates to $\oint p\,dx = \frac{2\sqrt{2m}}{\lambda^{1/4}} E^{3/4} \int_{-1}^{1} \sqrt{1 - u^4}\,du$, where the definite integral is $\int_{-1}^{1}\sqrt{1 - u^4}\,du = \frac{\sqrt{\pi}\,\Gamma(5/4)}{\Gamma(7/4)} = \frac{2\sqrt{\pi}\,\Gamma(5/4)}{3\,\Gamma(3/4)}$. Solving the quantisation condition for $E_n$ gives $E_n \propto (\hbar^2/m)^{2/3}\,\lambda^{1/3}\,(n + 1/2)^{4/3}$, with an explicit dimensionless prefactor $C$ involving Gamma functions.
+
+  # Main problem:
+  What is the dimensionless constant $C$ in the WKB energy eigenvalue formula $E_n = C\,(\hbar^2/m)^{2/3}\,\lambda^{1/3}\,(n + 1/2)^{4/3}$?
 
 requires_numerical: true
+
+answer: |
+  C = (3 * sp.sqrt(sp.pi) * sp.gamma(sp.Rational(3, 4)) / (2 * sp.gamma(sp.Rational(5, 4))))**(sp.Rational(4, 3)) / 2
+
+answer_template: |
+  import sympy as sp
+
+  def answer():
+      r"""
+      Return the dimensionless constant C in the WKB energy eigenvalues
+      of the quartic oscillator: E_n = C * (hbar^2/m)^{2/3} * lambda^{1/3} * (n+1/2)^{4/3}.
+
+      Outputs
+      ----------
+      C : sympy.Expr, the dimensionless WKB constant (a Gamma function expression)
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      C = ...  # a SymPy expression involving Gamma functions
+      # ---------------------------------------------------------------
+
+      return C

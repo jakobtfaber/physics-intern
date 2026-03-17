@@ -1,0 +1,35 @@
+problem: |
+  # Problem setup:
+  Consider the Kitaev honeycomb model at the isotropic limit (assuming $J_x=J_y=J_z=1$) on a 3x2 Bravais lattice with periodic boundary conditions.
+
+  # Main problem:
+  How many degenerate ground states are there? How many of them are in the flux-free sector? Compute the energy of the ground states with three decimal precision.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the total number of degenerate ground states, how many of those lie in the flux-free sector and the value of ground state energy.
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      N_total : total number of degenerate ground states.
+      N_flux_free : number of degenerate ground states in the flux‐free sector.
+      E_ground : float, ground state energy.
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      N_total = ...
+      N_flux_free = ...
+      E_ground = ...
+      # ---------------------------------------------------------------
+
+      return N_total, N_flux_free, E_ground

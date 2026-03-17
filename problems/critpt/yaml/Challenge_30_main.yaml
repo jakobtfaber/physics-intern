@@ -1,0 +1,60 @@
+problem: |
+  # Problem setup:
+  Let $H_b$, $H_B$, $H_f$, $H_P$ each be a finite-dimensional Hilbert space, with $\dim H_b > \dim H_B$ and $\dim(H_b \otimes H_f) = \dim(H_B \otimes H_P)$.
+  Define the linear map $V: H_b \to H_B$ as follows,
+  \begin{equation}
+  V = \sqrt{\dim(H_P)} \langle 0|_P O |0\rangle_f,
+  \end{equation}
+  where $|0\rangle_f$ and $|0\rangle_P$ are fiducial states on $H_f$ and $H_P$, respectively, and $O$ is an operator acting on $H_b \otimes H_f$ drawn at random from the orthogonal group $O(d)$ with $d = \dim(H_b \otimes H_f)$.
+
+  Let $d_P := \dim H_P$ and $d_B := \dim H_B$. And for any state $|\phi\rangle$,  denote its complex conjugate by $|\phi^*\rangle$.
+
+  # Main problem:
+
+  Given two states $|\psi\rangle_b \in H_b$ and $|\phi\rangle_b \in H_b$, calculate the quantity
+  \begin{equation}
+  	\overline{\lvert \langle\phi|V^\dagger V|\psi\rangle \rvert^2},
+  \end{equation}
+  where the overline indicates the average over $O$.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+  from sympy.physics.quantum import Ket, Bra, Dagger
+
+  phi = Ket('phi')
+  psi = Ket('psi')
+  phi_star = Ket('phi*')
+  psi_star = Ket('psi*')
+  d_P, d_B = sp.symbols('d_P d_B')
+  d = sp.symbols('d')
+
+  def answer(phi, psi, phi_star, psi_star, d_P, d_B, d):
+      r"""
+      Return the expression of \overline{\lvert \langle\phi|V^\dagger V|\psi\rangle \rvert^2} in Sympy format.
+
+      Inputs
+      ----------
+      phi: sympy.Symbol, state vector |\phi\rangle_b
+      psi: sympy.Symbol, state vector |\psi\rangle_b
+      phi_star: sympy.Symbol, state vector |\phi^*\rangle_b
+      psi_star: sympy.Symbol, state vector |\psi^*\rangle_b
+      d_P: sympy.Symbol, $d_P := \dim H_P$
+      d_B: sympy.Symbol, $d_B := \dim H_B$
+      d: sympy.Symbol, $d = \dim(H_b \otimes H_f)$
+
+      Outputs
+      ----------
+      expr: sympy.Expr, \overline{\lvert \langle\phi|V^\dagger V|\psi\rangle \rvert^2},
+          where the overline indicates the average over $O$.
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      expr = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return expr

@@ -1,13 +1,42 @@
 problem: |
-  Derive the Unruh effect: show that a uniformly accelerated observer
-  (with proper acceleration a) in the Minkowski vacuum of a massless
-  scalar field perceives a thermal bath at temperature
-  T_U = hbar*a / (2*pi*c*k_B). Proceed by constructing Rindler
-  coordinates, computing the Wightman function G^+(x,x') of the
-  Minkowski vacuum evaluated along the accelerated worldline, and
-  showing that the detector response function is thermal. Verify the
-  KMS (Kubo-Martin-Schwinger) condition: G^+(tau - i*hbar/(k_B*T)) =
-  G^-(tau), which is the hallmark of a thermal state. Discuss the
-  relationship to the Hawking effect via the equivalence principle.
+  # Problem setup:
+  Consider a uniformly accelerated observer (constant proper acceleration $a$) moving through the Minkowski vacuum of a massless scalar field in 3+1 spacetime dimensions. While an inertial observer sees the vacuum (zero particles), the accelerated observer's particle detector clicks — it registers a thermal spectrum of particles.
+
+  This can be shown rigorously by constructing Rindler coordinates adapted to the accelerated observer, computing the Wightman function $G^+(\tau, \tau') = \langle 0_M | \phi(x(\tau))\phi(x(\tau')) | 0_M \rangle$ of the Minkowski vacuum evaluated along the accelerated worldline (parameterised by proper time $\tau$), and showing that it satisfies the Kubo-Martin-Schwinger (KMS) condition $G^+(\tau - i\hbar\beta) = G^-(\tau)$, which is the defining property of a thermal state at inverse temperature $\beta$.
+
+  The Unruh temperature depends on the proper acceleration $a$, the reduced Planck constant $\hbar$, the speed of light $c$, and the Boltzmann constant $k_B$.
+
+  # Main problem:
+  What is the Unruh temperature $T_U$ perceived by a uniformly accelerated observer with proper acceleration $a$?
 
 requires_numerical: false
+
+answer: |
+  T_U = hbar * a_acc / (2 * sp.pi * c * k_B)
+
+answer_template: |
+  import sympy as sp
+
+  hbar, a_acc, c, k_B = sp.symbols('hbar a c k_B', positive=True)
+
+  def answer(hbar, a_acc, c, k_B):
+      r"""
+      Return the Unruh temperature for a uniformly accelerated observer.
+
+      Inputs
+      ----------
+      hbar  : sympy.Symbol, reduced Planck constant
+      a_acc : sympy.Symbol, proper acceleration
+      c     : sympy.Symbol, speed of light
+      k_B   : sympy.Symbol, Boltzmann constant
+
+      Outputs
+      ----------
+      T_U : sympy.Expr, the Unruh temperature
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      T_U = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return T_U

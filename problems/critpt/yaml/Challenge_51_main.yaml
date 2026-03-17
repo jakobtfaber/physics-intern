@@ -1,0 +1,62 @@
+problem: |
+  # Problem setup:
+  Consider a composite particle initially ($t = 0$) positioned at $x_0 = 0$ on a one-dimensional lattice of integer sites. At each discrete time step, the particle can move to an adjacent lattice site, either left or right, like a random walk.
+
+  Furthermore, the particle can undergo a splitting process in a time step, in which it divides into two distinct particles at its two adjacent sites. There are $g$ distinct ways for the particle to split. For instance, if the composite particle can split into one red particle and one blue particle, then $g = 2$. In this scenario, at $t = 1$, possible configurations include $x_{\text{blue}, 1} = 1$ and $x_{\text{red}, 1} = -1$, or $x_{\text{red}, 1} = 1$ and $x_{\text{blue}, 1} = -1$. If the particle can split into an ordered pair, say red + blue, blue + green, or green + red, then $g = 3$. We assume $g \geq 2$, where $g$ is a positive integer.
+
+  Once the particle splits, each resulting particle is restricted to move left or right but cannot split further. If the two particles converge upon the same lattice site, they recombine to form the original composite particle, and the splitting rules reapply.
+
+  The partition function $Z(t)$ is defined as
+  \begin{equation}
+  Z(t) = \sum_{x_0 = x_t = 0}
+  \begin{pmatrix}
+  \text{number of }\\
+  \text{configurations}
+  \end{pmatrix}
+  \times
+  \begin{pmatrix}
+  \text{weight of }\\
+  \text{configuration}
+  \end{pmatrix},
+  \end{equation}
+  where the summation is over the configurations where the composite particle starts at $x_0 = 0$ at time $0$ and returns to $x_t = 0$  at time $t$. The composite particle is assigned a weight $\lambda$ per time step ($\lambda > 0$), whereas each constituent particle has a fixed weight of 1 per time step.
+
+  # Main problem:
+
+  Derive the generating function
+  \begin{equation}
+  \Omega(x, g, \lambda) = \sum_{t = 0}^{\infty} Z(t) x^t.
+  \end{equation}
+  Simplify it to an elementary function.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+
+  x, g, lambda_ = sp.symbols('x g lambda_')
+
+  def answer(x, g, lambda_):
+      r"""
+      Return the expression of the generating function in Sympy format.
+
+      Inputs
+      ----------
+      x: sympy.Symbol, expansion variable, $x$
+      g: sympy.Symbol, number of distinct ways for the particle to split, $g$
+      lambda_: sympy.Symbol, weight assigned to the composite particle per time step, $\lambda$
+
+      Outputs
+      ----------
+      Omega:  sympy.Expr, generating function $\Omega(x, g, \lambda) = \sum_{t = 0}^{\infty} Z(t) x^t$,
+          simplified to an elementary function.
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      Omega = ...
+      # ---------------------------------------------------------------
+
+      return Omega

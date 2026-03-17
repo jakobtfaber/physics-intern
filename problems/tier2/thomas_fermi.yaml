@@ -1,10 +1,32 @@
 problem: |
-  In the Thomas-Fermi model, the ground-state energy of a neutral atom of atomic number Z
-  Z takes the form E_TF = - c * (e^2/a_0) * Z^{7/3} where a0 is the Bohr radius. 
-  Starting from the semiclassical approximation that treats electrons as a locally free, 
-  fully degenerate Fermi gas in a self-consistent electrostatic potential,
-  compute the numerical constant c up to 4 significant digits.
+  # Problem setup:
+  In the Thomas-Fermi model of a neutral atom with atomic number $Z$, the electrons are treated as a locally free, fully degenerate Fermi gas in a self-consistent electrostatic potential. The electron density $n(\mathbf{r})$ is determined by the local Fermi energy equalling the local potential energy, leading to a nonlinear relationship between the density and the potential.
+
+  Combining this with Poisson's equation $\nabla^2 \phi = 4\pi e \, n$ yields the Thomas-Fermi equation, a second-order nonlinear ODE for the dimensionless screening function $\chi(x)$: $\chi''(x) = \chi^{3/2} / \sqrt{x}$, with boundary conditions $\chi(0) = 1$ and $\chi(\infty) = 0$, where $x = r/b$ is the radial distance in units of the Thomas-Fermi screening length $b = \tfrac{1}{2}(3\pi/4)^{2/3} a_0 Z^{-1/3}$.
+
+  The total ground-state energy of the atom takes the form $E_{\rm TF} = -c \cdot (e^2/a_0) \cdot Z^{7/3}$, where $a_0$ is the Bohr radius and $c$ is a dimensionless numerical constant determined by integrating a functional of the Thomas-Fermi solution $\chi(x)$.
+
+  # Main problem:
+  What is the numerical value of the Thomas-Fermi constant $c$ (to 4 significant digits)?
 
 requires_numerical: true
 
 answer: 0.7687
+
+answer_template: |
+  def answer():
+      r"""
+      Return the Thomas-Fermi constant c in E_TF = -c * (e^2/a_0) * Z^{7/3},
+      computed by numerically solving the Thomas-Fermi ODE and evaluating
+      the energy functional.
+
+      Outputs
+      ----------
+      c : float, the Thomas-Fermi constant (4 significant digits)
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      c = ...  # a float
+      # ---------------------------------------------------------------
+
+      return c

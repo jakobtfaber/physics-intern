@@ -1,0 +1,52 @@
+problem: |
+  # Problem setup:
+
+  Consider a simple cubic crystal with a static periodic strain field of long wavelength described by a displacement vector $\vec{u}=\vec{\varepsilon}\sin(\vec{Q}\cdot\vec{r})$, where $\vec{u}(\vec{r})$ is the vector displacement from the perfect-crystal position for the atom at lattice site $\vec{r}$, and $\vec{Q}$ denotes the wave vector of the displacement wave (not a scattering wave vector).
+
+  You may assume that the lattice-wave period is a large integer ($M$) multiple of the lattice spacing $a$ and that all displacements are much smaller than the lattice spacing.
+
+
+
+  # Main problem:
+
+  Calculate the structure factor to first order in $\varepsilon$ for diffraction peaks at reciprocal space vector $(n_x, n_y, x_z)$ for $\vec{\varepsilon} \parallel [100]$, $\vec{Q} \parallel [100]$. Write down the criteria for the structural factor to be nonvanishing (besides $n_x = M$) in the lowest-possible-order Brillouin Zone and the corresponding structural factor.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+
+  M = sp.symbols('M')
+  epsilon = sp.symbols('epsilon')
+  a = sp.symbols('a')
+
+  def answer(M, epsilon, a):
+      r"""
+      Return the expressions of the $n_x$ criteria for structural factor to be nonvanishing
+      and the corresponding structure factors in Sympy format.
+
+      Inputs
+      ----------
+      M         : sympy.Symbol
+          Large integer relating the strain wavelength to the lattice spacing.
+      epsilon   : sympy.Symbol
+          Amplitude of the static periodic strain.
+      a         : sympy.Symbol
+          Lattice spacing of the simple-cubic crystal.
+
+      Outputs
+      ----------
+      allowed : set[(sympy.Expr, sympy.Expr)], Set of nonvanishing $n_x$ criteria with corresponding structure factor, {(nx, S)}
+          nx: sympy.Expr, $n_x$ component of the reciprocal space vector in the lowest possible order Brillouin Zone
+            for which the structure factor is nonvanishing (besides $n_x = M$).
+          S: sympy.Expr, corresponding structure factor to the first order in $\varepsilon$
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      allowed = ...
+      # ---------------------------------------------------------------
+
+      return allowed

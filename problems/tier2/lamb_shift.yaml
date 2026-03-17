@@ -1,12 +1,35 @@
 problem: |
-  Compute the leading-order Lamb shift for hydrogen, specifically the
-  2S_{1/2} - 2P_{1/2} splitting. Include the dominant contributions:
-  the electron self-energy (Bethe logarithm) and vacuum polarization
-  (Uehling potential). The expected result is approximately 1058 MHz.
-  Derive Bethe's non-relativistic estimate (which gives ~1040 MHz from
-  the self-energy logarithm ln(m_e c^2 / <E_n>) with appropriate mean
-  excitation energy), then include the vacuum polarization correction
-  (which shifts the result by ~-27 MHz) and relativistic corrections.
-  Verify all intermediate integrals and the final numerical value.
+  # Problem setup:
+  In the hydrogen atom, the Dirac equation predicts that the $2S_{1/2}$ and $2P_{1/2}$ states are exactly degenerate (both having $n = 2$, $j = 1/2$). However, quantum electrodynamic (QED) corrections lift this degeneracy, producing the Lamb shift — first measured by Lamb and Retherford in 1947.
+
+  The dominant contribution comes from the electron self-energy: the electron emits and reabsorbs virtual photons, which modifies its effective interaction with the nuclear Coulomb field. Bethe's non-relativistic calculation captures the leading logarithmic contribution $\Delta E_{\rm SE} \propto \alpha^5 m_e c^2 \ln(m_e c^2 / \langle E_n \rangle)$, where $\langle E_n \rangle$ is the mean excitation energy. For the $2S$ state, this gives approximately $+1040\,\mathrm{MHz}$.
+
+  A second contribution comes from vacuum polarization (the Uehling potential): virtual electron-positron pairs screen the nuclear charge, producing a correction of approximately $-27\,\mathrm{MHz}$ for the $2S$ state. Smaller relativistic and higher-order corrections bring the total to approximately $1058\,\mathrm{MHz}$.
+
+  # Main problem:
+  What is the Lamb shift (the energy splitting $2S_{1/2} - 2P_{1/2}$) for hydrogen, in MHz?
 
 requires_numerical: true
+
+answer: 1057.8
+
+answer_template: |
+  def answer():
+      r"""
+      Return the Lamb shift of hydrogen (2S_{1/2} - 2P_{1/2} splitting)
+      in MHz.
+
+      Include the dominant contributions: electron self-energy (Bethe
+      logarithm), vacuum polarization (Uehling), and leading
+      relativistic corrections.
+
+      Outputs
+      ----------
+      lamb_shift_MHz : float, the Lamb shift in MHz
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      lamb_shift_MHz = ...  # a float
+      # ---------------------------------------------------------------
+
+      return lamb_shift_MHz

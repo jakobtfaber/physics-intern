@@ -1,10 +1,34 @@
 problem: |
-  Derive the Chandrasekhar mass limit for white dwarf stars. Starting from
-  the physics of a degenerate relativistic electron gas and the equations of
-  stellar structure, obtain the maximum mass a white dwarf can support.
-  The expected result is M_Ch = 5.836/mu_e^2 solar masses (about 1.46 M_sun
-  for carbon/oxygen composition). Numerically solve the relevant structure
-  equations, compute the mass-radius relation, and verify that the radius
-  vanishes as the mass approaches M_Ch.
+  # Problem setup:
+  A white dwarf star is supported against gravitational collapse by electron degeneracy pressure. At low densities the electrons are non-relativistic and the equation of state is $P \propto \rho^{5/3}$ (polytrope of index $n = 3/2$). As the star becomes more massive and denser, the electrons become ultra-relativistic, and the equation of state softens to $P \propto \rho^{4/3}$ (polytrope of index $n = 3$).
+
+  The structure of the star is governed by the Lane-Emden equation. In the ultra-relativistic limit ($n = 3$ polytrope), there exists a unique mass — the Chandrasekhar mass $M_{\rm Ch}$ — above which degeneracy pressure cannot support the star. This limiting mass depends on fundamental constants and on $\mu_e$, the mean molecular weight per electron ($\mu_e = 2$ for a carbon-oxygen white dwarf).
+
+  The Chandrasekhar mass is given by $M_{\rm Ch} = \frac{\omega_3}{\mu_e^2}\left(\frac{\hbar c}{G}\right)^{3/2} \frac{1}{m_H^2}$, where $\omega_3$ is a dimensionless constant determined by the $n = 3$ Lane-Emden solution, $m_H$ is the hydrogen mass, $G$ is Newton's constant, $\hbar$ is the reduced Planck constant, and $c$ is the speed of light.
+
+  # Main problem:
+  What is the Chandrasekhar mass limit $M_{\rm Ch}$ in units of solar masses, for a carbon-oxygen white dwarf ($\mu_e = 2$)? Obtain the answer by numerically solving the Lane-Emden equation for $n = 3$.
 
 requires_numerical: true
+
+answer: 1.459
+
+answer_template: |
+  def answer():
+      r"""
+      Return the Chandrasekhar mass limit for a carbon-oxygen white dwarf
+      (mu_e = 2), in units of solar masses.
+
+      Obtain this by numerically solving the Lane-Emden equation for
+      the n=3 polytrope and computing the resulting limiting mass.
+
+      Outputs
+      ----------
+      M_Ch : float, the Chandrasekhar mass in solar masses
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      M_Ch = ...  # a float
+      # ---------------------------------------------------------------
+
+      return M_Ch

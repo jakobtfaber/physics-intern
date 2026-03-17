@@ -1,0 +1,39 @@
+problem: |
+  # Problem setup:
+  We consider the two-dimensional Ising conformal field theory.
+
+  # Main problem:
+
+  Compute the 5-point correlation function $\langle\epsilon(x_1)\epsilon(x_2)\epsilon(x_3)\sigma(x_4)\sigma(x_5)\rangle$ at
+
+  (1) $x_1=1+i$, $x_2=2$, $x_3=3$, $x_4=4$, $x_5=5$.
+
+  (2) $x_1=1$, $x_2=2$, $x_3=3$, $x_4=4$, $x_5=5$.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the values of the 5-point correlation function
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      corr_1, corr_2: float, the 5-point correlation function, $\langle\epsilon(x_1)\epsilon(x_2)\epsilon(x_3)\sigma(x_4)\sigma(x_5)\rangle$ at
+          (1) $x_1=1+i$, $x_2=2$, $x_3=3$, $x_4=4$, $x_5=5$
+          (2) $x_1=1$, $x_2=2$, $x_3=3$, $x_4=4$, $x_5=5$
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      corr_1 = ...
+      corr_2 = ...
+      # ---------------------------------------------------------------
+
+      return corr_1, corr_2

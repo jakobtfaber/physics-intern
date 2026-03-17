@@ -1,0 +1,44 @@
+problem: |
+  # Problem setup:
+  Let $\alpha \in [0, 1]$ be a real parameter. Define the function $f(n, \alpha)$ for complex $n$ by
+  \begin{equation}
+  f(n, \alpha) = (1 + \alpha)^{n - 1} \, {}_2F_1\left( \frac{1 - n}{2}, 1 - \frac{n}{2}; 2; \left( \frac{2\sqrt{\alpha}}{1 + \alpha} \right)^2 \right),
+  \end{equation}
+  where ${}_2F_1(a, b; c; z)$ denotes the Gaussian hypergeometric function.
+
+  # Main problem:
+
+  Evaluate the derivative
+  \begin{equation}
+  g(\alpha) = \left. \frac{\partial}{\partial n} f(n, \alpha) \right|_{n = 0}
+  \end{equation}
+  for $\alpha \in [0, 1]$.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  import sympy as sp
+
+  alpha = sp.symbols('alpha', real=True)
+
+  def answer(alpha):
+      r"""
+      Return the expression of the derivative $g(\alpha)$ in Sympy format
+
+      Inputs
+      ----------
+      alpha: sympy.Symbol, real parameter, $\alpha \in [0, 1]$
+
+      Outputs
+      ----------
+      g_alpha:  sympy.Expr, $g(\alpha)$ for $\alpha \in [0, 1]$.
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      g_alpha = ...
+      # ---------------------------------------------------------------
+
+      return g_alpha

@@ -1,0 +1,36 @@
+problem: |
+  # Problem setup:
+  Consider natural convection in a porous medium modeled by Darcy's law (i.e., Rayleigh-Darcy convection) with horizontal periodic boundary conditions. The boundary condition on the top wall is free (constant pressure) and at constant temperature. The boundary condition on the bottom wall is impermeable and has constant heat flux.
+
+  # Main problem:
+
+  What is the critical Rayleigh number (allowing $\pm 0.05$ error) and associated critical horizontal wavenumber (allowing $\pm 0.02$ error), where, above this critical Rayleigh number, the conduction base state is linearly unstable? Moreover, consider eigenfunction of vertical velocity w(z) and temperature T(z) associated with this critical Rayleigh number and crical horizontal wavenumber, what is the value of w(z)/T(z) at z=0.67365, where the bottom wall is at z=0 and the top wall is at z=1?
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the value of the critical Rayleigh number and associated critical horizontal wavenumber
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      Ra_c: float, the critical Rayleigh number.
+      k_c: float, the associated critical horizontal wavenumber.
+      ratio_w2T: float, the value of w(z)/T(z) at z=0.67365.
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      Ra_c = ...
+      k_c = ...
+      ratio_w2T = ...
+      # ---------------------------------------------------------------
+
+      return Ra_c, k_c, ratio_w2T

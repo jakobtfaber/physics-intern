@@ -1,11 +1,43 @@
 problem: |
-  Compute the Berry phase acquired by a spin-1/2 particle when its
-  magnetic field direction is adiabatically transported around a closed
-  loop in parameter space. Show that the Berry phase equals minus half
-  the solid angle subtended by the path on the unit sphere:
-  gamma = -Omega/2. Identify the underlying geometric structure in the
-  full 3D parameter space. Verify by numerical simulation of the
-  time-dependent Schrodinger equation for several cone angles and
-  adiabaticity parameters.
+  # Problem setup:
+  Consider a spin-1/2 particle (e.g. an electron) placed in a magnetic field $\mathbf{B}$ of constant magnitude $B_0$. The Hamiltonian is $H = -\gamma \mathbf{S} \cdot \mathbf{B}$, where $\gamma$ is the gyromagnetic ratio and $\mathbf{S} = (\hbar/2)\boldsymbol{\sigma}$ is the spin operator with $\boldsymbol{\sigma}$ the vector of Pauli matrices.
+
+  The direction of $\mathbf{B}$ is parameterised by spherical angles $(\theta(t), \phi(t))$. If the field direction is rotated adiabatically (slowly compared to the Larmor frequency $\omega_L = \gamma B_0$) around a closed loop $\mathcal{C}$ in parameter space, the spin eigenstate $|\!\uparrow\rangle$ acquires a geometric phase $\gamma_{\rm Berry}$ in addition to the dynamical phase.
+
+  The Berry phase is given by the flux of the Berry curvature through the surface bounded by $\mathcal{C}$ on the unit sphere. For a spin-1/2 system, the Berry curvature in parameter space is that of a magnetic monopole of strength $-1/2$ sitting at the origin.
+
+  Let $\Omega$ denote the solid angle subtended by the closed loop $\mathcal{C}$ as seen from the origin of parameter space.
+
+  # Main problem:
+  What is the Berry phase $\gamma_{\rm Berry}$ acquired by the spin-up eigenstate after one complete adiabatic cycle, expressed as a function of the solid angle $\Omega$?
 
 requires_numerical: false
+
+answer: |
+  gamma_Berry = -Omega / 2
+
+answer_template: |
+  import sympy as sp
+
+  Omega = sp.symbols('Omega')
+
+  def answer(Omega):
+      r"""
+      Return the Berry phase acquired by the spin-up eigenstate of a
+      spin-1/2 particle after one adiabatic cycle, as a function of
+      the solid angle Omega subtended by the path in parameter space.
+
+      Inputs
+      ----------
+      Omega : sympy.Symbol, the solid angle subtended by the loop
+
+      Outputs
+      ----------
+      gamma_Berry : sympy.Expr, the Berry phase
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      gamma_Berry = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return gamma_Berry

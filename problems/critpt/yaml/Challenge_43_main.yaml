@@ -1,0 +1,45 @@
+problem: |
+  # Problem setup:
+  Consider a 4-fold rotationally symmetric 2D insulator on a square lattice with ten occupied Wannierizable bands. Two of them correspond to a pair of Wannier orbitals centered at the 2c position (i.e., edge center) in each unit cell. Four of them correspond to Wannier orbitals centered at the 1b position (i.e., plaquette center). And the others correspond to Wannier orbitals centered at the 1a position (i.e., lattice site).
+
+
+
+  # Main problem:
+  Consider a disclination with Frank angle $–\pi/2$ (i.e., a 90° wedge removed).
+  If the translation-equivalence class is nontrivial, what fractional charge (in units of the electron charge e) is trapped to the disclination core?
+  What if the translation-equivalence class is trivial?
+
+  If we consider one additional occupied band with Wannier orbitals at 1b position with angular momentum $l=+1/2$, what are the quantities above?
+
+  Express each anwser as a value in $[-1/2,1/2)$.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the values of the fractional charges trapped to the disclination core.
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      charge_nontrivial_a: float, fractional charge for the nontrivial translation-equivalence class with Frank angle $–\pi/2$.
+      charge_trivial_a: float, fractional charge for the trivial translation-equivalence class with Frank angle $–\pi/2$.
+      charge_nontrivial_b: float, fractional charge for the nontrivial translation-equivalence class with one additional occupied bands.
+      charge_trivial_b: float, fractional charge for the trivial translation-equivalence class with one additional occupied bands.
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      charge_nontrivial_a = ...
+      charge_trivial_a = ...
+      charge_nontrivial_b = ...
+      charge_trivial_b = ...
+      # ---------------------------------------------------------------
+
+      return charge_nontrivial_a, charge_trivial_a, charge_nontrivial_b, charge_trivial_b

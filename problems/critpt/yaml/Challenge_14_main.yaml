@@ -1,0 +1,42 @@
+problem: |
+  # Problem setup:
+  Consider the following spin model on a torus
+  \begin{equation}
+  Z^{(n)}_{\text{RM},\ \alpha}\left[J\right]=\sum_{\left\{\eta_{ij}=\pm 1\right\}}P[\eta]\sum_{\left\{ \sigma^{(f)}=\pm1\right\}|_{f=1, \dots n-1} }e^{J\sum_{f=1}^{n-1}\sum_{\langle i,\ j\rangle}\eta_{ij}\sigma^{(f)}_{i}\sigma^{(f)}_{j}},\ \text{with}\ P[\eta]=\prod_{\langle i, j \rangle}\frac{e^{J\eta_{ij}}}{2\cosh J},
+  \end{equation}
+  where $\sigma^{(f)}_{i}=\pm1$ are the $f$-flavor Ising spins on a square lattice with
+  $N$ sites, f=1,2,…n, n denotes the number of flavor, $\eta_{ij}$ is a bond variable associated with $ij$, and $J \geq 0$ is a coupling constant. Here, $\alpha=\text{PP},\ \text{AP},\ \text{PA},\ \text{AA}$
+  indicates, for each flavor, an independent choice of boundary conditions (periodic $\text{P}$ or anti-periodic
+  $\text{A}$ along the non-contractable loop). For brevity, we drop the subscript $\alpha$ when all flavors take periodic-periodic boundary conditions. $Z^{(n)}_{\text{RM}}$ is defined as partition function when all flavors take the periodic-periodic boundary conditions. $y$ is the free energy from twisting boundary conditions, defined as
+  \begin{equation}
+  y= -\frac{2}{n-1}\log_2(\frac{\sum_\alpha Z^{(n)}_{\text{RM}, \alpha}}{2^{n-1}Z^{(n)}_{\text{RM}}}).
+  \end{equation}
+
+  # Main problem:
+
+  Calculate the value $J$ for $n=3$ where $y=0$ in a $100\times 100$-site lattice to three decimal places.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the value of J.
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      J: float, value of the coupling constant $J$, when n = 3 and y = 0 in a $100 \times 100$-site lattice
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      J = ...
+      # ---------------------------------------------------------------
+
+      return J

@@ -1,0 +1,65 @@
+problem: |
+  # Problem setup:
+
+  Consider the Hamiltonian for three kinds of particles labeled by $A$, $B$, $C$:
+
+  $
+  H = -\frac{1}{2} \sum_i \left( v\nabla_{A_i}^{\alpha} + w\nabla_{B_i}^{\beta} + w\nabla_{C_i}^{\beta} \right)
+  + \sum_{i<j} \frac{z}{|\mathbf{r}_{A_i} - \mathbf{r}_{A_j}|^{\gamma}}
+  + \sum_{i<j} \frac{z}{|\mathbf{r}_{B_i} - \mathbf{r}_{B_j}|^{\eta}}
+  + \sum_{i<j} \frac{z}{|\mathbf{r}_{C_i} - \mathbf{r}_{C_j}|^{\eta}}
+  - \sum_{i,j} \frac{z^2}{\sqrt{|\mathbf{r}_{A_i} - \mathbf{r}_{B_j}|^{\xi} + d^2}}
+  - \sum_{i,j} \frac{z^4}{\sqrt{|\mathbf{r}_{A_i} - \mathbf{r}_{C_j}|^{2\eta} + f^3}}
+  + \sum_{i,j} \frac{z}{\sqrt{|\mathbf{r}_{C_i} - \mathbf{r}_{B_j}|^{2\eta} + g^4}}.
+  $
+
+  Here, $v$ and $w$ are kinetic coefficients; $z$ is the interaction strength; $f$, $g$ and $d$ are particle layer separations; $\alpha$ and $\beta$ are dispersion powers; $\gamma$, $\eta$ and $\xi$ are interaction dimensions; and $i$ and $j$ are particle indices.
+
+  Suppose
+
+  \begin{cases}
+  (\alpha + z^5 + \xi^{2.1})\ln (g+\alpha^2-3\eta) + \alpha^z \ln(\beta^3 - \xi^2 + \alpha\eta + 6^{\alpha-2}+1) = 0,\\[8pt]
+  ((\log_{10} v)^2 - 2 \log_{10}z \log_{10} v + 5^2 -81)^{4} + 2^{d}\,g^4 = 0,\\[8pt]
+  v^2(\ln z)^v (9^{\log_{10} (w/z)} -3^4)^v + \dfrac{\ln(1+f^2)}{f^3} = 0,\\[8pt]
+  (0.25(\log_{10} z + 1)^3 + 3^2 +\ln e^3)^4+2^8)^8 + 1249e^{-d} = 0,\\[8pt]
+  g^{3.5} + (\alpha + g + \log_{10}(v/w) - 3)^{10+v} = 0,\\[8pt]
+  (w\,v - 10)^2\,g^6 + (2\xi - \alpha^{2+g})^2 = 0,\\[8pt]
+  3^{-\frac{z\,v^2}{w}} \dfrac{g \alpha}{\xi} + (\alpha\beta\eta - 2^{2+\alpha}+3\xi)^4 = 0.\\
+  \end{cases}
+
+
+  Suppose that a phase transition appears when the average distance between particles is less than
+  a critical value $r_o$.
+
+  # Main problem:
+
+  Which kinds of particles will form a crystal state when $r > r_o$? Suppose $r_o$ scales with $v^a w^b z^c$ and $r_o \geq 10^s$. Please compute a + 10b + 100c and s.
+
+requires_numerical: true
+
+answer: |
+
+
+answer_template: |
+  def answer():
+      r"""
+      Return the value of a + 10b + 100c and s, and the kinds of particles that will form crystal state.
+
+      Inputs
+      ----------
+      None
+
+      Outputs
+      ----------
+      crystal_particles: set[str], the kinds of particles that will form crystal state when $r > r_o$; choose from {'A', 'B', 'C'}
+      a_plus_10b_plus_100c: float, the value of a + 10b + 100c; $r_o$ scales with $v^a w^b z^c$
+      s: float, the value of s; $r_o \geq 10^s$
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      crystal_particles = ...
+      a_plus_10b_plus_100c = ...
+      s = ...
+      # ---------------------------------------------------------------
+
+      return crystal_particles, a_plus_10b_plus_100c, s

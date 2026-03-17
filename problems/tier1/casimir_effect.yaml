@@ -1,8 +1,44 @@
 problem: |
-  Derive the Casimir force per unit area between two perfectly conducting
-  parallel plates separated by a distance a in 3+1 dimensions. The expected
-  result is F/A = -pi^2 * hbar * c / (240 * a^4). Compute the Casimir
-  pressure in Pascals for a = 1 micrometre and include numerical verification
-  of any regularisation steps.
+  # Problem setup:
+  Consider two infinite, perfectly conducting parallel plates in vacuum, separated by a distance $a$ in 3+1 spacetime dimensions. The electromagnetic field between the plates is subject to boundary conditions that restrict its allowed modes: the tangential electric field and normal magnetic field must vanish at each plate.
+
+  Between the plates, the allowed wave vectors perpendicular to the plates are quantised as $k_n = n\pi/a$ with $n = 1, 2, 3, \ldots$, while in free space all modes are permitted. The vacuum energy (zero-point energy) of the electromagnetic field therefore differs between the region with plates and the region without, leading to a measurable force between the plates — the Casimir effect.
+
+  The calculation requires summing the zero-point energies $\frac{1}{2}\hbar\omega$ of all allowed modes and subtracting the free-space contribution. The resulting divergent sum is regularised (e.g. using zeta-function regularisation or exponential cutoff) to yield a finite, physical result.
+
+  Let $\hbar$ be the reduced Planck constant and $c$ the speed of light.
+
+  # Main problem:
+  What is the Casimir force per unit area $F/A$ between the two plates, as a function of the plate separation $a$, $\hbar$, and $c$?
 
 requires_numerical: true
+
+answer: |
+  F_over_A = -sp.pi**2 * hbar * c / (240 * a**4)
+
+answer_template: |
+  import sympy as sp
+
+  a, hbar, c = sp.symbols('a hbar c', positive=True)
+
+  def answer(a, hbar, c):
+      r"""
+      Return the Casimir force per unit area between two perfectly
+      conducting parallel plates separated by distance a.
+
+      Inputs
+      ----------
+      a    : sympy.Symbol, plate separation
+      hbar : sympy.Symbol, reduced Planck constant
+      c    : sympy.Symbol, speed of light
+
+      Outputs
+      ----------
+      F_over_A : sympy.Expr, the Casimir force per unit area
+      """
+
+      # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+      F_over_A = ...  # a SymPy expression of inputs
+      # ---------------------------------------------------------------
+
+      return F_over_A
