@@ -137,8 +137,8 @@ def main() -> None:
         help="Model key from models.yaml (default: claude-sonnet-4.6)",
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=16384,
-        help="Max output tokens (default: 16384)",
+        "--max-tokens", type=int, default=65536,
+        help="Max output tokens (default: 65536/)",
     )
     parser.add_argument(
         "--provider", type=str, default=None,

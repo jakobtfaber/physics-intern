@@ -11,19 +11,11 @@ deep critic / critique / critic
 ### Improve orchestrator
 
 - prompt the orchestrator for better problem decomposition
-- better explain the possible role for each agent.
 - create some warm up problems
 - gather some background knowledge about the problem domain
 - Add a more open ended "brainstorm" task and maybe a dedicated section in the research state for ideas, possible routes, alternatives, etc.
 - brainstorm internal consistency checks ?
-open questions and dead ends ??
-
-### Agent tool use
-
-- **`read_file` tool for orchestrator/researcher/critic** — currently only the computationalist has tool access. Giving other agents a `read_file` tool would let them access reference materials and large workspace files on demand instead of stuffing everything into context.
-- Today computationalist is the only agent with tool use, so some computationalist-specific instructions (about COMP etc.) are in llm.py.
-
-### Mandatory critique for each WH promoted to ER
+- open questions and dead ends ??
 
 ### Problem YAML features
 
@@ -46,8 +38,4 @@ open questions and dead ends ??
 - **Workspace resume** — `--resume <workspace-dir>` to continue a previous run. Skip `init()` if `.git` exists, load iteration from METRICS.md, handle partial state (corrupted state, version mismatches).
 
 ### Misc ideas
-- compare with direct call ?
-- add timing outputs in console
-- should we clean the tests ?
-- Add a linting step for computation scripts to avoid running obviously broken code (syntax errors, missing imports). This could be a lightweight static check before execution.
 - Human-in-the-loop breakpoints — allow the operator to pause the loop, inspect state, and intervene
