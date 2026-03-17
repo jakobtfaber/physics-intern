@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from rich.console import Console
+
 from ..critic_tools import CriticToolExecutor
 from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..renderers import (
@@ -17,6 +19,8 @@ from ..tools import ToolCall
 from .base import BaseAgent
 from ..categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event
+
+console = Console()
 
 if TYPE_CHECKING:
     from ..research_state import ResearchState
@@ -119,6 +123,22 @@ class CriticAgent(BaseAgent):
                     iteration_filed=iteration,
                 )
                 self.research_state.critiques[crit.id] = crit
+                # Console output + scaffold event
+                sev_label = sev.value
+                target_str = critique_data["target_id"] or "general"
+                arg_short = critique_data["argument"][:80]
+                if sev == Severity.HIGH:
+                    style = "bold red"
+                elif sev == Severity.MEDIUM:
+                    style = "bold yellow"
+                else:
+                    style = "dim"
+                console.print(f"  [{style}]{crit.id}[/] [{sev_label}] targeting {target_str}: {arg_short}")
+                log_scaffold_event(
+                    self.workspace.root, iteration, CC.STATE_INVARIANTS,
+                    "file_critique",
+                    f"{crit.id} [{sev_label}] → {target_str}: {critique_data['argument'][:120]}",
+                )
                 # Link to hypothesis
                 for t in crit.targets:
                     if t in self.research_state.hypotheses:

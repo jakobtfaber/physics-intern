@@ -382,12 +382,24 @@ class SciRalph:
                         check="critic_clean",
                         severity=ViolationSeverity.WARNING,
                         message=(
-                            "Deep critic found NO issues. "
-                            "Do NOT emit another critique task — proceed to "
-                            "terminate."
+                            "Deep critic found NO issues with current claims. "
+                            "Do NOT emit another critique task immediately."
                         ),
                     )
                 )
+            else:
+                # Summarise filed critiques at iteration header level
+                crits = list(self.research_state.critiques.values())
+                recent = [c for c in crits if c.iteration_filed == self.iteration]
+                if recent:
+                    from .research_state import Severity
+                    high = sum(1 for c in recent if c.severity == Severity.HIGH)
+                    med = sum(1 for c in recent if c.severity == Severity.MEDIUM)
+                    low = sum(1 for c in recent if c.severity == Severity.LOW)
+                    console.print(
+                        f"[red]Critic filed {len(recent)} critique(s): "
+                        f"{high} HIGH, {med} MEDIUM, {low} LOW[/red]"
+                    )
             return "deep_critic", response
 
         elif tt == TaskType.STRATEGIZE:
