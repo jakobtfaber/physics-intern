@@ -375,6 +375,27 @@ class TestResolveCritique:
         assert "CRIT-001" in ex.resolved_critique_ids
         assert ex.mutations_applied
 
+    def test_already_resolved_critique_is_idempotent(self):
+        ws = _make_workspace()
+        state = _make_state()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.LOW, status=CritiqueStatus.RESOLVED,
+            targets=["ER-001"], argument="Minor issue.",
+            resolution="Already fixed.", iteration_resolved=4,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
+        tc = ex.execute("resolve_critique", {
+            "critique_id": "CRIT-001",
+            "resolution": "Attempting to re-resolve.",
+        })
+        assert not tc.is_error
+        assert "already resolved" in tc.output
+        # State unchanged
+        c = state.critiques["CRIT-001"]
+        assert c.resolution == "Already fixed."
+        assert c.iteration_resolved == 4
+        assert not ex.mutations_applied
+
     def test_missing_critique_returns_error(self):
         ws = _make_workspace()
         state = _make_state()

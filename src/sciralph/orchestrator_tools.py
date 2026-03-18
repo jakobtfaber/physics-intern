@@ -628,6 +628,9 @@ class OrchestratorToolExecutor:
             return f"Error: {crit_id} not found in research state"
 
         c = state.critiques[crit_id]
+        if c.status == CritiqueStatus.RESOLVED:
+            return f"{crit_id} is already resolved. Call set_next_task now."
+
         c.status = CritiqueStatus.RESOLVED
         c.resolution = resolution
         c.iteration_resolved = self.iteration
