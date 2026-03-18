@@ -83,6 +83,9 @@ class FakeAuthError(Exception):
     FakeReadTimeout(),
     ConnectionError("reset by peer"),
     TimeoutError("deadline exceeded"),
+    type("RemoteProtocolError", (Exception,), {})(
+        "peer closed connection without sending complete message body"
+    ),
 ])
 def test_is_transient_true(exc):
     assert _is_transient(exc) is True

@@ -41,7 +41,8 @@ _TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
 _TRANSIENT_EXC_NAMES = {"ConnectionError", "TimeoutError", "ReadTimeout",
                          "ConnectTimeout", "ConnectionResetError",
                          "RemoteDisconnected", "BrokenPipeError",
-                         "APITimeoutError", "ServerError"}
+                         "APITimeoutError", "ServerError",
+                         "RemoteProtocolError"}
 
 
 def _extract_status_code(exc: Exception) -> int | None:

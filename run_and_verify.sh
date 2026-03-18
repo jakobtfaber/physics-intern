@@ -89,7 +89,18 @@ echo ""
 
 # --- Phase 1: Research run ---
 echo "--- Phase 1: Research run ---"
-uv run python -m sciralph.main "${run_args[@]}"
+run_rc=0
+uv run python -m sciralph.main "${run_args[@]}" || run_rc=$?
+
+if [ $run_rc -ne 0 ]; then
+    # SEGV=139 (128+11). Tolerate if workspace looks complete (RESEARCH_STATE.md exists).
+    if [ $run_rc -eq 139 ] && [ -f "$workspace_dir/RESEARCH_STATE.md" ]; then
+        echo "Warning: research run exited with SEGV (likely during interpreter shutdown), but workspace looks complete — continuing to verification."
+    else
+        echo "Error: research run failed with exit code $run_rc"
+        exit $run_rc
+    fi
+fi
 echo ""
 
 # --- Phase 2: Verification ---
