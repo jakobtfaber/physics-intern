@@ -208,44 +208,63 @@ class ToolExecutor:
         },
     }
 
-    # Default tool set (used by COMPUTE tasks for backward compatibility)
-    TOOL_DEFINITIONS: ClassVar[list[dict]] = [
+    _DOCUMENT_APPROACH_DEF: ClassVar[dict] = {
+        "type": "function",
+        "function": {
+            "name": "document_approach",
+            "description": (
+                "Document your computational approach BEFORE writing code. "
+                "You MUST call this before your first execute_python call. "
+                "Records your plan, assumptions, and expected outcome so "
+                "the verifier can later assess your methodology."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "approach": {
+                        "type": "string",
+                        "description": (
+                            "Detailed description of the computational approach: "
+                            "what you will compute, how, and why this method is appropriate."
+                        ),
+                    },
+                    "assumptions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of assumptions underlying the computation.",
+                    },
+                    "expected_outcome": {
+                        "type": "string",
+                        "description": "What form the result should take and how to judge success.",
+                    },
+                },
+                "required": ["approach"],
+            },
+        },
+    }
+
+    # Tool sets by agent type
+    RESEARCHER_TOOLS: ClassVar[list[dict]] = [
+        _SUBMIT_RESULT_DEF,
+        _REPORT_PROGRESS_DEF,
+    ]
+    COMPUTER_TOOLS: ClassVar[list[dict]] = [
+        _DOCUMENT_APPROACH_DEF,
         _EXECUTE_PYTHON_DEF,
-        _SUBMIT_VERDICT_DEF,
+        _SUBMIT_RESULT_DEF,
         _REPORT_PROGRESS_DEF,
     ]
 
-    # Tool sets by task type
-    VERIFY_TOOLS: ClassVar[list[dict]] = [
-        _EXECUTE_PYTHON_DEF,
-        _SUBMIT_VERDICT_DEF,
-        _REPORT_PROGRESS_DEF,
-    ]
-    EXPLORE_TOOLS: ClassVar[list[dict]] = [
-        _EXECUTE_PYTHON_DEF,
-        _SUBMIT_RESULT_DEF,
-        _REPORT_PROGRESS_DEF,
-    ]
-    RESEARCH_VERIFY_TOOLS: ClassVar[list[dict]] = [
-        _SUBMIT_VERDICT_DEF,
-        _REPORT_PROGRESS_DEF,
-    ]
-    RESEARCH_EXPLORE_TOOLS: ClassVar[list[dict]] = [
-        _SUBMIT_RESULT_DEF,
-        _REPORT_PROGRESS_DEF,
-    ]
+    # Default tool set (computer tools)
+    TOOL_DEFINITIONS: ClassVar[list[dict]] = COMPUTER_TOOLS
 
     @classmethod
     def tools_for_task_type(cls, task_type: "TaskType") -> list[dict]:
         """Return the appropriate tool set for a task type."""
-        if task_type == TaskType.COMPUTE_EXPLORE:
-            return cls.EXPLORE_TOOLS
-        if task_type == TaskType.COMPUTE_VERIFY:
-            return cls.VERIFY_TOOLS
-        if task_type == TaskType.RESEARCH_VERIFY:
-            return cls.RESEARCH_VERIFY_TOOLS
-        if task_type == TaskType.RESEARCH_EXPLORE:
-            return cls.RESEARCH_EXPLORE_TOOLS
+        if task_type == TaskType.RESEARCH:
+            return cls.RESEARCHER_TOOLS
+        if task_type == TaskType.COMPUTE:
+            return cls.COMPUTER_TOOLS
         return cls.TOOL_DEFINITIONS  # default fallback
 
     def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000,
@@ -278,9 +297,7 @@ class ToolExecutor:
     @property
     def exit_tool_name(self) -> str:
         """Return the context-appropriate exit tool name."""
-        if self._task_type in (TaskType.COMPUTE_EXPLORE, TaskType.RESEARCH_EXPLORE):
-            return "submit_result"
-        return "submit_verdict"
+        return "submit_result"
 
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
         """Dispatch a tool call by name."""
@@ -292,10 +309,10 @@ class ToolExecutor:
                 purpose=tool_input.get("purpose", ""),
                 filename=tool_input.get("filename", ""),
             )
-        elif tool_name == "submit_verdict":
-            output, is_error = self._submit_verdict(tool_input)
         elif tool_name == "submit_result":
             output, is_error = self._submit_result(tool_input)
+        elif tool_name == "document_approach":
+            output, is_error = self._document_approach(tool_input)
         elif tool_name == "report_progress":
             output, is_error = self._report_progress(tool_input)
         else:
@@ -309,6 +326,18 @@ class ToolExecutor:
             is_error=is_error,
             duration=duration,
         )
+
+    def _document_approach(self, params: dict) -> tuple[str, bool]:
+        """Record the computational approach before coding."""
+        approach = params.get("approach", "")
+        assumptions = params.get("assumptions", [])
+        expected_outcome = params.get("expected_outcome", "")
+        self._documented_approach = {
+            "approach": approach,
+            "assumptions": assumptions,
+            "expected_outcome": expected_outcome,
+        }
+        return "Approach documented. You may now proceed with execute_python.", False
 
     def _report_progress(self, params: dict) -> tuple[str, bool]:
         """Acknowledge progress report and guide next action."""
@@ -326,12 +355,6 @@ class ToolExecutor:
             "Continue with your next execute_python call, then call "
             f"{exit_tool} when you have enough evidence."
         ), False
-
-    def _submit_verdict(self, params: dict) -> tuple[str, bool]:
-        """Record verdict and signal loop to stop."""
-        self.stop_after_round = True
-        self._last_verdict = params
-        return f"Verdict recorded: {params.get('verdict', 'UNKNOWN')}", False
 
     def _submit_result(self, params: dict) -> tuple[str, bool]:
         """Record exploratory result and signal loop to stop."""

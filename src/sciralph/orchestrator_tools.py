@@ -126,8 +126,8 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
             "name": "promote_hypothesis",
             "description": (
                 "Promote a Working Hypothesis to an Established Result. "
-                "Call when you judge that the accumulated evidence "
-                "(computations, derivations, or both) sufficiently supports the claim."
+                "Requires a VERIFIED verdict from the verifier. "
+                "Call after the verifier has confirmed the claim."
             ),
             "parameters": {
                 "type": "object",
@@ -140,7 +140,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         "type": "string",
                         "description": (
                             "Why the evidence is sufficient. "
-                            "Reference specific COMP entries, derivations, or other evidence."
+                            "Reference the verification result and supporting evidence."
                         ),
                     },
                 },
@@ -177,14 +177,14 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
         "function": {
             "name": "update_section",
             "description": (
-                "Replace the content of a top-level section in RESEARCH_STATE.md."
+                "Replace the content of a top-level section in the research state."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "section": {
                         "type": "string",
-                        "enum": ["Conventions", "Strategy"],
+                        "enum": ["Conventions", "Strategy", "Short-term Plan"],
                         "description": "Which section to update.",
                     },
                     "content": {
@@ -193,6 +193,27 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     },
                 },
                 "required": ["section", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "append_note",
+            "description": (
+                "Append a research note. Use for recording intermediate insights, "
+                "observations, or decisions. Notes are append-only and visible to "
+                "all agents."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The note content.",
+                    },
+                },
+                "required": ["text"],
             },
         },
     },
@@ -287,9 +308,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "task_type": {
                         "type": "string",
                         "enum": [
-                            "research_explore",
-                            "compute_explore", "compute_verify",
-                            "research_verify",
+                            "research", "compute", "verify",
                             "critique", "terminate", "survey",
                         ],
                     },
@@ -299,15 +318,48 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     },
                     "target_claim": {
                         "type": "string",
-                        "description": "For compute tasks: the WH/ER ID being verified.",
+                        "description": (
+                            "The RQ/WH/ER ID this task targets. "
+                            "For research/compute: the RQ or WH being investigated. "
+                            "For verify: the WH being verified."
+                        ),
                     },
                     "description": {
                         "type": "string",
                         "description": (
-                        "Detailed, self-contained task description (Markdown). "
-                        "This is the ONLY guidance the agent receives — include "
-                        "any relevant methodological requirements, scope, and known pitfalls. "
-                    ),
+                            "Detailed, self-contained task description (Markdown). "
+                            "This is the ONLY guidance the agent receives — include "
+                            "any relevant methodological requirements, scope, and known pitfalls."
+                        ),
+                    },
+                    "background": {
+                        "type": "string",
+                        "description": (
+                            "Background context for the task: relevant prior results, "
+                            "established conventions, domain knowledge."
+                        ),
+                    },
+                    "method_hints": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Suggested methods or approaches for the agent to consider."
+                        ),
+                    },
+                    "assumptions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Key assumptions the agent should work under."
+                        ),
+                    },
+                    "relevant_results": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "References to established results or prior evidence "
+                            "that are relevant to this task (e.g. 'ER-001', 'WH-003')."
+                        ),
                     },
                 },
                 "required": ["task_type", "description"],
@@ -372,6 +424,7 @@ class OrchestratorToolExecutor:
             "promote_hypothesis": self._promote_hypothesis,
             "resolve_critique": self._resolve_critique,
             "update_section": self._update_section,
+            "append_note": self._append_note,
             "add_research_question": self._add_research_question,
             "resolve_research_question": self._resolve_research_question,
             "record_dead_end": self._record_dead_end,
@@ -438,6 +491,14 @@ class OrchestratorToolExecutor:
             num = state.next_entity_num()
             new_id = f"WH-{num:03d}"
 
+        # Copy evidence from RQ if available
+        evidence = None
+        if from_rq:
+            rq = state.research_questions[from_rq]
+            if rq.evidence is not None:
+                from copy import deepcopy
+                evidence = deepcopy(rq.evidence)
+
         state.hypotheses[new_id] = Hypothesis(
             id=new_id,
             statement=statement,
@@ -446,6 +507,7 @@ class OrchestratorToolExecutor:
             depends_on=depends_on,
             iteration_created=self.iteration,
             iteration_modified=self.iteration,
+            evidence=evidence,
         )
         self.mutations_applied = True
         self.mutations_this_round.append(f"Added {new_id}")
@@ -510,14 +572,10 @@ class OrchestratorToolExecutor:
         h.status = HypothesisStatus.ABANDONED
         h.iteration_modified = self.iteration
 
-        related_comp_ids = [
-            c.id for c in state.computations.values()
-            if c.target_hypothesis == hid
-        ]
         state.failed_approaches.append(FailedApproach(
             description=f"Abandoned {hid} — {title}",
             reason=reason,
-            related_comps=related_comp_ids,
+            related_entities=[hid],
             derivation_excerpt=(h.derivation[:300] if h.derivation else ""),
             iteration=self.iteration,
         ))
@@ -544,7 +602,7 @@ class OrchestratorToolExecutor:
         return msg + _BATCH_NUDGE
 
     def _promote_hypothesis(self, args: dict) -> str:
-        from .research_state import HypothesisStatus, Severity, CritiqueStatus
+        from .research_state import HypothesisStatus, Severity, CritiqueStatus, Verdict
 
         state = self.research_state
         if not state:
@@ -559,21 +617,30 @@ class OrchestratorToolExecutor:
         if wh_id not in state.hypotheses:
             return f"Error: {wh_id} not found in research state"
 
+        h = state.hypotheses[wh_id]
         num = wh_id.split("-")[1]
         er_id = f"ER-{num}"
 
-        # Guardrail: check for REFUTED without VERIFIED
-        refuted = state.refuted_targets()
-        has_refuted = wh_id in refuted or er_id in refuted
-        has_verified = state.has_verified_backing(wh_id) or state.has_verified_backing(er_id)
-
-        if has_refuted and not has_verified:
+        # Guardrail: require VERIFIED verification result
+        if not h.verification or h.verification.verdict != Verdict.VERIFIED:
             return (
-                f"Error: Cannot promote {wh_id} — a REFUTED computation exists "
-                "with no superseding VERIFIED computation."
+                f"Error: Cannot promote {wh_id} — no VERIFIED verification "
+                "result. Schedule a verify task first."
             )
 
-        # Guardrail: check for unresolved HIGH critiques
+        # Guardrail: check for HIGH-severity verifier critiques
+        if h.verification.critiques:
+            high_critiques = [
+                c for c in h.verification.critiques
+                if c.get("severity") == "HIGH"
+            ]
+            if high_critiques:
+                return (
+                    f"Error: Cannot promote {wh_id} — {len(high_critiques)} "
+                    "HIGH-severity verifier critique(s) must be addressed first."
+                )
+
+        # Guardrail: check for unresolved HIGH critiques from deep critic
         for c in state.critiques.values():
             if (c.severity == Severity.HIGH
                     and c.status == CritiqueStatus.ACTIVE
@@ -589,22 +656,6 @@ class OrchestratorToolExecutor:
             return (
                 f"Error: Cannot promote {wh_id} — unestablished dependencies: "
                 f"{', '.join(unestablished)}. Promote or resolve them first."
-            )
-
-        # Guardrail: require verification evidence
-        verify_kinds = {"verify", "research_verify"}
-        from .research_state import Verdict as _V
-        has_verification = any(
-            c.target_hypothesis in (wh_id, er_id)
-            and c.kind in verify_kinds
-            and c.verdict == _V.VERIFIED
-            for c in state.computations.values()
-        )
-        if not has_verification:
-            return (
-                f"Error: Cannot promote {wh_id} — no VERIFIED computation "
-                "with kind 'verify' or 'research_verify' exists. "
-                "Schedule a compute_verify or research_verify task first."
             )
 
         # Perform promotion in state
@@ -668,11 +719,33 @@ class OrchestratorToolExecutor:
             state.conventions = content.strip()
         elif section_name == "Strategy":
             state.strategy = content.strip()
+        elif section_name == "Short-term Plan":
+            state.short_term_plan = content.strip()
         else:
             return f"Error: unknown section '{section_name}'"
 
         self.mutations_applied = True
         return f"Updated # {section_name}." + _BATCH_NUDGE
+
+    def _append_note(self, args: dict) -> str:
+        state = self.research_state
+        if not state:
+            return "Error: no research state available"
+
+        text = args.get("text", "")
+        if not text.strip():
+            return "Error: note text cannot be empty"
+
+        state.research_notes.append({
+            "text": text.strip(),
+            "iteration": self.iteration,
+        })
+        self.mutations_applied = True
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "append_note", text[:120],
+        )
+        return "Note appended." + _BATCH_NUDGE
 
     def _record_dead_end(self, args: dict) -> str:
         from .research_state import FailedApproach
