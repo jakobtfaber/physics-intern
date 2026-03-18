@@ -63,6 +63,20 @@ WORKFLOW:
 4. If you find NO genuine issues after examining all claims, call
    `finish_review` directly without any prior `submit_critique` calls.
 
+STRATEGY REVIEW:
+After examining all claims, assess whether the research strategy (in the
+Strategy section of RESEARCH_STATE.md) is consistent with the evidence:
+- Does the strategy recommend an approach that has been refuted?
+- Does it ignore the only path that has produced verified results?
+- Is there a disconnect between the stated plan and the actual work?
+
+When you find a genuine disconnect, file a critique with `target_id: "STRATEGY"`.
+- HIGH: Strategy is actively wasting iterations (e.g., recommends a refuted approach)
+- MEDIUM: Strategy is misaligned with evidence but not causing immediate harm
+
+Do not critique the strategy for being incomplete early in the research.
+Only critique when a strategy exists and conflicts with accumulated evidence.
+
 CRITICAL RULES:
 - If Phase 1 reproduction arrives at the SAME result and you find no flaw,
   do NOT file a critique at any severity level. Move on to the next claim.

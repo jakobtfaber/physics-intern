@@ -280,6 +280,45 @@ class TestCritiqueResolutionConsistency:
         vanished = [v for v in violations if "no longer exists" in v.message]
         assert len(vanished) == 0
 
+    def test_resolved_strategy_critique_no_false_positive(self):
+        """Resolved critique targeting STRATEGY should not generate a vanished-target violation."""
+        state = ResearchState()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["STRATEGY"],
+            severity=Severity.MEDIUM,
+            argument="Strategy recommends refuted approach.",
+            status=CritiqueStatus.RESOLVED,
+            resolution="Updated strategy section.",
+        )
+        violations = check_critique_resolution_consistency(state)
+        assert len(violations) == 0
+
+
+class TestStrategyTerminationBlocking:
+    """Active HIGH STRATEGY critique blocks termination like any other HIGH critique."""
+
+    def test_high_strategy_critique_blocks_termination(self):
+        state = ResearchState()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.computations["COMP-001"] = Computation(
+            id="COMP-001", target_hypothesis="ER-001",
+            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        )
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["STRATEGY"],
+            severity=Severity.HIGH,
+            status=CritiqueStatus.ACTIVE,
+            argument="Strategy recommends a refuted approach.",
+        )
+        allowed, blockers = can_terminate(
+            MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
+            research_state=state,
+        )
+        assert not allowed
+        assert any("HIGH" in b for b in blockers)
+
 
 # ---------------------------------------------------------------------------
 # validate_post_integration

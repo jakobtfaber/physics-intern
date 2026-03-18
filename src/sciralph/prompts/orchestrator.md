@@ -175,3 +175,4 @@ Call `set_next_task` with `task_type: terminate`. If rejected, the system provid
 - **Critique loops:** If a critique persists 2+ iterations, escalate to compute_verify for a numerical test.
 - **Dead ends:** After 2 critiqued or refuted attempts, consider `abandon_hypothesis`. Use `record_dead_end` to record approaches that failed without ever becoming a hypothesis.
 - **Critique resolution:** Dispatch research_explore with the critique details, then call `resolve_critique` with a specific description of the fix when integrating the result.
+- **Strategy critiques:** If the critic files a critique targeting `STRATEGY`, review the argument — if the disconnect is real, update the strategy section via `update_section(section="Strategy")` and resolve the critique describing the change.

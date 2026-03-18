@@ -112,3 +112,18 @@ class TestCriticToolExecutor:
         assert "CRIT-001" in tc.output
         assert "HIGH" in tc.output
         assert "ER-001" in tc.output
+
+    def test_submit_critique_strategy_target(self):
+        """submit_critique with target_id='STRATEGY' stores correctly."""
+        executor = CriticToolExecutor(existing_critique_count=0)
+        tc = executor.execute("submit_critique", {
+            "severity": "MEDIUM",
+            "target_id": "STRATEGY",
+            "argument": "Strategy recommends refuted approach.",
+        })
+        assert not tc.is_error
+        assert len(executor.filed_critiques) == 1
+        crit = executor.filed_critiques[0]
+        assert crit["target_id"] == "STRATEGY"
+        assert crit["severity"] == "MEDIUM"
+        assert "CRIT-001" in tc.output

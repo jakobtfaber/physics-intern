@@ -187,7 +187,10 @@ def check_critique_resolution_consistency(research_state: ResearchState) -> list
         is_label_critique = bool(_LABEL_KEYWORDS.search(body_text))
 
         for tid in crit.targets:
-            num = tid.split("-")[1] if "-" in tid else ""
+            # Skip non-hypothesis targets (e.g., "STRATEGY") that have no WH/ER form
+            if "-" not in tid:
+                continue
+            num = tid.split("-")[1]
             wh_form = f"WH-{num}"
             er_form = f"ER-{num}"
 
