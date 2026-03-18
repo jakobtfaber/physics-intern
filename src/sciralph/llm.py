@@ -425,6 +425,9 @@ def run_agent_loop(
         if resp.stop_reason == "tool_use":
             messages.append(provider.format_assistant_message(resp.raw_content))
 
+            if hasattr(tool_executor, "begin_round"):
+                tool_executor.begin_round()
+
             tool_results = []
             for tc_info in resp.tool_calls:
                 tc = tool_executor.execute(tc_info["name"], tc_info["input"])
@@ -478,6 +481,11 @@ def run_agent_loop(
                     config, system, user_content, agent_name,
                     iteration, round_log, result)
                 return result
+
+            # Restrict to dispatch-only tools if executor signals it
+            # (e.g., after entity-creating mutations that need two-phase dispatch)
+            if getattr(tool_executor, "dispatch_only", False):
+                tools = [t for t in tools if t["function"]["name"] == _exit_tool]
 
             # Track consecutive execute_python for progress check
             round_has_exec = any(tc.tool_name == "execute_python"

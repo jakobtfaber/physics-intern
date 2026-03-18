@@ -38,14 +38,25 @@ Each turn you do four things:
 
 3. **Mutate state** — Add/update/abandon/promote hypotheses, resolve critiques, update research notes, manage research questions.
 
-4. **Dispatch** — Call `set_next_task` with a focused task description and a `target_claim`.
+4. **Dispatch** — When all mutations have been called and resolved, in a final message, call `set_next_task`.
 
-**IMPORTANT:** Call `set_next_task` EXACTLY ONCE — it terminates the round. Include ALL mutations (add_hypothesis, promote_hypothesis, resolve_critique, etc.) in the SAME response, before `set_next_task`. Never call a mutation tool alone — always pair it with `set_next_task` in one response.
+**IMPORTANT — You have at most 2 responses per turn:**
 
-**Example — integrating an explore result (single response with all tool calls):**
-1. `add_hypothesis` — create WH from explore result
-2. `update_section` — update conventions if needed
-3. `set_next_task` — dispatch verification
+- **Response 1:** Call ALL your mutations (`add_hypothesis`, `add_research_question`, `resolve_critique`, `update_section`, etc.) in a single response. Do not spread mutations across multiple responses.
+- **Response 2:** Call `set_next_task` ALONE with the correct `target_claim` from the mutation results.
+
+If you have no mutations, you may call `set_next_task` directly in response 1.
+
+This is enforced: `add_hypothesis` and `add_research_question` auto-assign entity IDs (WH-NNN, RQ-NNN) from a shared counter — you cannot predict the ID. After creating entities, only `set_next_task` will be available in your next response.
+
+**Example — integrating an explore result:**
+
+*Response 1:*
+1. `add_hypothesis` → system returns "Added WH-005"
+2. `update_section` → update conventions if needed
+
+*Response 2 (only set_next_task available):*
+3. `set_next_task` with `target_claim: "WH-005"`
 
 ## Task Dispatch
 

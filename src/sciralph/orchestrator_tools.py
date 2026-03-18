@@ -277,10 +277,10 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
             "name": "set_next_task",
             "description": (
                 "Set the next task for the research loop. "
-                "Call this ONCE as your final action. "
-                "This terminates the round — include all mutations in the "
-                "SAME batch before calling this tool, as no further rounds "
-                "will occur."
+                "Call this ALONE — not in the same response as any mutation "
+                "tools. First emit all mutations, then in your NEXT response "
+                "call set_next_task with the actual entity IDs from the "
+                "mutation results."
             ),
             "parameters": {
                 "type": "object",
@@ -318,7 +318,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
 # Tool executor
 # ---------------------------------------------------------------------------
 
-_BATCH_NUDGE = " Continue with other mutations or call set_next_task to dispatch."
+_BATCH_NUDGE = " Call set_next_task ALONE in your next response to dispatch."
 
 
 class OrchestratorToolExecutor:
@@ -333,12 +333,35 @@ class OrchestratorToolExecutor:
         self.iteration = iteration
         self.research_state = research_state
         self.mutations_applied: bool = False
+        self.mutations_this_round: list[str] = []
+        self.dispatch_only: bool = False
+        self._reject_mutations: bool = False
         self.task_data: dict | None = None
         self.resolved_critique_ids: set[str] = set()
         self.stop_after_round: bool = False
 
+    def begin_round(self) -> None:
+        """Called by the agent loop at the start of each response's tool batch."""
+        # Activate mutation rejection if dispatch_only was set in a prior round
+        self._reject_mutations = self.dispatch_only
+        self.mutations_this_round.clear()
+
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
         start = time.time()
+
+        # Enforce dispatch-only mode: after entity-creating mutations in a
+        # prior round, only set_next_task is allowed (activated by begin_round)
+        if self._reject_mutations and tool_name != "set_next_task":
+            return ToolCall(
+                tool_name=tool_name, tool_input=tool_input,
+                output=(
+                    "Error: only set_next_task is available after creating entities. "
+                    "Call set_next_task now with the entity IDs from earlier results."
+                ),
+                is_error=True,
+                duration=time.time() - start,
+            )
+
         handlers = {
             "add_hypothesis": self._add_hypothesis,
             "update_hypothesis": self._update_hypothesis,
@@ -414,6 +437,8 @@ class OrchestratorToolExecutor:
             iteration_modified=self.iteration,
         )
         self.mutations_applied = True
+        self.mutations_this_round.append(f"Added {new_id}")
+        self.dispatch_only = True
         detail = f"{new_id}: {statement[:120]}"
         if from_rq:
             detail += f" (from {from_rq})"
@@ -675,6 +700,8 @@ class OrchestratorToolExecutor:
             iteration_created=self.iteration,
         )
         self.mutations_applied = True
+        self.mutations_this_round.append(f"Added {rq_id}")
+        self.dispatch_only = True
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
             "add_research_question", f"{rq_id}: {question[:120]}",
@@ -712,6 +739,83 @@ class OrchestratorToolExecutor:
         return f"Resolved {rq_id} → {', '.join(resolved_to)}." + _BATCH_NUDGE
 
     def _set_next_task(self, args: dict) -> str:
+        # Two-phase gate: reject if mutations occurred in this response batch
+        if self.mutations_this_round:
+            mutations_list = "; ".join(self.mutations_this_round)
+            log_scaffold_event(
+                self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                "two_phase_gate_reject",
+                f"Rejected set_next_task — mutations this response: {mutations_list}",
+            )
+            return (
+                f"Error: set_next_task cannot be called in the same response "
+                f"as mutation tools. Mutations this response: {mutations_list}. "
+                "Call set_next_task ALONE in your next response, using the "
+                "actual entity IDs from the mutation results above."
+            )
+
+        # Validate target_claim when present
+        task_type = args.get("task_type", "")
+        target_claim = args.get("target_claim")
+        skip_validation = task_type in ("critique", "terminate", "strategize")
+        if target_claim and not skip_validation and self.research_state:
+            valid = self._validate_target_claim(target_claim)
+            if valid is not None:
+                return valid
+
         self.task_data = args
         self.stop_after_round = True
         return f"Task set: {args.get('task_type', '?')}"
+
+    def _validate_target_claim(self, target_claim: str) -> str | None:
+        """Validate target_claim exists. Returns error string or None if valid."""
+        import re
+        state = self.research_state
+        assert state is not None
+
+        match = re.match(r"^(RQ|WH|ER)-(\d+)$", target_claim)
+        if not match:
+            # Unknown prefix — allow through
+            return None
+
+        prefix = match.group(1)
+        if prefix == "RQ":
+            if target_claim in state.research_questions:
+                return None
+            valid_rqs = sorted(state.research_questions.keys())
+            valid_whs = sorted(h for h in state.hypotheses if h.startswith("WH-"))
+            valid_ers = sorted(h for h in state.hypotheses if h.startswith("ER-"))
+            entity_list = []
+            if valid_rqs:
+                entity_list.append(f"RQs: {', '.join(valid_rqs)}")
+            if valid_whs:
+                entity_list.append(f"WHs: {', '.join(valid_whs)}")
+            if valid_ers:
+                entity_list.append(f"ERs: {', '.join(valid_ers)}")
+            listing = "; ".join(entity_list) if entity_list else "none"
+        else:
+            # WH or ER
+            if target_claim in state.hypotheses:
+                return None
+            valid_rqs = sorted(state.research_questions.keys())
+            valid_whs = sorted(h for h in state.hypotheses if h.startswith("WH-"))
+            valid_ers = sorted(h for h in state.hypotheses if h.startswith("ER-"))
+            entity_list = []
+            if valid_rqs:
+                entity_list.append(f"RQs: {', '.join(valid_rqs)}")
+            if valid_whs:
+                entity_list.append(f"WHs: {', '.join(valid_whs)}")
+            if valid_ers:
+                entity_list.append(f"ERs: {', '.join(valid_ers)}")
+            listing = "; ".join(entity_list) if entity_list else "none"
+
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+            "target_claim_validation_reject",
+            f"Invalid target_claim {target_claim}. Valid entities: {listing}",
+        )
+        return (
+            f"Error: target_claim '{target_claim}' not found. "
+            f"Valid entities: {listing}. "
+            "Use the actual entity ID from mutation results."
+        )

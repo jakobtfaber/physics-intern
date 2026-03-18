@@ -690,3 +690,337 @@ class TestResearchQuestionTools:
             "resolved_to": [],
         })
         assert "not found" in tc.output
+
+
+# ---------------------------------------------------------------------------
+# Two-phase gate
+# ---------------------------------------------------------------------------
+
+class TestTwoPhaseGate:
+    """Tests for the two-phase dispatch gate in set_next_task."""
+
+    def test_gate_rejects_when_mutations_occurred(self):
+        """set_next_task is rejected when mutations happened in the same round."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        # Phase 1: mutation
+        tc1 = ex.execute("add_hypothesis", {"statement": "New claim"})
+        assert not tc1.is_error
+        assert "WH-003" in state.hypotheses  # mutation applied
+
+        # set_next_task in same round → rejected
+        tc2 = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "target_claim": "WH-003",
+            "description": "Verify new claim.",
+        })
+        assert "Error" in tc2.output
+        assert "mutation" in tc2.output.lower()
+        assert ex.task_data is None
+        assert not ex.stop_after_round
+        assert ex.dispatch_only  # signals loop to restrict tools
+
+    def test_dispatch_only_set_by_entity_creating_mutation(self):
+        """Entity-creating mutations set dispatch_only for tool restriction."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        assert not ex.dispatch_only
+
+        ex.execute("add_hypothesis", {"statement": "Claim"})
+        assert ex.dispatch_only
+
+    def test_dispatch_only_not_set_by_non_entity_mutation(self):
+        """Non-entity mutations don't set dispatch_only."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        ex.execute("update_hypothesis", {
+            "id": "WH-001", "statement": "Updated",
+        })
+        assert not ex.dispatch_only
+
+    def test_dispatch_only_rejects_non_dispatch_tools_in_next_round(self):
+        """After begin_round, non-set_next_task tools are rejected."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        # Round 1: create entity → dispatch_only becomes True
+        ex.execute("add_hypothesis", {"statement": "Claim"})
+        assert ex.dispatch_only
+
+        # Round 2: begin_round activates rejection
+        ex.begin_round()
+        assert ex._reject_mutations
+
+        # Non-dispatch tools rejected
+        tc = ex.execute("add_research_question", {"question": "Duplicate?"})
+        assert tc.is_error
+        assert "only set_next_task" in tc.output
+
+        tc2 = ex.execute("update_section", {
+            "section": "Conventions", "content": "test",
+        })
+        assert tc2.is_error
+
+        # set_next_task still works
+        tc3 = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "target_claim": "WH-003",
+            "description": "Verify.",
+        })
+        assert "Task set" in tc3.output
+
+    def test_dispatch_only_allows_mutations_within_same_round(self):
+        """Multiple entity-creating mutations in the same response all execute."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        tc1 = ex.execute("add_hypothesis", {"statement": "First"})
+        assert not tc1.is_error
+        tc2 = ex.execute("add_research_question", {"question": "Question?"})
+        assert not tc2.is_error
+        assert "WH-003" in state.hypotheses
+        assert "RQ-004" in state.research_questions
+
+    def test_gate_allows_set_next_task_alone(self):
+        """set_next_task succeeds when no mutations occurred this round."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        tc = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "target_claim": "WH-001",
+            "description": "Verify.",
+        })
+        assert "Task set" in tc.output
+        assert ex.task_data is not None
+        assert ex.stop_after_round
+
+    def test_gate_allows_after_new_round(self):
+        """Simulates two-phase: mutation round → begin_round → dispatch succeeds."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        # Phase 1: mutation response
+        ex.execute("add_hypothesis", {"statement": "Claim"})
+        # set_next_task in same response → rejected
+        tc_reject = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "target_claim": "WH-003",
+            "description": "Verify.",
+        })
+        assert "Error" in tc_reject.output
+        assert not ex.stop_after_round
+
+        # Phase 2: new response (begin_round clears mutations_this_round)
+        ex.begin_round()
+        tc_ok = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "target_claim": "WH-003",
+            "description": "Verify.",
+        })
+        assert "Task set" in tc_ok.output
+        assert ex.stop_after_round
+        assert ex.task_data["target_claim"] == "WH-003"
+
+    def test_gate_still_rejects_within_same_round_after_rejection(self):
+        """Two set_next_task calls in same response: both rejected if mutations present."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        ex.execute("add_hypothesis", {"statement": "Claim"})
+        tc1 = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "description": "First try.",
+        })
+        tc2 = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "description": "Second try.",
+        })
+        assert "Error" in tc1.output
+        assert "Error" in tc2.output
+        assert not ex.stop_after_round
+
+    def test_multiple_entity_creating_mutations_listed(self):
+        """Error message lists all entity-creating mutations."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        ex.execute("add_hypothesis", {"statement": "First"})
+        ex.execute("add_research_question", {
+            "question": "Some question?",
+        })
+
+        tc = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "description": "Verify.",
+        })
+        assert "Error" in tc.output
+        assert "Added WH-003" in tc.output
+        assert "Added RQ-004" in tc.output
+
+    def test_mutations_in_prior_round_dont_block_dispatch(self):
+        """Mutations in an earlier response don't block set_next_task in a later one."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        # Round 1: mutations only
+        ex.execute("add_hypothesis", {"statement": "Claim"})
+        assert len(ex.mutations_this_round) == 1
+
+        # Round 2: new response, dispatch only
+        ex.begin_round()
+        assert len(ex.mutations_this_round) == 0
+        tc = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "target_claim": "WH-003",
+            "description": "Verify.",
+        })
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
+
+    def test_non_entity_mutations_dont_trigger_gate(self):
+        """update_hypothesis, resolve_critique, update_section don't trigger the gate."""
+        ws = _make_workspace()
+        state = _make_state()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
+            targets=["WH-001"], argument="Issue.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        ex.execute("update_hypothesis", {
+            "id": "WH-001", "statement": "Updated title",
+        })
+        ex.execute("resolve_critique", {
+            "critique_id": "CRIT-001", "resolution": "Fixed.",
+        })
+        ex.execute("update_section", {
+            "section": "Conventions", "content": "Natural units.",
+        })
+        tc = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "target_claim": "WH-001",
+            "description": "Verify.",
+        })
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
+
+
+# ---------------------------------------------------------------------------
+# Target claim validation
+# ---------------------------------------------------------------------------
+
+class TestTargetClaimValidation:
+    """Tests for target_claim validation in set_next_task."""
+
+    def test_valid_wh_target_passes(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "target_claim": "WH-001",
+            "description": "Verify.",
+        })
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
+
+    def test_valid_rq_target_passes(self):
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = _make_state()
+        state.research_questions["RQ-003"] = ResearchQuestion(
+            id="RQ-003", question="Test?", iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("set_next_task", {
+            "task_type": "research_explore",
+            "target_claim": "RQ-003",
+            "description": "Explore.",
+        })
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
+
+    def test_invalid_target_rejected_with_listing(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "target_claim": "WH-099",
+            "description": "Verify.",
+        })
+        assert "Error" in tc.output
+        assert "WH-099" in tc.output
+        assert "WH-001" in tc.output  # listed as valid
+        assert "WH-002" in tc.output
+        assert ex.task_data is None
+        assert not ex.stop_after_round
+
+    def test_skipped_for_critique(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("set_next_task", {
+            "task_type": "critique",
+            "target_claim": "WH-099",
+            "description": "Review.",
+        })
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
+
+    def test_skipped_for_terminate(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("set_next_task", {
+            "task_type": "terminate",
+            "description": "Done.",
+        })
+        assert "Task set" in tc.output
+
+    def test_skipped_for_strategize(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("set_next_task", {
+            "task_type": "strategize",
+            "target_claim": "WH-099",
+            "description": "Replan.",
+        })
+        assert "Task set" in tc.output
+
+    def test_skipped_when_target_claim_absent(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "description": "Verify something.",
+        })
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
+
+    def test_skipped_when_research_state_is_none(self):
+        ws = _make_workspace()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
+        tc = ex.execute("set_next_task", {
+            "task_type": "compute_verify",
+            "target_claim": "WH-099",
+            "description": "Verify.",
+        })
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
