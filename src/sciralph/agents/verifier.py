@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 class VerifierAgent(BaseAgent):
     name = "verifier"
-    prompt_file = "verifier.md"
+    prompt_file = "verify_agent.md"
     tools = VerifierToolExecutor.TOOL_DEFINITIONS
 
     def __init__(self, config, workspace, metrics):
