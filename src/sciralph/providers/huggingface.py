@@ -207,6 +207,8 @@ class HuggingFaceProvider(LLMProvider):
             model=model,
             messages=hf_messages,
             max_tokens=max_tokens,
+            stream=True,
+            stream_options={"include_usage": True},
         )
         if tools:
             kwargs["tools"] = tools  # Already in OpenAI canonical format
@@ -215,7 +217,7 @@ class HuggingFaceProvider(LLMProvider):
             kwargs["messages"] = self._strip_tool_messages(hf_messages)
 
         try:
-            response = self._client.chat.completions.create(**kwargs)
+            stream = self._client.chat.completions.create(**kwargs)
         except Exception as exc:
             exc_msg = str(exc).lower()
             if "tool_use_failed" in exc_msg or "post processor" in exc_msg:
@@ -224,30 +226,87 @@ class HuggingFaceProvider(LLMProvider):
                     return repaired
             raise
 
-        choice = response.choices[0]
-        text = choice.message.content or ""
-
-        # Extract tool calls
-        tool_calls = None
-        if choice.message.tool_calls:
-            tool_calls = []
-            for tc in choice.message.tool_calls:
-                tool_calls.append({
-                    "id": tc.id,
-                    "name": tc.function.name,
-                    "input": json.loads(tc.function.arguments)
-                    if isinstance(tc.function.arguments, str)
-                    else tc.function.arguments,
-                })
-
-        stop_reason = _STOP_REASON_MAP.get(choice.finish_reason, choice.finish_reason)
-
-        # Token usage
+        # Accumulate streamed chunks
+        text_parts: list[str] = []
+        tc_acc: dict[int, dict] = {}  # index -> {id, name, arg_parts}
+        finish_reason: str | None = None
         input_tokens = 0
         output_tokens = 0
-        if response.usage:
-            input_tokens = response.usage.prompt_tokens or 0
-            output_tokens = response.usage.completion_tokens or 0
+
+        for chunk in stream:
+            # Usage info (typically in the final chunk)
+            if hasattr(chunk, "usage") and chunk.usage:
+                input_tokens = getattr(chunk.usage, "prompt_tokens", 0) or 0
+                output_tokens = getattr(chunk.usage, "completion_tokens", 0) or 0
+
+            if not chunk.choices:
+                continue
+
+            choice = chunk.choices[0]
+            delta = choice.delta
+
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+
+            # Accumulate text content
+            if hasattr(delta, "content") and delta.content:
+                text_parts.append(delta.content)
+
+            # Accumulate tool call deltas
+            if hasattr(delta, "tool_calls") and delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tc_acc:
+                        tc_acc[idx] = {"id": "", "name": "", "arg_parts": []}
+                    if tc_delta.id:
+                        tc_acc[idx]["id"] = tc_delta.id
+                    if hasattr(tc_delta, "function") and tc_delta.function:
+                        if tc_delta.function.name:
+                            tc_acc[idx]["name"] = tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            tc_acc[idx]["arg_parts"].append(
+                                tc_delta.function.arguments)
+
+        text = "".join(text_parts)
+
+        # Build tool calls list + synthetic raw_content for format_assistant_message
+        tool_calls = None
+        raw_tool_calls = None
+        if tc_acc:
+            tool_calls = []
+            raw_tool_calls = []
+            for idx in sorted(tc_acc):
+                tc = tc_acc[idx]
+                args_str = "".join(tc["arg_parts"])
+                tc_id = tc["id"] or f"call_{idx}"
+                try:
+                    parsed_args = json.loads(args_str) if args_str else {}
+                except json.JSONDecodeError:
+                    if tc["name"] == "execute_python":
+                        parsed_args = {"code": args_str}
+                    else:
+                        parsed_args = {"raw": args_str}
+                tool_calls.append({
+                    "id": tc_id,
+                    "name": tc["name"],
+                    "input": parsed_args,
+                })
+                raw_tool_calls.append(SimpleNamespace(
+                    id=tc_id,
+                    function=SimpleNamespace(
+                        name=tc["name"],
+                        arguments=args_str,
+                    ),
+                ))
+
+        stop_reason = _STOP_REASON_MAP.get(finish_reason,
+                                            finish_reason or "end_turn")
+
+        # Synthetic raw_content (SimpleNamespace, same shape as non-streaming)
+        raw_content = SimpleNamespace(
+            content=text,
+            tool_calls=raw_tool_calls,
+        )
 
         # Reasoning token breakdown based on model's reasoning format
         reasoning_tokens = 0
@@ -257,9 +316,10 @@ class HuggingFaceProvider(LLMProvider):
             # Count words in visible text AND tool call arguments so tool-use
             # rounds don't misattribute all output_tokens to reasoning.
             content_words = len(text.split()) if text else 0
-            if choice.message.tool_calls:
-                for tc in choice.message.tool_calls:
-                    args_str = tc.function.arguments if isinstance(tc.function.arguments, str) else ""
+            if raw_tool_calls:
+                for tc in raw_tool_calls:
+                    args_str = tc.function.arguments if isinstance(
+                        tc.function.arguments, str) else ""
                     content_words += len(args_str.split())
             answer_tokens = int(content_words * 1.3)
             reasoning_tokens = max(0, output_tokens - answer_tokens)
@@ -276,7 +336,7 @@ class HuggingFaceProvider(LLMProvider):
             reasoning_tokens=reasoning_tokens,
             answer_tokens=answer_tokens,
             tool_calls=tool_calls,
-            raw_content=choice.message,
+            raw_content=raw_content,
         )
 
     def format_assistant_message(self, raw_content: object) -> dict:
