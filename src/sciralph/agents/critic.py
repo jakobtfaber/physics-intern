@@ -10,7 +10,6 @@ from rich.console import Console
 from ..critic_tools import CriticToolExecutor
 from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..renderers import (
-    render_computation_log_md,
     render_critique_log_md,
     render_research_state_md,
     render_background_survey,
@@ -45,8 +44,6 @@ class CriticAgent(BaseAgent):
             render_research_state_md(self.research_state) if self.research_state else "",
             "\n## BACKGROUND SURVEY\n",
             render_background_survey(self.research_state) if self.research_state else "",
-            "\n## COMPUTATION_LOG.md\n",
-            render_computation_log_md(self.research_state) if self.research_state else "",
             "\n## Your Previous Critiques (do not repeat)\n",
             render_critique_log_md(self.research_state) if self.research_state else "",
         ]

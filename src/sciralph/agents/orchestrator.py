@@ -7,7 +7,6 @@ from collections.abc import Callable
 from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..orchestrator_tools import OrchestratorToolExecutor
 from ..renderers import (
-    render_computation_log_tail,
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
 )
@@ -71,7 +70,7 @@ class OrchestratorAgent(BaseAgent):
                 f"{er_count} Established Results, "
                 f"{wh_count} Working Hypotheses still pending, "
                 f"{high} HIGH / {medium} MEDIUM unresolved critiques. "
-                "You MUST call set_next_task with task_type: research_explore to synthesize results NOW. "
+                "You MUST call set_next_task with task_type: research to synthesize results NOW. "
                 "Unresolved items should be noted as limitations. <<<"
             )
         return None
@@ -87,19 +86,9 @@ class OrchestratorAgent(BaseAgent):
         state_text = render_orchestrator_research_state(self.research_state) if self.research_state else ""
         if iteration >= 3 and self.research_state and not self.research_state.conventions:
             parts.append(
-                ">>> REMINDER: The '# Conventions' section in RESEARCH_STATE.md "
-                "is still empty. Consider populating it with the unit system, "
-                "sign conventions, and variable definitions being used. <<<\n"
-            )
-        # Computation stall detection from research state
-        stalls = self.research_state.detect_computation_stalls(threshold=self.config.stall_threshold) if self.research_state else []
-        for stall in stalls:
-            parts.append(
-                f">>> COMPUTATION STALL: {stall['count']} consecutive failures "
-                f"on claim: {stall['claim'][:100]}. "
-                f"Verdicts: {', '.join(stall['verdicts'])}. "
-                f"Do NOT retry the same approach. Consider: (a) alternative derivation, "
-                f"(b) skip and advance, or (c) critic review of the claim. <<<\n"
+                ">>> REMINDER: The '# Conventions' section is still empty. "
+                "Consider populating it with the unit system, sign conventions, "
+                "and variable definitions being used. <<<\n"
             )
         budget_remaining = self.config.max_iterations - iteration
         parts.extend([
@@ -109,9 +98,15 @@ class OrchestratorAgent(BaseAgent):
             state_text,
             "\n## Critique Log\n",
             render_orchestrator_critique_log(self.research_state) if self.research_state else "",
-            f"\n## Computation Log (last {self.config.orchestrator_comp_log_tail} entries)\n",
-            render_computation_log_tail(self.research_state, self.config.orchestrator_comp_log_tail) if self.research_state else "",
         ])
+        # Short-term plan
+        if self.research_state and self.research_state.short_term_plan:
+            parts.append(f"\n## Short-term Plan\n{self.research_state.short_term_plan}\n")
+        # Research notes
+        if self.research_state and self.research_state.research_notes:
+            parts.append("\n## Research Notes\n")
+            for note in self.research_state.research_notes[-10:]:  # show last 10
+                parts.append(f"- [iter {note.get('iteration', '?')}] {note.get('text', '')}\n")
         return "\n".join(parts)
 
     def _call_with_tools(
@@ -167,12 +162,12 @@ class OrchestratorAgent(BaseAgent):
 
     def _task_from_tool_data(self, data: dict, iteration: int) -> Task:
         """Build a Task from set_next_task tool arguments."""
-        raw_type = data.get("task_type", "research_explore")
+        raw_type = data.get("task_type", "research")
         try:
             task_type = TaskType(raw_type)
         except ValueError:
-            task_type = TaskType.RESEARCH_EXPLORE
-        assigned_to = TASK_TYPE_AGENT_MAP.get(task_type, "research_explore")
+            task_type = TaskType.RESEARCH
+        assigned_to = TASK_TYPE_AGENT_MAP.get(task_type, "researcher")
         return Task(
             task_id=f"TASK-{iteration:03d}",
             task_type=task_type,
@@ -181,6 +176,10 @@ class OrchestratorAgent(BaseAgent):
             iteration=iteration,
             target_claim=data.get("target_claim", ""),
             body=data.get("description", ""),
+            background=data.get("background", ""),
+            method_hints=data.get("method_hints", []),
+            assumptions=data.get("assumptions", []),
+            relevant_results=data.get("relevant_results", []),
         )
 
     def parse_task(self, text: str, iteration: int = 0) -> Task:
