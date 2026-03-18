@@ -87,7 +87,43 @@ Read `RESEARCH_GRAPH.json` (this is the authoritative state, not the markdown fi
 - Are there entries in `failed_approaches`? Do they correspond to REFUTED/INCONCLUSIVE computations?
 - Were failures tracked for claims that were retried?
 
-### Step 3: Investigate scaffold events
+### Step 3: Entity lifecycle report
+
+Reconstruct the full lifecycle of every entity (RQ, WH, ER) from `RESEARCH_GRAPH.json` and `EVENT_LOG.jsonl`. Present this as a structured timeline so the user can visualize how the research unfolded.
+
+**For each Research Question (RQ-NNN):**
+- When it was created (`iteration_created`) and the question posed
+- Current status: `open`, `resolved`, or `abandoned`
+- If resolved: what it resolved to (`resolved_to` list of WH/ER IDs), when (`iteration_resolved`), and why (`resolution_reason`)
+- If abandoned: why, and whether it was a dead end or superseded
+
+**For each Working Hypothesis (WH-NNN):**
+- When it was created (`iteration_created`) and the claim statement
+- Which RQ it originated from (check if RQ-NNN exists with the same number)
+- Dependencies (`depends_on`) — are they satisfied (all dependencies established)?
+- Computations targeting it: list each with kind (explore/verify/research_verify/research_explore), verdict, and iteration
+- Critiques targeting it: list each with severity, status, and resolution summary
+- Final outcome: was it promoted to ER, abandoned, or refuted? When (`iteration_modified`)?
+
+**For each Established Result (ER-NNN):**
+- When it was promoted (`iteration_modified`) and the `promotion_justification`
+- Which WH it was promoted from (same number)
+- The VERIFIED computation(s) that justified promotion
+- Any post-promotion critiques or demotions (`er_demotion_safety` events)
+- Dependencies (`depends_on`) — verify the full chain is established
+
+**For failed approaches:**
+- Map each `failed_approaches` entry to the hypothesis/computation that triggered it
+- Note the iteration and reason for failure
+
+**Present the report as a per-entity timeline**, ordered by entity number. For each entity, show the chain of events chronologically (created → explored → verified → critiqued → promoted/abandoned). Flag any anomalies:
+- Promotions without VERIFIED computations
+- Unresolved HIGH-severity critiques on established results
+- Orphaned entities (RQs that never led to a WH, WHs with no computations)
+- Broken dependency chains (ER depends on a non-established entity)
+- Entities that cycled (promoted → demoted → re-promoted)
+
+### Step 4: Investigate scaffold events
 
 Read `EVENT_LOG.jsonl`. Events fall into 4 categories: `call_reliability`, `state_invariants`, `loop_control`, `output_normalization`.
 
@@ -135,7 +171,7 @@ Read `EVENT_LOG.jsonl`. Events fall into 4 categories: `call_reliability`, `stat
 - Track `agent`, `model`, `input_tokens`, `output_tokens`, `duration`, `round` (for agentic calls)
 - Use these to compute per-agent token budgets and identify bloated contexts
 
-### Step 4: Trace specific issues
+### Step 5: Trace specific issues
 
 For any issue from Steps 1-3 that lacks sufficient explanation:
 
@@ -145,7 +181,7 @@ For any issue from Steps 1-3 that lacks sufficient explanation:
 - Look at `METRICS.md` for token usage anomalies (context bloat, max_tokens hits)
 - Key failures to look for: empty/truncated outputs, computational failures, repeating the same task, tool loops cut off by max_rounds or max_tokens
 
-### Step 5: Synthesize
+### Step 6: Synthesize
 
 Combine findings into a complete picture:
 
