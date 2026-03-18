@@ -121,6 +121,7 @@ class ResearchQuestion:
     status: RQStatus = RQStatus.OPEN
     iteration_created: int = 0
     iteration_resolved: int | None = None
+    resolution_reason: str = ""                     # why / how it was resolved
 
 
 @dataclass
@@ -469,6 +470,7 @@ class ResearchState:
                 status=RQStatus(rqdata.get("status", "open")),
                 iteration_created=rqdata.get("iteration_created", 0),
                 iteration_resolved=rqdata.get("iteration_resolved"),
+                resolution_reason=rqdata.get("resolution_reason", ""),
             )
         for fdata in data.get("failed_approaches", []):
             state.failed_approaches.append(FailedApproach(

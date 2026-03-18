@@ -701,6 +701,7 @@ class TestResearchQuestionTools:
         assert rq.status == RQStatus.RESOLVED
         assert rq.resolved_to == []  # not populated by this tool
         assert rq.iteration_resolved == 3
+        assert rq.resolution_reason == "Answered by WH-003"
 
     def test_resolve_research_question_no_reason(self):
         from sciralph.research_state import ResearchQuestion, RQStatus
@@ -723,6 +724,52 @@ class TestResearchQuestionTools:
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("resolve_research_question", {"id": "RQ-999"})
         assert "not found" in tc.output
+
+    def test_resolve_already_resolved_rq_is_idempotent(self):
+        """Re-resolving an already-resolved RQ returns early without mutation."""
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        ws = _make_workspace()
+        state = _make_state()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is F(p)?",
+            status=RQStatus.RESOLVED,
+            iteration_created=1,
+            iteration_resolved=2,
+            resolution_reason="Answered during exploration",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
+        tc = ex.execute("resolve_research_question", {
+            "id": "RQ-001",
+            "reason": "Trying to close again",
+        })
+        assert "already resolved" in tc.output
+        rq = state.research_questions["RQ-001"]
+        # Original resolution preserved
+        assert rq.iteration_resolved == 2
+        assert rq.resolution_reason == "Answered during exploration"
+        # Should not count as a mutation
+        assert not ex.mutations_applied
+
+    def test_add_hypothesis_from_already_resolved_rq_blocked(self):
+        """Creating a WH from an already-resolved RQ is rejected."""
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        ws = _make_workspace()
+        state = _make_state()
+        state.research_questions["RQ-003"] = ResearchQuestion(
+            id="RQ-003", question="What is the entropy?",
+            status=RQStatus.RESOLVED,
+            iteration_created=1,
+            iteration_resolved=2,
+            resolution_reason="Answered during exploration",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
+        tc = ex.execute("add_hypothesis", {
+            "statement": "S = 4 pi M^2",
+            "from_rq": "RQ-003",
+        })
+        assert "already resolved" in tc.output
+        # No WH created
+        assert "WH-003" not in state.hypotheses
 
 
 # ---------------------------------------------------------------------------

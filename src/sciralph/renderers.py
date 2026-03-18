@@ -99,6 +99,14 @@ def _research_state_body(
             parts.append(f"{h2} {rq.id} {status_tag} — {rq.question}")
             if rq.resolved_to:
                 parts.append(f"  Resolved to: {', '.join(rq.resolved_to)}")
+            resolution_parts: list[str] = []
+            if rq.iteration_resolved is not None:
+                resolution_parts.append(f"iteration {rq.iteration_resolved}")
+            if rq.resolution_reason:
+                resolution_parts.append(rq.resolution_reason)
+            if resolution_parts:
+                parts.append(f"  Closed: {' — '.join(resolution_parts)}")
+            parts.append("  **This RQ is closed. Do not resolve it again or create a WH from it.**")
             parts.append("")
 
     # Working Hypotheses and Established Results

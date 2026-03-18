@@ -411,6 +411,13 @@ class OrchestratorToolExecutor:
             if from_rq not in state.research_questions:
                 return f"Error: {from_rq} not found in research questions"
             rq = state.research_questions[from_rq]
+            if rq.status == RQStatus.RESOLVED:
+                return (
+                    f"Error: {from_rq} is already resolved"
+                    f" (iteration {rq.iteration_resolved})."
+                    " Do not create a WH from an already-closed RQ."
+                    " Call set_next_task to proceed."
+                )
             rq_num = int(from_rq.split("-")[1])
             new_id = f"WH-{rq_num:03d}"
             if new_id in state.hypotheses:
@@ -422,6 +429,7 @@ class OrchestratorToolExecutor:
                 rq.status = RQStatus.RESOLVED
                 rq.resolved_to.append(new_id)
                 rq.iteration_resolved = self.iteration
+                rq.resolution_reason = f"Promoted to {new_id}"
         else:
             num = state.next_entity_num()
             new_id = f"WH-{num:03d}"
@@ -725,8 +733,14 @@ class OrchestratorToolExecutor:
             return f"Error: {rq_id} not found in research state"
 
         rq = state.research_questions[rq_id]
+        if rq.status == RQStatus.RESOLVED:
+            return (
+                f"{rq_id} is already resolved (iteration {rq.iteration_resolved})."
+                " No action needed — call set_next_task now."
+            )
         rq.status = RQStatus.RESOLVED
         rq.iteration_resolved = self.iteration
+        rq.resolution_reason = reason
         self.mutations_applied = True
         detail = f"{rq_id}: {reason}" if reason else f"{rq_id} (closed)"
         log_scaffold_event(
