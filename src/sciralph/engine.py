@@ -589,6 +589,40 @@ class SciRalph:
                                f"target={key}, verdict={comp.verdict}, "
                                f"attempt={count}/{self.config.stall_recompute_limit}")
 
+        # Console summary of computation outcome
+        self._print_computation_outcome(comp)
+
+    def _print_computation_outcome(self, comp):
+        """Print a one-line summary of a computation's outcome to the console."""
+        from .research_state import Verdict
+
+        target = comp.target_hypothesis or "?"
+
+        if comp.kind == "explore":
+            if comp.zero_output:
+                console.print(f"  [dim]Explore {target}: no output[/dim]")
+            elif comp.result:
+                snippet = comp.result[:120].replace("\n", " ")
+                conf = f", {comp.confidence}" if comp.confidence else ""
+                console.print(f"  [blue]Explored {target}[/blue]{conf}: {snippet}")
+            else:
+                console.print(f"  [dim]Explore {target}: no result[/dim]")
+        else:
+            # verify / research_verify
+            if comp.zero_output:
+                console.print(f"  [dim]{target}: no output (zero_output)[/dim]")
+            elif comp.verdict == Verdict.VERIFIED:
+                conf = f" ({comp.confidence})" if comp.confidence else ""
+                console.print(f"  [green]{target} VERIFIED[/green]{conf}")
+            elif comp.verdict == Verdict.REFUTED:
+                detail = (comp.failure_detail or comp.notes or "")[:120].replace("\n", " ")
+                suffix = f" — {detail}" if detail else ""
+                console.print(f"  [red]{target} REFUTED[/red]{suffix}")
+            else:
+                detail = (comp.notes or comp.failure_detail or "")[:120].replace("\n", " ")
+                suffix = f" — {detail}" if detail else ""
+                console.print(f"  [yellow]{target} INCONCLUSIVE[/yellow]{suffix}")
+
     def _check_compression(self):
         """Check file sizes against thresholds, compress if needed."""
         for filename, threshold in self.config.compress_threshold.items():
