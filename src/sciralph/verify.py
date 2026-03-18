@@ -115,6 +115,17 @@ class VerificationResult:
 
 
 @dataclass
+class FormalEvalResult:
+    """Result of formal (symbolic/numerical) answer evaluation."""
+    correct: bool | None = None  # True/False/None (errored)
+    method: str = ""
+    error: str | None = None
+    details: str = ""
+    skipped: bool = False
+    skip_reason: str = ""
+
+
+@dataclass
 class ProcessEvent:
     """A single process event identified by the process auditor."""
     event_id: str
@@ -210,6 +221,89 @@ def load_workspace(workspace_dir: str, *, include_process_data: bool = False) ->
 
 
 # ---------------------------------------------------------------------------
+# Formal answer evaluation
+# ---------------------------------------------------------------------------
+
+def run_formal_evaluation(workspace_dir: str, problem_def: dict | None) -> FormalEvalResult:
+    """Run formal (symbolic/numerical) answer evaluation against ground truth.
+
+    Preconditions (all must be met, otherwise skip gracefully):
+    1. problem_def is provided and has an 'answer' field
+    2. problem_def has an 'answer_template' field
+    3. ANSWER.md exists in the workspace
+    """
+    from .evaluate import evaluate_response
+
+    # Precondition 1: problem_def with answer
+    if not problem_def or not problem_def.get("answer"):
+        return FormalEvalResult(skipped=True, skip_reason="No problem definition or no answer field")
+
+    # Check for empty string answers
+    answer_val = problem_def["answer"]
+    if isinstance(answer_val, str) and not answer_val.strip():
+        return FormalEvalResult(skipped=True, skip_reason="No problem definition or no answer field")
+
+    # Precondition 2: answer_template
+    if not problem_def.get("answer_template"):
+        return FormalEvalResult(skipped=True, skip_reason="No answer_template in problem definition")
+
+    # Precondition 3: ANSWER.md exists
+    answer_path = Path(workspace_dir) / "ANSWER.md"
+    if not answer_path.exists():
+        return FormalEvalResult(skipped=True, skip_reason="ANSWER.md not found in workspace")
+
+    raw_content = answer_path.read_text()
+    if not raw_content.strip():
+        return FormalEvalResult(skipped=True, skip_reason="ANSWER.md is empty")
+
+    # Wrap raw content in fences if not already fenced
+    if "```python" in raw_content:
+        fenced_content = raw_content
+    else:
+        fenced_content = f"```python\n{raw_content}\n```"
+
+    # Call evaluate_response
+    try:
+        eval_result = evaluate_response(fenced_content, problem_def)
+    except Exception as exc:
+        return FormalEvalResult(
+            correct=None,
+            method="evaluation_error",
+            error=str(exc),
+            details="Exception during evaluate_response()",
+        )
+
+    return FormalEvalResult(
+        correct=eval_result.get("correct"),
+        method=eval_result.get("method", ""),
+        error=eval_result.get("error"),
+        details=eval_result.get("details", ""),
+    )
+
+
+def render_formal_evaluation(result: FormalEvalResult) -> None:
+    """Print the formal evaluation result to the console using Rich."""
+    if result.skipped:
+        console.print(f"[dim]  Skipped: {result.skip_reason}[/]")
+        return
+
+    if result.correct is True:
+        console.print("[green bold]  CORRECT[/]")
+    elif result.correct is False:
+        console.print("[red bold]  INCORRECT[/]")
+    else:
+        console.print("[yellow bold]  INCONCLUSIVE[/]")
+
+    if result.method:
+        console.print(f"  Method: {result.method}")
+    if result.error:
+        console.print(f"  [red]Error: {result.error}[/]")
+    if result.details:
+        console.print(f"  [dim]{result.details}[/]")
+    console.print()
+
+
+# ---------------------------------------------------------------------------
 # Re-run computations
 # ---------------------------------------------------------------------------
 
@@ -232,11 +326,33 @@ def build_verification_prompt(
     contents: WorkspaceContents,
     rerun_results: list[RerunResult] | None = None,
     known_answer: str | None = None,
+    formal_eval: FormalEvalResult | None = None,
 ) -> tuple[str, str]:
     """Assemble the system prompt and user content for the verifier LLM call."""
     system = (PROMPTS_DIR / "verifier.md").read_text()
 
     sections = []
+
+    # Formal answer evaluation (Phase 1 result, if available)
+    if formal_eval and not formal_eval.skipped:
+        if formal_eval.correct is True:
+            verdict_str = "CORRECT"
+        elif formal_eval.correct is False:
+            verdict_str = "INCORRECT"
+        else:
+            verdict_str = "INCONCLUSIVE"
+        lines = [
+            "## Formal Answer Evaluation\n",
+            f"An automated symbolic/numerical comparison against the known ground truth returned: **{verdict_str}**",
+            f"(method: {formal_eval.method})",
+        ]
+        if formal_eval.error:
+            lines.append(f"Error: {formal_eval.error}")
+        if formal_eval.details:
+            lines.append(f"Details: {formal_eval.details}")
+        lines.append("\nUse this as hard evidence when assessing the final answer, "
+                      "but still evaluate the derivation chain independently.\n")
+        sections.append("\n".join(lines))
 
     # Known answer (from problem YAML, if provided)
     if known_answer:
@@ -408,15 +524,42 @@ def render_verdict(result: VerificationResult) -> None:
 # Write verification report
 # ---------------------------------------------------------------------------
 
-def write_verification_report(result: VerificationResult, workspace_dir: str) -> None:
+def write_verification_report(
+    result: VerificationResult,
+    workspace_dir: str,
+    formal_eval: FormalEvalResult | None = None,
+) -> None:
     """Write VERIFICATION.md into the workspace."""
     lines = ["---"]
     lines.append(f"verdict: {result.verdict}")
     if result.confidence:
         lines.append(f"confidence: {result.confidence}")
+    if formal_eval and not formal_eval.skipped:
+        if formal_eval.correct is True:
+            lines.append("formal_answer: correct")
+        elif formal_eval.correct is False:
+            lines.append("formal_answer: incorrect")
+        else:
+            lines.append("formal_answer: inconclusive")
     lines.append("---\n")
 
     lines.append("# Verification Report\n")
+
+    # Formal evaluation section
+    if formal_eval and not formal_eval.skipped:
+        if formal_eval.correct is True:
+            verdict_str = "CORRECT"
+        elif formal_eval.correct is False:
+            verdict_str = "INCORRECT"
+        else:
+            verdict_str = "INCONCLUSIVE"
+        lines.append(f"## Formal Answer Evaluation: {verdict_str}\n")
+        lines.append(f"- Method: {formal_eval.method}")
+        if formal_eval.error:
+            lines.append(f"- Error: {formal_eval.error}")
+        if formal_eval.details:
+            lines.append(f"- Details: {formal_eval.details}")
+        lines.append("")
 
     if result.summary:
         lines.append(f"## Summary\n\n{result.summary}\n")
@@ -846,23 +989,31 @@ def main():
             status = "TIMEOUT" if ex.timed_out else ("OK" if ex.returncode == 0 else "FAIL")
             console.print(f"  {name}: {status}")
 
-    # Load known answer from problem YAML (if provided)
+    # Load problem definition from YAML (if provided)
+    problem_def = None
     known_answer = None
     if args.problem:
         problem_path = Path(args.problem)
         if problem_path.exists():
             with open(problem_path) as f:
                 problem_def = yaml.safe_load(f)
-            known_answer = problem_def.get("answer")
-            if known_answer is not None:
-                known_answer = str(known_answer)
+            answer_val = problem_def.get("answer")
+            if answer_val is not None:
+                known_answer = str(answer_val)
                 console.print(f"[bold]Known answer:[/] {known_answer}")
         else:
             console.print(f"[yellow]Warning: problem file not found: {args.problem}[/]")
 
+    # Phase 1: Formal answer evaluation (fast, deterministic)
+    console.print(f"\n[bold]Phase 1: Formal answer evaluation...[/]")
+    formal_eval = run_formal_evaluation(workspace_dir, problem_def)
+    render_formal_evaluation(formal_eval)
+
     # Build prompt and call LLM (science verification)
     config = Config(model=model, max_tokens=max_tokens, workspace_dir=workspace_dir)
-    system, user_content = build_verification_prompt(contents, rerun_results, known_answer=known_answer)
+    system, user_content = build_verification_prompt(
+        contents, rerun_results, known_answer=known_answer, formal_eval=formal_eval,
+    )
 
     console.print(f"\n[bold]Phase 2a: Science verification ({model}, streaming)...[/]")
     response = _call_llm_streaming(system, user_content, config)
@@ -873,7 +1024,7 @@ def main():
     render_verdict(result)
 
     if write_report:
-        write_verification_report(result, workspace_dir)
+        write_verification_report(result, workspace_dir, formal_eval=formal_eval)
 
     # Process audit (second LLM pass)
     if do_process_audit:

@@ -8,15 +8,18 @@ import pytest
 
 from sciralph.verify import (
     WorkspaceContents,
+    FormalEvalResult,
     ProcessEvent,
     ProcessAuditResult,
     load_workspace,
     rerun_computations,
+    run_formal_evaluation,
     build_verification_prompt,
     build_process_audit_prompt,
     parse_verdict,
     parse_process_audit,
     append_process_audit_to_report,
+    write_verification_report,
     _summarize_event_log,
 )
 
@@ -686,3 +689,164 @@ def test_build_process_audit_prompt_no_event_log(tmp_path):
 
     assert "Event Log Summary" in user_content
     assert "Not available" in user_content
+
+
+# ---------------------------------------------------------------------------
+# Formal answer evaluation tests
+# ---------------------------------------------------------------------------
+
+HAWKING_PROBLEM_DEF = {
+    "answer": "T_H = hbar * c**3 / (8 * sp.pi * G * M * k_B)\n",
+    "answer_template": (
+        "import sympy as sp\n\n"
+        "hbar, c, G, M, k_B = sp.symbols('hbar c G M k_B', positive=True)\n\n"
+        "def answer(hbar, c, G, M, k_B):\n"
+        "    T_H = ...\n"
+        "    return T_H\n"
+    ),
+}
+
+CORRECT_ANSWER_MD = (
+    "import sympy as sp\n\n"
+    "hbar, c, G, M, k_B = sp.symbols('hbar c G M k_B', positive=True)\n\n"
+    "def answer(hbar, c, G, M, k_B):\n"
+    "    T_H = hbar * c**3 / (8 * sp.pi * G * M * k_B)\n"
+    "    return T_H\n"
+)
+
+INCORRECT_ANSWER_MD = (
+    "import sympy as sp\n\n"
+    "hbar, c, G, M, k_B = sp.symbols('hbar c G M k_B', positive=True)\n\n"
+    "def answer(hbar, c, G, M, k_B):\n"
+    "    T_H = hbar * c**3 / (4 * sp.pi * G * M * k_B)\n"
+    "    return T_H\n"
+)
+
+
+def test_formal_eval_correct_answer(tmp_path):
+    """Correct ANSWER.md → correct=True."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "ANSWER.md").write_text(CORRECT_ANSWER_MD)
+
+    result = run_formal_evaluation(ws_dir, HAWKING_PROBLEM_DEF)
+
+    assert not result.skipped
+    assert result.correct is True
+    assert result.method  # should report which method succeeded
+
+
+def test_formal_eval_incorrect_answer(tmp_path):
+    """Wrong coefficient → correct=False."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "ANSWER.md").write_text(INCORRECT_ANSWER_MD)
+
+    result = run_formal_evaluation(ws_dir, HAWKING_PROBLEM_DEF)
+
+    assert not result.skipped
+    assert result.correct is False
+
+
+def test_formal_eval_skip_no_problem(tmp_path):
+    """No problem_def → skipped."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "ANSWER.md").write_text(CORRECT_ANSWER_MD)
+
+    result = run_formal_evaluation(ws_dir, None)
+
+    assert result.skipped
+    assert "No problem" in result.skip_reason
+
+
+def test_formal_eval_skip_no_answer(tmp_path):
+    """Problem without answer field → skipped."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "ANSWER.md").write_text(CORRECT_ANSWER_MD)
+
+    result = run_formal_evaluation(ws_dir, {"problem": "something"})
+
+    assert result.skipped
+    assert "No problem" in result.skip_reason
+
+
+def test_formal_eval_skip_no_template(tmp_path):
+    """Problem with answer but no answer_template → skipped."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "ANSWER.md").write_text(CORRECT_ANSWER_MD)
+
+    result = run_formal_evaluation(ws_dir, {"answer": "42"})
+
+    assert result.skipped
+    assert "answer_template" in result.skip_reason
+
+
+def test_formal_eval_skip_no_answer_md(tmp_path):
+    """ANSWER.md missing → skipped."""
+    ws_dir = _make_workspace(tmp_path)
+    # No ANSWER.md written
+
+    result = run_formal_evaluation(ws_dir, HAWKING_PROBLEM_DEF)
+
+    assert result.skipped
+    assert "ANSWER.md" in result.skip_reason
+
+
+def test_formal_eval_already_fenced(tmp_path):
+    """ANSWER.md already has fences → should not double-fence."""
+    ws_dir = _make_workspace(tmp_path)
+    fenced = f"```python\n{CORRECT_ANSWER_MD}\n```"
+    (tmp_path / "ANSWER.md").write_text(fenced)
+
+    result = run_formal_evaluation(ws_dir, HAWKING_PROBLEM_DEF)
+
+    assert not result.skipped
+    assert result.correct is True
+
+
+def test_formal_eval_prompt_inclusion(tmp_path):
+    """Formal eval result is included in the verification prompt."""
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+
+    correct_eval = FormalEvalResult(correct=True, method="simplify", details="diff=0")
+    _, user_content = build_verification_prompt(contents, formal_eval=correct_eval)
+
+    assert "Formal Answer Evaluation" in user_content
+    assert "CORRECT" in user_content
+    assert "simplify" in user_content
+
+
+def test_formal_eval_prompt_skipped_not_included(tmp_path):
+    """Skipped formal eval should NOT appear in prompt."""
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+
+    skipped_eval = FormalEvalResult(skipped=True, skip_reason="No ANSWER.md")
+    _, user_content = build_verification_prompt(contents, formal_eval=skipped_eval)
+
+    assert "Formal Answer Evaluation" not in user_content
+
+
+def test_formal_eval_report_writing(tmp_path):
+    """formal_answer field appears in VERIFICATION.md frontmatter and body."""
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+    verification = parse_verdict(WELL_FORMED_RESPONSE)
+
+    correct_eval = FormalEvalResult(correct=True, method="simplify", details="diff=0")
+    write_verification_report(verification, ws_dir, formal_eval=correct_eval)
+
+    report = (tmp_path / "VERIFICATION.md").read_text()
+    assert "formal_answer: correct" in report
+    assert "Formal Answer Evaluation: CORRECT" in report
+    assert "simplify" in report
+
+
+def test_formal_eval_report_without_formal(tmp_path):
+    """No formal eval → no formal_answer in report."""
+    ws_dir = _make_workspace(tmp_path)
+    verification = parse_verdict(WELL_FORMED_RESPONSE)
+
+    write_verification_report(verification, ws_dir)
+
+    report = (tmp_path / "VERIFICATION.md").read_text()
+    assert "formal_answer" not in report
