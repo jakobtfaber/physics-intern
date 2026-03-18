@@ -303,7 +303,11 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     },
                     "description": {
                         "type": "string",
-                        "description": "Detailed task description (Markdown).",
+                        "description": (
+                        "Detailed, self-contained task description (Markdown). "
+                        "This is the ONLY guidance the agent receives — include "
+                        "any relevant methodological requirements, scope, and known pitfalls. "
+                    ),
                     },
                 },
                 "required": ["task_type", "description"],

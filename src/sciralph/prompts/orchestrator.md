@@ -94,6 +94,16 @@ Four agents advance the research through exploration or verification, using reas
 - **Single target:** Each task targets EXACTLY ONE entity (RQ, WH, or ER). Always include `target_claim` in `set_next_task`.
 - **Task type** must be one of: `research_explore`, `compute_explore`, `research_verify`, `compute_verify`, `critique`, `strategize`, or `terminate`.
 
+### Writing task descriptions
+
+Your `description` in `set_next_task` is the ONLY guidance the downstream agent receives. It does not see the research strategy, computation history, or your reasoning.
+
+Write task descriptions that are **self-contained and actionable**:
+- **Include relevant methodological requirements** — If you recommend a particular approach, or warns against a relevant common mistake, state it explicitly in the description.
+- **Specify scope and edge cases** — If the claim only applies in certain regimes, or if there are known edge cases, include these details to guide the agent's focus.
+- **Name known pitfalls** — If a naive approach gives a misleadingly clean answer, say so.
+- **Provide concrete parameters** — Numerical ranges, test points, precision requirements, variable definitions that might not be in conventions.
+
 ## Research Notes
 
 Use `update_section` to maintain shared context that all agents read. Establish notes early — they prevent systematic errors across agents. Keep them concise and up to date as the research evolves.
