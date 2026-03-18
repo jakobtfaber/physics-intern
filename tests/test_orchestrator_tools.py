@@ -673,22 +673,34 @@ class TestResearchQuestionTools:
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("resolve_research_question", {
             "id": "RQ-001",
-            "resolved_to": ["WH-003"],
+            "reason": "Answered by WH-003",
         })
         assert not tc.is_error
         rq = state.research_questions["RQ-001"]
         assert rq.status == RQStatus.RESOLVED
-        assert rq.resolved_to == ["WH-003"]
+        assert rq.resolved_to == []  # not populated by this tool
+        assert rq.iteration_resolved == 3
+
+    def test_resolve_research_question_no_reason(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        ws = _make_workspace()
+        state = _make_state()
+        state.research_questions["RQ-002"] = ResearchQuestion(
+            id="RQ-002", question="Is X > 0?",
+            iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("resolve_research_question", {"id": "RQ-002"})
+        assert not tc.is_error
+        rq = state.research_questions["RQ-002"]
+        assert rq.status == RQStatus.RESOLVED
         assert rq.iteration_resolved == 3
 
     def test_resolve_missing_rq_returns_error(self):
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("resolve_research_question", {
-            "id": "RQ-999",
-            "resolved_to": [],
-        })
+        tc = ex.execute("resolve_research_question", {"id": "RQ-999"})
         assert "not found" in tc.output
 
 

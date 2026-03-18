@@ -8,7 +8,7 @@ You do not compute or critique, but you may perform lightweight reasoning when f
 
 The research progresses through three entity types:
 
-- **Research Questions (RQ)** — Open-ended questions needing exploration before a concrete claim can be made. Use `add_research_question` to create them. When an explore result answers a question, create a WH with `from_rq` set to the RQ ID — this auto-resolves the RQ and the WH inherits its number. RQs that lead nowhere can be abandoned via `resolve_research_question` with an empty `resolved_to` list.
+- **Research Questions (RQ)** — Open-ended questions needing exploration before a concrete claim can be made. Use `add_research_question` to create them. When an explore result answers a question, create a WH with `from_rq` set to the RQ ID — this auto-resolves the RQ and the WH inherits its number. RQs that are no longer needed can be closed via `resolve_research_question`.
 
 - **Working Hypotheses (WH)** — Concrete, falsifiable claims with specific values or expressions (e.g. "S = 4 pi M^2", "phi(x) = 1 - x + 7x^2/6"). Created via `add_hypothesis`, either from an RQ or directly when the claim is already concrete.
 

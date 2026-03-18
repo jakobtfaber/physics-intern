@@ -226,8 +226,8 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
         "function": {
             "name": "resolve_research_question",
             "description": (
-                "Mark a research question as resolved. "
-                "Provide the WH IDs that the question resolved into."
+                "Close a research question — either it was answered "
+                "(e.g. via add_hypothesis with from_rq) or it led nowhere."
             ),
             "parameters": {
                 "type": "object",
@@ -236,13 +236,12 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         "type": "string",
                         "description": "Research question ID, e.g. RQ-001.",
                     },
-                    "resolved_to": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "WH/ER IDs this question resolved into.",
+                    "reason": {
+                        "type": "string",
+                        "description": "Why this RQ is being closed (optional).",
                     },
                 },
-                "required": ["id", "resolved_to"],
+                "required": ["id"],
             },
         },
     },
@@ -717,26 +716,22 @@ class OrchestratorToolExecutor:
             return "Error: no research state available"
 
         rq_id = args["id"]
-        resolved_to = args.get("resolved_to", [])
+        reason = args.get("reason", "")
 
         if rq_id not in state.research_questions:
             return f"Error: {rq_id} not found in research state"
 
         rq = state.research_questions[rq_id]
         rq.status = RQStatus.RESOLVED
-        rq.resolved_to = resolved_to
         rq.iteration_resolved = self.iteration
         self.mutations_applied = True
-        detail = f"{rq_id} → {', '.join(resolved_to)}" if resolved_to else f"{rq_id} (abandoned)"
+        detail = f"{rq_id}: {reason}" if reason else f"{rq_id} (closed)"
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
             "resolve_research_question", detail,
         )
-        if resolved_to:
-            console.print(f"  [bold yellow]{rq_id} → {', '.join(resolved_to)}[/] promoted")
-        else:
-            console.print(f"  [dim]{rq_id}[/] abandoned")
-        return f"Resolved {rq_id} → {', '.join(resolved_to)}." + _BATCH_NUDGE
+        console.print(f"  [dim]{rq_id}[/] closed" + (f" — {reason[:60]}" if reason else ""))
+        return f"Closed {rq_id}." + _BATCH_NUDGE
 
     def _set_next_task(self, args: dict) -> str:
         # Two-phase gate: reject if mutations occurred in this response batch
