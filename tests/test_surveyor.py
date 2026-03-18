@@ -1,26 +1,26 @@
-"""Tests for StrategistAgent."""
+"""Tests for SurveyorAgent."""
 
 from unittest.mock import MagicMock
 
-from sciralph.agents.strategist import StrategistAgent
-from sciralph.research_state import ResearchState, ResearchStrategy
+from sciralph.agents.surveyor import SurveyorAgent
+from sciralph.research_state import ResearchState, BackgroundSurvey
 from sciralph.task import Task, TaskType
 from sciralph.llm import LLMResponse
 
 
 def _make_agent():
-    """Create a StrategistAgent with mocked dependencies."""
+    """Create a SurveyorAgent with mocked dependencies."""
     config = MagicMock()
     workspace = MagicMock()
     metrics = MagicMock()
-    agent = StrategistAgent(config=config, workspace=workspace, metrics=metrics)
+    agent = SurveyorAgent(config=config, workspace=workspace, metrics=metrics)
     return agent
 
 
 def _make_task():
     return Task(
-        task_id="STRATEGY-000", task_type=TaskType.STRATEGIZE,
-        assigned_to="strategist", iteration=0,
+        task_id="SURVEY-000", task_type=TaskType.SURVEY,
+        assigned_to="surveyor", iteration=0,
     )
 
 
@@ -64,8 +64,8 @@ Euclidean section at the horizon fixes the periodicity of imaginary time.
 """
 
 
-def test_process_response_stores_strategy():
-    """process_response stores the raw text as a ResearchStrategy."""
+def test_process_response_stores_survey():
+    """process_response stores the raw text as a BackgroundSurvey."""
     agent = _make_agent()
     response = LLMResponse(
         text=STRATEGY_TEXT, input_tokens=100, output_tokens=200,
@@ -73,14 +73,14 @@ def test_process_response_stores_strategy():
     )
     agent.process_response(response, _make_task(), iteration=0)
 
-    assert agent.parsed_strategy is not None
-    assert isinstance(agent.parsed_strategy, ResearchStrategy)
-    assert "Euclidean" in agent.parsed_strategy.strategy_notes
-    assert agent.parsed_strategy.iteration_created == 0
+    assert agent.parsed_survey is not None
+    assert isinstance(agent.parsed_survey, BackgroundSurvey)
+    assert "Euclidean" in agent.parsed_survey.survey_notes
+    assert agent.parsed_survey.iteration_created == 0
 
 
 def test_process_response_sets_iteration():
-    """iteration parameter is stored in the strategy."""
+    """iteration parameter is stored in the survey."""
     agent = _make_agent()
     response = LLMResponse(
         text="Re-plan notes.", input_tokens=50, output_tokens=50,
@@ -88,12 +88,12 @@ def test_process_response_sets_iteration():
     )
     agent.process_response(response, _make_task(), iteration=7)
 
-    assert agent.parsed_strategy.iteration_created == 7
-    assert agent.parsed_strategy.iteration_updated == 7
+    assert agent.parsed_survey.iteration_created == 7
+    assert agent.parsed_survey.iteration_updated == 7
 
 
 def test_process_response_empty_text():
-    """Empty response still creates a strategy (with empty notes)."""
+    """Empty response still creates a survey (with empty notes)."""
     agent = _make_agent()
     response = LLMResponse(
         text="", input_tokens=50, output_tokens=0,
@@ -101,12 +101,12 @@ def test_process_response_empty_text():
     )
     agent.process_response(response, _make_task(), iteration=0)
 
-    assert agent.parsed_strategy is not None
-    assert agent.parsed_strategy.strategy_notes == ""
+    assert agent.parsed_survey is not None
+    assert agent.parsed_survey.survey_notes == ""
 
 
 def test_process_response_strips_whitespace():
-    """Leading/trailing whitespace is stripped from strategy notes."""
+    """Leading/trailing whitespace is stripped from survey notes."""
     agent = _make_agent()
     response = LLMResponse(
         text="  \n Some notes here. \n  ", input_tokens=50, output_tokens=50,
@@ -114,4 +114,4 @@ def test_process_response_strips_whitespace():
     )
     agent.process_response(response, _make_task(), iteration=0)
 
-    assert agent.parsed_strategy.strategy_notes == "Some notes here."
+    assert agent.parsed_survey.survey_notes == "Some notes here."

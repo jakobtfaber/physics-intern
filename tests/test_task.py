@@ -125,14 +125,14 @@ class TestTaskTypeAgentMap:
         assert TASK_TYPE_AGENT_MAP[TaskType.RESEARCH_EXPLORE] == "research_explore"
 
 
-class TestStrategizeTaskType:
-    def test_strategize_task_type_exists(self):
-        assert TaskType.STRATEGIZE == "strategize"
-        assert TaskType("strategize") == TaskType.STRATEGIZE
+class TestSurveyTaskType:
+    def test_survey_task_type_exists(self):
+        assert TaskType.SURVEY == "survey"
+        assert TaskType("survey") == TaskType.SURVEY
 
-    def test_strategize_in_agent_map(self):
-        assert TaskType.STRATEGIZE in TASK_TYPE_AGENT_MAP
-        assert TASK_TYPE_AGENT_MAP[TaskType.STRATEGIZE] == "strategist"
+    def test_survey_in_agent_map(self):
+        assert TaskType.SURVEY in TASK_TYPE_AGENT_MAP
+        assert TASK_TYPE_AGENT_MAP[TaskType.SURVEY] == "surveyor"
 
 
 class TestTaskTargetClaim:

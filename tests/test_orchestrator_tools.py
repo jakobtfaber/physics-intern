@@ -1072,14 +1072,14 @@ class TestTargetClaimValidation:
         })
         assert "Task set" in tc.output
 
-    def test_skipped_for_strategize(self):
+    def test_skipped_for_survey(self):
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("set_next_task", {
-            "task_type": "strategize",
+            "task_type": "survey",
             "target_claim": "WH-099",
-            "description": "Replan.",
+            "description": "Resurvey.",
         })
         assert "Task set" in tc.output
 

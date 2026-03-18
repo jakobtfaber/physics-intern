@@ -13,7 +13,7 @@ from ..renderers import (
     render_computation_log_md,
     render_critique_log_md,
     render_research_state_md,
-    render_research_strategy,
+    render_background_survey,
 )
 from ..research_state import Critique, CritiqueStatus, Severity
 from ..tools import ToolCall
@@ -43,8 +43,8 @@ class CriticAgent(BaseAgent):
         parts = [
             "## RESEARCH_STATE.md\n",
             render_research_state_md(self.research_state) if self.research_state else "",
-            "\n## RESEARCH STRATEGY\n",
-            render_research_strategy(self.research_state) if self.research_state else "",
+            "\n## BACKGROUND SURVEY\n",
+            render_background_survey(self.research_state) if self.research_state else "",
             "\n## COMPUTATION_LOG.md\n",
             render_computation_log_md(self.research_state) if self.research_state else "",
             "\n## Your Previous Critiques (do not repeat)\n",

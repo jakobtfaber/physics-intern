@@ -34,17 +34,17 @@ def _h(level: int, offset: int) -> str:
     return "#" * (level + offset)
 
 
-def render_research_strategy(state: ResearchState, *, heading_offset: int = 0) -> str:
-    """Render the research strategy section from ResearchState."""
-    strategy = state.research_strategy
-    if strategy is None:
-        return "(No research strategy.)"
+def render_background_survey(state: ResearchState, *, heading_offset: int = 0) -> str:
+    """Render the background survey section from ResearchState."""
+    survey = state.background_survey
+    if survey is None:
+        return "(No background survey.)"
 
     h1 = _h(1, heading_offset)
 
-    parts: list[str] = [f"{h1} Research Strategy\n"]
-    if strategy.strategy_notes:
-        parts.append(strategy.strategy_notes)
+    parts: list[str] = [f"{h1} Background Survey\n"]
+    if survey.survey_notes:
+        parts.append(survey.survey_notes)
         parts.append("")
 
     return "\n".join(parts)
@@ -55,7 +55,7 @@ def _research_state_body(
     *,
     include_problem_statement: bool = True,
     skip_empty_dead_ends: bool = False,
-    include_research_strategy: bool = False,
+    include_background_survey: bool = False,
     include_computation_history: bool = False,
     heading_offset: int = 0,
 ) -> str:
@@ -74,9 +74,9 @@ def _research_state_body(
         parts.append(state.problem_statement or "(No problem statement.)")
         parts.append("")
 
-    # Research Strategy (when requested and present)
-    if include_research_strategy and state.research_strategy is not None:
-        parts.append(render_research_strategy(state, heading_offset=heading_offset))
+    # Background Survey (when requested and present)
+    if include_background_survey and state.background_survey is not None:
+        parts.append(render_background_survey(state, heading_offset=heading_offset))
         parts.append("")
 
     # Conventions
@@ -342,7 +342,7 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
         state,
         include_problem_statement=False,
         skip_empty_dead_ends=True,
-        include_research_strategy=True,
+        include_background_survey=True,
         include_computation_history=True,
         heading_offset=2,
     )

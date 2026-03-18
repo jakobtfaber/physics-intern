@@ -125,9 +125,9 @@ class ResearchQuestion:
 
 
 @dataclass
-class ResearchStrategy:
-    """Free-form strategic notes produced by the strategist agent."""
-    strategy_notes: str = ""
+class BackgroundSurvey:
+    """Background notes produced by the surveyor agent."""
+    survey_notes: str = ""
     iteration_created: int = 0
     iteration_updated: int = 0
 
@@ -155,7 +155,7 @@ class ResearchState:
     conventions: str = ""
     status: str = "in_progress"
     title: str = ""
-    research_strategy: ResearchStrategy | None = None
+    background_survey: BackgroundSurvey | None = None
 
     # --- Query methods ---
 
@@ -481,13 +481,13 @@ class ResearchState:
                 derivation_excerpt=fdata.get("derivation_excerpt", ""),
             ))
         state.critic_clean_reviews = data.get("critic_clean_reviews", [])
-        # Deserialize research_strategy if present
-        strat_data = data.get("research_strategy")
-        if strat_data and isinstance(strat_data, dict):
-            state.research_strategy = ResearchStrategy(
-                strategy_notes=strat_data.get("strategy_notes", ""),
-                iteration_created=strat_data.get("iteration_created", 0),
-                iteration_updated=strat_data.get("iteration_updated", 0),
+        # Deserialize background_survey (accept old key 'research_strategy' for backward compat)
+        survey_data = data.get("background_survey") or data.get("research_strategy")
+        if survey_data and isinstance(survey_data, dict):
+            state.background_survey = BackgroundSurvey(
+                survey_notes=survey_data.get("survey_notes") or survey_data.get("strategy_notes", ""),
+                iteration_created=survey_data.get("iteration_created", 0),
+                iteration_updated=survey_data.get("iteration_updated", 0),
             )
         return state
 

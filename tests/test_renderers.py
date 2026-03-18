@@ -10,7 +10,7 @@ from sciralph.renderers import (
     render_critique_log_md,
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
-    render_research_strategy,
+    render_background_survey,
     render_research_state_md,
     render_task_md,
 )
@@ -22,7 +22,7 @@ from sciralph.research_state import (
     Hypothesis,
     HypothesisStatus,
     ResearchState,
-    ResearchStrategy,
+    BackgroundSurvey,
     Severity,
     Verdict,
 )
@@ -772,45 +772,45 @@ class TestSnapshotRegression:
 
 
 # ===========================================================================
-# render_research_strategy
+# render_background_survey
 # ===========================================================================
 
-class TestRenderResearchStrategy:
+class TestRenderBackgroundSurvey:
 
-    def _make_strategy_state(self):
+    def _make_survey_state(self):
         state = ResearchState(problem_statement="Test problem")
-        state.research_strategy = ResearchStrategy(
-            strategy_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method first.",
+        state.background_survey = BackgroundSurvey(
+            survey_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method first.",
             iteration_created=0,
             iteration_updated=0,
         )
         return state
 
-    def test_render_research_strategy_with_notes(self):
-        state = self._make_strategy_state()
-        text = render_research_strategy(state)
-        assert "# Research Strategy" in text
+    def test_render_background_survey_with_notes(self):
+        state = self._make_survey_state()
+        text = render_background_survey(state)
+        assert "# Background Survey" in text
         assert "Derive Hawking temperature via surface gravity." in text
         assert "Killing vector method" in text
 
-    def test_research_strategy_none_renders_no_strategy(self):
+    def test_background_survey_none_renders_no_survey(self):
         state = ResearchState(problem_statement="Test")
-        text = render_research_strategy(state)
-        assert text == "(No research strategy.)"
+        text = render_background_survey(state)
+        assert text == "(No background survey.)"
 
-    def test_research_strategy_rendered_in_orchestrator_context(self):
-        state = self._make_strategy_state()
+    def test_background_survey_rendered_in_orchestrator_context(self):
+        state = self._make_survey_state()
         text = render_orchestrator_research_state(state)
-        assert "# Research Strategy" in text
+        assert "# Background Survey" in text
         assert "Killing vector method" in text
 
-    def test_research_strategy_not_in_compute_context(self):
-        state = self._make_strategy_state()
+    def test_background_survey_not_in_compute_context(self):
+        state = self._make_survey_state()
         text = render_compute_research_state(state)
-        assert "# Research Strategy" not in text
+        assert "# Background Survey" not in text
 
-    def test_research_strategy_none_renders_nothing_in_orchestrator(self):
-        """When strategy is None, no research strategy section in orchestrator context."""
+    def test_background_survey_none_renders_nothing_in_orchestrator(self):
+        """When survey is None, no background survey section in orchestrator context."""
         state = ResearchState(problem_statement="Test")
         text = render_orchestrator_research_state(state)
-        assert "# Research Strategy" not in text
+        assert "# Background Survey" not in text

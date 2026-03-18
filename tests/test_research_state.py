@@ -13,7 +13,7 @@ from sciralph.research_state import (
     Severity,
     CritiqueStatus,
     FailedApproach,
-    ResearchStrategy,
+    BackgroundSurvey,
     _extract_hypothesis_sections,
     _extract_h1_section,
 )
@@ -365,7 +365,7 @@ class TestNewResearchStateFields:
         assert state.conventions == ""
         assert state.status == "in_progress"
         assert state.title == ""
-        assert state.research_strategy is None
+        assert state.background_survey is None
 
     def test_json_round_trip(self):
         state = ResearchState(
@@ -396,7 +396,7 @@ class TestNewResearchStateFields:
         assert state.conventions == ""
         assert state.status == "in_progress"
         assert state.title == ""
-        assert state.research_strategy is None
+        assert state.background_survey is None
 
     def test_backward_compat_open_questions_ignored(self):
         """Old JSON with open_questions field loads fine (silently ignored)."""
@@ -412,29 +412,29 @@ class TestNewResearchStateFields:
         assert state.iteration == 3
 
 
-class TestResearchStrategySerialization:
+class TestBackgroundSurveySerialization:
 
-    def test_research_strategy_default_none(self):
+    def test_background_survey_default_none(self):
         state = ResearchState()
-        assert state.research_strategy is None
+        assert state.background_survey is None
 
-    def test_research_strategy_json_round_trip(self):
+    def test_background_survey_json_round_trip(self):
         state = ResearchState(iteration=1)
-        state.research_strategy = ResearchStrategy(
-            strategy_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method.",
+        state.background_survey = BackgroundSurvey(
+            survey_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method.",
             iteration_created=0,
             iteration_updated=0,
         )
         json_str = state.to_json()
         restored = ResearchState.from_json(json_str)
-        assert restored.research_strategy is not None
-        strategy = restored.research_strategy
-        assert "Hawking temperature" in strategy.strategy_notes
-        assert "Killing vector" in strategy.strategy_notes
-        assert strategy.iteration_created == 0
+        assert restored.background_survey is not None
+        survey = restored.background_survey
+        assert "Hawking temperature" in survey.survey_notes
+        assert "Killing vector" in survey.survey_notes
+        assert survey.iteration_created == 0
 
-    def test_missing_research_strategy_loads_as_none(self):
-        """JSON without research_strategy loads fine."""
+    def test_missing_background_survey_loads_as_none(self):
+        """JSON without background_survey loads fine."""
         old_json = json.dumps({
             "iteration": 5,
             "hypotheses": {},
@@ -443,12 +443,31 @@ class TestResearchStrategySerialization:
             "failed_approaches": [],
         })
         state = ResearchState.from_json(old_json)
-        assert state.research_strategy is None
+        assert state.background_survey is None
 
-    def test_research_strategy_none_serializes_as_null(self):
+    def test_background_survey_none_serializes_as_null(self):
         state = ResearchState()
         data = json.loads(state.to_json())
-        assert data["research_strategy"] is None
+        assert data["background_survey"] is None
+
+    def test_backward_compat_old_research_strategy_key(self):
+        """Old JSON with 'research_strategy' key and 'strategy_notes' field loads into background_survey."""
+        old_json = json.dumps({
+            "iteration": 3,
+            "hypotheses": {},
+            "computations": {},
+            "critiques": {},
+            "failed_approaches": [],
+            "research_strategy": {
+                "strategy_notes": "Use Killing vector method.",
+                "iteration_created": 0,
+                "iteration_updated": 1,
+            },
+        })
+        state = ResearchState.from_json(old_json)
+        assert state.background_survey is not None
+        assert "Killing vector" in state.background_survey.survey_notes
+        assert state.background_survey.iteration_created == 0
 
 
 # ---------------------------------------------------------------------------

@@ -24,7 +24,7 @@ from .agents.research_explore import ResearchExploreAgent
 from .agents.critic import CriticAgent
 from .agents.compressor import CompressorAgent
 from .agents.formatter import FormatterAgent
-from .agents.strategist import StrategistAgent
+from .agents.surveyor import SurveyorAgent
 
 console = Console()
 
@@ -83,13 +83,13 @@ class SciRalph:
         self.critic = CriticAgent(self.config, self.workspace, self.metrics)
         self.compressor = CompressorAgent(self.config, self.workspace, self.metrics)
         self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
-        self.strategist = StrategistAgent(self.config, self.workspace, self.metrics)
+        self.surveyor = SurveyorAgent(self.config, self.workspace, self.metrics)
 
     def run(self):
-        """Main loop: strategize → orchestrate → validate → override → dispatch → compress → git."""
+        """Main loop: survey → orchestrate → validate → override → dispatch → compress → git."""
         console.print(Panel("SciRalph Research System", style="bold blue"))
 
-        self._run_strategist()
+        self._run_surveyor()
 
         while self.iteration < self.config.max_iterations:
             self.iteration += 1
@@ -218,38 +218,37 @@ class SciRalph:
         self._print_task(task)
         return task
 
-    def _run_strategist(self):
-        """Run strategist agent before the main loop to produce a research strategy."""
-        console.print("[cyan]Strategist[/cyan] analyzing problem...")
-        self.strategist.research_state = self.research_state
+    def _run_surveyor(self):
+        """Run surveyor agent before the main loop to produce a background survey."""
+        console.print("[cyan]Surveyor[/cyan] analyzing problem...")
+        self.surveyor.research_state = self.research_state
         task = Task(
-            task_id="STRATEGY-000", task_type=TaskType.STRATEGIZE,
-            assigned_to="strategist", iteration=0,
+            task_id="SURVEY-000", task_type=TaskType.SURVEY,
+            assigned_to="surveyor", iteration=0,
         )
-        result = self.strategist.run(task, 0)
+        result = self.surveyor.run(task, 0)
         self._print_call_summary(result)
-        self._apply_strategist_plan()
+        self._apply_survey()
         self._sync_research_state()
         self._render_files_for_git()
-        self.workspace.git_commit("Iteration 0: strategist — research strategy")
+        self.workspace.git_commit("Iteration 0: surveyor — background survey")
 
-    def _apply_strategist_plan(self):
-        """Store the strategist's parsed strategy in research state."""
-        strategy = self.strategist.parsed_strategy
-        if strategy is None:
+    def _apply_survey(self):
+        """Store the surveyor's parsed survey in research state."""
+        survey = self.surveyor.parsed_survey
+        if survey is None:
             return
 
-        self.research_state.research_strategy = strategy
+        self.research_state.background_survey = survey
 
-    def _should_suggest_replan(self) -> bool:
-        """Heuristic: suggest re-planning when the research is stalled."""
+    def _should_suggest_resurvey(self) -> bool:
+        """Heuristic: suggest re-survey when the research is stalled."""
         if self.iteration < 5:
             return False
-        strategy = self.research_state.research_strategy
-        if strategy is None:
+        survey = self.research_state.background_survey
+        if survey is None:
             return False
-        # Don't suggest if strategy was updated recently
-        if self.iteration - strategy.iteration_updated <= 3:
+        if self.iteration - survey.iteration_updated <= 3:
             return False
         abandoned_count = len(self.research_state.abandoned_hypotheses())
         established_count = len(self.research_state.established_hypotheses())
@@ -351,10 +350,10 @@ class SciRalph:
                 lines.append(f"  - {f['task_id']} ({f['agent']}): {f['event']}. {f['detail']}")
             lines.append(">>> END AGENT FAILURES <<<\n")
             self._state.agent_failures.clear()
-        if self._should_suggest_replan():
+        if self._should_suggest_resurvey():
             lines.append(
                 ">>> STRATEGIC STALL: 3+ abandoned hypotheses with 0 established results. "
-                "Consider dispatching task_type: strategize to re-evaluate your approach. <<<"
+                "Consider dispatching task_type: survey to re-evaluate your approach. <<<"
             )
         return "\n".join(lines)
 
@@ -442,14 +441,14 @@ class SciRalph:
                     )
             return "deep_critic", response
 
-        elif tt == TaskType.STRATEGIZE:
-            console.print("[cyan]Strategist[/cyan] re-planning...")
-            self.strategist.research_state = self.research_state
-            self.strategist._system_prompt = None  # Reset cached prompt for fresh context
-            result = self.strategist.run(task, self.iteration)
+        elif tt == TaskType.SURVEY:
+            console.print("[cyan]Surveyor[/cyan] re-surveying...")
+            self.surveyor.research_state = self.research_state
+            self.surveyor._system_prompt = None  # Reset cached prompt for fresh context
+            result = self.surveyor.run(task, self.iteration)
             self._print_call_summary(result)
-            self._apply_strategist_plan()
-            return "strategist", result
+            self._apply_survey()
+            return "surveyor", result
 
         else:
             console.print(f"[yellow]Unknown task type '{tt}', defaulting to research_explore[/yellow]")

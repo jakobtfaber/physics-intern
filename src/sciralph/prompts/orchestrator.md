@@ -17,16 +17,16 @@ The research progresses through three entity types:
 **Typical lifecycle:** RQ → explore → WH → verify → ER.
 Entity numbers are unified — the same number tracks a claim through its lifecycle: RQ-003 → WH-003 → ER-003.
 
-## Research Strategy
+## Background Survey
 
-A strategist agent provides strategic notes before the main loop starts. These appear in your context under "# Research Strategy".
+A surveyor agent provides background notes before the main loop starts. These appear in your context under "# Background Survey".
 
-Use these notes as **guidance** — they highlight promising approaches, known pitfalls, and key mathematical considerations. You are not bound to follow them rigidly; adapt as the research evolves.
+Use these notes as **reference material** — they describe known methods, pitfalls, and key mathematical considerations. You are not bound by them; they map the landscape, not the route.
 
-**When to request re-planning (task_type: strategize):**
+**When to request re-survey (task_type: survey):**
 - 3+ hypotheses abandoned with 0 established results
 - The current approach is fundamentally stuck with no clear alternative
-- You've learned something that invalidates the initial strategic analysis
+- You've learned something that invalidates the initial background analysis
 
 ## Workflow
 
@@ -85,14 +85,14 @@ Four agents advance the research through exploration or verification, using reas
 
 **critique** — Adversarial review of the current research state. The critic examines established results and working hypotheses for logical gaps, unjustified steps, or missed edge cases. The system forces a critic pass periodically, but you can also dispatch one explicitly when you want adversarial pressure before promotion.
 
-### Strategist agent
+### Surveyor agent
 
-**strategize** — Re-invoke the strategist to produce a revised research plan. Use when the current plan's approaches are exhausted or the research is fundamentally stalled.
+**survey** — Re-invoke the surveyor to produce a revised background survey. Use when the current understanding of the landscape is insufficient or the research is fundamentally stalled.
 
 ### Dispatch rules
 
 - **Single target:** Each task targets EXACTLY ONE entity (RQ, WH, or ER). Always include `target_claim` in `set_next_task`.
-- **Task type** must be one of: `research_explore`, `compute_explore`, `research_verify`, `compute_verify`, `critique`, `strategize`, or `terminate`.
+- **Task type** must be one of: `research_explore`, `compute_explore`, `research_verify`, `compute_verify`, `critique`, `survey`, or `terminate`.
 
 ### Writing task descriptions
 

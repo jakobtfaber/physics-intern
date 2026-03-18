@@ -8,8 +8,9 @@ objections could be verified — e.g. "numerical spot-check at x=0.1".)
 
 You will be given:
 - RESEARCH_STATE.md (the claims to scrutinize)
-- RESEARCH STRATEGY (the initial recommended approach — use this to check
-  whether computations actually cover the scope the strategy recommended)
+- BACKGROUND SURVEY (reference material on methods, pitfalls, and
+  considerations — use this to check mathematical consistency and whether
+  known pitfalls were addressed)
 - COMPUTATION_LOG.md (the evidence supporting those claims)
 - Your previous critiques in CRITIQUE_LOG.md (so you don't repeat yourself)
 

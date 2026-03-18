@@ -746,8 +746,8 @@ class TestDispatchFailureRecovery:
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()
-            engine.strategist = MagicMock()
-            engine.strategist.parsed_strategy = None
+            engine.surveyor = MagicMock()
+            engine.surveyor.parsed_survey = None
         return engine
 
     def test_transient_error_continues_loop(self):
@@ -1067,8 +1067,8 @@ class TestSyncOnTermination:
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()
-            engine.strategist = MagicMock()
-            engine.strategist.parsed_strategy = None
+            engine.surveyor = MagicMock()
+            engine.surveyor.parsed_survey = None
         return engine, ws
 
     def test_sync_called_on_termination(self):
@@ -1252,11 +1252,11 @@ class TestCallWithRetryNoRetry:
 
 
 # ===========================================================================
-# Strategist integration
+# Surveyor integration
 # ===========================================================================
 
-class TestStrategistEngine:
-    """Tests for strategist agent integration in the engine."""
+class TestSurveyorEngine:
+    """Tests for surveyor agent integration in the engine."""
 
     def _make_engine(self):
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
@@ -1280,77 +1280,77 @@ class TestStrategistEngine:
             engine.iteration = 0
             engine._state = LoopState()
 
-            # Create mock strategist
-            engine.strategist = MagicMock()
-            engine.strategist.parsed_strategy = None
+            # Create mock surveyor
+            engine.surveyor = MagicMock()
+            engine.surveyor.parsed_survey = None
         return engine
 
-    def test_apply_strategist_plan_stores_strategy(self):
-        from sciralph.research_state import ResearchStrategy
+    def test_apply_survey_stores_survey(self):
+        from sciralph.research_state import BackgroundSurvey
         engine = self._make_engine()
 
-        strategy = ResearchStrategy(
-            strategy_notes="Derive kappa via Killing vectors first.",
+        survey = BackgroundSurvey(
+            survey_notes="Derive kappa via Killing vectors first.",
             iteration_created=0,
             iteration_updated=0,
         )
-        engine.strategist.parsed_strategy = strategy
-        engine._apply_strategist_plan()
+        engine.surveyor.parsed_survey = survey
+        engine._apply_survey()
 
-        assert engine.research_state.research_strategy is not None
-        assert "Killing vectors" in engine.research_state.research_strategy.strategy_notes
+        assert engine.research_state.background_survey is not None
+        assert "Killing vectors" in engine.research_state.background_survey.survey_notes
 
-    def test_apply_strategist_plan_none_does_nothing(self):
+    def test_apply_survey_none_does_nothing(self):
         engine = self._make_engine()
-        engine.strategist.parsed_strategy = None
-        engine._apply_strategist_plan()
-        assert engine.research_state.research_strategy is None
+        engine.surveyor.parsed_survey = None
+        engine._apply_survey()
+        assert engine.research_state.background_survey is None
 
-    def test_strategize_dispatch(self):
+    def test_survey_dispatch(self):
         from sciralph.llm import LLMResponse
         engine = self._make_engine()
-        engine.strategist.research_state = None
-        engine.strategist._system_prompt = "cached"
-        engine.strategist.run = MagicMock(return_value=LLMResponse(
-            text="Some strategy notes.", input_tokens=100, output_tokens=200,
+        engine.surveyor.research_state = None
+        engine.surveyor._system_prompt = "cached"
+        engine.surveyor.run = MagicMock(return_value=LLMResponse(
+            text="Some survey notes.", input_tokens=100, output_tokens=200,
             stop_reason="end_turn", duration=0.5,
         ))
-        engine.strategist.parsed_strategy = None
+        engine.surveyor.parsed_survey = None
 
         task = Task(
-            task_id="TASK-005", task_type=TaskType.STRATEGIZE,
-            assigned_to="strategist", iteration=5,
+            task_id="TASK-005", task_type=TaskType.SURVEY,
+            assigned_to="surveyor", iteration=5,
         )
         agent_name, result = engine._dispatch(task)
-        assert agent_name == "strategist"
-        engine.strategist.run.assert_called_once()
+        assert agent_name == "surveyor"
+        engine.surveyor.run.assert_called_once()
 
-    def test_should_suggest_replan_heuristic(self):
-        from sciralph.research_state import Hypothesis, HypothesisStatus, ResearchStrategy
+    def test_should_suggest_resurvey_heuristic(self):
+        from sciralph.research_state import Hypothesis, HypothesisStatus, BackgroundSurvey
         engine = self._make_engine()
 
-        # No strategy → no suggestion
-        assert not engine._should_suggest_replan()
+        # No survey → no suggestion
+        assert not engine._should_suggest_resurvey()
 
-        # With strategy but iteration too low
-        engine.research_state.research_strategy = ResearchStrategy(iteration_updated=0)
+        # With survey but iteration too low
+        engine.research_state.background_survey = BackgroundSurvey(iteration_updated=0)
         engine.iteration = 3
-        assert not engine._should_suggest_replan()
+        assert not engine._should_suggest_resurvey()
 
         # Iteration high enough but not enough abandoned
         engine.iteration = 6
-        assert not engine._should_suggest_replan()
+        assert not engine._should_suggest_resurvey()
 
         # 3+ abandoned, 0 established → should suggest
         for i in range(3):
             engine.research_state.hypotheses[f"WH-{i+1:03d}"] = Hypothesis(
                 id=f"WH-{i+1:03d}", status=HypothesisStatus.ABANDONED,
             )
-        assert engine._should_suggest_replan()
+        assert engine._should_suggest_resurvey()
 
-        # Strategy recently updated → no suggestion
-        engine.research_state.research_strategy.iteration_updated = 5
-        assert not engine._should_suggest_replan()
+        # Survey recently updated → no suggestion
+        engine.research_state.background_survey.iteration_updated = 5
+        assert not engine._should_suggest_resurvey()
 
 
 class TestTerminationCircuitBreaker:
