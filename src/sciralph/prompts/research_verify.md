@@ -18,8 +18,8 @@ INCONCLUSIVE means the evidence is insufficient.
 
 You receive:
 - A **task description** specifying what to verify and the target claim.
-- The **research state**: problem statement, conventions, current
-  hypotheses, and research questions.
+- The **research state**: problem statement, background survey, conventions,
+  current hypotheses, and research questions.
 
 ## TOOL USE
 
@@ -63,6 +63,15 @@ You do NOT have access to code execution. Use analytical methods only:
   index structure?).
 - Check that conserved quantities are actually conserved.
 - Verify that the result transforms correctly under claimed symmetries.
+
+## DOMAIN KNOWLEDGE
+
+Your context includes a **Background Survey** with domain-specific properties,
+pitfalls, and expected behaviors. Use these as additional verification checks:
+
+- Cross-reference the claim against survey-stated properties and constraints.
+- Check that the claim satisfies survey-identified limiting cases and symmetries.
+- If the survey flags a specific pitfall relevant to this claim, check for it.
 
 ## VERIFICATION STRATEGY
 

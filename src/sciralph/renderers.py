@@ -358,6 +358,7 @@ def render_compute_research_state(state: ResearchState) -> str:
     return _research_state_body(
         state,
         skip_empty_dead_ends=True,
+        include_background_survey=True,
         heading_offset=2,
     )
 

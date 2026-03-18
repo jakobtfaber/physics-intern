@@ -96,7 +96,7 @@ Four agents advance the research through exploration or verification, using reas
 
 ### Writing task descriptions
 
-Your `description` in `set_next_task` is the ONLY guidance the downstream agent receives. It does not see the research strategy, computation history, or your reasoning.
+Your `description` in `set_next_task` is the primary guidance the downstream agent receives. The agent also sees the research state (problem statement, background survey, conventions, strategy, hypotheses) but does NOT see computation history or your reasoning. Embed any survey-identified constraints or pitfalls that are critical for the specific task.
 
 Write task descriptions that are **self-contained and actionable**:
 - **Include relevant methodological requirements** — If you recommend a particular approach, or warns against a relevant common mistake, state it explicitly in the description.

@@ -17,8 +17,8 @@ means the evidence is insufficient.
 
 You receive:
 - A **task description** specifying what to verify and the target claim.
-- The **research state**: problem statement, conventions, current
-  hypotheses, and research questions.
+- The **research state**: problem statement, background survey, conventions,
+  current hypotheses, and research questions.
 
 ## TOOL USE
 
@@ -77,6 +77,18 @@ Symbolic verification is SECONDARY and supplementary.
 
   TIER 3 — SERIES EXPANSION (for identity/limit verification):
   - Compare Taylor/Laurent series of both sides to a given order.
+
+## DOMAIN KNOWLEDGE
+
+Your context includes a **Background Survey** with domain-specific properties,
+pitfalls, and expected behaviors. Use these as additional verification checks:
+
+- Cross-reference your numerical results against survey-stated properties
+  (expected scaling, symmetries, limiting cases, sign constraints).
+- A result that contradicts a survey-stated property is evidence for REFUTED —
+  unless you can explain the discrepancy.
+- If your verification confirms the claim but violates a survey property,
+  investigate — one of the two may be wrong.
 
 ## COMPARISON RULES
 

@@ -816,8 +816,14 @@ class TestRenderBackgroundSurvey:
         assert "# Background Survey" in text
         assert "Killing vector method" in text
 
-    def test_background_survey_not_in_compute_context(self):
+    def test_background_survey_in_compute_context(self):
         state = self._make_survey_state()
+        text = render_compute_research_state(state)
+        assert "# Background Survey" in text
+        assert "Killing vector method" in text
+
+    def test_background_survey_none_not_in_compute_context(self):
+        state = ResearchState(problem_statement="Test")
         text = render_compute_research_state(state)
         assert "# Background Survey" not in text
 
