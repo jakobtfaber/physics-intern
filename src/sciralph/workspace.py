@@ -66,13 +66,12 @@ Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, p
         self.write_file("CRITIQUE_LOG.md", render_frontmatter(
             critique_meta, "# Active Critiques\n\n# Resolved Critiques\n"))
 
-        # COMPUTATION_LOG.md
-        comp_meta = {
-            "total_computations": 0,
-            "last_computation": "never",
+        # EVIDENCE_LOG.md
+        evidence_meta = {
+            "total_entries": 0,
         }
-        self.write_file("COMPUTATION_LOG.md", render_frontmatter(
-            comp_meta, "# Computations\n"))
+        self.write_file("EVIDENCE_LOG.md", render_frontmatter(
+            evidence_meta, "# Evidence Log\n"))
 
         # METRICS.md
         self.write_file("METRICS.md", render_frontmatter(

@@ -708,7 +708,7 @@ class SciRalph:
     def _on_compute_round(self, round_num, stop_reason, tool_calls,
                           total_input, total_output,
                           round_input, round_output, round_duration):
-        """Progress callback for computationalist tool-use rounds."""
+        """Progress callback for agent tool-use rounds."""
         tokens = f"{round_input:,}in + {round_output:,}out"
         dur = _fmt_duration(round_duration)
         if stop_reason == "forced_partial":

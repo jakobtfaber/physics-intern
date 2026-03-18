@@ -166,7 +166,7 @@ def load_workspace(workspace_dir: str, *, include_process_data: bool = False) ->
     for fname, attr in [
         ("RESEARCH_STATE.md", "research_state"),
         ("CRITIQUE_LOG.md", "critique_log"),
-        ("COMPUTATION_LOG.md", "computation_log"),
+        ("EVIDENCE_LOG.md", "computation_log"),
         ("CURRENT_TASK.md", "current_task"),
     ]:
         path = ws / fname
