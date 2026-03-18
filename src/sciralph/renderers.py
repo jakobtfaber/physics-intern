@@ -84,6 +84,11 @@ def _research_state_body(
     parts.append(state.conventions or "(To be populated by the orchestrator as conventions become clear.)")
     parts.append("")
 
+    # Strategy
+    parts.append(f"{h1} Strategy\n")
+    parts.append(state.strategy or "(No strategy set. The orchestrator should formulate an initial research strategy based on the background survey.)")
+    parts.append("")
+
     # Research Questions
     open_rqs = [rq for rq in state.research_questions.values() if rq.status == RQStatus.OPEN]
     resolved_rqs = [rq for rq in state.research_questions.values() if rq.status != RQStatus.OPEN]

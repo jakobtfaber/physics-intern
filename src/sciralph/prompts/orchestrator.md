@@ -110,6 +110,18 @@ Use `update_section` to maintain shared context that all agents read. Establish 
 
 Available sections:
 - **Conventions** — Unit system, metric signature, sign conventions, variable definitions.
+- **Strategy** — Your research plan: which approaches to pursue, in what order, and why. All agents see this section.
+
+### Formulating strategy
+
+Write an initial strategy in your first turn after the background survey, using `update_section(section="Strategy", ...)`. Base it on the background survey and the problem statement.
+
+Revise the strategy when evidence warrants it:
+- Abandoned hypotheses suggest the current path isn't working
+- Critiques reveal a systematic flaw in the approach
+- New results open a more promising direction
+
+Don't rewrite every turn — update only when the direction genuinely changes.
 
 ## Verdict Interpretation
 

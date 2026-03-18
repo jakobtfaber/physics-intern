@@ -353,7 +353,8 @@ class SciRalph:
         if self._should_suggest_resurvey():
             lines.append(
                 ">>> STRATEGIC STALL: 3+ abandoned hypotheses with 0 established results. "
-                "Consider dispatching task_type: survey to re-evaluate your approach. <<<"
+                "Consider revising your strategy via update_section(section=\"Strategy\") "
+                "and/or dispatching task_type: survey to refresh your background survey. <<<"
             )
         return "\n".join(lines)
 

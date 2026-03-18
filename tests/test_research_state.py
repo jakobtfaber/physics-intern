@@ -363,6 +363,7 @@ class TestNewResearchStateFields:
         state = ResearchState()
         assert state.problem_statement == ""
         assert state.conventions == ""
+        assert state.strategy == ""
         assert state.status == "in_progress"
         assert state.title == ""
         assert state.background_survey is None
@@ -372,12 +373,14 @@ class TestNewResearchStateFields:
             iteration=3,
             problem_statement="Derive Hawking temperature.",
             conventions="Natural units: hbar = c = k_B = 1.",
+            strategy="Focus on surface gravity approach.",
             status="complete",
             title="Hawking Temperature",
         )
         restored = ResearchState.from_json(state.to_json())
         assert restored.problem_statement == "Derive Hawking temperature."
         assert restored.conventions == "Natural units: hbar = c = k_B = 1."
+        assert restored.strategy == "Focus on surface gravity approach."
         assert restored.status == "complete"
         assert restored.title == "Hawking Temperature"
 

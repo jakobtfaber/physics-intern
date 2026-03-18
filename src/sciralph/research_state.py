@@ -153,6 +153,7 @@ class ResearchState:
     iteration: int = 0
     problem_statement: str = ""
     conventions: str = ""
+    strategy: str = ""
     status: str = "in_progress"
     title: str = ""
     background_survey: BackgroundSurvey | None = None
@@ -417,6 +418,7 @@ class ResearchState:
             iteration=data.get("iteration", 0),
             problem_statement=data.get("problem_statement", ""),
             conventions=data.get("conventions", ""),
+            strategy=data.get("strategy", ""),
             status=data.get("status", "in_progress"),
             title=data.get("title", ""),
         )

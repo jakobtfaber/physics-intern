@@ -446,6 +446,18 @@ class TestUpdateSection:
         })
         assert "unknown" in tc.output.lower()
 
+    def test_updates_strategy(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("update_section", {
+            "section": "Strategy",
+            "content": "Focus on surface gravity approach first.",
+        })
+        assert not tc.is_error
+        assert state.strategy == "Focus on surface gravity approach first."
+        assert ex.mutations_applied
+
     def test_unknown_section_returns_error(self):
         ws = _make_workspace()
         state = _make_state()

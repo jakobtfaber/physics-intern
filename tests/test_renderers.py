@@ -250,6 +250,18 @@ class TestRenderResearchStateMd:
         md = render_research_state_md(state)
         assert "To be populated by the orchestrator" in md
 
+    def test_strategy_section_rendered(self):
+        state = ResearchState(problem_statement="Test", strategy="Focus on surface gravity.")
+        md = render_research_state_md(state)
+        assert "# Strategy" in md
+        assert "Focus on surface gravity." in md
+
+    def test_strategy_placeholder_when_empty(self):
+        state = ResearchState(problem_statement="Test", strategy="")
+        md = render_research_state_md(state)
+        assert "# Strategy" in md
+        assert "No strategy set" in md
+
     def test_title_falls_back_to_problem_truncation(self):
         long_problem = "A" * 200
         state = ResearchState(problem_statement=long_problem, title="")
