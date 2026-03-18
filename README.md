@@ -6,9 +6,9 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 
 SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
 
-**How it works.** Eight specialised LLM agent roles (orchestrator, compute_verify, compute_explore, research_verify, research_explore, deep critic, compressor, formatter) take turns in a loop following a 2x2 dispatch matrix (reasoning/code × explore/verify). No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. The orchestrator plans the next step, a worker agent executes it, and the cycle repeats. A layered verification stack — SymPy/NumPy computations, adversarial critique with severity tracking, and dependency-aware result promotion — acts as backpressure against errors. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
+**How it works.** Seven specialised LLM agent roles (orchestrator, researcher, computer, verifier, deep critic, compressor, formatter) take turns in a loop. The orchestrator dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), formulates working hypotheses from the evidence, then sends them to a **verifier** for adversarial review. No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
 
-**Current status.** Core functionality is complete (668 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 4 categories) compensates for predictable LLM failures: premature result promotion, hallucinated IDs, malformed YAML, ignored instructions, empty outputs, and premature termination. Every mechanism is instrumented — `EVENT_LOG.jsonl` records each intervention with category, event key, and detail, enabling profiling of which mechanisms actually fire per model. See `CODEBASE.md` §7 for the full catalog.
+**Current status.** Core functionality is complete (827 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 4 categories) compensates for predictable LLM failures. Every mechanism is instrumented — `EVENT_LOG.jsonl` records each intervention. See `CODEBASE.md` §7 for the full catalog.
 
 ## Quick Start
 
@@ -68,7 +68,7 @@ The verifier evaluates each Established Result for mathematical/physical validit
 
 ## Architecture
 
-Eight agent roles take turns in a main loop, following a 2x2 dispatch matrix. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
+Seven agent roles take turns in a main loop. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -77,10 +77,9 @@ Eight agent roles take turns in a main loop, following a 2x2 dispatch matrix. Ea
 │  ┌──────────────┐    ┌──────────────────────┐   │
 │  │ Orchestrator  │───>│  Dispatch to Agent    │   │
 │  │ (plan next    │    │                      │   │
-│  │  task)        │    │  compute_explore     │   │
-│  └──────────────┘    │  compute_verify      │   │
-│         ▲            │  research_explore    │   │
-│         │            │  research_verify     │   │
+│  │  task)        │    │  researcher          │   │
+│  └──────────────┘    │  computer            │   │
+│         ▲            │  verifier            │   │
 │         │            │  critique            │   │
 │         │            │  format / compress   │   │
 │  ┌──────┴───────┐    │                      │   │
@@ -93,33 +92,40 @@ Eight agent roles take turns in a main loop, following a 2x2 dispatch matrix. Ea
 
 ### Agents
 
-The four compute/research agents follow a 2x2 dispatch matrix:
-
-|               | Explore (RQ → WH)    | Verify (WH → ER)     |
-|---------------|----------------------|----------------------|
-| **Reasoning** | research_explore     | research_verify      |
-| **Code**      | compute_explore      | compute_verify       |
+Three core agents produce evidence and verify claims:
 
 | Agent | Role | Mode | Context source | Mutates |
 |-------|------|------|----------------|---------|
-| **Orchestrator** | Plans next task, mutates state via tools | Agentic (9 tools) | ResearchState via renderers + METRICS.md | ResearchState, `CURRENT_TASK.md` |
-| **ComputeVerify** | Numerical verification via code | Agentic (3 tools) | ResearchState via renderers + CURRENT_TASK.md | ResearchState (Computation objects) |
-| **ComputeExplore** | Exploratory computation via code | Agentic (3 tools) | ResearchState via renderers + CURRENT_TASK.md | ResearchState (Computation objects) |
-| **ResearchVerify** | Analytical verification without code | Agentic (2 tools) | ResearchState via renderers + CURRENT_TASK.md | ResearchState (Computation objects) |
-| **ResearchExplore** | Analytical exploration, derivation | Agentic (2 tools) | ResearchState via renderers + CURRENT_TASK.md | ResearchState (Computation objects) |
-| **Deep Critic** | Adversarial review — finds flaws, gaps, errors | Agentic (2 tools) | ResearchState via renderers | ResearchState (Critique objects) |
+| **Orchestrator** | Plans next task, mutates state via tools | Agentic (12 tools) | ResearchState via renderers | ResearchState, `CURRENT_TASK.md` |
+| **Researcher** | Analytical reasoning, derivation | Agentic (2 tools) | CURRENT_TASK.md + light research state | Evidence on RQ/WH |
+| **Computer** | Computational work via code | Agentic (4 tools) | CURRENT_TASK.md + light research state | Evidence on RQ/WH |
+| **Verifier** | Adversarial verification without code | Agentic (3 tools) | Focused package: WH + evidence + light state | VerificationResult on WH |
+| **Deep Critic** | Strategic review — research direction, coherence | Agentic (2 tools) | ResearchState via renderers | Critique objects |
 | **Compressor** | Archives and shrinks files exceeding size thresholds | One-shot | Target file | Compressed target file |
 | **Formatter** | Produces clean `ANSWER.md` from final research state | One-shot | ResearchState via renderers | `ANSWER.md` |
+
+### Research Lifecycle
+
+The typical lifecycle of a claim: **RQ → evidence → WH → verification → ER**
+
+1. Orchestrator creates a **Research Question** (RQ) and dispatches to researcher or computer
+2. Researcher/Computer produces **Evidence** (reasoning or code+output), stored on the RQ
+3. Orchestrator formulates a **Working Hypothesis** (WH) from the evidence (auto-copies evidence from RQ)
+4. Orchestrator dispatches to **Verifier** with the WH + evidence
+5. Verifier submits verdict (VERIFIED/REFUTED/INCONCLUSIVE) + optional critiques
+6. If VERIFIED: Orchestrator promotes WH to **Established Result** (ER)
+
+Entity numbers are unified — RQ-003 → WH-003 → ER-003.
 
 ### Verification Stack
 
 Results go through layered verification before being promoted to "Established":
 
-1. **Computational verification** — SymPy/NumPy checks (dimensional analysis, limiting cases, numerical agreement)
-2. **Adversarial critique** — Deep Critic reviews with no unresolved HIGH critiques
+1. **Verifier review** — adversarial examination of evidence, methodology, and logical consistency
+2. **Strategic critique** — Deep Critic reviews research direction and inter-result coherence
 3. **Dependency tracking** — All prerequisite results must themselves be Established
 
-The orchestrator enforces these promotion criteria via its `promote_hypothesis` tool and forces periodic critic passes every N iterations. A post-integration validation pipeline (`validation.py`) runs 4 checks on ResearchState after every orchestrator pass — demoting unverified ERs, stripping phantom labels, and ensuring critique resolution consistency. Termination goes through gates requiring critic review, no unresolved HIGH critiques, and numerical verification when required by the problem. See `CODEBASE.md` §7 for the full LLM failure compensation catalog.
+The orchestrator enforces promotion criteria via its `promote_hypothesis` tool and forces periodic critic passes every N iterations. A post-integration validation pipeline (`validation.py`) runs 4 checks on ResearchState after every orchestrator pass — demoting unverified ERs, stripping phantom labels, and ensuring critique resolution consistency.
 
 ### Workspace Files
 
@@ -127,15 +133,15 @@ All research state is persisted under `workspaces/<run>/` (each run gets a times
 
 | File | Purpose |
 |------|---------|
-| `RESEARCH_STATE.md` | Established results, working hypotheses, dead ends |
-| `CURRENT_TASK.md` | Current task with YAML frontmatter |
+| `RESEARCH_STATE.md` | Established results, working hypotheses, evidence, dead ends |
+| `CURRENT_TASK.md` | Current task with YAML frontmatter + structured dispatch context |
 | `RESEARCH_GRAPH.json` | Authoritative structured state (ResearchState serialized as JSON) |
-| `COMPUTATION_LOG.md` | Log of all computations and their outputs |
+| `EVIDENCE_LOG.md` | Log of all evidence and verification results |
 | `CRITIQUE_LOG.md` | All critiques with severity and resolution status |
 | `METRICS.md` | Token usage, file sizes, alerts |
 | `EVENT_LOG.jsonl` | Unified event log — LLM call metadata + scaffolding intervention events |
 | `VERIFICATION.md` | Independent verification report (written by `--write-report`) |
-| `computations/` | Saved Python scripts from compute agents |
+| `computations/` | Saved Python scripts from computer agent |
 
 ## Project Structure
 
@@ -143,11 +149,12 @@ All research state is persisted under `workspaces/<run>/` (each run gets a times
 src/sciralph/
   main.py              — Entry point, CLI argument parsing
   engine.py            — Main loop (LoopState): orchestrate → validate → enrich → dispatch → compress → git
-  research_state.py    — ResearchState dataclass: authoritative structured state (hypotheses, research_questions, computations, critiques)
+  research_state.py    — ResearchState dataclass: authoritative structured state (hypotheses, evidence, critiques)
   renderers.py         — Snapshot renderers (state → Markdown) + per-agent context renderers
-  orchestrator_tools.py — OrchestratorToolExecutor: 9 state-mutation tools for orchestrator
+  orchestrator_tools.py — OrchestratorToolExecutor: 12 state-mutation tools for orchestrator
   critic_tools.py      — CriticToolExecutor: submit_critique + finish_review tools for deep critic
-  tools.py             — ToolExecutor + ToolCall for compute/research agents (execute_python, submit_verdict/submit_result, report_progress)
+  verifier_tools.py    — VerifierToolExecutor: submit_verdict + submit_critique + report_progress
+  tools.py             — ToolExecutor + ToolCall for researcher/computer (document_approach, execute_python, submit_result, report_progress)
   categories.py        — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
   validation.py        — Post-integration checks (4 checks on ResearchState) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
@@ -160,16 +167,15 @@ src/sciralph/
   metrics.py           — MetricsTracker (token counts, alerts, Markdown rendering)
   agents/
     base.py            — BaseAgent ABC with template method + retry + tool-use dispatch
-    orchestrator.py    — Plans tasks, mutates ResearchState via tools, renders Markdown
-    computationalist.py — Base agentic code execution; writes Computation objects to state
-    compute_verify.py  — ComputeVerifyAgent: verify mode (execute_python + submit_verdict + report_progress)
-    compute_explore.py — ComputeExploreAgent: explore mode (execute_python + submit_result + report_progress)
-    research_verify.py — ResearchVerifyAgent: analytical verification (submit_verdict + report_progress, no execute_python)
-    research_explore.py — ResearchExploreAgent: analytical exploration (submit_result + report_progress, no execute_python)
-    critic.py          — Agentic adversarial review via submit_critique/finish_review tools
+    orchestrator.py    — Plans tasks, mutates ResearchState via tools
+    researcher.py      — Analytical reasoning; writes Evidence to RQ/WH
+    computer.py        — Computational work via code; writes Evidence to RQ/WH
+    verifier.py        — Adversarial verification; writes VerificationResult to WH
+    critic.py          — Strategic review via submit_critique/finish_review tools
     compressor.py      — File size management
     formatter.py       — Produces ANSWER.md from final research state
-  prompts/             — Static .md system prompt files (one per agent, plus verifier)
+    surveyor.py        — Background surveyor: maps the research landscape (one-shot)
+  prompts/             — Static .md system prompt files (one per agent): orchestrator.md, researcher.md, computer.md, verify_agent.md, deep_critic.md, compressor.md, formatter.md, surveyor.md, verifier.md (independent verify script)
   providers/
     base.py            — LLMProvider ABC + ProviderResponse dataclass
     anthropic.py       — Anthropic Claude adapter
@@ -177,7 +183,7 @@ src/sciralph/
     google.py          — Google Gemini adapter
     huggingface.py     — HuggingFace Inference Providers adapter
   models.yaml          — Model registry (friendly keys → provider + model_id + env_key + cost)
-tests/                 — 668 pytest tests across 23 files
+tests/                 — ~827 pytest tests across 24+ files
 problems/
   tier1/               — 10 core problems
   tier2/               — 12 advanced problems
