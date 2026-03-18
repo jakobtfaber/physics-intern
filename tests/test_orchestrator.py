@@ -9,19 +9,20 @@ from sciralph.config import Config
 from sciralph.llm import LLMResponse
 from sciralph.metrics import MetricsTracker
 from sciralph.research_state import (
-    Computation,
     Critique,
     CritiqueStatus,
+    Evidence,
     Hypothesis,
     HypothesisStatus,
     ResearchState,
     Severity,
     Verdict,
+    VerificationResult,
 )
 from sciralph.task import Task, TaskType
 from sciralph.workspace import WorkspaceManager
 
-_EMPTY_TASK = Task(task_id="", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="orchestrator")
+_EMPTY_TASK = Task(task_id="", task_type=TaskType.RESEARCH, assigned_to="orchestrator")
 
 
 @pytest.fixture
@@ -42,15 +43,15 @@ def orchestrator(workspace):
 
 TASK_TEXT = """---
 task_id: TASK-002
-task_type: compute_verify
-assigned_to: compute_verify
+task_type: verify
+assigned_to: verifier
 priority: high
 iteration: 2
 ---
 
 # Task Description
 
-Verify result B numerically.
+Verify result B.
 """
 
 
@@ -58,16 +59,16 @@ class TestParseTask:
     def test_bare_text(self, orchestrator):
         task = orchestrator.parse_task(TASK_TEXT)
         assert task.task_id == "TASK-002"
-        assert task.task_type == "compute_verify"
+        assert task.task_type == "verify"
 
     def test_parse_task_missing_id_uses_engine_iteration(self, orchestrator):
-        text = "---\ntask_type: research_explore\nassigned_to: research_explore\npriority: high\n---\nDo something."
+        text = "---\ntask_type: research\nassigned_to: researcher\npriority: high\n---\nDo something."
         task = orchestrator.parse_task(text, iteration=7)
         assert task.task_id == "TASK-007"
         assert task.iteration == 7
 
     def test_parse_task_present_id_preferred(self, orchestrator):
-        text = "---\ntask_id: TASK-042\ntask_type: compute_verify\nassigned_to: compute_verify\npriority: high\niteration: 42\n---\nVerify."
+        text = "---\ntask_id: TASK-042\ntask_type: verify\nassigned_to: verifier\npriority: high\niteration: 42\n---\nVerify."
         task = orchestrator.parse_task(text, iteration=5)
         assert task.task_id == "TASK-042"
         assert task.iteration == 42
@@ -225,45 +226,6 @@ class TestConventionReminder:
         orchestrator.research_state = ResearchState()  # conventions is empty by default
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
         assert "REMINDER" not in context
-
-
-class TestStallBannerInContext:
-    """Test that computation stall banners appear in orchestrator context."""
-
-    def test_stall_banner_in_context(self, workspace):
-        """3 consecutive INCONCLUSIVE (>= stall_threshold=2) -> banner in context."""
-        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
-        metrics = MetricsTracker()
-        orch = OrchestratorAgent(config, workspace, metrics)
-        # Set up research state with stalled computations
-        rs = ResearchState()
-        for i in range(1, 4):
-            rs.computations[f"COMP-{i:03d}"] = Computation(
-                id=f"COMP-{i:03d}", target_hypothesis="WH-002",
-                verdict=Verdict.INCONCLUSIVE, kind="verify",
-                claim="Verify WH-002 partition function", iteration=i,
-            )
-        orch.research_state = rs
-
-        context = orch.build_context(_EMPTY_TASK, iteration=5)
-        assert "COMPUTATION STALL" in context
-        assert "WH-002" in context
-        assert "3 consecutive failures" in context
-
-    def test_no_stall_banner_below_threshold(self, workspace):
-        """1 failure (< stall_threshold=2) -> no banner."""
-        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
-        metrics = MetricsTracker()
-        orch = OrchestratorAgent(config, workspace, metrics)
-        rs = ResearchState()
-        rs.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-002",
-            verdict=Verdict.INCONCLUSIVE, kind="verify", iteration=1,
-        )
-        orch.research_state = rs
-
-        context = orch.build_context(_EMPTY_TASK, iteration=5)
-        assert "COMPUTATION STALL" not in context
 
 
 class TestSystemPrompt:

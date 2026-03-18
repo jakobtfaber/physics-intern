@@ -149,14 +149,14 @@ class TestFilenameHandling:
 class TestToolDefinitions:
     def test_definitions_format(self):
         defs = ToolExecutor.TOOL_DEFINITIONS
-        assert len(defs) == 3
+        assert len(defs) == 4
         names = {d["function"]["name"] for d in defs}
-        assert names == {"execute_python", "submit_verdict", "report_progress"}
+        assert names == {"document_approach", "execute_python", "submit_result", "report_progress"}
         for d in defs:
             assert d["type"] == "function"
 
     def test_execute_python_requires_purpose(self):
-        func = ToolExecutor.TOOL_DEFINITIONS[0]["function"]
+        func = next(d["function"] for d in ToolExecutor.TOOL_DEFINITIONS if d["function"]["name"] == "execute_python")
         assert func["name"] == "execute_python"
         props = func["parameters"]["properties"]
         assert "purpose" in props
@@ -170,18 +170,15 @@ class TestToolDefinitions:
         assert props["filename"]["type"] == "string"
         assert "filename" not in func["parameters"]["required"]
 
-    def test_submit_verdict_schema(self):
-        func = ToolExecutor.TOOL_DEFINITIONS[1]["function"]
-        assert func["name"] == "submit_verdict"
+    def test_document_approach_schema(self):
+        func = next(d["function"] for d in ToolExecutor.TOOL_DEFINITIONS if d["function"]["name"] == "document_approach")
         props = func["parameters"]["properties"]
-        assert set(props.keys()) == {"target_id", "claim", "method", "result", "verdict", "notes", "evidence_scripts"}
-        assert props["verdict"]["enum"] == ["VERIFIED", "REFUTED", "INCONCLUSIVE"]
-        assert set(func["parameters"]["required"]) == {"target_id", "claim", "method", "result", "verdict", "notes"}
-        assert "evidence_scripts" not in func["parameters"]["required"]
-        assert props["evidence_scripts"]["type"] == "array"
+        assert "approach" in props
+        assert "assumptions" in props
+        assert set(func["parameters"]["required"]) == {"approach"}
 
     def test_report_progress_schema(self):
-        func = ToolExecutor.TOOL_DEFINITIONS[2]["function"]
+        func = next(d["function"] for d in ToolExecutor.TOOL_DEFINITIONS if d["function"]["name"] == "report_progress")
         assert func["name"] == "report_progress"
         props = func["parameters"]["properties"]
         assert set(props.keys()) == {"findings_so_far", "remaining_questions", "ready_to_conclude"}
@@ -210,30 +207,19 @@ class TestTruncation:
         assert result.endswith("a" * 100)
 
 
-class TestSubmitVerdict:
-    def test_sets_stop_flag(self):
+class TestDocumentApproach:
+    def test_stores_approach(self):
         executor = _make_executor()
-        params = {"target_id": "WH-001", "claim": "energy", "method": "numerical",
-                  "result": "ok", "verdict": "VERIFIED", "notes": "All checks pass."}
-        tc = executor.execute("submit_verdict", params)
+        params = {"approach": "Compute partition function via SymPy", "assumptions": ["T > 0"]}
+        tc = executor.execute("document_approach", params)
         assert not tc.is_error
-        assert "VERIFIED" in tc.output
-        assert executor.stop_after_round is True
+        assert "documented" in tc.output.lower()
+        assert executor._documented_approach["approach"] == "Compute partition function via SymPy"
 
-    def test_stores_last_verdict(self):
+    def test_does_not_stop(self):
         executor = _make_executor()
-        params = {"target_id": "WH-002", "claim": "partition", "method": "symbolic",
-                  "result": "mismatch", "verdict": "REFUTED", "notes": "Discrepancy found."}
-        executor.execute("submit_verdict", params)
-        assert executor._last_verdict == params
-
-    def test_output_message(self):
-        executor = _make_executor()
-        tc = executor.execute("submit_verdict", {"target_id": "WH-001", "claim": "c",
-                                                  "method": "m", "result": "r",
-                                                  "verdict": "INCONCLUSIVE", "notes": "n"})
-        assert tc.output == "Verdict recorded: INCONCLUSIVE"
-        assert tc.tool_name == "submit_verdict"
+        tc = executor.execute("document_approach", {"approach": "test"})
+        assert not hasattr(executor, 'stop_after_round') or not executor.stop_after_round
 
 
 class TestSubmitResult:
@@ -267,50 +253,26 @@ class TestSubmitResult:
 
 
 class TestToolSetsForTaskType:
-    def test_explore_tools(self):
+    def test_researcher_tools(self):
         from sciralph.task import TaskType
-        tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE_EXPLORE)
+        tools = ToolExecutor.tools_for_task_type(TaskType.RESEARCH)
         names = {t["function"]["name"] for t in tools}
-        assert names == {"execute_python", "submit_result", "report_progress"}
+        assert names == {"submit_result", "report_progress"}
 
-    def test_verify_tools(self):
+    def test_computer_tools(self):
         from sciralph.task import TaskType
-        tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE_VERIFY)
+        tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE)
         names = {t["function"]["name"] for t in tools}
-        assert names == {"execute_python", "submit_verdict", "report_progress"}
-
-    def test_default_compute_verify_tools(self):
-        from sciralph.task import TaskType
-        tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE_VERIFY)
-        names = {t["function"]["name"] for t in tools}
-        assert names == {"execute_python", "submit_verdict", "report_progress"}
+        assert names == {"document_approach", "execute_python", "submit_result", "report_progress"}
 
 
 class TestExitToolName:
-    """Test exit_tool_name property on all executor types (C2)."""
+    """Test exit_tool_name property on all executor types."""
 
-    def test_verify_executor_exit_tool(self):
-        from sciralph.task import TaskType
-        root = Path(tempfile.mkdtemp())
-        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_VERIFY)
-        assert executor.exit_tool_name == "submit_verdict"
-
-    def test_explore_executor_exit_tool(self):
-        from sciralph.task import TaskType
-        root = Path(tempfile.mkdtemp())
-        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
-        assert executor.exit_tool_name == "submit_result"
-
-    def test_compute_verify_executor_exit_tool(self):
-        from sciralph.task import TaskType
-        root = Path(tempfile.mkdtemp())
-        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_VERIFY)
-        assert executor.exit_tool_name == "submit_verdict"
-
-    def test_none_task_type_defaults(self):
+    def test_tool_executor_exit_tool(self):
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root)
-        assert executor.exit_tool_name == "submit_verdict"
+        assert executor.exit_tool_name == "submit_result"
 
     def test_orchestrator_exit_tool(self):
         from sciralph.orchestrator_tools import OrchestratorToolExecutor
@@ -320,25 +282,19 @@ class TestExitToolName:
         from sciralph.critic_tools import CriticToolExecutor
         assert CriticToolExecutor.exit_tool_name == "finish_review"
 
-    def test_report_progress_explore_mentions_submit_result(self):
+    def test_verifier_exit_tool(self):
+        from sciralph.verifier_tools import VerifierToolExecutor
+        assert VerifierToolExecutor.exit_tool_name == "submit_verdict"
+
+    def test_report_progress_mentions_submit_result(self):
         from sciralph.task import TaskType
         root = Path(tempfile.mkdtemp())
-        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         tc = executor.execute("report_progress", {
             "findings_so_far": "done", "remaining_questions": "",
             "ready_to_conclude": True,
         })
         assert "submit_result" in tc.output
-
-    def test_report_progress_verify_mentions_submit_verdict(self):
-        from sciralph.task import TaskType
-        root = Path(tempfile.mkdtemp())
-        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_VERIFY)
-        tc = executor.execute("report_progress", {
-            "findings_so_far": "done", "remaining_questions": "",
-            "ready_to_conclude": True,
-        })
-        assert "submit_verdict" in tc.output
 
 
 # --- Agent loop tests ---
@@ -372,7 +328,7 @@ class TestReportProgress:
             "findings_so_far": "done", "remaining_questions": "",
             "ready_to_conclude": True,
         })
-        assert "submit_verdict" in tc.output
+        assert "submit_result" in tc.output
 
     def test_report_progress_not_ready_message(self):
         executor = _make_executor()
@@ -750,20 +706,21 @@ class TestProgressCheckInLoop:
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
         # After 3 exec_python rounds, progress check is injected;
-        # model calls report_progress then submit_verdict
+        # model calls report_progress then submit_result
         progress_resp = _mock_provider_response(
             "", "tool_use", 100, 50,
             tool_calls=[{"id": "t2", "name": "report_progress",
                          "input": {"findings_so_far": "42", "remaining_questions": "",
                                    "ready_to_conclude": True}}],
         )
-        verdict_resp = _mock_provider_response(
+        result_resp = _mock_provider_response(
             "", "tool_use", 100, 50,
-            tool_calls=[{"id": "t3", "name": "submit_verdict",
-                         "input": {"claim": "WH-001", "method": "num", "result": "ok",
-                                   "verdict": "VERIFIED", "notes": "done"}}],
+            tool_calls=[{"id": "t3", "name": "submit_result",
+                         "input": {"target_id": "RQ-001", "description": "computed",
+                                   "method": "num", "result": "ok",
+                                   "confidence": "exact", "notes": "done"}}],
         )
-        provider.call.side_effect = [exec_resp, exec_resp, exec_resp, progress_resp, verdict_resp]
+        provider.call.side_effect = [exec_resp, exec_resp, exec_resp, progress_resp, result_resp]
 
         config = _make_config(progress_check_interval=3)
         executor = _make_executor()
@@ -854,28 +811,28 @@ class TestProgressCheckInLoop:
 
 
 
-class TestSubmitVerdictInLoop:
-    """Test submit_verdict triggers executor_stop in agent loop."""
+class TestSubmitResultInLoop:
+    """Test submit_result triggers executor_stop in agent loop."""
 
     @patch("sciralph.llm._get_provider")
-    def test_submit_verdict_stops_loop(self, mock_get_provider):
-        """Round 1: execute_python, round 2: submit_verdict → executor_stop."""
+    def test_submit_result_stops_loop(self, mock_get_provider):
+        """Round 1: execute_python, round 2: submit_result → executor_stop."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
         # Round 1: tool_use with execute_python
         round1 = _mock_provider_response(
-            "Computing fidelity...", "tool_use", 200, 80,
+            "Computing...", "tool_use", 200, 80,
             tool_calls=[{"id": "t1", "name": "execute_python",
-                         "input": {"purpose": "Check fidelity", "code": "print(1.0)"}}],
+                         "input": {"purpose": "Check result", "code": "print(1.0)"}}],
         )
-        # Round 2: tool_use with submit_verdict
+        # Round 2: tool_use with submit_result
         round2 = _mock_provider_response(
             "", "tool_use", 150, 60,
-            tool_calls=[{"id": "t2", "name": "submit_verdict",
-                         "input": {"claim": "WH-002", "method": "numerical",
-                                   "result": "fidelity=1.0", "verdict": "VERIFIED",
-                                   "notes": "All checks pass."}}],
+            tool_calls=[{"id": "t2", "name": "submit_result",
+                         "input": {"target_id": "RQ-001", "description": "computed value",
+                                   "method": "numerical", "result": "value=1.0",
+                                   "confidence": "exact", "notes": "Done."}}],
         )
         provider.call.side_effect = [round1, round2]
 
@@ -889,9 +846,8 @@ class TestSubmitVerdictInLoop:
         assert result.stop_reason == "executor_stop"
         assert result.rounds == 2
         assert len(result.tool_calls) == 2
-        assert result.tool_calls[1].tool_name == "submit_verdict"
+        assert result.tool_calls[1].tool_name == "submit_result"
         assert not result.truncated
-        # No forced final call — only 2 provider calls
         assert provider.call.call_count == 2
 
 
@@ -929,11 +885,11 @@ class TestReadyToConcludeRecovery:
         provider.call.side_effect = [round1, round2, round3]
 
         root = Path(tempfile.mkdtemp())
-        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         result = run_agent_loop(
             system="sys", user_content="question",
             config=_make_config(), tool_executor=executor,
-            tools=ToolExecutor.EXPLORE_TOOLS, max_rounds=5,
+            tools=ToolExecutor.COMPUTER_TOOLS, max_rounds=5,
         )
 
         assert result.stop_reason == "executor_stop"
@@ -1006,11 +962,11 @@ class TestReadyToConcludeRecovery:
         provider.call.side_effect = [round1, round2, round3]
 
         root = Path(tempfile.mkdtemp())
-        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         result = run_agent_loop(
             system="sys", user_content="question",
             config=_make_config(), tool_executor=executor,
-            tools=ToolExecutor.EXPLORE_TOOLS, max_rounds=5,
+            tools=ToolExecutor.COMPUTER_TOOLS, max_rounds=5,
         )
 
         # Second end_turn falls through to normal return
@@ -1055,11 +1011,11 @@ class TestForcedFinalWithExitTool:
         provider.call.side_effect = [round1, round2, forced_resp]
 
         root = Path(tempfile.mkdtemp())
-        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE_EXPLORE)
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         result = run_agent_loop(
             system="sys", user_content="question",
             config=_make_config(), tool_executor=executor,
-            tools=ToolExecutor.EXPLORE_TOOLS, max_rounds=2,
+            tools=ToolExecutor.COMPUTER_TOOLS, max_rounds=2,
         )
 
         assert result.stop_reason == "executor_stop"

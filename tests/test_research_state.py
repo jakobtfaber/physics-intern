@@ -7,7 +7,8 @@ from sciralph.research_state import (
     ResearchState,
     Hypothesis,
     HypothesisStatus,
-    Computation,
+    Evidence,
+    VerificationResult,
     Verdict,
     Critique,
     Severity,
@@ -47,7 +48,7 @@ Some derivation details here.
 
 Energy is conserved.
 
-This has been verified by COMP-001.
+This has been verified.
 
 ## WH-003 — Third hypothesis
 
@@ -97,31 +98,34 @@ class TestQueryMethods:
 
     def _make_state(self) -> ResearchState:
         state = ResearchState(iteration=5)
-        state.hypotheses["WH-001"] = Hypothesis(id="WH-001", statement="Test",
-                                                  status=HypothesisStatus.WORKING,
-                                                  supporting_comps=["COMP-001"],
-                                                  critiques=["CRIT-001"])
-        state.hypotheses["ER-002"] = Hypothesis(id="ER-002", statement="Verified",
-                                                  status=HypothesisStatus.ESTABLISHED,
-                                                  supporting_comps=["COMP-002"])
-        state.computations["COMP-001"] = Computation(id="COMP-001", target_hypothesis="WH-001",
-                                                       verdict=Verdict.REFUTED)
-        state.computations["COMP-002"] = Computation(id="COMP-002", target_hypothesis="ER-002",
-                                                       verdict=Verdict.VERIFIED)
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Test",
+            status=HypothesisStatus.WORKING,
+            critiques=["CRIT-001"],
+            evidence=Evidence(type="compute", method="numerical", result="42"),
+        )
+        state.hypotheses["ER-002"] = Hypothesis(
+            id="ER-002", statement="Verified",
+            status=HypothesisStatus.ESTABLISHED,
+            evidence=Evidence(type="compute", method="symbolic", result="ok"),
+            verification=VerificationResult(verdict=Verdict.VERIFIED, reasoning="Confirmed."),
+        )
         state.critiques["CRIT-001"] = Critique(id="CRIT-001", targets=["WH-001"],
                                                 severity=Severity.HIGH,
                                                 status=CritiqueStatus.ACTIVE)
         return state
 
-    def test_verified_comps_for(self):
+    def test_has_verified_evidence(self):
         state = self._make_state()
-        assert len(state.verified_comps_for("ER-002")) == 1
-        assert len(state.verified_comps_for("WH-001")) == 0
+        assert state.has_verified_evidence("ER-002")
+        assert not state.has_verified_evidence("WH-001")
 
-    def test_has_verified_backing(self):
+    def test_hypotheses_with_evidence(self):
         state = self._make_state()
-        assert state.has_verified_backing("ER-002")
-        assert not state.has_verified_backing("WH-001")
+        with_ev = state.hypotheses_with_evidence()
+        assert len(with_ev) == 2
+        ids = {h.id for h in with_ev}
+        assert ids == {"WH-001", "ER-002"}
 
     def test_active_critiques_for(self):
         state = self._make_state()
@@ -131,10 +135,6 @@ class TestQueryMethods:
     def test_unresolved_high_critiques(self):
         state = self._make_state()
         assert len(state.unresolved_high_critiques()) == 1
-
-    def test_comps_for_hypothesis(self):
-        state = self._make_state()
-        assert len(state.comps_for_hypothesis("WH-001")) == 1
 
     def test_established_hypotheses(self):
         state = self._make_state()
@@ -157,15 +157,16 @@ class TestSerialization:
         state = ResearchState(iteration=3)
         state.hypotheses["WH-001"] = Hypothesis(id="WH-001", statement="Test",
                                                   status=HypothesisStatus.WORKING)
-        state.computations["COMP-001"] = Computation(id="COMP-001",
-                                                       target_hypothesis="WH-001",
-                                                       verdict=Verdict.VERIFIED)
+        state.hypotheses["WH-001"].evidence = Evidence(
+            type="compute", method="numerical", result="42",
+            confidence="exact", iteration=2,
+        )
         state.critiques["CRIT-001"] = Critique(id="CRIT-001", targets=["WH-001"],
                                                 severity=Severity.HIGH)
         state.failed_approaches.append(FailedApproach(
             description="Tried perturbation theory",
             reason="Divergent series",
-            related_comps=["COMP-001"],
+            related_entities=["WH-001"],
             iteration=2,
         ))
 
@@ -175,14 +176,15 @@ class TestSerialization:
         assert restored.iteration == 3
         assert "WH-001" in restored.hypotheses
         assert restored.hypotheses["WH-001"].statement == "Test"
-        assert restored.computations["COMP-001"].verdict == Verdict.VERIFIED
+        assert restored.hypotheses["WH-001"].evidence is not None
+        assert restored.hypotheses["WH-001"].evidence.result == "42"
         assert restored.critiques["CRIT-001"].severity == Severity.HIGH
         assert len(restored.failed_approaches) == 1
         assert restored.failed_approaches[0].description == "Tried perturbation theory"
 
     def test_save_and_load(self, tmp_path):
         state = ResearchState(iteration=7)
-        state.hypotheses["ER-001"] = Hypothesis(id="ER-001", statement="E=mc²",
+        state.hypotheses["ER-001"] = Hypothesis(id="ER-001", statement="E=mc2",
                                                   status=HypothesisStatus.ESTABLISHED)
         state.save(tmp_path)
 
@@ -215,13 +217,13 @@ class TestFailureTracking:
         state.failed_approaches.append(FailedApproach(
             description="REFUTED on: WH-001 spin prediction",
             reason="Got spin-0 instead of spin-1",
-            related_comps=["COMP-002"],
+            related_entities=["WH-001"],
             iteration=3,
         ))
         state.failed_approaches.append(FailedApproach(
             description="INCONCLUSIVE on: WH-002 entropy",
             reason="Timeout",
-            related_comps=["COMP-005"],
+            related_entities=["WH-002"],
             iteration=4,
         ))
         wh1_failures = state.failures_for_hypothesis("WH-001")
@@ -233,13 +235,13 @@ class TestFailureTracking:
         state.failed_approaches.append(FailedApproach(
             description="REFUTED on: WH-001",
             reason="Wrong coefficient",
-            related_comps=["COMP-003"],
+            related_entities=["WH-001"],
             iteration=4,
         ))
         restored = ResearchState.from_json(state.to_json())
         assert len(restored.failed_approaches) == 1
         assert restored.failed_approaches[0].reason == "Wrong coefficient"
-        assert restored.failed_approaches[0].related_comps == ["COMP-003"]
+        assert restored.failed_approaches[0].related_entities == ["WH-001"]
 
     def test_no_failures_returns_empty(self):
         state = ResearchState()
@@ -271,86 +273,52 @@ class TestFailureTracking:
 
 
 # ---------------------------------------------------------------------------
-# Fix: normalize_references (stale WH↔ER backlinks)
+# Fix: normalize_references (stale WH/ER backlinks in depends_on)
 # ---------------------------------------------------------------------------
 
 class TestNormalizeReferences:
 
-    def test_updates_stale_wh_to_er(self):
-        """COMP targeting WH-002 should be updated when hypothesis is ER-002."""
+    def test_updates_stale_depends_on_wh_to_er(self):
+        """depends_on referencing WH-002 should be updated when hypothesis is ER-002."""
         state = ResearchState()
         state.hypotheses["ER-002"] = Hypothesis(id="ER-002", status=HypothesisStatus.ESTABLISHED)
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-002", verdict=Verdict.VERIFIED,
+        state.hypotheses["WH-003"] = Hypothesis(
+            id="WH-003", depends_on=["WH-002"],
         )
         state.normalize_references()
-        assert state.computations["COMP-001"].target_hypothesis == "ER-002"
-        assert "COMP-001" in state.hypotheses["ER-002"].supporting_comps
+        assert state.hypotheses["WH-003"].depends_on == ["ER-002"]
 
-    def test_updates_stale_er_to_wh(self):
-        """COMP targeting ER-001 should be updated when hypothesis was demoted to WH-001."""
+    def test_updates_stale_depends_on_er_to_wh(self):
+        """depends_on referencing ER-001 should be updated when hypothesis was demoted to WH-001."""
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(id="WH-001", status=HypothesisStatus.WORKING)
-        state.computations["COMP-003"] = Computation(
-            id="COMP-003", target_hypothesis="ER-001", verdict=Verdict.REFUTED,
+        state.hypotheses["WH-003"] = Hypothesis(
+            id="WH-003", depends_on=["ER-001"],
         )
         state.normalize_references()
-        assert state.computations["COMP-003"].target_hypothesis == "WH-001"
-        assert "COMP-003" in state.hypotheses["WH-001"].supporting_comps
-
-    def test_rebuilds_supporting_comps(self):
-        """After normalization, supporting_comps contains all matching COMPs."""
-        state = ResearchState()
-        state.hypotheses["ER-002"] = Hypothesis(
-            id="ER-002", status=HypothesisStatus.ESTABLISHED,
-            supporting_comps=["COMP-999"],  # stale entry
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-002", verdict=Verdict.VERIFIED,
-        )
-        state.computations["COMP-005"] = Computation(
-            id="COMP-005", target_hypothesis="ER-002", verdict=Verdict.VERIFIED,
-        )
-        state.normalize_references()
-        comps = state.hypotheses["ER-002"].supporting_comps
-        assert "COMP-001" in comps
-        assert "COMP-005" in comps
-        assert "COMP-999" not in comps  # stale entry removed
+        assert state.hypotheses["WH-003"].depends_on == ["WH-001"]
 
     def test_idempotent(self):
         """Calling normalize_references twice produces the same result."""
         state = ResearchState()
         state.hypotheses["ER-002"] = Hypothesis(id="ER-002", status=HypothesisStatus.ESTABLISHED)
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-002", verdict=Verdict.VERIFIED,
+        state.hypotheses["WH-003"] = Hypothesis(
+            id="WH-003", depends_on=["WH-002"],
         )
         state.normalize_references()
-        target_after_first = state.computations["COMP-001"].target_hypothesis
-        comps_after_first = list(state.hypotheses["ER-002"].supporting_comps)
+        deps_after_first = list(state.hypotheses["WH-003"].depends_on)
         state.normalize_references()
-        assert state.computations["COMP-001"].target_hypothesis == target_after_first
-        assert state.hypotheses["ER-002"].supporting_comps == comps_after_first
+        assert state.hypotheses["WH-003"].depends_on == deps_after_first
 
-    def test_empty_target_ignored(self):
-        """COMPs with empty target_hypothesis are not modified."""
+    def test_no_alias_match_preserves_dep(self):
+        """depends_on targeting a number that doesn't exist in hypotheses is left alone."""
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="", verdict=Verdict.INCONCLUSIVE,
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", depends_on=["WH-099"],
         )
         state.normalize_references()
-        assert state.computations["COMP-001"].target_hypothesis == ""
-        assert state.hypotheses["WH-001"].supporting_comps == []
-
-    def test_no_alias_match_preserves_target(self):
-        """COMP targeting a number that doesn't exist in hypotheses is left alone."""
-        state = ResearchState()
-        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-099", verdict=Verdict.VERIFIED,
-        )
-        state.normalize_references()
-        assert state.computations["COMP-001"].target_hypothesis == "WH-099"
+        assert state.hypotheses["WH-002"].depends_on == ["WH-099"]
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +332,8 @@ class TestNewResearchStateFields:
         assert state.problem_statement == ""
         assert state.conventions == ""
         assert state.strategy == ""
+        assert state.short_term_plan == ""
+        assert state.research_notes == []
         assert state.status == "in_progress"
         assert state.title == ""
         assert state.background_survey is None
@@ -374,6 +344,8 @@ class TestNewResearchStateFields:
             problem_statement="Derive Hawking temperature.",
             conventions="Natural units: hbar = c = k_B = 1.",
             strategy="Focus on surface gravity approach.",
+            short_term_plan="Verify temperature formula.",
+            research_notes=[{"text": "Surface gravity confirmed.", "iteration": 1}],
             status="complete",
             title="Hawking Temperature",
         )
@@ -381,6 +353,8 @@ class TestNewResearchStateFields:
         assert restored.problem_statement == "Derive Hawking temperature."
         assert restored.conventions == "Natural units: hbar = c = k_B = 1."
         assert restored.strategy == "Focus on surface gravity approach."
+        assert restored.short_term_plan == "Verify temperature formula."
+        assert restored.research_notes == [{"text": "Surface gravity confirmed.", "iteration": 1}]
         assert restored.status == "complete"
         assert restored.title == "Hawking Temperature"
 
@@ -389,7 +363,6 @@ class TestNewResearchStateFields:
         old_json = json.dumps({
             "iteration": 5,
             "hypotheses": {},
-            "computations": {},
             "critiques": {},
             "failed_approaches": [],
         })
@@ -407,7 +380,6 @@ class TestNewResearchStateFields:
             "iteration": 3,
             "open_questions": "What about grey-body factors?",
             "hypotheses": {},
-            "computations": {},
             "critiques": {},
             "failed_approaches": [],
         })
@@ -441,7 +413,6 @@ class TestBackgroundSurveySerialization:
         old_json = json.dumps({
             "iteration": 5,
             "hypotheses": {},
-            "computations": {},
             "critiques": {},
             "failed_approaches": [],
         })
@@ -453,205 +424,156 @@ class TestBackgroundSurveySerialization:
         data = json.loads(state.to_json())
         assert data["background_survey"] is None
 
-    def test_backward_compat_old_research_strategy_key(self):
-        """Old JSON with 'research_strategy' key and 'strategy_notes' field loads into background_survey."""
-        old_json = json.dumps({
-            "iteration": 3,
-            "hypotheses": {},
-            "computations": {},
-            "critiques": {},
-            "failed_approaches": [],
-            "research_strategy": {
-                "strategy_notes": "Use Killing vector method.",
-                "iteration_created": 0,
-                "iteration_updated": 1,
-            },
-        })
-        state = ResearchState.from_json(old_json)
-        assert state.background_survey is not None
-        assert "Killing vector" in state.background_survey.survey_notes
-        assert state.background_survey.iteration_created == 0
-
 
 # ---------------------------------------------------------------------------
-# New Computation fields
+# Evidence and VerificationResult on Hypothesis
 # ---------------------------------------------------------------------------
 
-class TestNewComputationFields:
+class TestEvidenceOnHypothesis:
 
-    def test_defaults(self):
-        comp = Computation(id="COMP-001")
-        assert comp.kind == "verify"
-        assert comp.zero_output is False
-        assert comp.confidence == ""
-        assert comp.notes == ""
-        assert comp.result == ""
-        assert comp.evidence_scripts == []
-        assert comp.purpose == ""
+    def test_evidence_defaults(self):
+        ev = Evidence()
+        assert ev.type == ""
+        assert ev.reasoning == ""
+        assert ev.approach == ""
+        assert ev.scripts == []
+        assert ev.output == ""
+        assert ev.method == ""
+        assert ev.result == ""
+        assert ev.confidence == ""
+        assert ev.iteration is None
 
-    def test_json_round_trip(self):
+    def test_evidence_json_round_trip(self):
         state = ResearchState()
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001",
-            target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED,
-            kind="explore",
-            zero_output=True,
-            confidence="approximate",
-            notes="Ran 1000 iterations.",
-            result="pi/4 ~ 0.785",
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            evidence=Evidence(
+                type="compute",
+                approach="Direct numerical computation",
+                scripts=["001_verify.py"],
+                output="Result: 0.785",
+                method="numerical integration",
+                result="pi/4 ~ 0.785",
+                confidence="approximate",
+                iteration=3,
+            ),
         )
         restored = ResearchState.from_json(state.to_json())
-        comp = restored.computations["COMP-001"]
-        assert comp.kind == "explore"
-        assert comp.zero_output is True
-        assert comp.confidence == "approximate"
-        assert comp.notes == "Ran 1000 iterations."
-        assert comp.result == "pi/4 ~ 0.785"
+        ev = restored.hypotheses["WH-001"].evidence
+        assert ev is not None
+        assert ev.type == "compute"
+        assert ev.approach == "Direct numerical computation"
+        assert ev.scripts == ["001_verify.py"]
+        assert ev.method == "numerical integration"
+        assert ev.result == "pi/4 ~ 0.785"
+        assert ev.confidence == "approximate"
+        assert ev.iteration == 3
 
-    def test_evidence_scripts_round_trip(self):
+    def test_verification_result_defaults(self):
+        vr = VerificationResult()
+        assert vr.verdict == ""
+        assert vr.reasoning == ""
+        assert vr.critiques == []
+        assert vr.iteration is None
+
+    def test_verification_result_json_round_trip(self):
         state = ResearchState()
-        state.computations["COMP-002"] = Computation(
-            id="COMP-002",
-            target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED,
-            evidence_scripts=["001_verify_enum.py", "002_spot_check.py"],
-            purpose="Verify enumeration formula",
-            code_path="001_verify_enum.py, 002_spot_check.py",
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            verification=VerificationResult(
+                verdict="VERIFIED",
+                reasoning="All checks pass.",
+                critiques=[{"severity": "LOW", "argument": "Minor notation issue"}],
+                iteration=5,
+            ),
         )
         restored = ResearchState.from_json(state.to_json())
-        comp = restored.computations["COMP-002"]
-        assert comp.evidence_scripts == ["001_verify_enum.py", "002_spot_check.py"]
-        assert comp.purpose == "Verify enumeration formula"
-        assert comp.code_path == "001_verify_enum.py, 002_spot_check.py"
+        vr = restored.hypotheses["WH-001"].verification
+        assert vr is not None
+        assert vr.verdict == "VERIFIED"
+        assert vr.reasoning == "All checks pass."
+        assert len(vr.critiques) == 1
+        assert vr.critiques[0]["severity"] == "LOW"
+        assert vr.iteration == 5
 
-    def test_backward_compat_missing_fields(self):
-        """Old JSON without new Computation fields uses defaults."""
+    def test_hypothesis_without_evidence_or_verification(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        restored = ResearchState.from_json(state.to_json())
+        assert restored.hypotheses["WH-001"].evidence is None
+        assert restored.hypotheses["WH-001"].verification is None
+
+    def test_backward_compat_missing_evidence_fields(self):
+        """Old JSON without evidence/verification on hypotheses uses None."""
         old_json = json.dumps({
             "iteration": 1,
-            "hypotheses": {},
-            "computations": {
-                "COMP-001": {
-                    "id": "COMP-001",
-                    "target_hypothesis": "WH-001",
-                    "verdict": "VERIFIED",
+            "hypotheses": {
+                "WH-001": {
+                    "id": "WH-001",
+                    "statement": "Test hypothesis",
+                    "status": "working",
                 }
             },
             "critiques": {},
             "failed_approaches": [],
         })
         state = ResearchState.from_json(old_json)
-        comp = state.computations["COMP-001"]
-        assert comp.kind == "verify"
-        assert comp.zero_output is False
-        assert comp.confidence == ""
-        assert comp.notes == ""
-        assert comp.result == ""
-        assert comp.evidence_scripts == []
-        assert comp.purpose == ""
+        h = state.hypotheses["WH-001"]
+        assert h.evidence is None
+        assert h.verification is None
 
 
 # ---------------------------------------------------------------------------
-# explore_only_hypotheses
+# has_verified_evidence and hypotheses_with_evidence
 # ---------------------------------------------------------------------------
 
-class TestExploreOnlyHypotheses:
+class TestNewQueryMethods:
 
-    def test_returns_wh_with_explore_but_no_verified(self):
+    def test_has_verified_evidence_true(self):
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
-            id="WH-001", status=HypothesisStatus.WORKING,
+            id="WH-001",
+            verification=VerificationResult(verdict=Verdict.VERIFIED),
         )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="explore",
-        )
-        result = state.explore_only_hypotheses()
-        assert len(result) == 1
-        assert result[0].id == "WH-001"
+        assert state.has_verified_evidence("WH-001") is True
 
-    def test_excludes_wh_with_verified_verify(self):
+    def test_has_verified_evidence_false_no_verification(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        assert state.has_verified_evidence("WH-001") is False
+
+    def test_has_verified_evidence_false_inconclusive(self):
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
-            id="WH-001", status=HypothesisStatus.WORKING,
+            id="WH-001",
+            verification=VerificationResult(verdict=Verdict.INCONCLUSIVE),
         )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="explore",
-        )
-        state.computations["COMP-002"] = Computation(
-            id="COMP-002", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="verify",
-        )
-        result = state.explore_only_hypotheses()
-        assert result == []
+        assert state.has_verified_evidence("WH-001") is False
 
-    def test_excludes_er_hypotheses(self):
+    def test_has_verified_evidence_false_missing(self):
         state = ResearchState()
-        state.hypotheses["ER-001"] = Hypothesis(
-            id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="explore",
-        )
-        assert state.explore_only_hypotheses() == []
+        assert state.has_verified_evidence("WH-999") is False
 
-    def test_excludes_wh_without_explore(self):
+    def test_hypotheses_with_evidence_returns_correct(self):
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
-            id="WH-001", status=HypothesisStatus.WORKING,
+            id="WH-001",
+            evidence=Evidence(type="compute", result="42"),
         )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.INCONCLUSIVE, kind="verify",
+        state.hypotheses["WH-002"] = Hypothesis(id="WH-002")
+        state.hypotheses["WH-003"] = Hypothesis(
+            id="WH-003",
+            evidence=Evidence(type="research", result="derivation ok"),
         )
-        assert state.explore_only_hypotheses() == []
+        result = state.hypotheses_with_evidence()
+        assert len(result) == 2
+        ids = {h.id for h in result}
+        assert ids == {"WH-001", "WH-003"}
 
-    def test_empty_state(self):
+    def test_hypotheses_with_evidence_empty(self):
         state = ResearchState()
-        assert state.explore_only_hypotheses() == []
-
-
-# ---------------------------------------------------------------------------
-# refuted_targets
-# ---------------------------------------------------------------------------
-
-class TestRefutedTargets:
-
-    def test_returns_refuted_ids(self):
-        state = ResearchState()
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001", verdict=Verdict.REFUTED,
-        )
-        state.computations["COMP-002"] = Computation(
-            id="COMP-002", target_hypothesis="WH-002", verdict=Verdict.VERIFIED,
-        )
-        state.computations["COMP-003"] = Computation(
-            id="COMP-003", target_hypothesis="WH-001", verdict=Verdict.INCONCLUSIVE,
-        )
-        assert state.refuted_targets() == {"WH-001"}
-
-    def test_multiple_refuted(self):
-        state = ResearchState()
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001", verdict=Verdict.REFUTED,
-        )
-        state.computations["COMP-002"] = Computation(
-            id="COMP-002", target_hypothesis="WH-002", verdict=Verdict.REFUTED,
-        )
-        assert state.refuted_targets() == {"WH-001", "WH-002"}
-
-    def test_empty_target_excluded(self):
-        state = ResearchState()
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="", verdict=Verdict.REFUTED,
-        )
-        assert state.refuted_targets() == set()
-
-    def test_empty_state(self):
-        state = ResearchState()
-        assert state.refuted_targets() == set()
+        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        assert state.hypotheses_with_evidence() == []
 
 
 # ---------------------------------------------------------------------------
@@ -666,9 +588,6 @@ class TestDemoteHypothesis:
             id="ER-002", statement="Energy conserved",
             status=HypothesisStatus.ESTABLISHED,
         )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-002", verdict=Verdict.VERIFIED,
-        )
         new_id = state.demote_hypothesis("ER-002")
         assert new_id == "WH-002"
         assert "ER-002" not in state.hypotheses
@@ -676,17 +595,16 @@ class TestDemoteHypothesis:
         assert state.hypotheses["WH-002"].status == HypothesisStatus.WORKING
         assert state.hypotheses["WH-002"].statement == "Energy conserved"
 
-    def test_fixes_computation_references(self):
+    def test_fixes_depends_on_references(self):
         state = ResearchState()
         state.hypotheses["ER-002"] = Hypothesis(
             id="ER-002", status=HypothesisStatus.ESTABLISHED,
         )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-002", verdict=Verdict.VERIFIED,
+        state.hypotheses["WH-003"] = Hypothesis(
+            id="WH-003", depends_on=["ER-002"],
         )
         state.demote_hypothesis("ER-002")
-        assert state.computations["COMP-001"].target_hypothesis == "WH-002"
-        assert "COMP-001" in state.hypotheses["WH-002"].supporting_comps
+        assert state.hypotheses["WH-003"].depends_on == ["WH-002"]
 
     def test_returns_none_for_wh(self):
         state = ResearchState()
@@ -736,22 +654,6 @@ class TestNextNumMethods:
         state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
         state.hypotheses["WH-005"] = Hypothesis(id="WH-005")
         assert state.next_hypothesis_num() == 6
-
-    def test_next_computation_num_basic(self):
-        state = ResearchState()
-        state.computations["COMP-001"] = Computation(id="COMP-001")
-        state.computations["COMP-002"] = Computation(id="COMP-002")
-        assert state.next_computation_num() == 3
-
-    def test_next_computation_num_empty(self):
-        state = ResearchState()
-        assert state.next_computation_num() == 1
-
-    def test_next_computation_num_gap(self):
-        state = ResearchState()
-        state.computations["COMP-001"] = Computation(id="COMP-001")
-        state.computations["COMP-010"] = Computation(id="COMP-010")
-        assert state.next_computation_num() == 11
 
     def test_next_critique_num_basic(self):
         state = ResearchState()
@@ -850,13 +752,13 @@ class TestHypothesisDependsOn:
         state.hypotheses["ER-002"] = Hypothesis(
             id="ER-002", statement="Promoted result",
             status=HypothesisStatus.ESTABLISHED,
-            promotion_justification="Verified by COMP-001.",
+            promotion_justification="Verified by verifier.",
         )
         json_str = state.to_json()
         restored = ResearchState.from_json(json_str)
 
         assert restored.hypotheses["WH-001"].depends_on == ["ER-001", "WH-002"]
-        assert restored.hypotheses["ER-002"].promotion_justification == "Verified by COMP-001."
+        assert restored.hypotheses["ER-002"].promotion_justification == "Verified by verifier."
 
     def test_json_backward_compat_missing_fields(self):
         """Old JSON without depends_on/promotion_justification loads with defaults."""
@@ -996,3 +898,32 @@ class TestResearchQuestionLifecycle:
         )
         state.normalize_references()
         assert state.research_questions["RQ-001"].resolved_to == ["ER-001"]
+
+
+# ---------------------------------------------------------------------------
+# Evidence on ResearchQuestion
+# ---------------------------------------------------------------------------
+
+class TestResearchQuestionEvidence:
+    """Evidence can be attached to research questions."""
+
+    def test_rq_evidence_round_trip(self):
+        from sciralph.research_state import ResearchQuestion
+        state = ResearchState()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is F?",
+            evidence=Evidence(
+                type="research", method="analysis",
+                result="F = pi/4", confidence="exact", iteration=2,
+            ),
+        )
+        restored = ResearchState.from_json(state.to_json())
+        rq = restored.research_questions["RQ-001"]
+        assert rq.evidence is not None
+        assert rq.evidence.result == "F = pi/4"
+        assert rq.evidence.type == "research"
+
+    def test_rq_no_evidence_default(self):
+        from sciralph.research_state import ResearchQuestion
+        rq = ResearchQuestion(id="RQ-001", question="Test")
+        assert rq.evidence is None

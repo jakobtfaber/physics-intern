@@ -145,7 +145,7 @@ def _make_workspace(tmp_path, *, research_state=RESEARCH_STATE,
     (tmp_path / "RESEARCH_STATE.md").write_text(research_state)
     (tmp_path / "CURRENT_TASK.md").write_text(current_task)
     (tmp_path / "CRITIQUE_LOG.md").write_text(critique_log)
-    (tmp_path / "COMPUTATION_LOG.md").write_text(computation_log)
+    (tmp_path / "EVIDENCE_LOG.md").write_text(computation_log)
     return str(tmp_path)
 
 

@@ -4,8 +4,9 @@ from unittest.mock import MagicMock
 
 from sciralph.orchestrator_tools import OrchestratorToolExecutor
 from sciralph.research_state import (
-    ResearchState, Hypothesis, HypothesisStatus, Computation, Verdict,
+    ResearchState, Hypothesis, HypothesisStatus, Verdict,
     Critique, Severity, CritiqueStatus, FailedApproach,
+    Evidence, VerificationResult,
 )
 
 
@@ -37,41 +38,34 @@ def _make_state() -> ResearchState:
 
 
 def _make_state_with_verified(target: str = "WH-001") -> ResearchState:
-    """State with a VERIFIED computation targeting *target*."""
+    """State with a VERIFIED verification result on *target*."""
     state = _make_state()
-    state.computations["COMP-001"] = Computation(
-        id="COMP-001", target_hypothesis=target,
-        verdict=Verdict.VERIFIED, claim=f"Verify {target}",
+    state.hypotheses[target].verification = VerificationResult(
+        verdict=Verdict.VERIFIED, reasoning=f"Verified {target}", iteration=3,
     )
     return state
 
 
 def _make_state_with_refuted(target: str = "WH-001") -> ResearchState:
-    """State with a REFUTED computation targeting *target*."""
+    """State with a REFUTED verification result on *target*."""
     state = _make_state()
-    state.computations["COMP-001"] = Computation(
-        id="COMP-001", target_hypothesis=target,
-        verdict=Verdict.REFUTED, claim=f"Verify {target}",
+    state.hypotheses[target].verification = VerificationResult(
+        verdict=Verdict.REFUTED, reasoning=f"Refuted {target}", iteration=3,
     )
     return state
 
 
 def _make_state_with_refuted_and_verified(target: str = "WH-001") -> ResearchState:
-    """State with both REFUTED and VERIFIED computations targeting *target*."""
+    """State with a VERIFIED verification result on *target* (supersedes earlier refutation)."""
     state = _make_state()
-    state.computations["COMP-001"] = Computation(
-        id="COMP-001", target_hypothesis=target,
-        verdict=Verdict.REFUTED, claim=f"Verify {target} (first attempt)",
-    )
-    state.computations["COMP-002"] = Computation(
-        id="COMP-002", target_hypothesis=target,
-        verdict=Verdict.VERIFIED, claim=f"Verify {target} (corrected)",
+    state.hypotheses[target].verification = VerificationResult(
+        verdict=Verdict.VERIFIED, reasoning=f"Verified {target} (corrected)", iteration=4,
     )
     return state
 
 
 def _make_state_with_high_critique(target: str = "WH-001") -> ResearchState:
-    """State with VERIFIED comp + unresolved HIGH critique targeting *target*."""
+    """State with VERIFIED verification + unresolved HIGH critique targeting *target*."""
     state = _make_state_with_verified(target)
     state.critiques["CRIT-001"] = Critique(
         id="CRIT-001", targets=[target], severity=Severity.HIGH,
@@ -181,24 +175,16 @@ class TestAbandonHypothesis:
         assert fa.derivation_excerpt == "Photon has spin-1."
         assert ex.mutations_applied
 
-    def test_abandon_populates_related_comps(self):
-        """Abandoning a hypothesis with targeting computations populates related_comps."""
+    def test_abandon_populates_related_entities(self):
+        """Abandoning a hypothesis populates related_entities with the hypothesis ID."""
         ws = _make_workspace()
         state = _make_state()
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.REFUTED, kind="verify",
-        )
-        state.computations["COMP-002"] = Computation(
-            id="COMP-002", target_hypothesis="WH-002",
-            verdict=Verdict.VERIFIED, kind="verify",
-        )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         ex.execute("abandon_hypothesis", {
             "id": "WH-001", "reason": "Refuted.",
         })
         fa = state.failed_approaches[0]
-        assert fa.related_comps == ["COMP-001"]
+        assert fa.related_entities == ["WH-001"]
 
     def test_abandon_long_derivation_truncated(self):
         """Long derivation is truncated to 300 chars in derivation_excerpt."""
@@ -274,16 +260,18 @@ class TestPromoteHypothesis:
         assert ex.mutations_applied
 
     def test_normalizes_references(self):
-        """Promotion calls state.normalize_references() to update comp targets."""
+        """Promotion calls state.normalize_references() to update depends_on."""
         ws = _make_workspace()
         state = _make_state_with_verified("WH-001")
+        # WH-002 depends on WH-001 — should be updated to ER-001 after promotion
+        state.hypotheses["WH-002"].depends_on = ["WH-001"]
         ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
         ex.execute("promote_hypothesis", {
             "id": "WH-001",
             "justification": "Verified.",
         })
-        # After normalize_references, COMP-001 target should become ER-001
-        assert state.computations["COMP-001"].target_hypothesis == "ER-001"
+        # After normalize_references, depends_on should point to ER-001
+        assert state.hypotheses["WH-002"].depends_on == ["ER-001"]
 
     def test_blocked_by_refuted_no_verified(self):
         ws = _make_workspace()
@@ -294,7 +282,7 @@ class TestPromoteHypothesis:
             "justification": "Should fail.",
         })
         assert "Error" in tc.output
-        assert "REFUTED" in tc.output
+        assert "no VERIFIED" in tc.output
         # State unchanged
         assert "WH-001" in state.hypotheses
         assert "ER-001" not in state.hypotheses
@@ -458,6 +446,18 @@ class TestUpdateSection:
         assert state.strategy == "Focus on surface gravity approach first."
         assert ex.mutations_applied
 
+    def test_updates_short_term_plan(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("update_section", {
+            "section": "Short-term Plan",
+            "content": "1. Verify WH-001\n2. Explore entropy corrections",
+        })
+        assert not tc.is_error
+        assert state.short_term_plan == "1. Verify WH-001\n2. Explore entropy corrections"
+        assert ex.mutations_applied
+
     def test_unknown_section_returns_error(self):
         ws = _make_workspace()
         state = _make_state()
@@ -467,6 +467,39 @@ class TestUpdateSection:
             "content": "x",
         })
         assert "not found" in tc.output or "unknown" in tc.output
+
+
+# ---------------------------------------------------------------------------
+# append_note
+# ---------------------------------------------------------------------------
+
+class TestAppendNote:
+    def test_appends_note_to_state(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=4, research_state=state)
+        tc = ex.execute("append_note", {
+            "text": "The sign convention must be checked.",
+        })
+        assert not tc.is_error
+        assert len(state.research_notes) == 1
+        assert state.research_notes[0]["text"] == "The sign convention must be checked."
+        assert state.research_notes[0]["iteration"] == 4
+        assert ex.mutations_applied
+
+    def test_empty_note_returns_error(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=4, research_state=state)
+        tc = ex.execute("append_note", {"text": "   "})
+        assert "empty" in tc.output.lower()
+        assert not ex.mutations_applied
+
+    def test_append_note_no_state_returns_error(self):
+        ws = _make_workspace()
+        ex = OrchestratorToolExecutor(ws, iteration=4, research_state=None)
+        tc = ex.execute("append_note", {"text": "test"})
+        assert "no research state" in tc.output
 
 
 # ---------------------------------------------------------------------------
@@ -519,14 +552,14 @@ class TestSetNextTask:
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3)
         tc = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "priority": "high",
             "target_claim": "WH-001",
             "description": "Verify WH-001 numerically.",
         })
         assert not tc.is_error
         assert ex.task_data is not None
-        assert ex.task_data["task_type"] == "compute_verify"
+        assert ex.task_data["task_type"] == "verify"
         assert ex.task_data["target_claim"] == "WH-001"
 
     def test_sets_stop_after_round(self):
@@ -636,23 +669,22 @@ class TestDependencyGraph:
         assert state.hypotheses["ER-002"].promotion_justification == "Verified by COMP-001, dependency ER-001 established"
 
     def test_promotion_blocked_without_verification_evidence(self):
-        """Promotion requires at least one VERIFIED verify/research_verify computation."""
+        """Promotion requires a VERIFIED verification result."""
         ws = _make_workspace()
-        state = _make_state()  # no computations
+        state = _make_state()  # no verification
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("promote_hypothesis", {
             "id": "WH-001",
             "justification": "Just because",
         })
-        assert "no VERIFIED computation" in tc.output
+        assert "no VERIFIED verification" in tc.output
 
-    def test_promotion_allowed_with_research_verify_evidence(self):
-        """research_verify kind counts as verification evidence."""
+    def test_promotion_allowed_with_verification_result(self):
+        """A VERIFIED verification result allows promotion."""
         ws = _make_workspace()
         state = _make_state()
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="research_verify",
+        state.hypotheses["WH-001"].verification = VerificationResult(
+            verdict=Verdict.VERIFIED, reasoning="Analytical verification passed", iteration=2,
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("promote_hypothesis", {
@@ -804,7 +836,7 @@ class TestTwoPhaseGate:
 
         # set_next_task in same round → rejected
         tc2 = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "target_claim": "WH-003",
             "description": "Verify new claim.",
         })
@@ -861,7 +893,7 @@ class TestTwoPhaseGate:
 
         # set_next_task still works
         tc3 = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "target_claim": "WH-003",
             "description": "Verify.",
         })
@@ -887,7 +919,7 @@ class TestTwoPhaseGate:
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         tc = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "target_claim": "WH-001",
             "description": "Verify.",
         })
@@ -905,7 +937,7 @@ class TestTwoPhaseGate:
         ex.execute("add_hypothesis", {"statement": "Claim"})
         # set_next_task in same response → rejected
         tc_reject = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "target_claim": "WH-003",
             "description": "Verify.",
         })
@@ -915,7 +947,7 @@ class TestTwoPhaseGate:
         # Phase 2: new response (begin_round clears mutations_this_round)
         ex.begin_round()
         tc_ok = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "target_claim": "WH-003",
             "description": "Verify.",
         })
@@ -931,11 +963,11 @@ class TestTwoPhaseGate:
 
         ex.execute("add_hypothesis", {"statement": "Claim"})
         tc1 = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "description": "First try.",
         })
         tc2 = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "description": "Second try.",
         })
         assert "Error" in tc1.output
@@ -955,7 +987,7 @@ class TestTwoPhaseGate:
         })
 
         tc = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "description": "Verify.",
         })
         assert "Error" in tc.output
@@ -976,7 +1008,7 @@ class TestTwoPhaseGate:
         ex.begin_round()
         assert len(ex.mutations_this_round) == 0
         tc = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "target_claim": "WH-003",
             "description": "Verify.",
         })
@@ -1003,7 +1035,7 @@ class TestTwoPhaseGate:
             "section": "Conventions", "content": "Natural units.",
         })
         tc = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "target_claim": "WH-001",
             "description": "Verify.",
         })
@@ -1023,7 +1055,7 @@ class TestTargetClaimValidation:
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "target_claim": "WH-001",
             "description": "Verify.",
         })
@@ -1039,7 +1071,7 @@ class TestTargetClaimValidation:
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("set_next_task", {
-            "task_type": "research_explore",
+            "task_type": "research",
             "target_claim": "RQ-003",
             "description": "Explore.",
         })
@@ -1051,7 +1083,7 @@ class TestTargetClaimValidation:
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "target_claim": "WH-099",
             "description": "Verify.",
         })
@@ -1100,7 +1132,7 @@ class TestTargetClaimValidation:
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "description": "Verify something.",
         })
         assert "Task set" in tc.output
@@ -1110,7 +1142,7 @@ class TestTargetClaimValidation:
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
         tc = ex.execute("set_next_task", {
-            "task_type": "compute_verify",
+            "task_type": "verify",
             "target_claim": "WH-099",
             "description": "Verify.",
         })

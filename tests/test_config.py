@@ -33,8 +33,8 @@ class TestDefaults:
         assert Config().stall_recompute_limit == 2
 
     def test_progress_check_interval_default(self):
-        assert Config().progress_check_interval == 3
-        assert DEFAULTS["progress_check_interval"] == 3
+        assert Config().progress_check_interval == 4
+        assert DEFAULTS["progress_check_interval"] == 4
 
     def test_progress_check_interval_in_yaml_fields(self):
         assert "progress_check_interval" in _YAML_CONFIG_FIELDS

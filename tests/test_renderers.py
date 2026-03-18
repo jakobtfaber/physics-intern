@@ -4,10 +4,8 @@ import pytest
 
 from sciralph.markdown import parse_frontmatter
 from sciralph.renderers import (
-    render_computation_log_md,
-    render_computation_log_tail,
-    render_compute_research_state,
     render_critique_log_md,
+    render_evidence_log_md,
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
     render_background_survey,
@@ -15,9 +13,9 @@ from sciralph.renderers import (
     render_task_md,
 )
 from sciralph.research_state import (
-    Computation,
     Critique,
     CritiqueStatus,
+    Evidence,
     FailedApproach,
     Hypothesis,
     HypothesisStatus,
@@ -25,6 +23,7 @@ from sciralph.research_state import (
     BackgroundSurvey,
     Severity,
     Verdict,
+    VerificationResult,
 )
 from sciralph.task import Task, TaskType
 
@@ -38,11 +37,9 @@ def populated_state():
     """ResearchState with representative entities for concise tests.
 
     Contains:
-      - 1 ER hypothesis (ER-001, established)
-      - 1 WH hypothesis (WH-002, working)
+      - 1 ER hypothesis (ER-001, established, with evidence + verification)
+      - 1 WH hypothesis (WH-002, working, with evidence)
       - 1 abandoned hypothesis (WH-003)
-      - 1 VERIFIED verify computation (COMP-001, targeting ER-001)
-      - 1 explore computation (COMP-002, targeting WH-002)
       - 1 active HIGH critique (CRIT-001)
       - 1 resolved LOW critique (CRIT-002)
       - 1 failed approach
@@ -62,6 +59,18 @@ def populated_state():
         derivation="Surface gravity kappa = 1/(4M), then T = kappa/(2 pi).",
         iteration_created=1,
         iteration_modified=3,
+        evidence=Evidence(
+            type="compute",
+            method="Symbolic computation with sympy",
+            result="T = 1/(8*pi*M)",
+            confidence="exact",
+            iteration=3,
+        ),
+        verification=VerificationResult(
+            verdict=Verdict.VERIFIED,
+            reasoning="Symbolic computation confirms the formula.",
+            iteration=3,
+        ),
     )
     state.hypotheses["WH-002"] = Hypothesis(
         id="WH-002",
@@ -70,6 +79,13 @@ def populated_state():
         derivation="From integration of dS = dM/T.",
         iteration_created=2,
         iteration_modified=4,
+        evidence=Evidence(
+            type="compute",
+            method="Numerical integration",
+            result="S ~ 4*pi*M**2 to 1e-10",
+            confidence="approximate",
+            iteration=4,
+        ),
     )
     state.hypotheses["WH-003"] = Hypothesis(
         id="WH-003",
@@ -78,27 +94,6 @@ def populated_state():
         derivation="Greybody factors modify the spectrum.",
         iteration_created=1,
         iteration_modified=5,
-    )
-
-    state.computations["COMP-001"] = Computation(
-        id="COMP-001",
-        target_hypothesis="ER-001",
-        verdict=Verdict.VERIFIED,
-        claim="T_H = 1/(8 pi M) from surface gravity",
-        method="Symbolic computation with sympy",
-        result="T = 1/(8*pi*M)",
-        iteration=3,
-        kind="verify",
-    )
-    state.computations["COMP-002"] = Computation(
-        id="COMP-002",
-        target_hypothesis="WH-002",
-        claim="Explore entropy integral",
-        method="Numerical integration",
-        result="S ~ 4*pi*M**2 to 1e-10",
-        confidence="approximate",
-        iteration=4,
-        kind="explore",
     )
 
     state.critiques["CRIT-001"] = Critique(
@@ -123,7 +118,7 @@ def populated_state():
     state.failed_approaches.append(FailedApproach(
         description="Direct Euclidean path integral approach",
         reason="Requires regularization scheme not yet implemented",
-        related_comps=["COMP-001"],
+        related_entities=["ER-001"],
         iteration=2,
         derivation_excerpt="Euclidean continuation t -> -i tau, period beta = 1/T.",
     ))
@@ -145,8 +140,8 @@ def empty_state():
 def sample_task():
     return Task(
         task_id="TASK-005",
-        task_type=TaskType.COMPUTE_VERIFY,
-        assigned_to="compute_verify",
+        task_type=TaskType.VERIFY,
+        assigned_to="verifier",
         priority="high",
         iteration=5,
         target_claim="ER-001",
@@ -158,8 +153,8 @@ def sample_task():
 def resolve_task():
     return Task(
         task_id="TASK-006",
-        task_type=TaskType.RESEARCH_EXPLORE,
-        assigned_to="research_explore",
+        task_type=TaskType.RESEARCH,
+        assigned_to="researcher",
         priority="high",
         iteration=5,
         blocking_critiques=["CRIT-001"],
@@ -229,12 +224,12 @@ class TestRenderResearchStateMd:
         assert "Direct Euclidean path integral approach" in dead_ends
         assert "Requires regularization" in dead_ends
 
-    def test_dead_ends_renders_derivation_and_related_comps(self, populated_state):
+    def test_dead_ends_renders_derivation_and_related_entities(self, populated_state):
         md = render_research_state_md(populated_state)
         dead_ends_start = md.index("# Dead Ends")
         dead_ends = md[dead_ends_start:]
         assert "Derivation: Euclidean continuation" in dead_ends
-        assert "Related computations: COMP-001" in dead_ends
+        assert "Related entities: ER-001" in dead_ends
 
     def test_empty_state_valid_markdown(self, empty_state):
         md = render_research_state_md(empty_state)
@@ -317,147 +312,77 @@ class TestRenderResearchStateMd:
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", statement="Established result",
             status=HypothesisStatus.ESTABLISHED,
-            promotion_justification="Verified by COMP-001.",
+            promotion_justification="Verified by verifier.",
         )
         md = render_research_state_md(state)
-        assert "**Promotion justification:** Verified by COMP-001." in md
+        assert "**Promotion justification:** Verified by verifier." in md
+
+    def test_evidence_summary_rendered(self, populated_state):
+        """Evidence summary appears in the research state output."""
+        md = render_research_state_md(populated_state)
+        assert "**Evidence (compute):**" in md
+
+    def test_verification_rendered(self, populated_state):
+        """Verification status appears in the research state output."""
+        md = render_research_state_md(populated_state)
+        assert "**Verification:** VERIFIED" in md
 
 
 # ===========================================================================
-# render_computation_log_md
+# render_evidence_log_md
 # ===========================================================================
 
-class TestRenderComputationLogMd:
+class TestRenderEvidenceLogMd:
 
-    def test_frontmatter_total_computations(self, populated_state):
-        md = render_computation_log_md(populated_state)
+    def test_frontmatter_total_entries(self, populated_state):
+        md = render_evidence_log_md(populated_state)
         meta, _ = parse_frontmatter(md)
-        assert meta["total_computations"] == 2
+        # ER-001 has evidence + verification, WH-002 has evidence
+        assert meta["total_entries"] == 3
 
-    def test_verify_entry_fields(self, populated_state):
-        md = render_computation_log_md(populated_state)
-        assert "COMP-001: Computation" in md
-        assert "**CLAIM:**" in md
-        assert "**VERDICT:** VERIFIED" in md
-        assert "**METHOD:** Symbolic computation with sympy" in md
+    def test_evidence_entry_fields(self, populated_state):
+        md = render_evidence_log_md(populated_state)
+        assert "ER-001: Evidence (compute)" in md
+        assert "**Method:** Symbolic computation with sympy" in md
+        assert "**Result:** T = 1/(8*pi*M)" in md
 
-    def test_explore_entry_fields(self, populated_state):
-        md = render_computation_log_md(populated_state)
-        assert "COMP-002: Exploration" in md
-        assert "**TARGET:** WH-002" in md
-        assert "**DESCRIPTION:** Explore entropy integral" in md
-        assert "**CONFIDENCE:** approximate" in md
+    def test_verification_entry_fields(self, populated_state):
+        md = render_evidence_log_md(populated_state)
+        assert "ER-001: Verification" in md
+        assert "VERIFIED" in md
+        assert "Symbolic computation confirms" in md
 
     def test_sorted_by_iteration(self, populated_state):
-        md = render_computation_log_md(populated_state)
-        pos_comp1 = md.index("COMP-001")
-        pos_comp2 = md.index("COMP-002")
-        assert pos_comp1 < pos_comp2, "COMP-001 (iter 3) should precede COMP-002 (iter 4)"
+        md = render_evidence_log_md(populated_state)
+        # ER-001 evidence (iter 3) should precede WH-002 evidence (iter 4)
+        pos_er = md.index("ER-001: Evidence")
+        pos_wh = md.index("WH-002: Evidence")
+        assert pos_er < pos_wh
 
-    def test_iteration_label_present(self, populated_state):
-        md = render_computation_log_md(populated_state)
-        assert "**Iteration:** 3" in md
-        assert "**Iteration:** 4" in md
-
-    def test_empty_computations_valid_markdown(self, empty_state):
-        md = render_computation_log_md(empty_state)
+    def test_empty_state_valid_markdown(self, empty_state):
+        md = render_evidence_log_md(empty_state)
         meta, body = parse_frontmatter(md)
-        assert meta["total_computations"] == 0
-        assert "# Computations" in body
+        assert meta["total_entries"] == 0
+        assert "No evidence or verification recorded yet" in body
 
-    def test_verify_entry_with_notes(self):
-        state = ResearchState()
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001",
-            claim="Test claim",
-            method="Test method",
-            result="Result",
-            verdict=Verdict.INCONCLUSIVE,
-            notes="Convergence issues at large M",
-            iteration=1,
-            kind="verify",
-        )
-        md = render_computation_log_md(state)
-        assert "**NOTES:** Convergence issues at large M" in md
+    def test_confidence_rendered(self, populated_state):
+        md = render_evidence_log_md(populated_state)
+        assert "**Confidence:** approximate" in md
 
-    def test_verify_entry_with_failure_detail_no_notes(self):
+    def test_rq_evidence_rendered(self):
+        """Evidence on research questions appears in evidence log."""
+        from sciralph.research_state import ResearchQuestion, RQStatus
         state = ResearchState()
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001",
-            claim="Test claim",
-            method="Test method",
-            result="Result",
-            verdict=Verdict.REFUTED,
-            failure_detail="Division by zero at r=0",
-            iteration=1,
-            kind="verify",
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is F?",
+            evidence=Evidence(
+                type="research", method="analysis",
+                result="F = pi/4", iteration=2,
+            ),
         )
-        md = render_computation_log_md(state)
-        assert "**NOTES:** Division by zero at r=0" in md
-
-    def test_explore_entry_with_notes(self):
-        state = ResearchState()
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001",
-            target_hypothesis="WH-001",
-            claim="Explore something",
-            method="Numerical",
-            result="42",
-            confidence="exact",
-            notes="Interesting behaviour near horizon",
-            iteration=1,
-            kind="explore",
-        )
-        md = render_computation_log_md(state)
-        assert "**NOTES:** Interesting behaviour near horizon" in md
-
-    def test_zero_output_collapsed_to_single_line(self):
-        """zero_output computations render as a single FAILED line (C4)."""
-        state = ResearchState()
-        state.computations["TASK-003"] = Computation(
-            id="TASK-003",
-            target_hypothesis="WH-001",
-            claim="Test claim",
-            method="Test method",
-            result="",
-            verdict=Verdict.INCONCLUSIVE,
-            zero_output=True,
-            iteration=3,
-            kind="verify",
-        )
-        md = render_computation_log_md(state)
-        assert "TASK-003: FAILED (no result produced, iteration 3)" in md
-        # Should NOT include the full entry fields
-        assert "**CLAIM:**" not in md
-        assert "**VERDICT:**" not in md
-
-    def test_task_prefixed_id_counted_in_total(self):
-        """TASK-prefixed computation IDs are counted in total_computations (A2)."""
-        state = ResearchState()
-        state.computations["TASK-003"] = Computation(
-            id="TASK-003", claim="Test", iteration=3, kind="verify",
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", claim="Test2", iteration=2, kind="verify",
-        )
-        md = render_computation_log_md(state)
-        meta, _ = parse_frontmatter(md)
-        assert meta["total_computations"] == 2
-
-    def test_target_hypothesis_prefix_in_verify(self):
-        state = ResearchState()
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001",
-            target_hypothesis="ER-001",
-            claim="Energy conservation",
-            method="Analytical",
-            result="Confirmed",
-            verdict=Verdict.VERIFIED,
-            iteration=1,
-            kind="verify",
-        )
-        md = render_computation_log_md(state)
-        assert "**CLAIM:** ER-001 — Energy conservation" in md
+        md = render_evidence_log_md(state)
+        assert "RQ-001: Evidence (research)" in md
+        assert "F = pi/4" in md
 
 
 # ===========================================================================
@@ -575,8 +500,8 @@ class TestRenderTaskMd:
         md = render_task_md(sample_task)
         meta, body = parse_frontmatter(md)
         assert meta["task_id"] == "TASK-005"
-        assert meta["task_type"] == "compute_verify"
-        assert meta["assigned_to"] == "compute_verify"
+        assert meta["task_type"] == "verify"
+        assert meta["assigned_to"] == "verifier"
         assert meta["priority"] == "high"
         assert meta["iteration"] == 5
 
@@ -591,70 +516,8 @@ class TestRenderTaskMd:
 
 
 # ===========================================================================
-# render_computation_log_tail
-# ===========================================================================
-
-class TestRenderComputationLogTail:
-
-    def test_returns_last_n_entries(self, populated_state):
-        text = render_computation_log_tail(populated_state, 1)
-        assert "COMP-002" in text
-        assert "COMP-001" not in text
-
-    def test_returns_all_when_n_exceeds_count(self, populated_state):
-        text = render_computation_log_tail(populated_state, 10)
-        assert "COMP-001" in text
-        assert "COMP-002" in text
-
-    def test_empty_state_returns_empty(self, empty_state):
-        text = render_computation_log_tail(empty_state, 5)
-        assert text == ""
-
-    def test_zero_output_collapsed(self):
-        from sciralph.research_state import ResearchState
-        state = ResearchState()
-        state.computations["TASK-003"] = Computation(
-            id="TASK-003", target_hypothesis="WH-001",
-            claim="Test", zero_output=True, iteration=3, kind="verify",
-        )
-        text = render_computation_log_tail(state, 5)
-        assert "TASK-003: FAILED" in text
-        assert "**CLAIM:**" not in text
-
-
-# ===========================================================================
 # render_orchestrator_research_state
 # ===========================================================================
-
-class TestRenderComputeResearchState:
-
-    def test_no_frontmatter(self, populated_state):
-        text = render_compute_research_state(populated_state)
-        assert "---" not in text
-
-    def test_includes_problem_statement(self, populated_state):
-        text = render_compute_research_state(populated_state)
-        assert "# Problem Statement" in text
-        assert "Derive the Hawking temperature" in text
-
-    def test_conventions_included(self, populated_state):
-        text = render_compute_research_state(populated_state)
-        assert "# Conventions" in text
-        assert "Natural units" in text
-
-    def test_hypotheses_included(self, populated_state):
-        text = render_compute_research_state(populated_state)
-        assert "## ER-001" in text
-        assert "## WH-002" in text
-
-    def test_skips_empty_dead_ends(self, empty_state):
-        text = render_compute_research_state(empty_state)
-        assert "# Dead Ends" not in text
-
-    def test_includes_populated_dead_ends(self, populated_state):
-        text = render_compute_research_state(populated_state)
-        assert "# Dead Ends" in text
-        assert "Abandoned WH-003" in text
 
 class TestRenderOrchestratorResearchState:
 
@@ -686,44 +549,15 @@ class TestRenderOrchestratorResearchState:
         assert "# Dead Ends" in text
         assert "Abandoned WH-003" in text
 
-    def test_computation_history_present(self, populated_state):
-        """Orchestrator context includes per-hypothesis computation history."""
+    def test_evidence_summary_in_context(self, populated_state):
+        """Orchestrator context includes evidence summaries on hypotheses."""
         text = render_orchestrator_research_state(populated_state)
-        assert "Computation history:" in text
-        # ER-001 has COMP-001 (verify, VERIFIED)
-        assert "COMP-001 (verify, VERIFIED)" in text
+        assert "Evidence (compute)" in text
 
-    def test_computation_history_excludes_zero_output(self, populated_state):
-        """zero_output computations excluded from computation history."""
-        populated_state.computations["COMP-003"] = Computation(
-            id="COMP-003", target_hypothesis="ER-001",
-            verdict=Verdict.INCONCLUSIVE, kind="verify",
-            zero_output=True, iteration=4,
-        )
+    def test_verification_in_context(self, populated_state):
+        """Orchestrator context includes verification status on hypotheses."""
         text = render_orchestrator_research_state(populated_state)
-        assert "COMP-003" not in text
-
-    def test_no_computation_history_for_hypothesis_without_comps(self):
-        """Hypothesis with no computations has no computation history line."""
-        state = ResearchState(problem_statement="Test")
-        state.hypotheses["WH-001"] = Hypothesis(
-            id="WH-001", statement="No comps",
-            status=HypothesisStatus.WORKING,
-        )
-        text = render_orchestrator_research_state(state)
-        assert "Computation history:" not in text
-
-
-class TestComputationHistoryNotInOtherRenderers:
-    """Computation history only appears in orchestrator context."""
-
-    def test_not_in_research_state_md(self, populated_state):
-        text = render_research_state_md(populated_state)
-        assert "Computation history:" not in text
-
-    def test_not_in_compute_research_state(self, populated_state):
-        text = render_compute_research_state(populated_state)
-        assert "Computation history:" not in text
+        assert "Verification:" in text
 
 
 # ===========================================================================
@@ -815,17 +649,6 @@ class TestRenderBackgroundSurvey:
         text = render_orchestrator_research_state(state)
         assert "# Background Survey" in text
         assert "Killing vector method" in text
-
-    def test_background_survey_in_compute_context(self):
-        state = self._make_survey_state()
-        text = render_compute_research_state(state)
-        assert "# Background Survey" in text
-        assert "Killing vector method" in text
-
-    def test_background_survey_none_not_in_compute_context(self):
-        state = ResearchState(problem_statement="Test")
-        text = render_compute_research_state(state)
-        assert "# Background Survey" not in text
 
     def test_background_survey_none_renders_nothing_in_orchestrator(self):
         """When survey is None, no background survey section in orchestrator context."""

@@ -12,11 +12,12 @@ from sciralph.config import Config, DEFAULTS
 from sciralph.llm import AgentResult, run_agent_loop
 from sciralph.providers.base import ProviderResponse
 from sciralph.research_state import (
-    Computation,
+    Evidence,
     Hypothesis,
     HypothesisStatus,
     ResearchState,
     Verdict,
+    VerificationResult,
 )
 from sciralph.task import Task, TaskType
 from sciralph.tools import ToolExecutor
@@ -341,9 +342,8 @@ class TestStaleUnverifiedLabels:
             id="ER-001",
             derivation="ER-001 is [unverified] pending computation.",
         )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        state.hypotheses["ER-001"].verification = VerificationResult(
+            verdict="VERIFIED", iteration=1,
         )
         check_stale_unverified_labels(state)
         assert "VERIFIED" in state.hypotheses["ER-001"].derivation
@@ -381,9 +381,8 @@ class TestStaleUnverifiedLabels:
             id="ER-002",
             derivation="ER-002 is [unverified].",
         )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        state.hypotheses["ER-001"].verification = VerificationResult(
+            verdict="VERIFIED", iteration=1,
         )
         check_stale_unverified_labels(state)
         assert "VERIFIED" in state.hypotheses["ER-001"].derivation
@@ -397,9 +396,8 @@ class TestStaleUnverifiedLabels:
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
             derivation="WH-001 was [unverified] but now promoted.",
         )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        state.hypotheses["ER-001"].verification = VerificationResult(
+            verdict="VERIFIED", iteration=1,
         )
         check_stale_unverified_labels(state)
         assert "ER-001" in state.hypotheses["ER-001"].derivation
@@ -414,14 +412,14 @@ class TestStaleUnverifiedLabels:
             id="WH-002",
             derivation="ER-002 — [unverified] result.",
         )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-002",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+        state.hypotheses["WH-002"].verification = VerificationResult(
+            verdict="VERIFIED", iteration=1,
         )
         check_stale_unverified_labels(state)
-        # ER-002 doesn't exist in state, so WH-002→ER-002 mapping is not made.
-        # The derivation line references ER-002 (not WH-002), which is not in
-        # verified_ids, so no promotion occurs.
+        # The derivation line references ER-002 (not WH-002), and ER-002 doesn't
+        # exist in state.  verified_ids = {"WH-002"} (ER-002 not added because
+        # it doesn't exist in hypotheses).  The line's id is "ER-002" which is
+        # NOT in verified_ids, so [unverified] stays.
         assert "[unverified]" in state.hypotheses["WH-002"].derivation
 
 
@@ -434,47 +432,34 @@ class TestErDemotionNoAutoPromote:
     but does NOT auto-promote WHs.  Operates on ResearchState directly."""
 
     def test_demotion_fires_when_refuted(self):
-        """ER-001 demoted to WH-001 when REFUTED computation exists with no VERIFIED."""
+        """ER-001 demoted to WH-001 when verification verdict is REFUTED."""
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.REFUTED, kind="verify", iteration=1,
+            verification=VerificationResult(verdict="REFUTED", iteration=1),
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 1
         assert "WH-001" in state.hypotheses
         assert "ER-001" not in state.hypotheses
 
-    def test_no_demotion_when_verified_supersedes(self):
-        """ER-001 stays ER when both REFUTED and VERIFIED exist (VERIFIED supersedes)."""
+    def test_no_demotion_when_verified(self):
+        """ER-001 stays ER when verification verdict is VERIFIED."""
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.REFUTED, kind="verify", iteration=1,
-        )
-        state.computations["COMP-002"] = Computation(
-            id="COMP-002", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=2,
+            verification=VerificationResult(verdict="VERIFIED", iteration=2),
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 0
         assert "ER-001" in state.hypotheses
 
     def test_no_promotion_without_verified(self):
-        """WH-001 stays WH — no auto-promotion even with VERIFIED backing."""
+        """WH-001 stays WH — no auto-promotion even with VERIFIED verification."""
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+            verification=VerificationResult(verdict="VERIFIED", iteration=1),
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 0
@@ -482,15 +467,11 @@ class TestErDemotionNoAutoPromote:
         assert "WH-001" in state.hypotheses
         assert "ER-001" not in state.hypotheses
 
-    def test_no_demotion_when_no_refuted(self):
-        """ER-001 stays ER when no REFUTED computation exists."""
+    def test_no_demotion_when_no_verification(self):
+        """ER-001 stays ER when no verification result exists."""
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 0
@@ -671,11 +652,11 @@ class TestCriticOverdue:
             engine._state = LoopState()
             engine.research_state = ResearchState()
 
-            engine.research_explore = MagicMock()
-            engine.computationalist = MagicMock()
+            engine.researcher = MagicMock()
+            engine.computer = MagicMock()
             engine.critic = MagicMock()
 
-        task = Task(task_id="T", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="research_explore")
+        task = Task(task_id="T", task_type=TaskType.RESEARCH, assigned_to="researcher")
         engine._dispatch(task)
         assert engine._state.last_content_iteration == 7
 
@@ -688,8 +669,8 @@ class TestNewConfigFields:
     """Verify config fields are properly loaded from defaults."""
 
     def test_progress_check_interval_default(self):
-        assert DEFAULTS["progress_check_interval"] == 3
-        assert Config().progress_check_interval == 3
+        assert DEFAULTS["progress_check_interval"] == 4
+        assert Config().progress_check_interval == 4
 
     def test_computation_token_alert_default(self):
         assert DEFAULTS["computation_token_alert"] == 150_000

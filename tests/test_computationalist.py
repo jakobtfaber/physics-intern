@@ -1,13 +1,14 @@
-"""Tests for computationalist agent response parsing."""
+"""Placeholder tests verifying that new agents (researcher, computer, verifier) exist and import correctly.
+
+The old computationalist.py agent has been removed. This file ensures the new
+agent modules are importable and have the expected structure. Full agent tests
+for researcher, computer, and verifier will live in dedicated test files.
+"""
 
 import tempfile
 from unittest.mock import MagicMock
 
-from sciralph.agents.computationalist import ComputationalistAgent
-from sciralph.llm import AgentResult
 from sciralph.sandbox import execute_python
-from sciralph.task import Task, TaskType
-from sciralph.tools import ToolCall, ToolExecutor
 
 
 class TestSoftCheckPattern:
@@ -51,18 +52,45 @@ print(f"\\nCHECKS: {n_passed}/{n_total} PASSED")
         assert result.returncode != 0
 
 
-class TestToolsAttribute:
-    def test_computationalist_has_tools(self):
-        assert ComputationalistAgent.tools
-        assert len(ComputationalistAgent.tools) == 3
-        names = {t["function"]["name"] for t in ComputationalistAgent.tools}
-        assert names == {"execute_python", "submit_verdict", "report_progress"}
+class TestNewAgentImports:
+    """Verify the new agent modules exist and are importable."""
 
-    def test_research_explore_has_tools(self):
-        from sciralph.agents.research_explore import ResearchExploreAgent
-        assert len(ResearchExploreAgent.tools) == 2
-        names = {t["function"]["name"] for t in ResearchExploreAgent.tools}
-        assert names == {"submit_result", "report_progress"}
+    def test_researcher_agent_importable(self):
+        from sciralph.agents.researcher import ResearcherAgent
+        assert ResearcherAgent.name == "researcher"
+
+    def test_computer_agent_importable(self):
+        from sciralph.agents.computer import ComputerAgent
+        assert ComputerAgent.name == "computer"
+
+    def test_verifier_agent_importable(self):
+        from sciralph.agents.verifier import VerifierAgent
+        assert VerifierAgent.name == "verifier"
+
+
+class TestNewAgentTools:
+    """Verify the new agents have correct tool configurations."""
+
+    def test_researcher_has_tools(self):
+        from sciralph.agents.researcher import ResearcherAgent
+        assert ResearcherAgent.tools
+        names = {t["function"]["name"] for t in ResearcherAgent.tools}
+        assert "submit_result" in names
+        assert "report_progress" in names
+
+    def test_computer_has_tools(self):
+        from sciralph.agents.computer import ComputerAgent
+        assert ComputerAgent.tools
+        names = {t["function"]["name"] for t in ComputerAgent.tools}
+        assert "execute_python" in names
+        assert "submit_result" in names
+        assert "report_progress" in names
+
+    def test_verifier_has_tools(self):
+        from sciralph.agents.verifier import VerifierAgent
+        assert VerifierAgent.tools
+        names = {t["function"]["name"] for t in VerifierAgent.tools}
+        assert "submit_verdict" in names
 
     def test_critic_has_tools(self):
         from sciralph.agents.critic import CriticAgent
@@ -78,531 +106,20 @@ class TestToolsAttribute:
         assert "add_hypothesis" in tool_names
 
 
-def _make_agent():
-    """Create a ComputationalistAgent with mocked dependencies."""
-    from sciralph.research_state import ResearchState
-    config = MagicMock()
-    config.sympy_timeout_seconds = 10
-    config.tool_output_limit = 10_000
-    workspace = MagicMock()
-    workspace.root = MagicMock()
-    workspace.computations_dir = "/tmp"
-    metrics = MagicMock()
-    agent = ComputationalistAgent(config=config, workspace=workspace, metrics=metrics)
-    agent.research_state = ResearchState()
-    return agent
-
-
-class TestAgenticResponse:
-    def test_process_without_exit_tool_is_inconclusive(self):
-        """Text with VERIFIED but no submit_verdict → INCONCLUSIVE (tool call required)."""
-        agent = _make_agent()
-
-        result = AgentResult(
-            text=(
-                "## COMP-020: Test\n\n"
-                "**CLAIM:** x = 1\n"
-                "**VERDICT:** VERIFIED\n"
-                "**NOTES:** All checks passed."
-            ),
-            tool_calls=[
-                ToolCall("execute_python", {"code": "print(1)"}, "1\n", False, 0.5),
-            ],
-            total_input_tokens=500,
-            total_output_tokens=200,
-            rounds=2,
-        )
-
-        agent.process_response(result, Task(task_id="COMP-020", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify"), iteration=7)
-
-        comp = agent.research_state.computations["COMP-020"]
-        assert comp.verdict.value == "INCONCLUSIVE"
-
-    def test_process_agentic_response_empty_text(self):
-        agent = _make_agent()
-
-        result = AgentResult(
-            text="",
-            tool_calls=[],
-            total_input_tokens=100,
-            total_output_tokens=10,
-            rounds=1,
-        )
-
-        agent.process_response(result, Task(task_id="TASK-010", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify"), iteration=10)
-
-        comp = agent.research_state.computations["TASK-010"]
-        assert comp.verdict.value == "INCONCLUSIVE"
-
-    def test_process_empty_text_extracts_claim_from_task_body(self):
-        agent = _make_agent()
-
-        result = AgentResult(
-            text="",
-            tool_calls=[],
-            total_input_tokens=100,
-            total_output_tokens=10,
-            rounds=1,
-        )
-
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
-            assigned_to="compute_verify",
-            body="Verify WH-005 Maslov phase for ωT > π",
-        )
-        agent.process_response(result, task, iteration=5)
-
-        comp = agent.research_state.computations["TASK-005"]
-        assert comp.target_hypothesis == "WH-005"
-
-
-class TestSubmitVerdictProcessing:
-    """Test that process_response extracts data from submit_verdict tool calls."""
-
-    def test_process_response_uses_submit_verdict_data(self):
-        """Empty text + submit_verdict tool call → formatted COMP entry."""
-        agent = _make_agent()
-
-        verdict_params = {
-            "target_id": "WH-003",
-            "claim": "entropy scales as area",
-            "method": "Numerical spot-checks at 5 test points",
-            "result": "All 5 checks pass within rtol=1e-6",
-            "verdict": "VERIFIED",
-            "notes": "Entropy-area proportionality confirmed.",
-        }
-        result = AgentResult(
-            text="",
-            tool_calls=[
-                ToolCall("execute_python", {"code": "print(1)"}, "1\n", False, 0.5),
-                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
-            ],
-            total_input_tokens=500,
-            total_output_tokens=200,
-            rounds=2,
-        )
-
-        task = Task(task_id="COMP-030", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify WH-003 entropy")
-        agent.process_response(result, task, iteration=8)
-
-        comp = agent.research_state.computations["COMP-030"]
-        assert comp.id == "COMP-030"
-        assert comp.verdict.value == "VERIFIED"
-
-    def test_process_response_prefers_submit_verdict_over_text(self):
-        """When both free text and submit_verdict exist, tool data wins."""
-        agent = _make_agent()
-
-        verdict_params = {
-            "target_id": "WH-001",
-            "claim": "temperature is correct",
-            "method": "numerical",
-            "result": "5/5 pass",
-            "verdict": "VERIFIED",
-            "notes": "Confirmed.",
-        }
-        result = AgentResult(
-            text="## COMP-099\n**CLAIM:** wrong\n**VERDICT:** REFUTED",
-            tool_calls=[
-                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
-            ],
-            total_input_tokens=300,
-            total_output_tokens=100,
-            rounds=1,
-        )
-
-        task = Task(task_id="COMP-050", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify")
-        agent.process_response(result, task, iteration=3)
-
-        comp = agent.research_state.computations["COMP-050"]
-        assert comp.verdict.value == "VERIFIED"
-
-    def test_process_response_inconclusive_without_submit_verdict(self):
-        """No submit_verdict in tool_calls → INCONCLUSIVE stub."""
-        agent = _make_agent()
-
-        result = AgentResult(
-            text="## COMP-010: Test\n**CLAIM:** x = 1\n**VERDICT:** VERIFIED\n**NOTES:** OK.",
-            tool_calls=[
-                ToolCall("execute_python", {"code": "print(1)"}, "1\n", False, 0.5),
-            ],
-            total_input_tokens=300,
-            total_output_tokens=100,
-            rounds=2,
-        )
-
-        task = Task(task_id="COMP-010", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify")
-        agent.process_response(result, task, iteration=5)
-
-        comp = agent.research_state.computations["COMP-010"]
-        assert comp.verdict.value == "INCONCLUSIVE"
-
-
-class TestZeroOutputOnMaxRoundsForced:
-    """Test that zero_output=True when stop_reason='max_rounds_forced' even with non-empty text (A4)."""
-
-    def test_max_rounds_forced_sets_zero_output(self):
-        agent = _make_agent()
-        from sciralph.research_state import ResearchState
-        agent.research_state = ResearchState()
-
-        result = AgentResult(
-            text="Some partial analysis that did not complete...",
-            tool_calls=[
-                ToolCall("execute_python", {"code": "print(1)"}, "1\n", False, 0.5),
-            ],
-            total_input_tokens=500,
-            total_output_tokens=200,
-            rounds=10,
-            stop_reason="max_rounds_forced",
-        )
-
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify",
-                    body="Verify WH-002 temperature")
-        agent.process_response(result, task, iteration=5)
-
-        comp = agent.research_state.computations["TASK-005"]
-        assert comp.zero_output is True
-
-    def test_normal_end_turn_empty_text_sets_zero_output(self):
-        agent = _make_agent()
-        from sciralph.research_state import ResearchState
-        agent.research_state = ResearchState()
-
-        result = AgentResult(
-            text="",
-            tool_calls=[],
-            total_input_tokens=100,
-            total_output_tokens=10,
-            rounds=1,
-        )
-
-        task = Task(task_id="TASK-006", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify",
-                    body="Verify WH-003")
-        agent.process_response(result, task, iteration=6)
-
-        comp = agent.research_state.computations["TASK-006"]
-        assert comp.zero_output is True
-
-
-class TestNewAgentClasses:
-    """Test the new split agent classes (Phase 4a)."""
-
-    def test_compute_verify_has_correct_tools(self):
-        from sciralph.agents.compute_verify import ComputeVerifyAgent
-        names = {t["function"]["name"] for t in ComputeVerifyAgent.tools}
-        assert names == {"execute_python", "submit_verdict", "report_progress"}
-
-    def test_compute_explore_has_correct_tools(self):
-        from sciralph.agents.compute_explore import ComputeExploreAgent
-        names = {t["function"]["name"] for t in ComputeExploreAgent.tools}
-        assert names == {"execute_python", "submit_result", "report_progress"}
-
-    def test_research_verify_has_correct_tools(self):
-        from sciralph.agents.research_verify import ResearchVerifyAgent
-        names = {t["function"]["name"] for t in ResearchVerifyAgent.tools}
-        assert names == {"submit_verdict", "report_progress"}
-
-    def test_research_verify_no_execute_python(self):
-        from sciralph.agents.research_verify import ResearchVerifyAgent
-        names = {t["function"]["name"] for t in ResearchVerifyAgent.tools}
-        assert "execute_python" not in names
-
-    def test_research_verify_creates_research_verify_computation(self):
-        """ResearchVerifyAgent.process_response sets kind='research_verify'."""
-        from sciralph.agents.research_verify import ResearchVerifyAgent
-        from sciralph.research_state import ResearchState
-
-        agent = ResearchVerifyAgent(
-            config=MagicMock(), workspace=MagicMock(), metrics=MagicMock(),
-        )
-        agent.research_state = ResearchState()
-
-        verdict_params = {
-            "target_id": "WH-001",
-            "claim": "dimensional consistency",
-            "method": "dimensional analysis",
-            "result": "All dimensions match",
-            "verdict": "VERIFIED",
-            "notes": "Confirmed by analysis.",
-        }
-        result = AgentResult(
-            text="",
-            tool_calls=[
-                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
-            ],
-            total_input_tokens=500,
-            total_output_tokens=200,
-            rounds=1,
-        )
-        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH_VERIFY,
-                    assigned_to="research_verify", body="Verify WH-001")
-        agent.process_response(result, task, iteration=5)
-
-        comp = agent.research_state.computations["TASK-005"]
-        assert comp.kind == "research_verify"
-        assert comp.verdict.value == "VERIFIED"
-
-    def test_tools_for_task_type_research_verify(self):
-        names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.RESEARCH_VERIFY)}
-        assert names == {"submit_verdict", "report_progress"}
-
-
-class TestFreeTextFallthrough:
-    """Free text without submit_verdict results in INCONCLUSIVE."""
-
-    def test_text_without_verdict_is_inconclusive(self):
-        """Text with VERIFIED but no submit_verdict → INCONCLUSIVE stub."""
-        agent = _make_agent()
-
-        result = AgentResult(
-            text="## COMP-070: Test\n**CLAIM:** WH-003\n**VERDICT:** VERIFIED\n**NOTES:** OK.",
-            tool_calls=[],
-            total_input_tokens=200,
-            total_output_tokens=100,
-            rounds=1,
-        )
-
-        task = Task(task_id="COMP-070", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify")
-        agent.process_response(result, task, iteration=2)
-
-        comp = agent.research_state.computations["COMP-070"]
-        assert comp.verdict.value == "INCONCLUSIVE"
-
-
-class TestBuildContext:
-    """Test context assembly for compute agents."""
-
-    def _make_agent_with_state(self, agent_cls):
-        from sciralph.research_state import Hypothesis, HypothesisStatus, ResearchState
-
-        config = MagicMock()
-        config.sympy_timeout_seconds = 10
-        config.tool_output_limit = 10_000
-        workspace = MagicMock()
-        workspace.root = MagicMock()
-        workspace.computations_dir = "/tmp"
-        workspace.read_file.return_value = "---\ntask_id: TASK-001\n---\n\nDo something."
-        metrics = MagicMock()
-        agent = agent_cls(config=config, workspace=workspace, metrics=metrics)
-        agent.research_state = ResearchState(
-            problem_statement="Derive the Hawking temperature.",
-            conventions="Natural units.",
-            iteration=3,
-        )
-        agent.research_state.hypotheses["WH-001"] = Hypothesis(
-            id="WH-001",
-            statement="T = 1/(8 pi M)",
-            status=HypothesisStatus.WORKING,
-            iteration_created=1,
-        )
-        return agent
-
-    def test_compute_explore_context_has_task_and_state(self):
-        from sciralph.agents.compute_explore import ComputeExploreAgent
-
-        agent = self._make_agent_with_state(ComputeExploreAgent)
-        task = Task(task_id="TASK-001", task_type=TaskType.COMPUTE_EXPLORE, assigned_to="compute_explore")
-        ctx = agent.build_context(task, iteration=3)
-        assert "## CURRENT_TASK.md" in ctx
-        assert "## Research State" in ctx
-        assert "Derive the Hawking temperature" in ctx
-        assert "## WH-001" in ctx
-
-    def test_compute_verify_context_has_task_and_state(self):
-        from sciralph.agents.compute_verify import ComputeVerifyAgent
-
-        agent = self._make_agent_with_state(ComputeVerifyAgent)
-        task = Task(task_id="TASK-002", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify")
-        ctx = agent.build_context(task, iteration=3)
-        assert "## CURRENT_TASK.md" in ctx
-        assert "## Research State" in ctx
-        assert "Derive the Hawking temperature" in ctx
-
-    def test_context_has_no_frontmatter(self):
-        from sciralph.agents.compute_explore import ComputeExploreAgent
-
-        agent = self._make_agent_with_state(ComputeExploreAgent)
-        task = Task(task_id="TASK-001", task_type=TaskType.COMPUTE_EXPLORE, assigned_to="compute_explore")
-        ctx = agent.build_context(task, iteration=3)
-        # The research state portion should not contain YAML frontmatter metadata
-        assert "problem_id:" not in ctx
-        assert "status:" not in ctx
-
-    def test_context_skips_empty_dead_ends(self):
-        from sciralph.agents.compute_verify import ComputeVerifyAgent
-
-        agent = self._make_agent_with_state(ComputeVerifyAgent)
-        task = Task(task_id="TASK-002", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify")
-        ctx = agent.build_context(task, iteration=3)
-        assert "(None yet.)" not in ctx
-
-    def test_tools_set_correctly_for_explore(self):
-        from sciralph.agents.compute_explore import ComputeExploreAgent
-
-        agent = self._make_agent_with_state(ComputeExploreAgent)
-        task = Task(task_id="TASK-001", task_type=TaskType.COMPUTE_EXPLORE, assigned_to="compute_explore")
-        agent.build_context(task, iteration=3)
-        names = {t["function"]["name"] for t in agent.tools}
-        assert names == {"execute_python", "submit_result", "report_progress"}
-
-    def test_tools_set_correctly_for_verify(self):
-        from sciralph.agents.compute_verify import ComputeVerifyAgent
-
-        agent = self._make_agent_with_state(ComputeVerifyAgent)
-        task = Task(task_id="TASK-002", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify")
-        agent.build_context(task, iteration=3)
-        names = {t["function"]["name"] for t in agent.tools}
-        assert names == {"execute_python", "submit_verdict", "report_progress"}
-
-    def test_research_explore_adds_critique_context(self):
-        from sciralph.agents.research_explore import ResearchExploreAgent
-        from sciralph.research_state import Critique, CritiqueStatus, Severity
-
-        agent = self._make_agent_with_state(ResearchExploreAgent)
-        agent.research_state.critiques["CRIT-001"] = Critique(
-            id="CRIT-001",
-            targets=["WH-001"],
-            severity=Severity.HIGH,
-            argument="Derivation assumes thermal equilibrium.",
-            status=CritiqueStatus.ACTIVE,
-            iteration_filed=2,
-        )
-        task = Task(
-            task_id="TASK-003",
-            task_type=TaskType.RESEARCH_EXPLORE,
-            assigned_to="research_explore",
-            blocking_critiques=["CRIT-001"],
-        )
-        ctx = agent.build_context(task, iteration=3)
-        assert "## Relevant Critiques" in ctx
-        assert "CRIT-001" in ctx
-        assert "thermal equilibrium" in ctx
-
-    def test_research_explore_no_critiques_when_none_blocking(self):
-        from sciralph.agents.research_explore import ResearchExploreAgent
-
-        agent = self._make_agent_with_state(ResearchExploreAgent)
-        task = Task(task_id="TASK-003", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="research_explore")
-        ctx = agent.build_context(task, iteration=3)
-        assert "## Relevant Critiques" not in ctx
-
-
-class TestEvidenceChain:
-    """Test evidence_scripts and code_path populated on Computation."""
-
-    def test_verdict_with_evidence_scripts(self):
-        agent = _make_agent()
-        agent._last_script_names = ["001_verify_enum.py", "002_spot_check.py"]
-
-        verdict_params = {
-            "target_id": "WH-003",
-            "claim": "entropy scales as area",
-            "method": "numerical",
-            "result": "5/5 pass",
-            "verdict": "VERIFIED",
-            "notes": "Confirmed.",
-            "evidence_scripts": ["001_verify_enum.py"],
-        }
-        result = AgentResult(
-            text="",
-            tool_calls=[
-                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
-            ],
-            total_input_tokens=500,
-            total_output_tokens=200,
-            rounds=1,
-        )
-        task = Task(task_id="COMP-040", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify")
-        agent.process_response(result, task, iteration=8)
-
-        comp = agent.research_state.computations["COMP-040"]
-        assert comp.evidence_scripts == ["001_verify_enum.py"]
-        assert comp.code_path == "001_verify_enum.py, 002_spot_check.py"
-        assert comp.purpose == "entropy scales as area"
-
-    def test_explore_with_evidence_scripts(self):
-        agent = _make_agent()
-        agent._last_script_names = ["001_compute_partition.py"]
-
-        result_params = {
-            "target_id": "WH-001",
-            "description": "Partition function",
-            "method": "direct summation",
-            "result": "Z = 2 cosh(beta J)",
-            "confidence": "exact",
-            "notes": "Closed form.",
-            "evidence_scripts": ["001_compute_partition.py"],
-        }
-        result = AgentResult(
-            text="",
-            tool_calls=[
-                ToolCall("submit_result", result_params, "Result recorded", False, 0.01),
-            ],
-            total_input_tokens=500,
-            total_output_tokens=200,
-            rounds=1,
-        )
-        task = Task(task_id="COMP-041", task_type=TaskType.COMPUTE_EXPLORE,
-                    assigned_to="compute_explore")
-        agent.process_response(result, task, iteration=9)
-
-        comp = agent.research_state.computations["COMP-041"]
-        assert comp.evidence_scripts == ["001_compute_partition.py"]
-        assert comp.code_path == "001_compute_partition.py"
-        assert comp.purpose == "Partition function"
-
-    def test_inconclusive_has_code_path_only(self):
-        agent = _make_agent()
-        agent._last_script_names = ["tool_exec_001.py"]
-
-        result = AgentResult(
-            text="",
-            tool_calls=[],
-            total_input_tokens=100,
-            total_output_tokens=10,
-            rounds=1,
-        )
-        task = Task(task_id="TASK-042", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify WH-001")
-        agent.process_response(result, task, iteration=10)
-
-        comp = agent.research_state.computations["TASK-042"]
-        assert comp.code_path == "tool_exec_001.py"
-        assert comp.evidence_scripts == []
-
-    def test_empty_script_names_no_code_path(self):
-        agent = _make_agent()
-        agent._last_script_names = []
-
-        verdict_params = {
-            "target_id": "WH-001",
-            "claim": "test",
-            "method": "analytical",
-            "result": "ok",
-            "verdict": "VERIFIED",
-            "notes": "Done.",
-        }
-        result = AgentResult(
-            text="",
-            tool_calls=[
-                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
-            ],
-            total_input_tokens=200,
-            total_output_tokens=100,
-            rounds=1,
-        )
-        task = Task(task_id="COMP-043", task_type=TaskType.RESEARCH_VERIFY,
-                    assigned_to="research_verify")
-        agent.process_response(result, task, iteration=11)
-
-        comp = agent.research_state.computations["COMP-043"]
-        assert comp.code_path == ""
-        assert comp.evidence_scripts == []
+class TestToolsForTaskType:
+    """Test tools_for_task_type returns correct tool sets."""
+
+    def test_research_tools(self):
+        from sciralph.task import TaskType
+        from sciralph.tools import ToolExecutor
+        names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.RESEARCH)}
+        assert "submit_result" in names
+        assert "report_progress" in names
+
+    def test_compute_tools(self):
+        from sciralph.task import TaskType
+        from sciralph.tools import ToolExecutor
+        names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.COMPUTE)}
+        assert "execute_python" in names
+        assert "submit_result" in names
+        assert "report_progress" in names

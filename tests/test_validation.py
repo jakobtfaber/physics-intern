@@ -11,9 +11,9 @@ from sciralph.validation import (
     check_critique_resolution_consistency,
 )
 from sciralph.research_state import (
-    Computation,
     Critique,
     CritiqueStatus,
+    Evidence,
     Hypothesis,
     HypothesisStatus,
     ResearchQuestion,
@@ -21,6 +21,7 @@ from sciralph.research_state import (
     RQStatus,
     Severity,
     Verdict,
+    VerificationResult,
 )
 
 
@@ -74,15 +75,14 @@ class TestViolation:
 # ---------------------------------------------------------------------------
 
 class TestErDemotionSafety:
-    def test_demotes_er_with_refuted_no_verified(self):
+    def test_demotes_er_with_refuted_verification(self):
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", statement="T = 1/(8piM)",
             status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.REFUTED, kind="verify", iteration=1,
+            verification=VerificationResult(
+                verdict=Verdict.REFUTED, reasoning="Calculation error", iteration=1,
+            ),
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 1
@@ -91,32 +91,23 @@ class TestErDemotionSafety:
         assert "WH-001" in state.hypotheses
         assert "ER-001" not in state.hypotheses
 
-    def test_no_demotion_when_verified_exists(self):
+    def test_no_demotion_when_verified(self):
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", statement="T = 1/(8piM)",
             status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.REFUTED, kind="verify", iteration=1,
-        )
-        state.computations["COMP-002"] = Computation(
-            id="COMP-002", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=2,
+            verification=VerificationResult(
+                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=2,
+            ),
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 0
         assert "ER-001" in state.hypotheses
 
-    def test_no_demotion_when_no_refuted(self):
+    def test_no_demotion_when_no_verification(self):
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 0
@@ -126,27 +117,12 @@ class TestErDemotionSafety:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.REFUTED, kind="verify", iteration=1,
+            verification=VerificationResult(
+                verdict=Verdict.REFUTED, reasoning="Failed", iteration=1,
+            ),
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 0
-
-    def test_refuted_via_wh_alias(self):
-        """REFUTED computation targeting WH-001 should demote ER-001."""
-        state = ResearchState()
-        state.hypotheses["ER-001"] = Hypothesis(
-            id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.REFUTED, kind="verify", iteration=1,
-        )
-        violations = check_er_demotion_safety(state)
-        assert len(violations) == 1
-        assert "WH-001" in state.hypotheses
 
 
 # ---------------------------------------------------------------------------
@@ -167,10 +143,9 @@ class TestPhantomLabels:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", derivation="WH-001 is VERIFIED by computation.",
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+            verification=VerificationResult(
+                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            ),
         )
         violations = check_phantom_labels(state)
         assert len(violations) == 0
@@ -193,21 +168,20 @@ class TestStaleUnverifiedLabels:
     def test_promotes_unverified_to_verified(self):
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
-            id="WH-001", derivation="WH-001 is [unverified] pending computation.",
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+            id="WH-001", derivation="WH-001 is [unverified] pending verification.",
+            verification=VerificationResult(
+                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            ),
         )
         violations = check_stale_unverified_labels(state)
         # Note: the function returns [] (empty list) but mutates derivation
         assert "VERIFIED" in state.hypotheses["WH-001"].derivation
         assert "[unverified]" not in state.hypotheses["WH-001"].derivation
 
-    def test_no_change_without_verified_computation(self):
+    def test_no_change_without_verified_verification(self):
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
-            id="WH-001", derivation="WH-001 is [unverified] pending computation.",
+            id="WH-001", derivation="WH-001 is [unverified] pending verification.",
         )
         check_stale_unverified_labels(state)
         assert "[unverified]" in state.hypotheses["WH-001"].derivation
@@ -301,10 +275,9 @@ class TestStrategyTerminationBlocking:
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+            verification=VerificationResult(
+                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            ),
         )
         state.critiques["CRIT-001"] = Critique(
             id="CRIT-001", targets=["STRATEGY"],
@@ -357,10 +330,9 @@ class TestCanTerminate:
         state = self._make_state()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+            verification=VerificationResult(
+                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            ),
         )
         allowed, blockers = can_terminate(
             MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
@@ -373,10 +345,9 @@ class TestCanTerminate:
         state = self._make_state()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+            verification=VerificationResult(
+                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            ),
         )
         allowed, blockers = can_terminate(
             MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=0),
@@ -432,14 +403,13 @@ class TestCanTerminate:
         assert any("WH-002" in b for b in blockers)
 
     def test_blocks_wh_with_verified_backing(self):
-        """WH with VERIFIED backing should get specific promote/abandon message."""
+        """WH with VERIFIED verification should get specific promote/abandon message."""
         state = self._make_state()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+            verification=VerificationResult(
+                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            ),
         )
         allowed, blockers = can_terminate(
             MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
@@ -465,10 +435,10 @@ class TestCanTerminate:
         state = self._make_state()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="ER-001",
-            verdict=Verdict.VERIFIED, kind="verify", iteration=1,
+            evidence=Evidence(type="compute", result="T=1/(8piM)", iteration=1),
+            verification=VerificationResult(
+                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=2,
+            ),
         )
         allowed, blockers = can_terminate(
             MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
@@ -477,22 +447,19 @@ class TestCanTerminate:
         )
         assert allowed
 
-    def test_wh_with_verified_explore_only_gets_verify_message(self):
-        """WH with only VERIFIED explore comp should say 'emit compute_verify', not 'promote'."""
+    def test_wh_without_verification_gets_verify_message(self):
+        """WH without verification result should say 'emit verify', not 'promote'."""
         state = self._make_state()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
-        )
-        state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="explore", iteration=1,
+            evidence=Evidence(type="research", reasoning="Some analysis", iteration=1),
         )
         allowed, blockers = can_terminate(
             MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
             research_state=state,
         )
         assert not allowed
-        # Should NOT say "promote" — no verify-kind VERIFIED exists
+        # Should say "verify", not "promote"
         wh_blocker = [b for b in blockers if "WH-001" in b][0]
-        assert "compute_verify" in wh_blocker
+        assert "verify" in wh_blocker.lower()
         assert "promote_hypothesis" not in wh_blocker

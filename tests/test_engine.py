@@ -93,21 +93,12 @@ class TestEnrichComputeTask:
             ws.write_file = MagicMock(side_effect=capture_write)
 
             from sciralph.engine import SciRalph
-            from sciralph.research_state import Computation, Verdict
             engine = SciRalph.__new__(SciRalph)
             engine.config = Config()
             engine.research_state = ResearchState()
-            # Add prior failed computations to state
-            engine.research_state.computations["COMP-001"] = Computation(
-                id="COMP-001", target_hypothesis="WH-003", kind="verify",
-                verdict=Verdict.INCONCLUSIVE, method="Integration",
-                notes="Relative error: 13.6%.", iteration=1,
-            )
-            engine.research_state.computations["COMP-002"] = Computation(
-                id="COMP-002", target_hypothesis="WH-003", kind="verify",
-                verdict=Verdict.INCONCLUSIVE, method="Improved integration",
-                notes="Still 8% error.", iteration=2,
-            )
+            # Record prior failures via claim_failure_count in LoopState
+            engine._state = LoopState()
+            engine._state.claim_failure_count["WH-003"] = 2
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 3
@@ -116,25 +107,25 @@ class TestEnrichComputeTask:
     def test_enrich_compute_task_appends_context(self):
         """Prior failures exist -> CURRENT_TASK enriched."""
         engine, ws, written = self._make_engine()
-        ws.read_file = MagicMock(return_value="---\ntask_type: compute_verify\n---\n\nVerify WH-003 mass.")
+        ws.read_file = MagicMock(return_value="---\ntask_type: compute\n---\n\nCompute WH-003 mass.")
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify WH-003 mass limit")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", body="Compute WH-003 mass limit")
         engine._enrich_compute_task_with_prior_failures(task)
 
         assert "CURRENT_TASK.md" in written
         enriched = written["CURRENT_TASK.md"]
-        assert "Prior Computation Failure Context" in enriched
+        assert "Prior Failure Context" in enriched
         assert "2 prior failure(s)" in enriched
         assert "ROOT CAUSE" in enriched
 
     def test_enrich_compute_task_no_match(self):
         """No prior failures on this target -> unchanged."""
         engine, ws, written = self._make_engine()
-        ws.read_file = MagicMock(return_value="---\ntask_type: compute_verify\n---\n\nVerify WH-099.")
+        ws.read_file = MagicMock(return_value="---\ntask_type: compute\n---\n\nCompute WH-099.")
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify WH-099 something new")
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", body="Compute WH-099 something new")
         engine._enrich_compute_task_with_prior_failures(task)
 
         assert "CURRENT_TASK.md" not in written  # write_file not called
@@ -161,21 +152,22 @@ class TestComputeVerdictTracking:
             engine.research_state = ResearchState()
         return engine
 
-    def _add_comp(self, engine, comp_id, target, verdict_str, kind="verify"):
-        from sciralph.research_state import Computation, Verdict
-        engine.research_state.computations[comp_id] = Computation(
-            id=comp_id, target_hypothesis=target,
-            verdict=Verdict(verdict_str), kind=kind,
-            iteration=engine.iteration,
+    def _set_verification(self, engine, target, verdict_str, reasoning=""):
+        from sciralph.research_state import Hypothesis, VerificationResult
+        if target not in engine.research_state.hypotheses:
+            engine.research_state.hypotheses[target] = Hypothesis(id=target)
+        engine.research_state.hypotheses[target].verification = VerificationResult(
+            verdict=verdict_str, reasoning=reasoning, iteration=engine.iteration,
         )
 
     def test_refuted_signals_orchestrator(self):
         """REFUTED verdict adds to pending_compute_verdicts."""
         engine = self._make_engine()
-        self._add_comp(engine, "COMP-001", "WH-001", "REFUTED")
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify formula X = Y")
-        engine._track_computation(task)
+        self._set_verification(engine, "WH-001", "REFUTED")
+        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-001",
+                    body="Verify formula X = Y")
+        engine._track_agent_result(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["verdict"] == "REFUTED"
@@ -184,10 +176,11 @@ class TestComputeVerdictTracking:
     def test_inconclusive_signals_orchestrator(self):
         """INCONCLUSIVE also counted and signals orchestrator."""
         engine = self._make_engine()
-        self._add_comp(engine, "COMP-001", "WH-001", "INCONCLUSIVE")
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify formula X = Y")
-        engine._track_computation(task)
+        self._set_verification(engine, "WH-001", "INCONCLUSIVE")
+        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-001",
+                    body="Verify formula X = Y")
+        engine._track_agent_result(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["verdict"] == "INCONCLUSIVE"
@@ -195,132 +188,121 @@ class TestComputeVerdictTracking:
     def test_stalled_verdict_signal(self):
         """After N failures, signal says STALLED in context prefix."""
         engine = self._make_engine()
-        self._add_comp(engine, "COMP-001", "WH-001", "REFUTED")
+        self._set_verification(engine, "WH-001", "REFUTED")
         engine._state.claim_failure_count["WH-001"] = 1  # next will be 2 == limit
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify formula X = Y")
-        engine._track_computation(task)
+        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-001",
+                    body="Verify formula X = Y")
+        engine._track_agent_result(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["attempt"] == 2
         prefix = engine._build_context_prefix()
         assert "STALLED" in prefix
-        assert "do NOT schedule another compute" in prefix
+        assert "do NOT schedule another verify" in prefix
 
     def test_verified_clears_failure_count(self):
         """VERIFIED clears the failure counter and populates pending_verified_results."""
         engine = self._make_engine()
-        self._add_comp(engine, "COMP-001", "WH-001", "VERIFIED")
+        self._set_verification(engine, "WH-001", "VERIFIED")
         engine._state.claim_failure_count["WH-001"] = 1
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify formula X = Y")
-        engine._track_computation(task)
+        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-001",
+                    body="Verify formula X = Y")
+        engine._track_agent_result(task)
 
         assert "WH-001" not in engine._state.claim_failure_count
         assert len(engine._state.pending_compute_verdicts) == 0
         assert len(engine._state.pending_verified_results) == 1
 
     def test_verified_populates_dict_with_correct_keys(self):
-        """VERIFIED comp populates dict with claim, comp_id, kind, confidence."""
+        """VERIFIED verification populates dict with claim and verdict."""
         engine = self._make_engine()
-        from sciralph.research_state import Computation, Verdict
-        engine.research_state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.VERIFIED, kind="verify",
-            confidence="exact", iteration=engine.iteration,
-        )
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify formula X = Y")
-        engine._track_computation(task)
+        self._set_verification(engine, "WH-001", "VERIFIED")
+        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-001",
+                    body="Verify formula X = Y")
+        engine._track_agent_result(task)
 
         assert len(engine._state.pending_verified_results) == 1
         v = engine._state.pending_verified_results[0]
         assert v["claim"] == "WH-001"
-        assert v["comp_id"] == "COMP-001"
-        assert v["kind"] == "verify"
-        assert v["confidence"] == "exact"
+        assert v["verdict"] == "VERIFIED"
 
     def test_verified_banner_renders_and_consumed_once(self):
-        """VERIFIED COMPUTATIONS banner renders in context prefix and is consumed."""
+        """VERIFIED HYPOTHESES banner renders in context prefix and is consumed."""
         engine = self._make_engine()
         engine._state.pending_verified_results = [{
-            "claim": "WH-001", "comp_id": "COMP-001",
-            "kind": "verify", "confidence": "",
+            "claim": "WH-001", "verdict": "VERIFIED",
         }]
         prefix = engine._build_context_prefix()
-        assert "VERIFIED COMPUTATIONS" in prefix
-        assert "COMP-001 VERIFIED WH-001 (verify)" in prefix
+        assert "VERIFIED HYPOTHESES" in prefix
+        assert "WH-001 VERIFIED by verifier" in prefix
         assert "Consider resolving related critiques" in prefix
         # Consumed
         assert len(engine._state.pending_verified_results) == 0
         # Second call should be empty
         prefix2 = engine._build_context_prefix()
-        assert "VERIFIED COMPUTATIONS" not in prefix2
+        assert "VERIFIED HYPOTHESES" not in prefix2
 
-    def test_verified_banner_with_confidence(self):
-        """VERIFIED banner includes confidence when present."""
+    def test_verified_banner_with_claim_id(self):
+        """VERIFIED banner includes claim ID."""
         engine = self._make_engine()
         engine._state.pending_verified_results = [{
-            "claim": "WH-001", "comp_id": "COMP-001",
-            "kind": "research_verify", "confidence": "exact",
+            "claim": "WH-001", "verdict": "VERIFIED",
         }]
         prefix = engine._build_context_prefix()
-        assert "confidence: exact" in prefix
+        assert "WH-001" in prefix
 
     def test_verified_banner_ordering(self):
-        """VERIFIED banner appears after explore results, before computation verdicts."""
+        """VERIFIED banner appears after evidence results, before verification results."""
         engine = self._make_engine()
         engine._state.pending_explore_results = [{
             "target_id": "WH-002", "description": "Explore result",
             "result": "x = 42", "confidence": "exact",
         }]
         engine._state.pending_verified_results = [{
-            "claim": "WH-001", "comp_id": "COMP-001",
-            "kind": "verify", "confidence": "",
+            "claim": "WH-001", "verdict": "VERIFIED",
         }]
         engine._state.pending_compute_verdicts = [{
             "verdict": "REFUTED", "claim": "WH-003", "attempt": 1,
-            "notes": "", "failure_detail": "",
+            "notes": "",
         }]
         prefix = engine._build_context_prefix()
-        explore_pos = prefix.index("EXPLORE RESULTS")
-        verified_pos = prefix.index("VERIFIED COMPUTATIONS")
-        verdicts_pos = prefix.index("COMPUTATION VERDICTS")
+        explore_pos = prefix.index("EVIDENCE RESULTS")
+        verified_pos = prefix.index("VERIFIED HYPOTHESES")
+        verdicts_pos = prefix.index("VERIFICATION RESULTS")
         assert explore_pos < verified_pos < verdicts_pos
 
     def test_different_claims_tracked_independently(self):
         """Two different WH IDs have separate counters."""
         engine = self._make_engine()
-        self._add_comp(engine, "COMP-001", "WH-002", "REFUTED")
+        self._set_verification(engine, "WH-002", "REFUTED")
         engine._state.claim_failure_count["WH-001"] = 1
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify WH-002 temperature")
-        engine._track_computation(task)
+        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-002",
+                    body="Verify WH-002 temperature")
+        engine._track_agent_result(task)
 
         assert engine._state.claim_failure_count["WH-001"] == 1
         assert engine._state.claim_failure_count.get("WH-002", 0) == 1
 
     def test_refuted_with_notes_populates_dict(self):
-        """REFUTED comp with notes includes notes in pending_compute_verdicts."""
+        """REFUTED verification with reasoning includes notes in pending_compute_verdicts."""
         engine = self._make_engine()
-        from sciralph.research_state import Computation, Verdict
-        engine.research_state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.REFUTED, kind="verify",
-            notes="Expected 1/(8*pi*M) but got 1/(4*pi*M)",
-            iteration=engine.iteration,
-        )
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify formula X = Y")
-        engine._track_computation(task)
+        self._set_verification(engine, "WH-001", "REFUTED",
+                               reasoning="Expected 1/(8*pi*M) but got 1/(4*pi*M)")
+        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-001",
+                    body="Verify formula X = Y")
+        engine._track_agent_result(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
         v = engine._state.pending_compute_verdicts[0]
         assert v["notes"] == "Expected 1/(8*pi*M) but got 1/(4*pi*M)"
-        assert v["failure_detail"] == ""
 
     def test_context_prefix_renders_notes(self):
         """Context prefix renders notes when present in verdict dict."""
@@ -328,57 +310,55 @@ class TestComputeVerdictTracking:
         engine._state.pending_compute_verdicts = [{
             "verdict": "REFUTED", "claim": "WH-001", "attempt": 1,
             "notes": "Factor of 2 discrepancy",
-            "failure_detail": "",
         }]
         prefix = engine._build_context_prefix()
         assert "Notes: Factor of 2 discrepancy" in prefix
-        assert "Failure detail" not in prefix  # empty should be omitted
 
     def test_context_prefix_renders_failure_detail(self):
-        """Context prefix renders failure_detail when present."""
+        """Context prefix renders notes when present."""
         engine = self._make_engine()
         engine._state.pending_compute_verdicts = [{
             "verdict": "REFUTED", "claim": "WH-001", "attempt": 1,
-            "notes": "",
-            "failure_detail": "Division by zero at r=0",
+            "notes": "Division by zero at r=0",
         }]
         prefix = engine._build_context_prefix()
-        assert "Failure detail: Division by zero at r=0" in prefix
-        assert "Notes:" not in prefix  # empty should be omitted
+        assert "Notes: Division by zero at r=0" in prefix
 
     def test_empty_notes_and_failure_detail_omitted(self):
-        """Empty notes and failure_detail are omitted from prefix."""
+        """Empty notes are omitted from prefix."""
         engine = self._make_engine()
         engine._state.pending_compute_verdicts = [{
             "verdict": "REFUTED", "claim": "WH-001", "attempt": 1,
             "notes": "",
-            "failure_detail": "",
         }]
         prefix = engine._build_context_prefix()
         assert "Notes:" not in prefix
-        assert "Failure detail:" not in prefix
 
     def test_compute_verdict_signal_in_context_prefix(self):
         """Non-VERIFIED verdict appears in context prefix with attempt count."""
         engine = self._make_engine()
-        self._add_comp(engine, "COMP-001", "WH-001", "REFUTED")
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify formula X = Y")
-        engine._track_computation(task)
+        self._set_verification(engine, "WH-001", "REFUTED")
+        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-001",
+                    body="Verify formula X = Y")
+        engine._track_agent_result(task)
 
         prefix = engine._build_context_prefix()
-        assert "COMPUTATION VERDICTS" in prefix
+        assert "VERIFICATION RESULTS" in prefix
         assert "REFUTED" in prefix
         assert "Attempt 1/2" in prefix
-        assert "recompute" in prefix
+        assert "evidence" in prefix
 
     def test_empty_comp_log_noop(self):
-        """No computations at this iteration, nothing happens."""
+        """No verification on target hypothesis, nothing happens."""
         engine = self._make_engine()
+        from sciralph.research_state import Hypothesis
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
 
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify formula X = Y")
-        engine._track_computation(task)
+        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-001",
+                    body="Verify formula X = Y")
+        engine._track_agent_result(task)
 
         assert len(engine._state.claim_failure_count) == 0
         assert len(engine._state.pending_compute_verdicts) == 0
@@ -608,28 +588,24 @@ class TestZeroOutputStallHandling:
             engine.research_state = ResearchState()
         return engine, ws, written
 
-    def test_enrich_flags_zero_output_stall(self):
-        """Enrichment adds ZERO-OUTPUT STALL instructions when prior comp has zero_output=True."""
-        from sciralph.research_state import Computation, Verdict
+    def test_enrich_flags_prior_failures(self):
+        """Enrichment adds prior failure context when claim_failure_count > 0."""
         engine, ws, written = self._make_engine()
-        engine.research_state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-003", kind="verify",
-            verdict=Verdict.INCONCLUSIVE, notes="Agent produced no exit tool call.",
-            zero_output=True, iteration=4,
-        )
-        ws.read_file = MagicMock(return_value="---\ntask_type: compute_verify\n---\n\nVerify WH-003 mass.")
+        engine._state.claim_failure_count["WH-003"] = 1
+        ws.read_file = MagicMock(return_value="---\ntask_type: compute\n---\n\nCompute WH-003 mass.")
         task = Task(
-            task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
-            assigned_to="compute_verify", body="Verify WH-003 mass limit",
+            task_id="TASK-005", task_type=TaskType.COMPUTE,
+            assigned_to="computer", body="Compute WH-003 mass limit",
         )
         engine._enrich_compute_task_with_prior_failures(task)
         assert "CURRENT_TASK.md" in written
         enriched = written["CURRENT_TASK.md"]
-        assert "ZERO-OUTPUT STALL DETECTED" in enriched
+        assert "Prior Failure Context" in enriched
+        assert "1 prior failure(s)" in enriched
 
 
 class TestDispatchNewAgents:
-    """Test dispatch routing to new split agents (Phase 4a)."""
+    """Test dispatch routing to new agents (researcher, computer, verifier)."""
 
     def _make_engine(self):
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
@@ -647,41 +623,40 @@ class TestDispatchNewAgents:
             engine.iteration = 5
             engine._state = LoopState(last_content_iteration=5)
             engine.research_state = ResearchState()
-            engine.research_explore = MagicMock()
-            engine.compute_verify = MagicMock()
-            engine.compute_explore = MagicMock()
-            engine.research_verify = MagicMock()
+            engine.researcher = MagicMock()
+            engine.computer = MagicMock()
+            engine.verifier = MagicMock()
             engine.critic = MagicMock()
             engine.formatter = MagicMock()
         return engine
 
-    def test_compute_verify_dispatch(self):
+    def test_research_dispatch(self):
         engine = self._make_engine()
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", iteration=5, body="Verify WH-001")
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH,
+                    assigned_to="researcher", iteration=5, body="Research WH-001")
         name, _ = engine._dispatch(task)
-        assert name == "compute_verify"
+        assert name == "researcher"
 
-    def test_compute_explore_dispatch(self):
+    def test_compute_dispatch(self):
         engine = self._make_engine()
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_EXPLORE,
-                    assigned_to="compute_explore", iteration=5, body="Explore WH-001")
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", iteration=5, body="Compute WH-001")
         name, _ = engine._dispatch(task)
-        assert name == "compute_explore"
+        assert name == "computer"
 
-    def test_research_verify_dispatch(self):
+    def test_verify_dispatch(self):
         engine = self._make_engine()
-        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH_VERIFY,
-                    assigned_to="research_verify", iteration=5, body="Verify WH-001 analytically")
+        task = Task(task_id="TASK-005", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", iteration=5, body="Verify WH-001")
         name, _ = engine._dispatch(task)
-        assert name == "research_verify"
+        assert name == "verifier"
 
-    def test_compute_verify_routes_correctly(self):
+    def test_verify_routes_correctly(self):
         engine = self._make_engine()
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", iteration=5, body="Verify something")
+        task = Task(task_id="TASK-005", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", iteration=5, body="Verify something")
         name, _ = engine._dispatch(task)
-        assert name == "compute_verify"
+        assert name == "verifier"
 
 
 class TestUpdateResearchIteration:
@@ -739,10 +714,9 @@ class TestDispatchFailureRecovery:
             engine.problem_meta = {}
 
             engine.orchestrator = MagicMock()
-            engine.research_explore = MagicMock()
-            engine.compute_verify = MagicMock()
-            engine.compute_explore = MagicMock()
-            engine.research_verify = MagicMock()
+            engine.researcher = MagicMock()
+            engine.computer = MagicMock()
+            engine.verifier = MagicMock()
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()
@@ -759,10 +733,10 @@ class TestDispatchFailureRecovery:
         exc_504 = Exception("Server error")
         exc_504.status_code = 504
 
-        # Orchestrator returns a compute task each time
+        # Orchestrator returns a verify task each time
         task = Task(
-            task_id="TASK-001", task_type=TaskType.COMPUTE_VERIFY,
-            assigned_to="compute_verify", iteration=1,
+            task_id="TASK-001", task_type=TaskType.VERIFY,
+            assigned_to="verifier", iteration=1,
             body="Verify something.",
         )
         engine.orchestrator.parse_task = MagicMock(return_value=task)
@@ -773,7 +747,7 @@ class TestDispatchFailureRecovery:
             assigned_to="orchestrator", iteration=2,
         )
         engine.orchestrator.parse_task = MagicMock(side_effect=[task, task_terminate])
-        engine.compute_verify.run = MagicMock(side_effect=exc_504)
+        engine.verifier.run = MagicMock(side_effect=exc_504)
 
         engine.run()
 
@@ -781,8 +755,8 @@ class TestDispatchFailureRecovery:
         engine.metrics.alert.assert_any_call(
             1, unittest_any_string_containing("Dispatch failed")
         )
-        # compute_verify was called once (failed), then orchestrator terminated
-        assert engine.compute_verify.run.call_count == 1
+        # verifier was called once (failed), then orchestrator terminated
+        assert engine.verifier.run.call_count == 1
         assert engine.iteration == 2
 
     def test_non_transient_error_propagates(self):
@@ -790,12 +764,12 @@ class TestDispatchFailureRecovery:
         engine = self._make_engine()
 
         task = Task(
-            task_id="TASK-001", task_type=TaskType.RESEARCH_EXPLORE,
-            assigned_to="research_explore", iteration=1,
+            task_id="TASK-001", task_type=TaskType.RESEARCH,
+            assigned_to="researcher", iteration=1,
             body="Research something.",
         )
         engine.orchestrator.parse_task = MagicMock(return_value=task)
-        engine.research_explore.run = MagicMock(side_effect=ValueError("bug in code"))
+        engine.researcher.run = MagicMock(side_effect=ValueError("bug in code"))
 
         import pytest
         with pytest.raises(ValueError, match="bug in code"):
@@ -810,8 +784,8 @@ class TestDispatchFailureRecovery:
         exc_timeout.status_code = 504
 
         task = Task(
-            task_id="TASK-001", task_type=TaskType.COMPUTE_VERIFY,
-            assigned_to="compute_verify", iteration=1,
+            task_id="TASK-001", task_type=TaskType.VERIFY,
+            assigned_to="verifier", iteration=1,
             body="Verify something.",
         )
         task_terminate = Task(
@@ -819,7 +793,7 @@ class TestDispatchFailureRecovery:
             assigned_to="orchestrator", iteration=2,
         )
         engine.orchestrator.parse_task = MagicMock(side_effect=[task, task_terminate])
-        engine.compute_verify.run = MagicMock(side_effect=exc_timeout)
+        engine.verifier.run = MagicMock(side_effect=exc_timeout)
 
         engine.run()
 
@@ -856,14 +830,14 @@ class TestAgentFailureRouting:
         result = MagicMock()
         result.stop_reason = "max_tokens"
         result.output_tokens = 8000
-        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="research_explore")
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH, assigned_to="researcher")
 
-        engine._record_agent_failures(task, "research_explore", result)
+        engine._record_agent_failures(task, "researcher", result)
 
         assert len(engine._state.agent_failures) == 1
         assert engine._state.agent_failures[0]["event"] == "max_tokens_truncation"
         assert engine._state.agent_failures[0]["task_id"] == "TASK-005"
-        assert engine._state.agent_failures[0]["agent"] == "research_explore"
+        assert engine._state.agent_failures[0]["agent"] == "researcher"
         assert "8000 tokens" in engine._state.agent_failures[0]["detail"]
         assert "Decompose" in engine._state.agent_failures[0]["detail"]
 
@@ -872,9 +846,9 @@ class TestAgentFailureRouting:
         from sciralph.llm import AgentResult
         engine = self._make_engine()
         result = AgentResult(text="partial", rounds=10, stop_reason="max_rounds_forced")
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY, assigned_to="compute_verify")
+        task = Task(task_id="TASK-005", task_type=TaskType.VERIFY, assigned_to="verifier")
 
-        engine._record_agent_failures(task, "compute_verify", result)
+        engine._record_agent_failures(task, "verifier", result)
 
         assert len(engine._state.agent_failures) == 1
         assert engine._state.agent_failures[0]["event"] == "max_rounds_exhaustion"
@@ -885,9 +859,9 @@ class TestAgentFailureRouting:
         engine = self._make_engine()
         result = MagicMock()
         result.stop_reason = "end_turn"
-        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="research_explore")
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH, assigned_to="researcher")
 
-        engine._record_agent_failures(task, "research_explore", result)
+        engine._record_agent_failures(task, "researcher", result)
 
         assert len(engine._state.agent_failures) == 0
 
@@ -896,7 +870,7 @@ class TestAgentFailureRouting:
         engine = self._make_engine()
         engine._state.agent_failures = [{
             "task_id": "TASK-004",
-            "agent": "research_explore",
+            "agent": "researcher",
             "event": "max_tokens_truncation",
             "detail": (
                 "Output hit token limit (8000 tokens). "
@@ -918,7 +892,7 @@ class TestAgentFailureRouting:
         engine = self._make_engine()
         engine._state.agent_failures = [{
             "task_id": "TASK-004",
-            "agent": "research_explore",
+            "agent": "researcher",
             "event": "max_tokens_truncation",
             "detail": "Task too large.",
             "iteration": 4,
@@ -926,20 +900,21 @@ class TestAgentFailureRouting:
         engine._build_context_prefix()
         assert len(engine._state.agent_failures) == 0
 
-    def test_compute_verdict_appends_to_agent_failures(self):
+    def test_compute_verdict_appends_to_pending_verdicts(self):
         """REFUTED verdict below stall limit appends to pending_compute_verdicts."""
-        from sciralph.research_state import Computation, Verdict
+        from sciralph.research_state import Hypothesis, VerificationResult
 
         engine = self._make_engine()
         engine.iteration = 5
-        engine.research_state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.REFUTED, kind="verify", iteration=5,
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        engine.research_state.hypotheses["WH-001"].verification = VerificationResult(
+            verdict="REFUTED", reasoning="Mismatch", iteration=5,
         )
 
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify formula X = Y")
-        engine._track_computation(task)
+        task = Task(task_id="TASK-005", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-001",
+                    body="Verify formula X = Y")
+        engine._track_agent_result(task)
 
         # Verdict now goes to pending_compute_verdicts, not agent_failures
         assert len(engine._state.pending_compute_verdicts) == 1
@@ -948,20 +923,21 @@ class TestAgentFailureRouting:
 
     def test_compute_verdict_stall_signals_orchestrator(self):
         """At stall (count >= limit), verdict signal still goes to pending_compute_verdicts."""
-        from sciralph.research_state import Computation, Verdict
+        from sciralph.research_state import Hypothesis, VerificationResult
 
         engine = self._make_engine()
         engine.iteration = 5
         engine.config.stall_recompute_limit = 2
         engine._state.claim_failure_count["WH-001"] = 1  # already at limit-1
-        engine.research_state.computations["COMP-001"] = Computation(
-            id="COMP-001", target_hypothesis="WH-001",
-            verdict=Verdict.INCONCLUSIVE, kind="verify", iteration=5,
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        engine.research_state.hypotheses["WH-001"].verification = VerificationResult(
+            verdict="INCONCLUSIVE", reasoning="Unclear", iteration=5,
         )
 
-        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE_VERIFY,
-                    assigned_to="compute_verify", body="Verify formula X = Y")
-        engine._track_computation(task)
+        task = Task(task_id="TASK-005", task_type=TaskType.VERIFY,
+                    assigned_to="verifier", target_claim="WH-001",
+                    body="Verify formula X = Y")
+        engine._track_agent_result(task)
 
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["attempt"] == 2
@@ -975,7 +951,7 @@ class TestAgentFailureRouting:
         ]
         engine._state.agent_failures = [{
             "task_id": "TASK-003",
-            "agent": "compute_verify",
+            "agent": "verifier",
             "event": "max_rounds_exhaustion",
             "detail": "Exhausted 10 tool-use rounds without completing.",
             "iteration": 4,
@@ -1062,8 +1038,9 @@ class TestSyncOnTermination:
             engine.research_state = ResearchState()
             engine.problem_meta = {}
             engine.orchestrator = MagicMock()
-            engine.research_explore = MagicMock()
-            engine.computationalist = MagicMock()
+            engine.researcher = MagicMock()
+            engine.computer = MagicMock()
+            engine.verifier = MagicMock()
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()
@@ -1088,7 +1065,7 @@ class TestSyncOnTermination:
 
 
 class TestExploreResultSuppression:
-    """Test that failed explore computations are NOT appended to pending_explore_results (C3)."""
+    """Test that evidence-less results are NOT appended to pending_explore_results (C3)."""
 
     def _make_engine(self):
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
@@ -1108,44 +1085,45 @@ class TestExploreResultSuppression:
             engine.research_state = ResearchState()
         return engine
 
-    def _add_comp(self, engine, comp_id, target, kind="explore", **kwargs):
-        from sciralph.research_state import Computation
-        engine.research_state.computations[comp_id] = Computation(
-            id=comp_id, target_hypothesis=target,
-            kind=kind, iteration=engine.iteration,
-            **kwargs,
-        )
-
-    def test_zero_output_explore_not_appended(self):
-        """zero_output explore computation NOT appended to pending_explore_results."""
+    def test_no_evidence_not_appended(self):
+        """Hypothesis with no evidence NOT appended to pending_explore_results."""
+        from sciralph.research_state import Hypothesis
         engine = self._make_engine()
-        self._add_comp(engine, "TASK-003", "WH-001", kind="explore",
-                        zero_output=True, result="", claim="test")
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_EXPLORE,
-                    assigned_to="compute_explore", body="Explore WH-001")
-        engine._track_computation(task)
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        task = Task(task_id="TASK-003", task_type=TaskType.RESEARCH,
+                    assigned_to="researcher", target_claim="WH-001",
+                    body="Research WH-001")
+        engine._track_agent_result(task)
 
         assert len(engine._state.pending_explore_results) == 0
 
     def test_empty_result_explore_not_appended(self):
-        """Explore with empty result NOT appended to pending_explore_results."""
+        """Evidence with empty result NOT appended to pending_explore_results."""
+        from sciralph.research_state import Hypothesis, Evidence
         engine = self._make_engine()
-        self._add_comp(engine, "TASK-003", "WH-001", kind="explore",
-                        result="", claim="test")
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_EXPLORE,
-                    assigned_to="compute_explore", body="Explore WH-001")
-        engine._track_computation(task)
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            evidence=Evidence(result="", method="test"),
+        )
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", target_claim="WH-001",
+                    body="Compute WH-001")
+        engine._track_agent_result(task)
 
         assert len(engine._state.pending_explore_results) == 0
 
     def test_successful_explore_appended(self):
-        """Successful explore IS appended to pending_explore_results."""
+        """Successful evidence IS appended to pending_explore_results."""
+        from sciralph.research_state import Hypothesis, Evidence
         engine = self._make_engine()
-        self._add_comp(engine, "TASK-003", "WH-001", kind="explore",
-                        result="x = 42", claim="Compute x", confidence="exact")
-        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE_EXPLORE,
-                    assigned_to="compute_explore", body="Explore WH-001")
-        engine._track_computation(task)
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            evidence=Evidence(result="x = 42", method="Compute x", confidence="exact"),
+        )
+        task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", target_claim="WH-001",
+                    body="Compute WH-001")
+        engine._track_agent_result(task)
 
         assert len(engine._state.pending_explore_results) == 1
         assert engine._state.pending_explore_results[0]["target_id"] == "WH-001"

@@ -114,6 +114,10 @@ def check_stale_unverified_labels(research_state: ResearchState) -> list[Violati
                 er_form = f"ER-{num}"
                 if er_form in research_state.hypotheses:
                     verified_ids.add(er_form)
+            # Also add the WH form so derivations referencing old ID are matched
+            if hid.startswith("ER-"):
+                num = hid.split("-")[1]
+                verified_ids.add(f"WH-{num}")
 
     if not verified_ids:
         return []
