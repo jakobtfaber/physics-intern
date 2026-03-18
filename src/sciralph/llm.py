@@ -260,6 +260,8 @@ def run_agent_loop(
     _exit_tool = getattr(tool_executor, "exit_tool_name", "submit_verdict")
     for round_num in range(1, max_rounds + 1):
         start = time.time()
+        # Allow executor to dynamically switch tool set (e.g. after document_approach)
+        active_tools = getattr(tool_executor, "active_tools", None) or tools
         try:
             resp = _call_provider_with_retry(
                 provider, config,
@@ -269,7 +271,7 @@ def run_agent_loop(
                 max_tokens=config.max_tokens,
                 system=system,
                 messages=provider.prepare_messages(messages),
-                tools=tools,
+                tools=active_tools,
             )
         except Exception as exc:
             if _is_tool_call_failure(exc):

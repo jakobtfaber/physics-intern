@@ -267,6 +267,13 @@ class ToolExecutor:
             return cls.COMPUTER_TOOLS
         return cls.TOOL_DEFINITIONS  # default fallback
 
+    # Tool sets available after document_approach has been called
+    COMPUTER_TOOLS_POST_APPROACH: ClassVar[list[dict]] = [
+        _EXECUTE_PYTHON_DEF,
+        _SUBMIT_RESULT_DEF,
+        _REPORT_PROGRESS_DEF,
+    ]
+
     def __init__(self, workspace_root: Path, timeout: int = 60, output_limit: int = 10_000,
                  task_type: "TaskType | None" = None):
         self.workspace_root = workspace_root
@@ -277,6 +284,7 @@ class ToolExecutor:
         self._task_type = task_type
         self.ready_to_conclude_signaled = False
         self._script_names: list[str] = []
+        self._approach_documented: bool = False
 
     @staticmethod
     def _sanitize_filename(raw: str, max_len: int = 60) -> str:
@@ -328,7 +336,12 @@ class ToolExecutor:
         )
 
     def _document_approach(self, params: dict) -> tuple[str, bool]:
-        """Record the computational approach before coding."""
+        """Record the computational approach before coding. Only callable once."""
+        if self._approach_documented:
+            return (
+                "Error: approach already documented. "
+                "Call execute_python to run your code, or submit_result to finish."
+            ), True
         approach = params.get("approach", "")
         assumptions = params.get("assumptions", [])
         expected_outcome = params.get("expected_outcome", "")
@@ -337,7 +350,19 @@ class ToolExecutor:
             "assumptions": assumptions,
             "expected_outcome": expected_outcome,
         }
-        return "Approach documented. You may now proceed with execute_python.", False
+        self._approach_documented = True
+        return "Approach documented. Now call execute_python to run your code.", False
+
+    @property
+    def active_tools(self) -> list[dict] | None:
+        """Return dynamic tool set, or None to keep the original tools.
+
+        After document_approach is called, remove it from the tool set
+        so the model cannot call it again.
+        """
+        if self._approach_documented:
+            return self.COMPUTER_TOOLS_POST_APPROACH
+        return None
 
     def _report_progress(self, params: dict) -> tuple[str, bool]:
         """Acknowledge progress report and guide next action."""
