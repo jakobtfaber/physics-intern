@@ -90,6 +90,7 @@ _PROVIDER_SIDE_400_PATTERNS = {
     "post processor",       # HuggingFace "gpt oss post processor" internal error
     "internal error",
     "backend error",
+    "input validation",     # HuggingFace context-length / format rejection
 }
 
 

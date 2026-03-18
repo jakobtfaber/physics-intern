@@ -110,7 +110,35 @@ class SciRalph:
                 # Clear stale termination blockers — the forced critic addresses the critic gate
                 self._state.pending_termination_blockers.clear()
             else:
-                task = self._run_orchestrator()
+                try:
+                    task = self._run_orchestrator()
+                except Exception as exc:
+                    if not _is_transient(exc):
+                        raise
+                    self.metrics.alert(
+                        self.iteration,
+                        f"Orchestrator failed (transient): {type(exc).__name__}: {exc}",
+                    )
+                    self._state.pending_violations.append(
+                        Violation(
+                            check="orchestrator_failure",
+                            severity=ViolationSeverity.WARNING,
+                            message=(
+                                f"Orchestrator failed with transient error: "
+                                f"{type(exc).__name__}: {str(exc)[:200]}"
+                            ),
+                        )
+                    )
+                    console.print(
+                        f"[yellow]Orchestrator failed (transient), skipping to "
+                        f"next iteration: {exc}[/yellow]"
+                    )
+                    log_scaffold_event(
+                        self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                        "orchestrator_failure",
+                        f"{type(exc).__name__}: {str(exc)[:200]}",
+                    )
+                    continue
 
             # 2. Post-integration validation
             violations = validate_post_integration(
