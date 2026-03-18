@@ -43,35 +43,20 @@ _ER_WH_ID_RE = re.compile(r"\b(?:ER|WH)-\d+\b")
 # ---------------------------------------------------------------------------
 
 def check_er_demotion_safety(research_state: ResearchState) -> list[Violation]:
-    """Demote ER-NNN hypotheses when an explicit REFUTED computation exists
-    with no superseding VERIFIED computation for that claim.
-    """
+    """Demote ER-NNN hypotheses when verification verdict is REFUTED."""
     violations: list[Violation] = []
 
     for hid, h in list(research_state.hypotheses.items()):
         if not hid.startswith("ER-"):
             continue
-        num = hid.split("-")[1]
-        wh_id = f"WH-{num}"
-
-        # Check for REFUTED and VERIFIED computations targeting this claim
-        has_refuted = False
-        has_verified = False
-        for c in research_state.computations.values():
-            if c.target_hypothesis in (hid, wh_id):
-                if c.verdict == Verdict.REFUTED:
-                    has_refuted = True
-                if c.verdict == Verdict.VERIFIED:
-                    has_verified = True
-
-        # Only demote when REFUTED exists and no VERIFIED supersedes it
-        if has_refuted and not has_verified:
+        # Check for REFUTED verification without a superseding VERIFIED
+        if h.verification and h.verification.verdict == Verdict.REFUTED:
             new_id = research_state.demote_hypothesis(hid)
             if new_id:
                 violations.append(Violation(
                     check="er_demotion_safety",
                     severity=ViolationSeverity.WARNING,
-                    message=f"{hid} has REFUTED computation with no VERIFIED — demoted to {new_id}",
+                    message=f"{hid} has REFUTED verification — demoted to {new_id}",
                     detail=hid,
                 ))
 
@@ -82,16 +67,15 @@ def check_phantom_labels(research_state: ResearchState) -> list[Violation]:
     """Strip unsubstantiated VERIFIED labels from hypothesis derivations."""
     violations: list[Violation] = []
 
-    # Build set of hypothesis IDs that have VERIFIED computations
+    # Build set of hypothesis IDs that have VERIFIED verification
     verified_ids: set[str] = set()
-    for c in research_state.computations.values():
-        if c.verdict == Verdict.VERIFIED and c.target_hypothesis:
-            verified_ids.add(c.target_hypothesis)
+    for hid, h in research_state.hypotheses.items():
+        if h.verification and h.verification.verdict == Verdict.VERIFIED:
+            verified_ids.add(hid)
 
     for hid, h in research_state.hypotheses.items():
         if not h.derivation or "VERIFIED" not in h.derivation:
             continue
-        # Check each line in derivation for unsubstantiated VERIFIED
         new_lines = []
         changed = False
         for line in h.derivation.splitlines():
@@ -116,17 +100,17 @@ def check_phantom_labels(research_state: ResearchState) -> list[Violation]:
 
 
 def check_stale_unverified_labels(research_state: ResearchState) -> list[Violation]:
-    """Promote [unverified] labels to VERIFIED when backed by computation."""
+    """Promote [unverified] labels to VERIFIED when backed by verification."""
     violations: list[Violation] = []
 
-    # Build set of hypothesis IDs that have VERIFIED computations
+    # Build set of hypothesis IDs that have VERIFIED verification
     verified_ids: set[str] = set()
-    for c in research_state.computations.values():
-        if c.verdict == Verdict.VERIFIED and c.target_hypothesis:
-            verified_ids.add(c.target_hypothesis)
+    for hid, h in research_state.hypotheses.items():
+        if h.verification and h.verification.verdict == Verdict.VERIFIED:
+            verified_ids.add(hid)
             # Also add the ER form if WH was verified and has been promoted
-            if c.target_hypothesis.startswith("WH-"):
-                num = c.target_hypothesis.split("-")[1]
+            if hid.startswith("WH-"):
+                num = hid.split("-")[1]
                 er_form = f"ER-{num}"
                 if er_form in research_state.hypotheses:
                     verified_ids.add(er_form)
@@ -145,7 +129,6 @@ def check_stale_unverified_labels(research_state: ResearchState) -> list[Violati
                 if ids_in_line and any(id_ in verified_ids for id_ in ids_in_line):
                     line = line.replace("[unverified]", "VERIFIED")
                     line = line.replace("[Unverified]", "VERIFIED")
-                    # If any WH-NNN on this line has a promoted ER-NNN, rename
                     for wh in [i for i in ids_in_line if i.startswith("WH-")]:
                         num = wh.split("-")[1]
                         er_form = f"ER-{num}"
@@ -166,11 +149,7 @@ def check_stale_unverified_labels(research_state: ResearchState) -> list[Violati
 
 
 def check_critique_resolution_consistency(research_state: ResearchState) -> list[Violation]:
-    """Check that resolved critiques are consistent with current state.
-
-    For label-related critiques: flag if both WH-NNN and ER-NNN still co-exist.
-    For any resolved critique: flag if the target ID has vanished entirely.
-    """
+    """Check that resolved critiques are consistent with current state."""
     violations: list[Violation] = []
 
     _LABEL_KEYWORDS = re.compile(
@@ -187,14 +166,12 @@ def check_critique_resolution_consistency(research_state: ResearchState) -> list
         is_label_critique = bool(_LABEL_KEYWORDS.search(body_text))
 
         for tid in crit.targets:
-            # Skip non-hypothesis targets (e.g., "STRATEGY") that have no WH/ER form
             if "-" not in tid:
                 continue
             num = tid.split("-")[1]
             wh_form = f"WH-{num}"
             er_form = f"ER-{num}"
 
-            # Check if target vanished entirely
             if (tid not in research_state.hypotheses
                     and wh_form not in research_state.hypotheses
                     and er_form not in research_state.hypotheses):
@@ -208,7 +185,6 @@ def check_critique_resolution_consistency(research_state: ResearchState) -> list
                     detail=f"{crit_id}:{tid}",
                 ))
 
-            # For label critiques: check WH/ER co-existence
             if (is_label_critique
                     and wh_form in research_state.hypotheses
                     and er_form in research_state.hypotheses):
@@ -243,7 +219,7 @@ def validate_post_integration(
     iteration: int = 0,
     workspace: WorkspaceManager | None = None,
 ) -> list[Violation]:
-    """Run all post-integration invariant checks. Returns violations to inject into next orchestrator context."""
+    """Run all post-integration invariant checks."""
     violations: list[Violation] = []
     for check in _DEFAULT_CHECKS:
         check_violations = check(research_state)
@@ -266,18 +242,15 @@ def can_terminate(
     *,
     research_state: ResearchState,
 ) -> tuple[bool, list[str]]:
-    """Check preconditions before allowing the research loop to exit.
-
-    Returns (allowed, blockers) where blockers is a list of human-readable
-    reasons the loop must continue.
-    """
+    """Check preconditions before allowing the research loop to exit."""
     from .research_state import RQStatus
 
     blockers: list[str] = []
 
     # Gate 1: At least one critic pass if verified results exist
     has_verified = any(
-        c.verdict == Verdict.VERIFIED for c in research_state.computations.values()
+        h.verification and h.verification.verdict == Verdict.VERIFIED
+        for h in research_state.hypotheses.values()
     )
     if has_verified and metrics.last_critic_iteration == 0:
         blockers.append(
@@ -293,17 +266,20 @@ def can_terminate(
     if high_count > 0:
         blockers.append(
             f"{high_count} unresolved HIGH critique(s). "
-            "Emit task_type: resolve to address them."
+            "Address them before terminating."
         )
 
-    # Gate 3: At least one computation when problem requires it
+    # Gate 3: Numerical evidence required when problem requires it
     meta = problem_meta or {}
     if meta.get("requires_numerical", False):
-        if len(research_state.computations) == 0:
+        has_compute_evidence = any(
+            h.evidence and h.evidence.type == "compute"
+            for h in research_state.hypotheses.values()
+        )
+        if not has_compute_evidence:
             blockers.append(
-                "Problem requires numerical verification but no computations found. "
-                "You MUST emit task_type: compute_verify "
-                "to run at least one numerical verification before terminating."
+                "Problem requires numerical verification but no computational evidence found. "
+                "Emit task_type: compute to run at least one computation before terminating."
             )
 
     # Gate 4: All RQs and WHs must be resolved before termination
@@ -314,27 +290,18 @@ def can_terminate(
                 "Call resolve_research_question or abandon it before terminating."
             )
 
-    # Build set of WHs with VERIFIED verify-kind backing (matching promotion guardrail)
-    verify_kinds = {"verify", "research_verify"}
-    verified_wh_ids: set[str] = set()
-    for comp in research_state.computations.values():
-        if (comp.verdict == Verdict.VERIFIED
-                and comp.target_hypothesis
-                and comp.kind in verify_kinds):
-            verified_wh_ids.add(comp.target_hypothesis)
-
     for h in research_state.hypotheses.values():
         if h.status == HypothesisStatus.WORKING:
-            if h.id in verified_wh_ids:
+            if h.verification and h.verification.verdict == Verdict.VERIFIED:
                 blockers.append(
-                    f"{h.id} has VERIFIED verify-kind computation but was not promoted. "
+                    f"{h.id} has VERIFIED verification but was not promoted. "
                     f"Call promote_hypothesis(id=\"{h.id}\") or "
                     f"abandon_hypothesis(id=\"{h.id}\") before terminating."
                 )
             else:
                 blockers.append(
-                    f"{h.id} has no VERIFIED verify-kind computation. "
-                    f"Emit task_type: compute_verify or research_verify targeting {h.id}, "
+                    f"{h.id} has no VERIFIED verification. "
+                    f"Emit task_type: verify targeting {h.id}, "
                     f"or call abandon_hypothesis(id=\"{h.id}\"), before terminating."
                 )
 

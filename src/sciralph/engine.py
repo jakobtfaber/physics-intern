@@ -11,16 +11,14 @@ from .llm import _is_transient
 from .metrics import MetricsTracker
 from .task import Task, TaskType
 from .categories import CompensationCategory as CC
-from .research_state import ResearchState
-from .renderers import render_research_state_md, render_computation_log_md, render_critique_log_md
+from .research_state import ResearchState, Verdict
+from .renderers import render_research_state_md, render_evidence_log_md, render_critique_log_md
 from .validation import validate_post_integration, can_terminate, Violation, ViolationSeverity
 from .workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
-from .agents.computationalist import ComputationalistAgent
-from .agents.compute_verify import ComputeVerifyAgent
-from .agents.compute_explore import ComputeExploreAgent
-from .agents.research_verify import ResearchVerifyAgent
-from .agents.research_explore import ResearchExploreAgent
+from .agents.researcher import ResearcherAgent
+from .agents.computer import ComputerAgent
+from .agents.verifier import VerifierAgent
 from .agents.critic import CriticAgent
 from .agents.compressor import CompressorAgent
 from .agents.formatter import FormatterAgent
@@ -75,11 +73,9 @@ class SciRalph:
 
         # Initialize agents
         self.orchestrator = OrchestratorAgent(self.config, self.workspace, self.metrics)
-        self.computationalist = ComputationalistAgent(self.config, self.workspace, self.metrics)
-        self.compute_verify = ComputeVerifyAgent(self.config, self.workspace, self.metrics)
-        self.compute_explore = ComputeExploreAgent(self.config, self.workspace, self.metrics)
-        self.research_verify = ResearchVerifyAgent(self.config, self.workspace, self.metrics)
-        self.research_explore = ResearchExploreAgent(self.config, self.workspace, self.metrics)
+        self.researcher = ResearcherAgent(self.config, self.workspace, self.metrics)
+        self.computer = ComputerAgent(self.config, self.workspace, self.metrics)
+        self.verifier = VerifierAgent(self.config, self.workspace, self.metrics)
         self.critic = CriticAgent(self.config, self.workspace, self.metrics)
         self.compressor = CompressorAgent(self.config, self.workspace, self.metrics)
         self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
@@ -150,7 +146,7 @@ class SciRalph:
                 self._state.pending_violations.extend(violations)
 
             # 3. Enrichment for compute tasks
-            if task.task_type in (TaskType.COMPUTE_VERIFY, TaskType.COMPUTE_EXPLORE, TaskType.RESEARCH_VERIFY):
+            if task.task_type == TaskType.COMPUTE:
                 self._enrich_compute_task_with_prior_failures(task)
 
             # 4. Termination gate
@@ -209,8 +205,8 @@ class SciRalph:
             self._record_agent_failures(task, agent_name, agent_result)
 
             # 6. Post-dispatch checks
-            if task.task_type in (TaskType.COMPUTE_EXPLORE, TaskType.COMPUTE_VERIFY, TaskType.RESEARCH_VERIFY, TaskType.RESEARCH_EXPLORE):
-                self._track_computation(task)
+            if task.task_type in (TaskType.RESEARCH, TaskType.COMPUTE, TaskType.VERIFY):
+                self._track_agent_result(task)
 
             # 7. Compression, metrics, structured state snapshot, render files, git
             self._check_compression()
@@ -238,7 +234,7 @@ class SciRalph:
         self.orchestrator.research_state = self.research_state
 
         orch_task = Task(
-            task_id="", task_type=TaskType.RESEARCH_EXPLORE,
+            task_id="", task_type=TaskType.RESEARCH,
             assigned_to="orchestrator", iteration=self.iteration,
         )
         orch_response = self.orchestrator.run(orch_task, self.iteration, on_round=self._on_agent_round)
@@ -338,39 +334,33 @@ class SciRalph:
             lines.append(">>> END TERMINATION BLOCKERS <<<\n")
             self._state.pending_termination_blockers.clear()
         if self._state.pending_explore_results:
-            lines.append(">>> EXPLORE RESULTS (previous iteration) <<<")
+            lines.append(">>> EVIDENCE RESULTS (previous iteration) <<<")
             for r in self._state.pending_explore_results:
                 lines.append(f"- {r['target_id']}: {r['description']}  [{r['confidence']}]")
                 if r.get("result"):
                     lines.append(f"  Result: {r['result'][:800]}")
-                lines.append("  Consider: formulate a concrete WH from this result, or integrate directly.")
-            lines.append(">>> END EXPLORE RESULTS <<<\n")
+                lines.append("  Consider: formulate a concrete WH from this evidence (add_hypothesis with from_rq).")
+            lines.append(">>> END EVIDENCE RESULTS <<<\n")
             self._state.pending_explore_results.clear()
         if self._state.pending_verified_results:
-            lines.append(">>> VERIFIED COMPUTATIONS (previous iteration) <<<")
+            lines.append(">>> VERIFIED HYPOTHESES (previous iteration) <<<")
             for v in self._state.pending_verified_results:
-                line = f"- {v['comp_id']} VERIFIED {v['claim']} ({v['kind']}"
-                if v.get('confidence'):
-                    line += f", confidence: {v['confidence']}"
-                line += ")"
-                lines.append(line)
+                lines.append(f"- {v['claim']} VERIFIED by verifier")
             lines.append("  Consider resolving related critiques and proceeding to promotion.")
-            lines.append(">>> END VERIFIED COMPUTATIONS <<<\n")
+            lines.append(">>> END VERIFIED HYPOTHESES <<<\n")
             self._state.pending_verified_results.clear()
         if self._state.pending_compute_verdicts:
-            lines.append(">>> COMPUTATION VERDICTS (previous iteration) <<<")
+            lines.append(">>> VERIFICATION RESULTS (previous iteration) <<<")
             for v in self._state.pending_compute_verdicts:
                 lines.append(f"- {v['verdict']}: {v['claim'][:120]}")
                 lines.append(f"  Attempt {v['attempt']}/{self.config.stall_recompute_limit}")
                 if v.get('notes'):
                     lines.append(f"  Notes: {v['notes']}")
-                if v.get('failure_detail'):
-                    lines.append(f"  Failure detail: {v['failure_detail']}")
                 if v['attempt'] >= self.config.stall_recompute_limit:
-                    lines.append("  STALLED — do NOT schedule another compute_verify. Route to researcher.")
+                    lines.append("  STALLED — do NOT schedule another verify. Try alternative evidence.")
                 else:
-                    lines.append("  You must address this: recompute, re-derive, or accept provisionally.")
-            lines.append(">>> END COMPUTATION VERDICTS <<<\n")
+                    lines.append("  You must address this: gather new evidence or try a different approach.")
+            lines.append(">>> END VERIFICATION RESULTS <<<\n")
             self._state.pending_compute_verdicts.clear()
         if self._state.agent_failures:
             lines.append(">>> AGENT FAILURES (previous iteration) <<<")
@@ -392,33 +382,26 @@ class SciRalph:
 
         tt = task.task_type
 
-        if tt == TaskType.RESEARCH_EXPLORE:
-            console.print("[green]ResearchExplore[/green] reasoning...")
-            self.research_explore.research_state = self.research_state
-            result = self.research_explore.run(task, self.iteration, on_round=self._on_compute_round)
+        if tt == TaskType.RESEARCH:
+            console.print("[green]Researcher[/green] reasoning...")
+            self.researcher.research_state = self.research_state
+            result = self.researcher.run(task, self.iteration, on_round=self._on_compute_round)
             self._state.last_content_iteration = self.iteration
-            return "research_explore", result
+            return "researcher", result
 
-        elif tt == TaskType.COMPUTE_VERIFY:
-            console.print("[magenta]ComputeVerify[/magenta] verifying...")
-            self.compute_verify.research_state = self.research_state
-            result = self.compute_verify.run(task, self.iteration, on_round=self._on_compute_round)
+        elif tt == TaskType.COMPUTE:
+            console.print("[magenta]Computer[/magenta] computing...")
+            self.computer.research_state = self.research_state
+            result = self.computer.run(task, self.iteration, on_round=self._on_compute_round)
             self._state.last_content_iteration = self.iteration
-            return "compute_verify", result
+            return "computer", result
 
-        elif tt == TaskType.COMPUTE_EXPLORE:
-            console.print("[magenta]ComputeExplore[/magenta] exploring...")
-            self.compute_explore.research_state = self.research_state
-            result = self.compute_explore.run(task, self.iteration, on_round=self._on_compute_round)
+        elif tt == TaskType.VERIFY:
+            console.print("[magenta]Verifier[/magenta] verifying...")
+            self.verifier.research_state = self.research_state
+            result = self.verifier.run(task, self.iteration, on_round=self._on_agent_round)
             self._state.last_content_iteration = self.iteration
-            return "compute_explore", result
-
-        elif tt == TaskType.RESEARCH_VERIFY:
-            console.print("[magenta]ResearchVerify[/magenta] verifying analytically...")
-            self.research_verify.research_state = self.research_state
-            result = self.research_verify.run(task, self.iteration, on_round=self._on_compute_round)
-            self._state.last_content_iteration = self.iteration
-            return "research_verify", result
+            return "verifier", result
 
         elif tt == TaskType.FORMAT:
             console.print("[cyan]Formatter[/cyan] producing ANSWER.md...")
@@ -438,7 +421,7 @@ class SciRalph:
                         check="critic_clean",
                         severity=ViolationSeverity.WARNING,
                         message=(
-                            "Deep critic found NO issues with current claims. "
+                            "Deep critic found NO issues. "
                             "Do NOT emit another critique task immediately."
                         ),
                     )
@@ -456,7 +439,6 @@ class SciRalph:
                         )
                     )
             else:
-                # Summarise filed critiques at iteration header level
                 crits = list(self.research_state.critiques.values())
                 recent = [c for c in crits if c.iteration_filed == self.iteration]
                 if recent:
@@ -473,17 +455,17 @@ class SciRalph:
         elif tt == TaskType.SURVEY:
             console.print("[cyan]Surveyor[/cyan] re-surveying...")
             self.surveyor.research_state = self.research_state
-            self.surveyor._system_prompt = None  # Reset cached prompt for fresh context
+            self.surveyor._system_prompt = None
             result = self.surveyor.run(task, self.iteration)
             self._print_call_summary(result)
             self._apply_survey()
             return "surveyor", result
 
         else:
-            console.print(f"[yellow]Unknown task type '{tt}', defaulting to research_explore[/yellow]")
-            self.research_explore.research_state = self.research_state
-            result = self.research_explore.run(task, self.iteration, on_round=self._on_compute_round)
-            return "research_explore", result
+            console.print(f"[yellow]Unknown task type '{tt}', defaulting to researcher[/yellow]")
+            self.researcher.research_state = self.research_state
+            result = self.researcher.run(task, self.iteration, on_round=self._on_compute_round)
+            return "researcher", result
 
     def _critic_overdue(self) -> bool:
         """Check if more than N iterations since last critic pass."""
@@ -514,142 +496,94 @@ class SciRalph:
     def _enrich_compute_task_with_prior_failures(self, task: Task):
         """Append prior failure context to CURRENT_TASK.md for compute retries."""
         import re as _re
-        from .research_state import Verdict
         target_ids = set(_re.findall(r'(?:ER|WH)-\d+', task.body or ""))
         if task.target_claim:
             target_ids.update(_re.findall(r'(?:ER|WH)-\d+', task.target_claim))
         if not target_ids:
             return
 
-        # Find non-VERIFIED verify computations matching target from state
-        prior = [
-            c for c in self.research_state.computations.values()
-            if c.kind == "verify"
-            and c.verdict != Verdict.VERIFIED
-            and c.target_hypothesis in target_ids
-        ]
-        if not prior:
+        # Check claim failure count for these targets
+        failure_count = sum(
+            self._state.claim_failure_count.get(tid, 0)
+            for tid in target_ids
+        )
+        if not failure_count:
             return
 
-        prior_sorted = sorted(prior, key=lambda c: (c.iteration, c.id))
         log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "compute_enrichment",
-                           f"target={','.join(sorted(target_ids))}")
+                           f"target={','.join(sorted(target_ids))}, failures={failure_count}")
         task_text = self.workspace.read_file("CURRENT_TASK.md")
-        most_recent = prior_sorted[-1]
-        excerpt_parts = []
-        if most_recent.verdict:
-            excerpt_parts.append(f"**Verdict:** {most_recent.verdict}")
-        if most_recent.method:
-            excerpt_parts.append(f"**Method:** {most_recent.method}")
-        if most_recent.result:
-            excerpt_parts.append(f"**Result:** {most_recent.result}")
-        if most_recent.notes:
-            excerpt_parts.append(f"**Notes:** {most_recent.notes}")
-        excerpt = "\n".join(excerpt_parts)[:self.config.prior_failure_excerpt_chars]
-
         addendum = (
-            "\n\n---\n\n## Prior Computation Failure Context\n\n"
-            f"**{len(prior)} prior failure(s) on this claim.** "
-            "Diagnose the ROOT CAUSE before writing new code.\n\n"
-            "### Most Recent Failed Result\n\n"
-            + excerpt
+            "\n\n---\n\n## Prior Failure Context\n\n"
+            f"**{failure_count} prior failure(s) on this claim.** "
+            "Diagnose the ROOT CAUSE before writing new code.\n"
         )
-        if len(prior) > 1:
-            addendum += f"\n\n({len(prior) - 1} earlier failure(s))\n"
-        has_zero_output = any(c.zero_output for c in prior)
-        if has_zero_output:
-            addendum += (
-                "\n\n**ZERO-OUTPUT STALL DETECTED:** A prior attempt produced no text at all.\n"
-                "1. Write a brief plan in text BEFORE calling any tools\n"
-                "2. Keep computations simple — verify ONE formula at a time\n"
-                "3. Write intermediate results as text between tool calls\n"
-            )
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
 
-    def _track_computation(self, task: Task):
-        """After computationalist runs, find the new computation in state and dispatch."""
-        from .research_state import Verdict
-        # Find most recently added computation for this iteration
-        comps = [
-            c for c in self.research_state.computations.values()
-            if c.iteration == self.iteration
-        ]
-        if not comps:
-            return
-        comp = sorted(comps, key=lambda c: c.id)[-1]
+    def _track_agent_result(self, task: Task):
+        """After researcher/computer/verifier runs, track results for orchestrator banners."""
+        tt = task.task_type
+        target_id = task.target_claim
 
-        if comp.kind == "explore":
-            if comp.result and comp.target_hypothesis and not comp.zero_output:
+        if tt in (TaskType.RESEARCH, TaskType.COMPUTE):
+            # Find evidence on the target entity
+            ev = None
+            if target_id in self.research_state.research_questions:
+                ev = self.research_state.research_questions[target_id].evidence
+            elif target_id in self.research_state.hypotheses:
+                ev = self.research_state.hypotheses[target_id].evidence
+
+            if ev and ev.result:
                 self._state.pending_explore_results.append({
-                    "target_id": comp.target_hypothesis,
-                    "description": comp.claim[:500],
-                    "result": comp.result[:500],
-                    "confidence": comp.confidence or "partial",
+                    "target_id": target_id,
+                    "description": ev.method[:500] if ev.method else "unknown",
+                    "result": ev.result[:500],
+                    "confidence": ev.confidence or "partial",
                 })
+                snippet = ev.result[:120].replace("\n", " ")
+                conf = f", {ev.confidence}" if ev.confidence else ""
+                console.print(f"  [blue]Evidence for {target_id}[/blue]{conf}: {snippet}")
             else:
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                                   "explore_result_suppressed",
-                                   f"target={comp.target_hypothesis}, zero_output={comp.zero_output}")
-        else:
-            key = comp.target_hypothesis
-            if not key:
+                                   "evidence_suppressed", f"target={target_id}")
+                console.print(f"  [dim]No evidence produced for {target_id}[/dim]")
+
+        elif tt == TaskType.VERIFY:
+            if not target_id or target_id not in self.research_state.hypotheses:
                 return
-            if comp.verdict == Verdict.VERIFIED:
+            h = self.research_state.hypotheses[target_id]
+            if not h.verification:
+                return
+            verdict = h.verification.verdict
+            if verdict == Verdict.VERIFIED:
                 self._state.pending_verified_results.append({
-                    "claim": key,
-                    "comp_id": comp.id,
-                    "kind": comp.kind,
-                    "confidence": comp.confidence or "",
+                    "claim": target_id,
+                    "verdict": verdict,
                 })
-                self._state.claim_failure_count.pop(key, None)
-                return
-            count = self._state.claim_failure_count.get(key, 0) + 1
-            self._state.claim_failure_count[key] = count
-            self._state.pending_compute_verdicts.append({
-                "verdict": comp.verdict.value,
-                "claim": key,
-                "attempt": count,
-                "notes": (comp.notes or "")[:300],
-                "failure_detail": (comp.failure_detail or "")[:300],
-            })
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                               "compute_verdict_failed",
-                               f"target={key}, verdict={comp.verdict}, "
-                               f"attempt={count}/{self.config.stall_recompute_limit}")
-
-        # Console summary of computation outcome
-        self._print_computation_outcome(comp)
-
-    def _print_computation_outcome(self, comp):
-        """Print a one-line summary of a computation's outcome to the console."""
-        from .research_state import Verdict
-
-        target = comp.target_hypothesis or "?"
-
-        if comp.kind == "explore":
-            if comp.zero_output:
-                console.print(f"  [dim]Explore {target}: no output[/dim]")
-            elif comp.result:
-                snippet = comp.result[:120].replace("\n", " ")
-                conf = f", {comp.confidence}" if comp.confidence else ""
-                console.print(f"  [blue]Explored {target}[/blue]{conf}: {snippet}")
+                self._state.claim_failure_count.pop(target_id, None)
+                console.print(f"  [green]{target_id} VERIFIED[/green]")
+            elif verdict == Verdict.REFUTED:
+                count = self._state.claim_failure_count.get(target_id, 0) + 1
+                self._state.claim_failure_count[target_id] = count
+                self._state.pending_compute_verdicts.append({
+                    "verdict": verdict,
+                    "claim": target_id,
+                    "attempt": count,
+                    "notes": h.verification.reasoning[:300] if h.verification.reasoning else "",
+                })
+                detail = h.verification.reasoning[:120].replace("\n", " ") if h.verification.reasoning else ""
+                console.print(f"  [red]{target_id} REFUTED[/red] — {detail}")
             else:
-                console.print(f"  [dim]Explore {target}: no result[/dim]")
-        else:
-            # verify / research_verify
-            if comp.zero_output:
-                console.print(f"  [dim]{target}: no output (zero_output)[/dim]")
-            elif comp.verdict == Verdict.VERIFIED:
-                conf = f" ({comp.confidence})" if comp.confidence else ""
-                console.print(f"  [green]{target} VERIFIED[/green]{conf}")
-            elif comp.verdict == Verdict.REFUTED:
-                detail = (comp.failure_detail or comp.notes or "")[:120].replace("\n", " ")
-                suffix = f" — {detail}" if detail else ""
-                console.print(f"  [red]{target} REFUTED[/red]{suffix}")
-            else:
-                detail = (comp.notes or comp.failure_detail or "")[:120].replace("\n", " ")
-                suffix = f" — {detail}" if detail else ""
-                console.print(f"  [yellow]{target} INCONCLUSIVE[/yellow]{suffix}")
+                count = self._state.claim_failure_count.get(target_id, 0) + 1
+                self._state.claim_failure_count[target_id] = count
+                self._state.pending_compute_verdicts.append({
+                    "verdict": verdict,
+                    "claim": target_id,
+                    "attempt": count,
+                    "notes": h.verification.reasoning[:300] if h.verification.reasoning else "",
+                })
+                detail = h.verification.reasoning[:120].replace("\n", " ") if h.verification.reasoning else ""
+                console.print(f"  [yellow]{target_id} INCONCLUSIVE[/yellow] — {detail}")
 
     def _check_compression(self):
         """Check file sizes against thresholds, compress if needed."""
@@ -664,7 +598,7 @@ class SciRalph:
                     console.print(f"[yellow]Compressing {filename} ({size}/{threshold})[/yellow]")
                     compress_task = Task(
                         task_id=f"COMPRESS-{self.iteration:03d}",
-                        task_type=TaskType.RESEARCH_EXPLORE,
+                        task_type=TaskType.RESEARCH,
                         assigned_to="compressor",
                         iteration=self.iteration,
                         target_file=filename,
@@ -682,7 +616,7 @@ class SciRalph:
     def _render_files_for_git(self):
         """Render markdown files from ResearchState for git snapshots and verify.py."""
         self.workspace.write_file("RESEARCH_STATE.md", render_research_state_md(self.research_state))
-        self.workspace.write_file("COMPUTATION_LOG.md", render_computation_log_md(self.research_state))
+        self.workspace.write_file("EVIDENCE_LOG.md", render_evidence_log_md(self.research_state))
         self.workspace.write_file("CRITIQUE_LOG.md", render_critique_log_md(self.research_state))
 
     def _run_formatter(self):

@@ -2,13 +2,11 @@
 
 Snapshot renderers produce full Markdown files (for git snapshots and agent
 context).  Per-agent context renderers produce the user-message content that
-each agent sees, structurally equivalent to what the old file-reading
-build_context() methods produced.
+each agent sees.
 """
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 from .markdown import render_frontmatter
@@ -18,7 +16,6 @@ from .research_state import (
     ResearchState,
     RQStatus,
     Severity,
-    Verdict,
 )
 
 if TYPE_CHECKING:
@@ -56,7 +53,6 @@ def _research_state_body(
     include_problem_statement: bool = True,
     skip_empty_dead_ends: bool = False,
     include_background_survey: bool = False,
-    include_computation_history: bool = False,
     heading_offset: int = 0,
 ) -> str:
     """Build the body text for a research state rendering.
@@ -98,6 +94,9 @@ def _research_state_body(
             parts.append(f"{h2} {rq.id} [OPEN] — {rq.question}")
             if rq.context:
                 parts.append(f"  Context: {rq.context}")
+            if rq.evidence:
+                ev = rq.evidence
+                parts.append(f"  Evidence ({ev.type}): {ev.result[:200] if ev.result else 'pending'}")
             parts.append("")
         for rq in sorted(resolved_rqs, key=lambda r: r.id):
             status_tag = f"[{rq.status.upper()}]"
@@ -136,18 +135,24 @@ def _research_state_body(
         if h.derivation:
             parts.append(h.derivation)
             parts.append("")
-        if include_computation_history:
-            h_comps = sorted(
-                [c for c in state.computations.values()
-                 if c.target_hypothesis == h.id and not c.zero_output],
-                key=lambda c: (c.iteration, c.id),
-            )
-            if h_comps:
-                summary = " → ".join(
-                    f"{c.id} ({c.kind}, {c.verdict.value})"
-                    for c in h_comps
-                )
-                parts.append(f"**Computation history:** {summary}\n")
+        # Evidence summary
+        if h.evidence:
+            ev = h.evidence
+            parts.append(f"**Evidence ({ev.type}):** {ev.method or 'not specified'}")
+            if ev.confidence:
+                parts.append(f"  Confidence: {ev.confidence}")
+            if ev.result:
+                parts.append(f"  Result: {ev.result[:300]}")
+            parts.append("")
+        # Verification status
+        if h.verification:
+            v = h.verification
+            parts.append(f"**Verification:** {v.verdict}")
+            if v.reasoning:
+                parts.append(f"  Reasoning: {v.reasoning[:300]}")
+            if v.critiques:
+                parts.append(f"  Critiques: {len(v.critiques)} filed")
+            parts.append("")
 
     # Dead Ends
     has_dead_ends = bool(state.failed_approaches) or any(
@@ -161,10 +166,9 @@ def _research_state_body(
                 parts.append(f"  Reason: {fa.reason}")
             if fa.derivation_excerpt:
                 parts.append(f"  Derivation: {fa.derivation_excerpt}")
-            if fa.related_comps:
-                parts.append(f"  Related computations: {', '.join(fa.related_comps)}")
+            if fa.related_entities:
+                parts.append(f"  Related entities: {', '.join(fa.related_entities)}")
         # Only render abandoned hypotheses not already covered by failed_approaches
-        # (abandon_hypothesis tool adds to both, so skip those to avoid duplicates)
         fa_descriptions = {fa.description for fa in state.failed_approaches}
         for h in sorted_hyps:
             if h.status == HypothesisStatus.ABANDONED:
@@ -197,52 +201,74 @@ def render_research_state_md(state: ResearchState) -> str:
     return render_frontmatter(meta, body)
 
 
-def render_computation_log_md(state: ResearchState) -> str:
-    """Render COMPUTATION_LOG.md from ResearchState."""
-    comps = sorted(state.computations.values(), key=lambda c: (c.iteration, c.id))
-    meta = {
-        "total_computations": len(comps),
-    }
+def render_evidence_log_md(state: ResearchState) -> str:
+    """Render EVIDENCE_LOG.md from ResearchState — evidence and verification on hypotheses."""
+    parts: list[str] = ["# Evidence Log\n"]
 
-    parts: list[str] = ["# Computations\n"]
+    # Collect all hypotheses with evidence or verification, sorted by iteration
+    entries = []
+    for h in state.hypotheses.values():
+        if h.evidence:
+            entries.append(("evidence", h.evidence.iteration or h.iteration_created, h))
+        if h.verification:
+            entries.append(("verification", h.verification.iteration or h.iteration_modified, h))
+    # Also check RQs for evidence
+    for rq in state.research_questions.values():
+        if rq.evidence:
+            entries.append(("rq_evidence", rq.evidence.iteration or rq.iteration_created, rq))
 
-    for c in comps:
-        if c.zero_output:
-            parts.append(f"## {c.id}: FAILED (no result produced, iteration {c.iteration})\n")
-            continue
-        if c.kind == "explore":
-            parts.append(f"## {c.id}: Exploration\n")
-            parts.append(f"**TARGET:** {c.target_hypothesis}")
-            parts.append(f"**DESCRIPTION:** {c.claim}")
-            parts.append(f"**METHOD:** {c.method}")
-            parts.append(f"**RESULT:** {c.result}\n")
-            parts.append(f"**CONFIDENCE:** {c.confidence}")
-            if c.notes:
-                parts.append(f"**NOTES:** {c.notes}")
-        else:
-            parts.append(f"## {c.id}: Computation\n")
-            claim_prefix = f"{c.target_hypothesis} — " if c.target_hypothesis else ""
-            parts.append(f"**CLAIM:** {claim_prefix}{c.claim}")
-            parts.append(f"**METHOD:** {c.method}")
-            parts.append(f"**RESULT:** {c.result}\n")
-            parts.append(f"**VERDICT:** {c.verdict}")
-            if c.notes:
-                parts.append(f"**NOTES:** {c.notes}")
-            elif c.failure_detail:
-                parts.append(f"**NOTES:** {c.failure_detail}")
+    entries.sort(key=lambda e: e[1])
 
-        parts.append(f"\n- **Iteration:** {c.iteration}")
-        parts.append("")
+    for entry_type, iteration, entity in entries:
+        if entry_type == "rq_evidence":
+            ev = entity.evidence
+            parts.append(f"## {entity.id}: Evidence ({ev.type})\n")
+            parts.append(f"**Question:** {entity.question}")
+            parts.append(f"**Method:** {ev.method}")
+            if ev.approach:
+                parts.append(f"**Approach:** {ev.approach[:500]}")
+            parts.append(f"**Result:** {ev.result}")
+            if ev.confidence:
+                parts.append(f"**Confidence:** {ev.confidence}")
+            if ev.scripts:
+                parts.append(f"**Scripts:** {', '.join(ev.scripts)}")
+            parts.append(f"**Iteration:** {iteration}\n")
+        elif entry_type == "evidence":
+            ev = entity.evidence
+            parts.append(f"## {entity.id}: Evidence ({ev.type})\n")
+            parts.append(f"**Statement:** {entity.statement}")
+            parts.append(f"**Method:** {ev.method}")
+            if ev.approach:
+                parts.append(f"**Approach:** {ev.approach[:500]}")
+            parts.append(f"**Result:** {ev.result}")
+            if ev.confidence:
+                parts.append(f"**Confidence:** {ev.confidence}")
+            if ev.scripts:
+                parts.append(f"**Scripts:** {', '.join(ev.scripts)}")
+            if ev.reasoning:
+                parts.append(f"**Reasoning:** {ev.reasoning[:500]}")
+            parts.append(f"**Iteration:** {iteration}\n")
+        elif entry_type == "verification":
+            v = entity.verification
+            parts.append(f"## {entity.id}: Verification — {v.verdict}\n")
+            parts.append(f"**Statement:** {entity.statement}")
+            if v.reasoning:
+                parts.append(f"**Reasoning:** {v.reasoning[:500]}")
+            if v.critiques:
+                for c in v.critiques:
+                    parts.append(f"  - [{c.get('severity', '?')}] {c.get('argument', '')[:200]}")
+            parts.append(f"**Iteration:** {iteration}\n")
 
+    if not entries:
+        parts.append("(No evidence or verification recorded yet.)\n")
+
+    meta = {"total_entries": len(entries)}
     body = "\n".join(parts)
     return render_frontmatter(meta, body)
 
 
 def _critique_log_body(state: ResearchState) -> str:
-    """Build the body text for a critique log rendering.
-
-    Shared by the snapshot renderer and orchestrator context renderer.
-    """
+    """Build the body text for a critique log rendering."""
     active = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
     resolved = [c for c in state.critiques.values() if c.status in (CritiqueStatus.RESOLVED, CritiqueStatus.WITHDRAWN)]
 
@@ -298,40 +324,6 @@ def render_critique_log_md(state: ResearchState) -> str:
     return render_frontmatter(meta, body)
 
 
-def render_computation_log_tail(state: ResearchState, n: int) -> str:
-    """Render the last *n* computation entries from ResearchState."""
-    comps = sorted(state.computations.values(), key=lambda c: (c.iteration, c.id))
-    tail = comps[-n:] if comps else []
-    parts: list[str] = []
-    for c in tail:
-        if c.zero_output:
-            parts.append(f"## {c.id}: FAILED (no result produced, iteration {c.iteration})\n")
-            continue
-        if c.kind == "explore":
-            parts.append(f"## {c.id}: Exploration\n")
-            parts.append(f"**TARGET:** {c.target_hypothesis}")
-            parts.append(f"**DESCRIPTION:** {c.claim}")
-            parts.append(f"**METHOD:** {c.method}")
-            parts.append(f"**RESULT:** {c.result}\n")
-            parts.append(f"**CONFIDENCE:** {c.confidence}")
-            if c.notes:
-                parts.append(f"**NOTES:** {c.notes}")
-        else:
-            parts.append(f"## {c.id}: Computation\n")
-            claim_prefix = f"{c.target_hypothesis} — " if c.target_hypothesis else ""
-            parts.append(f"**CLAIM:** {claim_prefix}{c.claim}")
-            parts.append(f"**METHOD:** {c.method}")
-            parts.append(f"**RESULT:** {c.result}\n")
-            parts.append(f"**VERDICT:** {c.verdict}")
-            if c.notes:
-                parts.append(f"**NOTES:** {c.notes}")
-            elif c.failure_detail:
-                parts.append(f"**NOTES:** {c.failure_detail}")
-        parts.append(f"\n- **Iteration:** {c.iteration}")
-        parts.append("")
-    return "\n".join(parts)
-
-
 def render_task_md(task: Task) -> str:
     """Render CURRENT_TASK.md from a Task object."""
     return task.to_markdown()
@@ -348,17 +340,6 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
         include_problem_statement=False,
         skip_empty_dead_ends=True,
         include_background_survey=True,
-        include_computation_history=True,
-        heading_offset=2,
-    )
-
-
-def render_compute_research_state(state: ResearchState) -> str:
-    """Render research state for compute agent context (no frontmatter, skips empties)."""
-    return _research_state_body(
-        state,
-        skip_empty_dead_ends=True,
-        include_background_survey=True,
         heading_offset=2,
     )
 
@@ -368,4 +349,3 @@ def render_orchestrator_critique_log(state: ResearchState) -> str:
     if not state.critiques:
         return "No critiques filed."
     return _critique_log_body(state)
-
