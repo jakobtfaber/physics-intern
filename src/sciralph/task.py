@@ -11,10 +11,9 @@ import yaml
 
 
 class TaskType(StrEnum):
-    RESEARCH_EXPLORE = "research_explore"
-    COMPUTE_EXPLORE = "compute_explore"
-    COMPUTE_VERIFY = "compute_verify"
-    RESEARCH_VERIFY = "research_verify"
+    RESEARCH = "research"
+    COMPUTE = "compute"
+    VERIFY = "verify"
     CRITIQUE = "critique"
     TERMINATE = "terminate"
     FORMAT = "format"
@@ -22,10 +21,9 @@ class TaskType(StrEnum):
 
 
 TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
-    TaskType.RESEARCH_EXPLORE: "research_explore",
-    TaskType.COMPUTE_EXPLORE: "compute_explore",
-    TaskType.COMPUTE_VERIFY: "compute_verify",
-    TaskType.RESEARCH_VERIFY: "research_verify",
+    TaskType.RESEARCH: "researcher",
+    TaskType.COMPUTE: "computer",
+    TaskType.VERIFY: "verifier",
     TaskType.CRITIQUE: "deep_critic",
     TaskType.TERMINATE: "orchestrator",
     TaskType.FORMAT: "formatter",
@@ -46,6 +44,11 @@ class Task:
     target_file: str = ""
     target_claim: str = ""
     body: str = ""
+    # Structured dispatch context (populated by orchestrator's set_next_task)
+    background: str = ""
+    method_hints: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
+    relevant_results: list[str] = field(default_factory=list)
 
     def to_markdown(self) -> str:
         """Render as YAML frontmatter + body Markdown."""
@@ -62,6 +65,14 @@ class Task:
             meta["target_file"] = self.target_file
         if self.target_claim:
             meta["target_claim"] = self.target_claim
+        if self.background:
+            meta["background"] = self.background
+        if self.method_hints:
+            meta["method_hints"] = self.method_hints
+        if self.assumptions:
+            meta["assumptions"] = self.assumptions
+        if self.relevant_results:
+            meta["relevant_results"] = self.relevant_results
         yaml_str = yaml.dump(meta, default_flow_style=False, sort_keys=False).strip()
         return f"---\n{yaml_str}\n---\n\n{self.body}"
 
@@ -70,19 +81,23 @@ class Task:
         """Parse from YAML frontmatter text."""
         meta, body = parse_frontmatter(text)
         effective_iter = meta.get("iteration", fallback_iteration) or fallback_iteration
-        raw_type = meta.get("task_type", "research_explore")
+        raw_type = meta.get("task_type", "research")
         try:
             task_type = TaskType(raw_type)
         except ValueError:
-            task_type = TaskType.RESEARCH_EXPLORE
+            task_type = TaskType.RESEARCH
         return cls(
             task_id=meta.get("task_id", f"TASK-{effective_iter:03d}"),
             task_type=task_type,
-            assigned_to=meta.get("assigned_to", "research_explore") or "research_explore",
+            assigned_to=meta.get("assigned_to", "researcher") or "researcher",
             priority=meta.get("priority", "medium"),
             iteration=effective_iter,
             blocking_critiques=meta.get("blocking_critiques", []),
             target_file=meta.get("target_file", ""),
             target_claim=meta.get("target_claim", ""),
             body=body,
+            background=meta.get("background", ""),
+            method_hints=meta.get("method_hints", []),
+            assumptions=meta.get("assumptions", []),
+            relevant_results=meta.get("relevant_results", []),
         )
