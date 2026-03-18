@@ -143,7 +143,13 @@ Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, p
         shutil.copy2(str(src), str(dest))
 
     def git_commit(self, message: str):
-        """Stage all changes and commit."""
+        """Stage all changes and commit.
+
+        Skips silently if the workspace has no .git directory (e.g. the
+        workspace was moved while the run was in progress).
+        """
+        if not (self.root / ".git").exists():
+            return
         subprocess.run(["git", "add", "-A"], cwd=str(self.root),
                         capture_output=True, check=False)
         subprocess.run(["git", "commit", "-m", message, "--allow-empty"],
