@@ -119,7 +119,7 @@ class OrchestratorAgent(BaseAgent):
         context: str,
         task: Task,
         iteration: int,
-        on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
+        on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
     ) -> AgentResult:
         """Run the orchestrator with state-mutation tools."""
         self._tool_executor = OrchestratorToolExecutor(

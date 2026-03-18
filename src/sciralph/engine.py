@@ -29,6 +29,14 @@ from .agents.strategist import StrategistAgent
 console = Console()
 
 
+def _fmt_duration(seconds: float) -> str:
+    """Format a duration as e.g. '6.3s' or '2m05s'."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    m, s = divmod(int(seconds), 60)
+    return f"{m}m{s:02d}s"
+
+
 @dataclass
 class LoopState:
     """Inter-iteration state for the main research loop."""
@@ -205,7 +213,7 @@ class SciRalph:
             task_id="", task_type=TaskType.RESEARCH_EXPLORE,
             assigned_to="orchestrator", iteration=self.iteration,
         )
-        orch_response = self.orchestrator.run(orch_task, self.iteration)
+        orch_response = self.orchestrator.run(orch_task, self.iteration, on_round=self._on_agent_round)
         task = self.orchestrator.parse_task(orch_response.text, iteration=self.iteration)
         self._print_task(task)
         return task
@@ -218,7 +226,8 @@ class SciRalph:
             task_id="STRATEGY-000", task_type=TaskType.STRATEGIZE,
             assigned_to="strategist", iteration=0,
         )
-        self.strategist.run(task, 0)
+        result = self.strategist.run(task, 0)
+        self._print_call_summary(result)
         self._apply_strategist_plan()
         self._sync_research_state()
         self._render_files_for_git()
@@ -387,12 +396,13 @@ class SciRalph:
             console.print("[cyan]Formatter[/cyan] producing ANSWER.md...")
             self.formatter.research_state = self.research_state
             result = self.formatter.run(task, self.iteration)
+            self._print_call_summary(result)
             return "formatter", result
 
         elif tt == TaskType.CRITIQUE:
             console.print("[red]Deep Critic[/red] reviewing...")
             self.critic.research_state = self.research_state
-            response = self.critic.run(task, self.iteration)
+            response = self.critic.run(task, self.iteration, on_round=self._on_agent_round)
             if self.critic._no_critiques_filed:
                 console.print("[dim]Critic: no issues found[/dim]")
                 self._state.pending_violations.append(
@@ -437,6 +447,7 @@ class SciRalph:
             self.strategist.research_state = self.research_state
             self.strategist._system_prompt = None  # Reset cached prompt for fresh context
             result = self.strategist.run(task, self.iteration)
+            self._print_call_summary(result)
             self._apply_strategist_plan()
             return "strategist", result
 
@@ -622,7 +633,8 @@ class SciRalph:
             iteration=self.iteration,
         )
         self.formatter.research_state = self.research_state
-        self.formatter.run(fmt_task, self.iteration)
+        result = self.formatter.run(fmt_task, self.iteration)
+        self._print_call_summary(result)
         self._render_files_for_git()
         self.workspace.git_commit(
             f"Iteration {self.iteration}: formatter - ANSWER.md"
@@ -697,11 +709,14 @@ class SciRalph:
         text.append(f"-> {task.assigned_to}", style="green")
         console.print(text)
 
-    def _on_compute_round(self, round_num, stop_reason, tool_calls, total_input, total_output):
+    def _on_compute_round(self, round_num, stop_reason, tool_calls,
+                          total_input, total_output,
+                          round_input, round_output, round_duration):
         """Progress callback for computationalist tool-use rounds."""
-        tokens = f"{total_input + total_output:,}tok"
+        tokens = f"{round_input:,}in + {round_output:,}out"
+        dur = _fmt_duration(round_duration)
         if stop_reason == "forced_partial":
-            console.print(f"  round {round_num}: forced final call ({tokens})", style="dim magenta")
+            console.print(f"  round {round_num}: forced final call ({tokens}, {dur})", style="dim magenta")
             return
         n_tools = len(tool_calls)
         errors = sum(1 for tc in tool_calls if tc.is_error)
@@ -709,7 +724,22 @@ class SciRalph:
             status = f"{n_tools} tool call{'s' if n_tools != 1 else ''}, {errors} error{'s' if errors != 1 else ''}"
         else:
             status = f"{n_tools} tool call{'s' if n_tools != 1 else ''}"
-        console.print(f"  round {round_num}: {status} ({tokens})", style="dim magenta")
+        console.print(f"  round {round_num}: {status} ({tokens}, {dur})", style="dim magenta")
+
+    # Alias so orchestrator/critic use the same callback
+    _on_agent_round = _on_compute_round
+
+    def _print_call_summary(self, result):
+        """Print a one-line timing/token summary for one-shot LLM calls."""
+        from .llm import LLMResponse, AgentResult
+        if isinstance(result, AgentResult):
+            tokens = f"{result.total_input_tokens:,}in + {result.total_output_tokens:,}out"
+        elif isinstance(result, LLMResponse):
+            tokens = f"{result.input_tokens:,}in + {result.output_tokens:,}out"
+        else:
+            return
+        dur = _fmt_duration(result.duration)
+        console.print(f"  ({tokens}, {dur})", style="dim")
 
     def _final_report(self):
         """Flush metrics and print final summary."""

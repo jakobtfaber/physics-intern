@@ -234,7 +234,7 @@ def run_agent_loop(
     max_rounds: int = 10,
     agent_name: str = "",
     iteration: int = 0,
-    on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
+    on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
 ) -> AgentResult:
     """Run a tool-use agent loop until end_turn, max_rounds, or max_tokens."""
     provider = _get_provider(config)
@@ -460,7 +460,8 @@ def run_agent_loop(
             round_tool_calls = [tc for tc in all_tool_calls[-len(tool_results):]]
             if on_round:
                 on_round(round_num, resp.stop_reason, round_tool_calls,
-                         total_input, total_output)
+                         total_input, total_output,
+                         resp.input_tokens, resp.output_tokens, duration)
 
             # Executor-signaled early stop (e.g., orchestrator's set_next_task)
             if getattr(tool_executor, "stop_after_round", False):
@@ -645,7 +646,8 @@ def run_agent_loop(
     # Exit tool successfully called during ready-to-conclude forced final
     if _ready_conclude_forced and getattr(tool_executor, "stop_after_round", False):
         if on_round:
-            on_round(round_num + 1, "executor_stop", [], total_input, total_output)
+            on_round(round_num + 1, "executor_stop", [], total_input, total_output,
+                     final_in, final_out, final_dur)
         round_log.append({
             "kind": "forced_final_call", "round": round_num + 1,
             "reason": "ready_conclude_exit_tool", "text": final_text,
@@ -672,7 +674,8 @@ def run_agent_loop(
         return result
 
     if on_round:
-        on_round(round_num + 1, "forced_partial", [], total_input, total_output)
+        on_round(round_num + 1, "forced_partial", [], total_input, total_output,
+                 final_in, final_out, final_dur)
 
     round_log.append({
         "kind": "forced_final_call", "round": round_num + 1,

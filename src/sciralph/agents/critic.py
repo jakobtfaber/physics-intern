@@ -54,7 +54,7 @@ class CriticAgent(BaseAgent):
         context: str,
         task: Task,
         iteration: int,
-        on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
+        on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
     ) -> AgentResult:
         """Run the critic with submit_critique/finish_review tools."""
         # Count existing critiques for CRIT-NNN auto-numbering

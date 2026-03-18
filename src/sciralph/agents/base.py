@@ -55,7 +55,7 @@ class BaseAgent(ABC):
         self,
         task: Task,
         iteration: int,
-        on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
+        on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
     ) -> LLMResponse | AgentResult:
         """Template method: build context -> call LLM -> process response."""
         context = self.build_context(task, iteration)
@@ -71,7 +71,7 @@ class BaseAgent(ABC):
         context: str,
         task: Task,
         iteration: int,
-        on_round: Callable[[int, str, list[ToolCall], int, int], None] | None = None,
+        on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
     ) -> AgentResult:
         """Run the tool-use agent loop."""
         tool_executor = ToolExecutor(
