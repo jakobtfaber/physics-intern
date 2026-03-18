@@ -33,6 +33,7 @@ class BaseAgent(ABC):
         self.workspace = workspace
         self.metrics = metrics
         self._system_prompt: str | None = None
+        self._last_script_names: list[str] = []
 
     @property
     def system_prompt(self) -> str:
@@ -91,6 +92,7 @@ class BaseAgent(ABC):
             iteration=iteration,
             on_round=on_round,
         )
+        self._last_script_names = list(getattr(tool_executor, "_script_names", []))
 
         self.metrics.record_call(
             iteration=iteration,

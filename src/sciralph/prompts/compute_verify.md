@@ -22,6 +22,12 @@ You receive:
 
 ## TOOL USE
 
+**CRITICAL: FRESH PROCESS PER CALL.** Each `execute_python` call runs in a
+**fresh Python process** — no variables, functions, or imports carry over
+between calls. Every script must re-import all libraries and redefine any
+functions it needs. If your previous script defined `compute_entropy()`,
+your next script must define it again from scratch.
+
 ### `execute_python`
 Execute a self-contained Python script. Provide a `purpose` parameter
 explaining what the computation will determine. Write code, call the
@@ -124,6 +130,12 @@ Symbolic checks: print results, never assert.
 Execution failure (crash, timeout) → INCONCLUSIVE, never REFUTED.
 A single symbolic non-zero → INCONCLUSIVE, never REFUTED.
 REFUTED requires convergent numerical failures at multiple test points.
+
+## EVIDENCE TRAIL
+
+When calling `submit_verdict`, include the `evidence_scripts` parameter listing
+the script filenames that provide the strongest evidence for your conclusion
+(e.g. `["001_spot_check_formula.py", "002_series_expansion.py"]`).
 
 ## OUTPUT FORMAT
 

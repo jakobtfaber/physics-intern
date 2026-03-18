@@ -492,3 +492,117 @@ class TestBuildContext:
         task = Task(task_id="TASK-003", task_type=TaskType.RESEARCH_EXPLORE, assigned_to="research_explore")
         ctx = agent.build_context(task, iteration=3)
         assert "## Relevant Critiques" not in ctx
+
+
+class TestEvidenceChain:
+    """Test evidence_scripts and code_path populated on Computation."""
+
+    def test_verdict_with_evidence_scripts(self):
+        agent = _make_agent()
+        agent._last_script_names = ["001_verify_enum.py", "002_spot_check.py"]
+
+        verdict_params = {
+            "target_id": "WH-003",
+            "claim": "entropy scales as area",
+            "method": "numerical",
+            "result": "5/5 pass",
+            "verdict": "VERIFIED",
+            "notes": "Confirmed.",
+            "evidence_scripts": ["001_verify_enum.py"],
+        }
+        result = AgentResult(
+            text="",
+            tool_calls=[
+                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
+            ],
+            total_input_tokens=500,
+            total_output_tokens=200,
+            rounds=1,
+        )
+        task = Task(task_id="COMP-040", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify")
+        agent.process_response(result, task, iteration=8)
+
+        comp = agent.research_state.computations["COMP-040"]
+        assert comp.evidence_scripts == ["001_verify_enum.py"]
+        assert comp.code_path == "001_verify_enum.py, 002_spot_check.py"
+        assert comp.purpose == "entropy scales as area"
+
+    def test_explore_with_evidence_scripts(self):
+        agent = _make_agent()
+        agent._last_script_names = ["001_compute_partition.py"]
+
+        result_params = {
+            "target_id": "WH-001",
+            "description": "Partition function",
+            "method": "direct summation",
+            "result": "Z = 2 cosh(beta J)",
+            "confidence": "exact",
+            "notes": "Closed form.",
+            "evidence_scripts": ["001_compute_partition.py"],
+        }
+        result = AgentResult(
+            text="",
+            tool_calls=[
+                ToolCall("submit_result", result_params, "Result recorded", False, 0.01),
+            ],
+            total_input_tokens=500,
+            total_output_tokens=200,
+            rounds=1,
+        )
+        task = Task(task_id="COMP-041", task_type=TaskType.COMPUTE_EXPLORE,
+                    assigned_to="compute_explore")
+        agent.process_response(result, task, iteration=9)
+
+        comp = agent.research_state.computations["COMP-041"]
+        assert comp.evidence_scripts == ["001_compute_partition.py"]
+        assert comp.code_path == "001_compute_partition.py"
+        assert comp.purpose == "Partition function"
+
+    def test_inconclusive_has_code_path_only(self):
+        agent = _make_agent()
+        agent._last_script_names = ["tool_exec_001.py"]
+
+        result = AgentResult(
+            text="",
+            tool_calls=[],
+            total_input_tokens=100,
+            total_output_tokens=10,
+            rounds=1,
+        )
+        task = Task(task_id="TASK-042", task_type=TaskType.COMPUTE_VERIFY,
+                    assigned_to="compute_verify", body="Verify WH-001")
+        agent.process_response(result, task, iteration=10)
+
+        comp = agent.research_state.computations["TASK-042"]
+        assert comp.code_path == "tool_exec_001.py"
+        assert comp.evidence_scripts == []
+
+    def test_empty_script_names_no_code_path(self):
+        agent = _make_agent()
+        agent._last_script_names = []
+
+        verdict_params = {
+            "target_id": "WH-001",
+            "claim": "test",
+            "method": "analytical",
+            "result": "ok",
+            "verdict": "VERIFIED",
+            "notes": "Done.",
+        }
+        result = AgentResult(
+            text="",
+            tool_calls=[
+                ToolCall("submit_verdict", verdict_params, "Verdict recorded: VERIFIED", False, 0.01),
+            ],
+            total_input_tokens=200,
+            total_output_tokens=100,
+            rounds=1,
+        )
+        task = Task(task_id="COMP-043", task_type=TaskType.RESEARCH_VERIFY,
+                    assigned_to="research_verify")
+        agent.process_response(result, task, iteration=11)
+
+        comp = agent.research_state.computations["COMP-043"]
+        assert comp.code_path == ""
+        assert comp.evidence_scripts == []

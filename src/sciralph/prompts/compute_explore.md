@@ -23,6 +23,12 @@ You receive:
 
 ## TOOL USE
 
+**CRITICAL: FRESH PROCESS PER CALL.** Each `execute_python` call runs in a
+**fresh Python process** — no variables, functions, or imports carry over
+between calls. Every script must re-import all libraries and redefine any
+functions it needs. If your previous script defined `compute_entropy()`,
+your next script must define it again from scratch.
+
 ### `execute_python`
 Execute a self-contained Python script. Provide a `purpose` parameter
 explaining what the computation will determine. Write code, call the
@@ -102,6 +108,12 @@ Symbolic checks: print results, never assert.
 - exact — closed-form result or numerically exact computation.
 - approximate — numerical result with controlled error bounds.
 - partial — incomplete result (e.g., only some limits computed, or low precision).
+
+## EVIDENCE TRAIL
+
+When calling `submit_result`, include the `evidence_scripts` parameter listing
+the script filenames that provide the strongest evidence for your result
+(e.g. `["001_compute_partition.py", "002_verify_limit.py"]`).
 
 ## OUTPUT FORMAT
 

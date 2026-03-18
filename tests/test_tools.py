@@ -20,7 +20,8 @@ class TestExecutePython:
     def test_simple_script(self):
         executor = _make_executor()
         tc = executor.execute("execute_python", {"code": "print('hello')"})
-        assert tc.output.strip() == "hello"
+        assert "hello" in tc.output
+        assert "=== tool_exec_001.py ===" in tc.output
         assert not tc.is_error
         assert tc.tool_name == "execute_python"
         assert tc.duration >= 0
@@ -51,7 +52,7 @@ class TestExecutePython:
         code = "print('x' * 20000)"
         tc = executor.execute("execute_python", {"code": code})
         assert not tc.is_error
-        assert len(tc.output) <= 11_000  # 10K + truncation message
+        assert len(tc.output) <= 11_200  # 10K body + truncation message + header
         assert "truncated" in tc.output
 
     def test_unknown_tool_raises(self):
@@ -68,6 +69,81 @@ class TestExecutePython:
         executor.execute("execute_python", {"code": "print(2)"})
         assert (executor._computations_dir / "tool_exec_001.py").exists()
         assert (executor._computations_dir / "tool_exec_002.py").exists()
+
+    def test_name_error_appends_reminder(self):
+        executor = _make_executor()
+        tc = executor.execute("execute_python", {"code": "print(undefined_var)"})
+        assert tc.is_error
+        assert "FRESH Python process" in tc.output
+        assert "ALL imports and function definitions" in tc.output
+
+    def test_non_name_error_no_reminder(self):
+        executor = _make_executor()
+        tc = executor.execute("execute_python", {"code": "1/0"})
+        assert tc.is_error
+        assert "FRESH Python process" not in tc.output
+
+
+class TestFilenameHandling:
+    def test_sanitize_strips_path_separators(self):
+        result = ToolExecutor._sanitize_filename("../../etc/passwd.py")
+        assert "/" not in result
+        assert "\\" not in result
+        assert ".." not in result
+        assert result.endswith(".py")
+
+    def test_sanitize_ensures_py_extension(self):
+        assert ToolExecutor._sanitize_filename("verify_enum").endswith(".py")
+        assert ToolExecutor._sanitize_filename("verify_enum.txt").endswith(".py")
+
+    def test_sanitize_truncates_long_names(self):
+        long_name = "a" * 100 + ".py"
+        result = ToolExecutor._sanitize_filename(long_name, max_len=60)
+        assert len(result) <= 60
+        assert result.endswith(".py")
+
+    def test_fallback_naming_without_filename(self):
+        executor = _make_executor()
+        executor.execute("execute_python", {"code": "print(1)", "purpose": "test"})
+        assert (executor._computations_dir / "tool_exec_001.py").exists()
+
+    def test_named_script_with_counter(self):
+        executor = _make_executor()
+        executor.execute("execute_python", {
+            "code": "print(1)", "purpose": "test", "filename": "verify_enum.py",
+        })
+        assert (executor._computations_dir / "001_verify_enum.py").exists()
+
+    def test_script_names_tracking(self):
+        executor = _make_executor()
+        executor.execute("execute_python", {"code": "print(1)", "purpose": "a"})
+        executor.execute("execute_python", {
+            "code": "print(2)", "purpose": "b", "filename": "second.py",
+        })
+        assert executor._script_names == ["tool_exec_001.py", "002_second.py"]
+
+    def test_structured_header_in_output(self):
+        executor = _make_executor()
+        tc = executor.execute("execute_python", {
+            "code": "print('ok')", "purpose": "Check sanity", "filename": "sanity.py",
+        })
+        assert "=== 001_sanity.py ===" in tc.output
+        assert "Purpose: Check sanity" in tc.output
+        assert "Exit: success" in tc.output
+        assert "ok" in tc.output
+
+    def test_output_file_created(self):
+        executor = _make_executor()
+        executor.execute("execute_python", {"code": "print('hello world')", "purpose": "test"})
+        output_file = executor._computations_dir / "tool_exec_001.output"
+        assert output_file.exists()
+        assert "hello world" in output_file.read_text()
+
+    def test_error_output_file_includes_stderr(self):
+        executor = _make_executor()
+        executor.execute("execute_python", {"code": "import sys; sys.exit(1)", "purpose": "test"})
+        output_file = executor._computations_dir / "tool_exec_001.output"
+        assert output_file.exists()
 
 
 class TestToolDefinitions:
@@ -87,13 +163,22 @@ class TestToolDefinitions:
         assert props["purpose"]["type"] == "string"
         assert set(func["parameters"]["required"]) == {"purpose", "code"}
 
+    def test_execute_python_has_optional_filename(self):
+        func = ToolExecutor._EXECUTE_PYTHON_DEF["function"]
+        props = func["parameters"]["properties"]
+        assert "filename" in props
+        assert props["filename"]["type"] == "string"
+        assert "filename" not in func["parameters"]["required"]
+
     def test_submit_verdict_schema(self):
         func = ToolExecutor.TOOL_DEFINITIONS[1]["function"]
         assert func["name"] == "submit_verdict"
         props = func["parameters"]["properties"]
-        assert set(props.keys()) == {"target_id", "claim", "method", "result", "verdict", "notes"}
+        assert set(props.keys()) == {"target_id", "claim", "method", "result", "verdict", "notes", "evidence_scripts"}
         assert props["verdict"]["enum"] == ["VERIFIED", "REFUTED", "INCONCLUSIVE"]
         assert set(func["parameters"]["required"]) == {"target_id", "claim", "method", "result", "verdict", "notes"}
+        assert "evidence_scripts" not in func["parameters"]["required"]
+        assert props["evidence_scripts"]["type"] == "array"
 
     def test_report_progress_schema(self):
         func = ToolExecutor.TOOL_DEFINITIONS[2]["function"]
@@ -102,6 +187,13 @@ class TestToolDefinitions:
         assert set(props.keys()) == {"findings_so_far", "remaining_questions", "ready_to_conclude"}
         assert props["ready_to_conclude"]["type"] == "boolean"
         assert set(func["parameters"]["required"]) == {"findings_so_far", "remaining_questions", "ready_to_conclude"}
+
+    def test_submit_result_has_evidence_scripts(self):
+        func = ToolExecutor._SUBMIT_RESULT_DEF["function"]
+        props = func["parameters"]["properties"]
+        assert "evidence_scripts" in props
+        assert props["evidence_scripts"]["type"] == "array"
+        assert "evidence_scripts" not in func["parameters"]["required"]
 
 
 class TestTruncation:

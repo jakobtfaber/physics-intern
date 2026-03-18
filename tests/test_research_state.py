@@ -486,6 +486,8 @@ class TestNewComputationFields:
         assert comp.confidence == ""
         assert comp.notes == ""
         assert comp.result == ""
+        assert comp.evidence_scripts == []
+        assert comp.purpose == ""
 
     def test_json_round_trip(self):
         state = ResearchState()
@@ -506,6 +508,22 @@ class TestNewComputationFields:
         assert comp.confidence == "approximate"
         assert comp.notes == "Ran 1000 iterations."
         assert comp.result == "pi/4 ~ 0.785"
+
+    def test_evidence_scripts_round_trip(self):
+        state = ResearchState()
+        state.computations["COMP-002"] = Computation(
+            id="COMP-002",
+            target_hypothesis="WH-001",
+            verdict=Verdict.VERIFIED,
+            evidence_scripts=["001_verify_enum.py", "002_spot_check.py"],
+            purpose="Verify enumeration formula",
+            code_path="001_verify_enum.py, 002_spot_check.py",
+        )
+        restored = ResearchState.from_json(state.to_json())
+        comp = restored.computations["COMP-002"]
+        assert comp.evidence_scripts == ["001_verify_enum.py", "002_spot_check.py"]
+        assert comp.purpose == "Verify enumeration formula"
+        assert comp.code_path == "001_verify_enum.py, 002_spot_check.py"
 
     def test_backward_compat_missing_fields(self):
         """Old JSON without new Computation fields uses defaults."""
@@ -529,6 +547,8 @@ class TestNewComputationFields:
         assert comp.confidence == ""
         assert comp.notes == ""
         assert comp.result == ""
+        assert comp.evidence_scripts == []
+        assert comp.purpose == ""
 
 
 # ---------------------------------------------------------------------------

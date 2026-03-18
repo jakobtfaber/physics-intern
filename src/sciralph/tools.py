@@ -1,5 +1,6 @@
 """Tool execution for agentic agents (execute_python via sandbox)."""
 
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +61,14 @@ class ToolExecutor:
                         "type": "string",
                         "description": "The complete Python script to execute.",
                     },
+                    "filename": {
+                        "type": "string",
+                        "description": (
+                            "A short, descriptive filename for this script "
+                            "(e.g. 'verify_enumeration.py'). Each script runs "
+                            "as an independent .py file."
+                        ),
+                    },
                 },
                 "required": ["purpose", "code"],
             },
@@ -104,6 +113,14 @@ class ToolExecutor:
                         "type": "string",
                         "description": "Summary notes (1-3 sentences).",
                     },
+                    "evidence_scripts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "List of script filenames providing key evidence "
+                            "(e.g. ['001_verify_enumeration.py'])."
+                        ),
+                    },
                 },
                 "required": ["target_id", "claim", "method", "result", "verdict", "notes"],
             },
@@ -145,6 +162,14 @@ class ToolExecutor:
                     "notes": {
                         "type": "string",
                         "description": "Additional notes.",
+                    },
+                    "evidence_scripts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "List of script filenames providing key evidence "
+                            "(e.g. ['001_compute_partition.py'])."
+                        ),
                     },
                 },
                 "required": ["target_id", "description", "method", "result", "confidence", "notes"],
@@ -232,6 +257,23 @@ class ToolExecutor:
         self._computations_dir = workspace_root / "computations"
         self._task_type = task_type
         self.ready_to_conclude_signaled = False
+        self._script_names: list[str] = []
+
+    @staticmethod
+    def _sanitize_filename(raw: str, max_len: int = 60) -> str:
+        """Sanitize a model-provided filename for safe filesystem use."""
+        # Strip path separators and parent references
+        cleaned = raw.replace("/", "_").replace("\\", "_").replace("..", "_")
+        # Remove non-alphanumeric except _, -, .
+        cleaned = re.sub(r"[^a-zA-Z0-9_.\-]", "", cleaned)
+        # Ensure .py extension
+        if not cleaned.endswith(".py"):
+            cleaned = re.sub(r"\.[^.]*$", "", cleaned)  # strip wrong extension
+            cleaned += ".py"
+        # Truncate (keep .py suffix)
+        if len(cleaned) > max_len:
+            cleaned = cleaned[:max_len - 3] + ".py"
+        return cleaned or "script.py"
 
     @property
     def exit_tool_name(self) -> str:
@@ -245,7 +287,11 @@ class ToolExecutor:
         start = time.time()
 
         if tool_name == "execute_python":
-            output, is_error = self._execute_python(tool_input["code"])
+            output, is_error = self._execute_python(
+                tool_input["code"],
+                purpose=tool_input.get("purpose", ""),
+                filename=tool_input.get("filename", ""),
+            )
         elif tool_name == "submit_verdict":
             output, is_error = self._submit_verdict(tool_input)
         elif tool_name == "submit_result":
@@ -293,11 +339,20 @@ class ToolExecutor:
         self._last_result = params
         return f"Result recorded for {params.get('target_id', '?')}: {params.get('confidence', '?')}", False
 
-    def _execute_python(self, code: str) -> tuple[str, bool]:
+    def _execute_python(self, code: str, purpose: str = "", filename: str = "") -> tuple[str, bool]:
         """Write code to file, execute via sandbox, return (output, is_error)."""
         self._counter += 1
         self._computations_dir.mkdir(parents=True, exist_ok=True)
-        script_path = self._computations_dir / f"tool_exec_{self._counter:03d}.py"
+
+        # Build script name
+        if filename:
+            sanitized = self._sanitize_filename(filename)
+            script_name = f"{self._counter:03d}_{sanitized}"
+        else:
+            script_name = f"tool_exec_{self._counter:03d}.py"
+        self._script_names.append(script_name)
+
+        script_path = self._computations_dir / script_name
         script_path.write_text(code)
 
         result = execute_python(
@@ -306,8 +361,22 @@ class ToolExecutor:
             cwd=str(self._computations_dir),
         )
 
+        # Determine exit status label
         if result.timed_out:
-            output = (
+            exit_label = "timeout"
+        elif result.returncode != 0:
+            exit_label = f"error (rc={result.returncode})"
+        else:
+            exit_label = "success"
+
+        # Build structured header
+        header = f"=== {script_name} ===\n"
+        if purpose:
+            header += f"Purpose: {purpose}\n"
+        header += f"Exit: {exit_label}\n\n"
+
+        if result.timed_out:
+            body = (
                 f"TIMEOUT: Script exceeded {self.timeout}s limit.\n\n"
                 "Suggestions:\n"
                 "- Reduce grid/array sizes\n"
@@ -315,14 +384,38 @@ class ToolExecutor:
                 "- Switch to analytical approaches where possible\n"
                 "- Break the computation into smaller steps"
             )
-            return output, True
+            self._save_output_file(script_name, body)
+            return header + body, True
 
-        output = result.stdout
+        # Combine stdout/stderr for error cases
         if result.returncode != 0:
-            output = result.stdout + "\n\nSTDERR:\n" + result.stderr if result.stdout else result.stderr
-            return self._truncate_output(output, self._output_limit), True
+            raw_output = result.stdout + "\n\nSTDERR:\n" + result.stderr if result.stdout else result.stderr
+        else:
+            raw_output = result.stdout
 
-        return self._truncate_output(output, self._output_limit), False
+        # Save full output before truncation
+        self._save_output_file(script_name, raw_output)
+
+        # Truncate the body portion only
+        body = self._truncate_output(raw_output, self._output_limit)
+
+        if result.returncode != 0:
+            if "NameError" in result.stderr:
+                body += (
+                    "\n\n--- REMINDER ---\n"
+                    "Each execute_python call runs in a FRESH Python process. No variables,\n"
+                    "functions, or imports carry over from previous calls. You must include\n"
+                    "ALL imports and function definitions in every script."
+                )
+            return header + body, True
+
+        return header + body, False
+
+    def _save_output_file(self, script_name: str, content: str) -> None:
+        """Save script output to a companion .output file."""
+        stem = Path(script_name).stem
+        output_path = self._computations_dir / f"{stem}.output"
+        output_path.write_text(content)
 
     @staticmethod
     def _truncate_output(text: str, limit: int = 10_000) -> str:

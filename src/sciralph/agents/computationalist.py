@@ -81,6 +81,7 @@ class ComputationalistAgent(BaseAgent):
         result = params.get("result", "No results")
         confidence = params.get("confidence", "partial")
         notes = params.get("notes", "")
+        evidence_scripts = params.get("evidence_scripts", [])
 
         comp = Computation(
             id=task_id,
@@ -93,6 +94,9 @@ class ComputationalistAgent(BaseAgent):
             confidence=confidence,
             notes=notes,
             iteration=iteration,
+            evidence_scripts=evidence_scripts,
+            code_path=", ".join(self._last_script_names) if self._last_script_names else "",
+            purpose=description,
         )
 
         jsonl_entry = {
@@ -130,6 +134,8 @@ class ComputationalistAgent(BaseAgent):
         except ValueError:
             verdict = Verdict.INCONCLUSIVE
 
+        evidence_scripts = params.get("evidence_scripts", [])
+
         comp = Computation(
             id=task_id,
             target_hypothesis=target_id,
@@ -141,6 +147,9 @@ class ComputationalistAgent(BaseAgent):
             notes=notes,
             failure_detail=notes if verdict != Verdict.VERIFIED else "",
             iteration=iteration,
+            evidence_scripts=evidence_scripts,
+            code_path=", ".join(self._last_script_names) if self._last_script_names else "",
+            purpose=claim,
         )
 
         jsonl_entry = {
@@ -186,6 +195,7 @@ class ComputationalistAgent(BaseAgent):
             notes="Agent produced no exit tool call.",
             zero_output=zero_output,
             iteration=iteration,
+            code_path=", ".join(self._last_script_names) if self._last_script_names else "",
         )
 
         jsonl_entry = {

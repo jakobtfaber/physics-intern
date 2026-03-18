@@ -88,6 +88,8 @@ class Computation:
     confidence: str = ""  # explore only: exact/approximate/partial
     notes: str = ""
     result: str = ""
+    evidence_scripts: list[str] = field(default_factory=list)
+    purpose: str = ""
 
 
 @dataclass
@@ -451,6 +453,8 @@ class ResearchState:
                 confidence=cdata.get("confidence", ""),
                 notes=cdata.get("notes", ""),
                 result=cdata.get("result", ""),
+                evidence_scripts=cdata.get("evidence_scripts", []),
+                purpose=cdata.get("purpose", ""),
             )
         for crid, crdata in data.get("critiques", {}).items():
             state.critiques[crid] = Critique(

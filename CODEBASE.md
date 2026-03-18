@@ -255,7 +255,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 **Entity dataclasses:**
 - `Hypothesis` — `id`, `statement`, `status` (`HypothesisStatus`: WORKING/ESTABLISHED/REFUTED/ABANDONED), `derivation`, `supporting_comps`, `critiques`, `iteration_created`, `iteration_modified`, `depends_on` (list of hypothesis IDs), `promotion_justification`
 - `ResearchQuestion` — `id` (RQ-NNN), `question`, `context`, `resolved_to` (list of hypothesis IDs), `status` (`RQStatus`: OPEN/RESOLVED/ABANDONED), `iteration_created`, `iteration_resolved`
-- `Computation` — `id`, `target_hypothesis`, `verdict` (`Verdict`: VERIFIED/REFUTED/INCONCLUSIVE), `claim`, `method`, `key_results`, `code_path`, `failure_detail`, `iteration`, `kind` ("explore"/"verify"/"research_verify"), `zero_output`, `confidence`, `notes`, `result`
+- `Computation` — `id`, `target_hypothesis`, `verdict` (`Verdict`: VERIFIED/REFUTED/INCONCLUSIVE), `claim`, `method`, `key_results`, `code_path` (comma-separated script names from session), `failure_detail`, `iteration`, `kind` ("explore"/"verify"/"research_verify"), `zero_output`, `confidence`, `notes`, `result`, `evidence_scripts` (model-cited script filenames), `purpose`
 - `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `iteration_filed`, `iteration_resolved`
 - `FailedApproach` — `description`, `reason`, `related_comps`, `iteration`, `derivation_excerpt`
 
@@ -754,6 +754,8 @@ Non-VERIFIED verify verdicts go to `pending_compute_verdicts` in `LoopState` (wi
 | Structured tool exit → Computation object | `process_response()` | Routes `submit_verdict` (verify) or `submit_result` (explore) tool data to typed `Computation` objects in `ResearchState` | Ensures structured data reaches state regardless of LLM output format |
 | Empty-response INCONCLUSIVE stub | `_build_inconclusive_computation()` | Creates `Computation` with `verdict=INCONCLUSIVE`, `zero_output=True` when no exit tool called and response empty | Agent producing no output despite forced final call |
 | Dynamic tool set | `build_context()` via `tools_for_task_type()` | Sets explore-mode tools (submit_result) vs verify-mode tools (submit_verdict) based on task type | Prevent model from calling wrong exit tool for the mode |
+| NameError recovery hint | `_execute_python()` in `tools.py` | Detects NameError in stderr and appends "FRESH Python process" reminder | Models (esp. Kimi K2.5) treating execute_python as persistent REPL, causing NameErrors from referencing prior-script variables |
+| Structured output header | `_execute_python()` in `tools.py` | Prepends `=== script_name ===` header with purpose and exit status to every script output | Model loses track of which script produced which output across multi-call sessions |
 
 #### Markdown parsing tolerance (`markdown.py`)
 

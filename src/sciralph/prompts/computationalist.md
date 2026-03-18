@@ -8,6 +8,12 @@ You will be given:
 
 ## TOOL USE
 
+**CRITICAL: FRESH PROCESS PER CALL.** Each `execute_python` call runs in a
+**fresh Python process** — no variables, functions, or imports carry over
+between calls. Every script must re-import all libraries and redefine any
+functions it needs. If your previous script defined `compute_entropy()`,
+your next script must define it again from scratch.
+
 Your available tools depend on your task mode:
 
 ### `execute_python`
