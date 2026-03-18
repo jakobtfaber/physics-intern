@@ -8,6 +8,8 @@ objections could be verified — e.g. "numerical spot-check at x=0.1".)
 
 You will be given:
 - RESEARCH_STATE.md (the claims to scrutinize)
+- RESEARCH STRATEGY (the initial recommended approach — use this to check
+  whether computations actually cover the scope the strategy recommended)
 - COMPUTATION_LOG.md (the evidence supporting those claims)
 - Your previous critiques in CRITIQUE_LOG.md (so you don't repeat yourself)
 
@@ -29,6 +31,11 @@ PHYSICAL CHECKS:
 META CHECKS:
 - Is the unit system consistent throughout? Are notation conventions consistent?
 - Are the dependencies between results correctly tracked?
+
+METHODOLOGICAL CHECKS:
+- Does the computation cover the full scope of the problem?
+- Does the verification method test the claim in a way that could actually
+  falsify it, or would any incomplete computation trivially confirm it?
 
 SEVERITY CALIBRATION:
 - HIGH: Could invalidate the result. Must point to a specific wrong step.
