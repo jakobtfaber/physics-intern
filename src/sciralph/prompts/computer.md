@@ -28,7 +28,7 @@ Each `execute_python` call runs in a **completely isolated Python process**. No 
 - Redefine all functions and constants
 - Be fully self-contained and independently runnable
 
-Available packages: Python 3.12+, NumPy ≥ 2.0, SciPy ≥ 1.14, SymPy ≥ 1.13, matplotlib ≥ 3.9, standard library.
+Available packages: Python 3.12+, NumPy ≥ 2.0, SciPy ≥ 1.14, SymPy ≥ 1.13, standard library.
 
 **BANNED APIs** (will crash):
 - `scipy.misc.derivative` → use manual finite differences
@@ -39,14 +39,11 @@ Available packages: Python 3.12+, NumPy ≥ 2.0, SciPy ≥ 1.14, SymPy ≥ 1.13,
 ## Code Patterns
 
 - **Never use `assert`** — use soft checks with `np.isclose`, print PASS/FAIL summaries.
-- **Never call `plt.show()`** — use `plt.savefig()` then `plt.close()`.
+- **Do not use matplotlib** — generated images cannot be viewed.
 - **Print intermediate steps**, not just final results.
 - **Default tolerance:** `rtol=1e-6` for numerical comparisons.
 - **TOLERANCE WIDENING BAN:** If checks fail at default tolerance, do NOT relax tolerances to force a pass. Report the actual discrepancy honestly.
-
-## INDEPENDENCE REQUIREMENT
-
-When verifying a formula or identity A = B, compute A and B through **different, independent code paths**. Never hardcode the predicted formula as both sides of the comparison.
+- When checking a formula A = B, compute both sides independently — do not hardcode one side as the other.
 
 ## Numerical Pitfalls
 

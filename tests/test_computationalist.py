@@ -106,6 +106,73 @@ class TestNewAgentTools:
         assert "add_hypothesis" in tool_names
 
 
+class TestComputerProcessResponse:
+    """Test ComputerAgent.process_response builds Evidence correctly."""
+
+    def _make_agent(self):
+        from sciralph.agents.computer import ComputerAgent
+        from sciralph.research_state import ResearchState, ResearchQuestion
+        agent = ComputerAgent.__new__(ComputerAgent)
+        agent.research_state = ResearchState(problem_statement="test")
+        rq_id = agent.research_state.next_entity_num()
+        agent.research_state.research_questions[rq_id] = ResearchQuestion(id=rq_id, question="What is X?")
+        agent._last_script_names = []
+        return agent
+
+    def _make_result(self, tool_calls):
+        from sciralph.llm import AgentResult
+        return AgentResult(text="", tool_calls=tool_calls)
+
+    def _make_tc(self, name, tool_input, output="ok", is_error=False):
+        from sciralph.tools import ToolCall
+        return ToolCall(tool_name=name, tool_input=tool_input, output=output, is_error=is_error, duration=0.1)
+
+    def test_approach_includes_assumptions_and_expected_outcome(self):
+        from sciralph.task import Task, TaskType
+        agent = self._make_agent()
+        rq_id = list(agent.research_state.research_questions.keys())[0]
+        task = Task(task_id="T1", task_type=TaskType.COMPUTE, assigned_to="computer", body=f"Compute {rq_id}", target_claim=rq_id)
+        tool_calls = [
+            self._make_tc("document_approach", {
+                "approach": "Compute via SymPy",
+                "assumptions": ["T > 0", "Natural units"],
+                "expected_outcome": "Should match Hawking formula",
+            }),
+            self._make_tc("submit_result", {
+                "target_id": rq_id,
+                "method": "symbolic",
+                "result": "T_H = 1/(8*pi*M)",
+                "confidence": "exact",
+            }),
+        ]
+        result = self._make_result(tool_calls)
+        agent.process_response(result, task, iteration=1)
+        evidence = agent.research_state.research_questions[rq_id].evidence
+        assert evidence is not None
+        assert "Compute via SymPy" in evidence.approach
+        assert "Assumptions:" in evidence.approach
+        assert "- T > 0" in evidence.approach
+        assert "- Natural units" in evidence.approach
+        assert "Expected outcome: Should match Hawking formula" in evidence.approach
+
+    def test_approach_without_assumptions_or_expected_outcome(self):
+        from sciralph.task import Task, TaskType
+        agent = self._make_agent()
+        rq_id = list(agent.research_state.research_questions.keys())[0]
+        task = Task(task_id="T1", task_type=TaskType.COMPUTE, assigned_to="computer", body=f"Compute {rq_id}", target_claim=rq_id)
+        tool_calls = [
+            self._make_tc("document_approach", {"approach": "Compute via SymPy"}),
+            self._make_tc("submit_result", {"target_id": rq_id, "method": "symbolic", "result": "42", "confidence": "exact"}),
+        ]
+        result = self._make_result(tool_calls)
+        agent.process_response(result, task, iteration=1)
+        evidence = agent.research_state.research_questions[rq_id].evidence
+        assert evidence is not None
+        assert evidence.approach == "Compute via SymPy"
+        assert "Assumptions:" not in evidence.approach
+        assert "Expected outcome:" not in evidence.approach
+
+
 class TestToolsForTaskType:
     """Test tools_for_task_type returns correct tool sets."""
 

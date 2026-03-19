@@ -59,6 +59,13 @@ class ComputerAgent(BaseAgent):
         approach_text = ""
         if approach_tc and isinstance(approach_tc.tool_input, dict):
             approach_text = approach_tc.tool_input.get("approach", "")
+            assumptions = approach_tc.tool_input.get("assumptions", [])
+            expected_outcome = approach_tc.tool_input.get("expected_outcome", "")
+            if assumptions:
+                bullet_list = "\n".join(f"- {a}" for a in assumptions)
+                approach_text += f"\n\nAssumptions:\n{bullet_list}"
+            if expected_outcome:
+                approach_text += f"\n\nExpected outcome: {expected_outcome}"
 
         # Extract result from submit_result tool call
         result_tc = next(
