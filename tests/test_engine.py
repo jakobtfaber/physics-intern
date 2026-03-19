@@ -453,9 +453,8 @@ class TestCriticCleanSignal:
         task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
         engine._dispatch(task)
 
-        assert len(engine._state.pending_violations) == 1
-        assert engine._state.pending_violations[0].check == "critic_clean"
-        assert "NO issues" in engine._state.pending_violations[0].message
+        assert engine._state.pending_critic_result is not None
+        assert engine._state.pending_critic_result["clean"] is True
 
     def test_normal_critique_no_violation(self):
         """_no_critiques_filed=False does NOT inject a violation."""
@@ -1460,7 +1459,7 @@ class TestRedundantCriticPassFix:
 
     def test_critic_clean_can_terminate_injected_after_prior_terminate_attempt(self):
         """When critic files no issues and orchestrator had tried to terminate,
-        a critic_clean_can_terminate violation is injected."""
+        can_terminate flag is set in pending_critic_result."""
         engine = self._make_engine()
         engine._state.consecutive_termination_blocks = 1  # prior terminate attempt
 
@@ -1472,16 +1471,13 @@ class TestRedundantCriticPassFix:
         task = Task(task_id="TASK-006", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
         engine._dispatch(task)
 
-        checks = [v.check for v in engine._state.pending_violations]
-        assert "critic_clean" in checks
-        assert "critic_clean_can_terminate" in checks
-        can_term = [v for v in engine._state.pending_violations
-                    if v.check == "critic_clean_can_terminate"][0]
-        assert can_term.severity == ViolationSeverity.INFO
-        assert "retry" in can_term.message.lower()
+        cr = engine._state.pending_critic_result
+        assert cr is not None
+        assert cr["clean"] is True
+        assert cr["can_terminate"] is True
 
     def test_critic_clean_can_terminate_not_injected_without_prior_terminate(self):
-        """When no prior terminate attempt, critic_clean_can_terminate is NOT injected."""
+        """When no prior terminate attempt, can_terminate is NOT set."""
         engine = self._make_engine()
         engine._state.consecutive_termination_blocks = 0  # no prior terminate
 
@@ -1493,7 +1489,8 @@ class TestRedundantCriticPassFix:
         task = Task(task_id="TASK-007", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
         engine._dispatch(task)
 
-        checks = [v.check for v in engine._state.pending_violations]
-        assert "critic_clean" in checks
-        assert "critic_clean_can_terminate" not in checks
+        cr = engine._state.pending_critic_result
+        assert cr is not None
+        assert cr["clean"] is True
+        assert cr.get("can_terminate") is None
 

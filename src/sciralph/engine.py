@@ -48,6 +48,7 @@ class LoopState:
     pending_verified_results: list[dict] = field(default_factory=list)
     pending_explore_results: list[dict] = field(default_factory=list)
     agent_failures: list[dict] = field(default_factory=list)
+    pending_critic_result: dict | None = None
 
 
 class SciRalph:
@@ -354,6 +355,30 @@ class SciRalph:
                     lines.append("  You must address this: gather new evidence or try a different approach.")
             lines.append(">>> END VERIFICATION RESULTS <<<\n")
             self._state.pending_compute_verdicts.clear()
+        if self._state.pending_critic_result is not None:
+            cr = self._state.pending_critic_result
+            if cr.get("clean"):
+                lines.append(">>> DEEP CRITIC RESULT (previous iteration) <<<")
+                lines.append("The deep critic reviewed the research and found NO issues.")
+                lines.append("Do NOT emit another critique task immediately.")
+                if cr.get("can_terminate"):
+                    lines.append(
+                        "You previously attempted to terminate — you may now retry "
+                        "task_type: terminate."
+                    )
+                lines.append(">>> END DEEP CRITIC RESULT <<<\n")
+            else:
+                lines.append(">>> DEEP CRITIC RESULT (previous iteration) <<<")
+                lines.append(
+                    f"The deep critic filed {cr['count']} critique(s): "
+                    f"{cr['high']} HIGH, {cr['medium']} MEDIUM, {cr['low']} LOW."
+                )
+                lines.append("New critiques (see critique log for full details):")
+                for s in cr.get("summaries", []):
+                    lines.append(f"  - {s}")
+                lines.append("Address HIGH-severity critiques before promoting hypotheses.")
+                lines.append(">>> END DEEP CRITIC RESULT <<<\n")
+            self._state.pending_critic_result = None
         if self._state.agent_failures:
             lines.append(">>> AGENT FAILURES (previous iteration) <<<")
             for f in self._state.agent_failures:
@@ -402,28 +427,10 @@ class SciRalph:
             response = self.critic.run(task, self.iteration, on_round=self._on_agent_round)
             if self.critic._no_critiques_filed:
                 console.print("[dim]Critic: no issues found[/dim]")
-                self._state.pending_violations.append(
-                    Violation(
-                        check="critic_clean",
-                        severity=ViolationSeverity.WARNING,
-                        message=(
-                            "Deep critic found NO issues. "
-                            "Do NOT emit another critique task immediately."
-                        ),
-                    )
-                )
+                result_info: dict = {"clean": True}
                 if self._state.consecutive_termination_blocks > 0:
-                    self._state.pending_violations.append(
-                        Violation(
-                            check="critic_clean_can_terminate",
-                            severity=ViolationSeverity.INFO,
-                            message=(
-                                "The critic pass completed with no issues. "
-                                "You previously attempted to terminate — you may now retry "
-                                "task_type: terminate."
-                            ),
-                        )
-                    )
+                    result_info["can_terminate"] = True
+                self._state.pending_critic_result = result_info
             else:
                 crits = list(self.research_state.critiques.values())
                 recent = [c for c in crits if c.iteration_filed == self.iteration]
@@ -436,6 +443,17 @@ class SciRalph:
                         f"[red]Critic filed {len(recent)} critique(s): "
                         f"{high} HIGH, {med} MEDIUM, {low} LOW[/red]"
                     )
+                    summaries = []
+                    for c in recent:
+                        summaries.append(f"{c.id} [{c.severity.value}] targets {', '.join(c.targets)}: {c.argument[:150]}")
+                    self._state.pending_critic_result = {
+                        "clean": False,
+                        "count": len(recent),
+                        "high": high,
+                        "medium": med,
+                        "low": low,
+                        "summaries": summaries,
+                    }
             return "deep_critic", response
 
         else:
