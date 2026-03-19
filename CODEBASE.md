@@ -82,7 +82,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 - **Three specialized work agents.** Researcher (analytical, no code), Computer (code execution), and Reviewer (adversarial review, no code). Each has a focused prompt, tool set, and context view.
 - **Evidence inlined on entities.** Rather than a separate `Computation` entity, evidence is inlined as `Evidence` on `Hypothesis` and `ResearchQuestion`, and review is inlined as `ReviewResult` on `Hypothesis`.
 - **Mandatory critic passes.** The scaffold forces critic reviews every N iterations, regardless of agent judgment.
-- **Tool-based state mutation.** Three agents are agentic — orchestrator (11 tools via `OrchestratorToolExecutor`), researcher (2 tools via `ToolExecutor`), and computer (4 tools via `ToolExecutor`, with dynamic tool switching via `active_tools`). Two agents use one-shot structured JSON output — reviewer (`_parse_review_json()` in `agents/reviewer.py`) and critic (`_parse_critic_json()` in `agents/critic.py`). Tool calls use the `stop_after_round` mechanism to signal completion.
+- **Tool-based state mutation.** Two agents are agentic — orchestrator (11 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with dynamic tool switching via `active_tools`). Three agents use one-shot structured JSON output — researcher (`_parse_researcher_json()` in `agents/researcher.py`), reviewer (`_parse_review_json()` in `agents/reviewer.py`), and critic (`_parse_critic_json()` in `agents/critic.py`). Tool calls use the `stop_after_round` mechanism to signal completion.
 - **Provider-agnostic.** LLM calls go through a `providers/` abstraction layer. Model selection is resolved via `models.yaml` registry (friendly key → provider + model_id + env_key + cost). The `verify.py` script is Anthropic-only.
 
 ### Source file map
@@ -109,7 +109,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `verify.py` | 1045 | Independent verification script (science + process audit) |
 | `agents/base.py` | 163 | `BaseAgent` ABC, template method, retry logic, tool-use dispatch |
 | `agents/orchestrator.py` | 190 | Agentic: state mutation via `OrchestratorToolExecutor`, emits `CURRENT_TASK.md` |
-| `agents/researcher.py` | 98 | Agentic: analytical reasoning via `ToolExecutor` (submit_result + report_progress); writes `Evidence` on target entity |
+| `agents/researcher.py` | 98 | One-shot: analytical reasoning via `_parse_researcher_json()`; writes `Evidence` on target entity |
 | `agents/computer.py` | 118 | Agentic: code execution via `ToolExecutor` (document_approach + execute_python + submit_result + report_progress); writes `Evidence` on target entity |
 | `agents/reviewer.py` | 157 | One-shot: adversarial review via `_parse_review_json()`; writes `ReviewResult` on target hypothesis |
 | `agents/critic.py` | 174 | One-shot: strategy/direction review via `_parse_critic_json()`, writes `Critique` objects to `ResearchState` |
@@ -244,9 +244,9 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Three agents are agentic: orchestrator (11 tools via `OrchestratorToolExecutor`), researcher (2 tools via `ToolExecutor`), and computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching). Five agents are one-shot: reviewer (structured JSON via `_parse_review_json()`), critic (structured JSON via `_parse_critic_json()`), surveyor, compressor, and formatter.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Two agents are agentic: orchestrator (11 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching). Six agents are one-shot: researcher (structured JSON via `_parse_researcher_json()`), reviewer (structured JSON via `_parse_review_json()`), critic (structured JSON via `_parse_critic_json()`), surveyor, compressor, and formatter.
 
-All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_result`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`.
+All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_result`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`. (Only the computer agent now uses `submit_result` via this mechanism; the researcher uses one-shot JSON output instead.)
 
 **No retry on truncation:** `_call_with_retry` returns immediately when `stop_reason == "max_tokens"` (no retries). The engine's `_record_agent_failures()` detects the truncation and injects a CAPACITY EXCEEDED banner into the orchestrator's next context via `_build_context_prefix()`, prompting task decomposition.
 
@@ -311,13 +311,11 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **Role:** Analytical reasoning, derivation, and critique resolution. No code execution.
 
-**Tools** (2, via `ToolExecutor`):
-- `submit_result` — structured exit with target_id, description, method, result, confidence, notes. Sets `stop_after_round = True`.
-- `report_progress` — progress check with findings_so_far, remaining_questions, ready_to_conclude. Does NOT stop.
+**Tools:** None (`tools = []`). One-shot structured JSON output.
 
 **Context:** `CURRENT_TASK.md` + light research context (conventions, strategy, established results, open questions) rendered from `self.research_state`.
 
-**Output processing:** Builds `Evidence` (type="research") from `submit_result` tool params (or fallback from response text). Stores evidence on the target entity (RQ or WH) in `research_state`.
+**Output processing:** Calls `_parse_researcher_json(text)` to extract `{result, method, confidence, summary}` JSON from response text. Falls back to a minimal Evidence entry on parse failure. Builds `Evidence` (type="research") with `reasoning` from the full response text. Stores evidence on the target entity (RQ or WH) in `research_state`.
 
 #### Computer (`agents/computer.py`)
 
@@ -429,7 +427,7 @@ Two calling patterns:
 
 **`call_llm`** — stateless one-shot. Uses `_call_provider_with_retry()` for API resilience. Returns `LLMResponse(text, input_tokens, output_tokens, stop_reason, duration)`. Used by reviewer, critic, surveyor, compressor, formatter.
 
-**`run_agent_loop`** — stateful multi-turn. Maintains a growing `messages` list across rounds. Each round: LLM response → tool extraction → tool executor's `execute()` → tool result fed back. Checks `tool_executor.active_tools` each round for dynamic tool switching (used by computer agent to remove `document_approach` after first call). Returns `AgentResult(text, tool_calls, total_input/output_tokens, rounds, truncated, duration, stop_reason)`. Used by orchestrator, researcher, and computer. On `max_rounds` exhaustion or `tool_call_failure`, forces a single text-only final call via agent-agnostic user message (system prompt unchanged); empty text is honest failure (no synthesis fallback). Agent-agnostic warnings at `max_rounds-2` and `max_rounds-1` (no agent-specific format references).
+**`run_agent_loop`** — stateful multi-turn. Maintains a growing `messages` list across rounds. Each round: LLM response → tool extraction → tool executor's `execute()` → tool result fed back. Checks `tool_executor.active_tools` each round for dynamic tool switching (used by computer agent to remove `document_approach` after first call). Returns `AgentResult(text, tool_calls, total_input/output_tokens, rounds, truncated, duration, stop_reason)`. Used by orchestrator and computer. On `max_rounds` exhaustion or `tool_call_failure`, forces a single text-only final call via agent-agnostic user message (system prompt unchanged); empty text is honest failure (no synthesis fallback). Agent-agnostic warnings at `max_rounds-2` and `max_rounds-1` (no agent-specific format references).
 
 Both paths go through `_call_provider_with_retry()` which wraps every provider call in an exponential-backoff retry loop (see §7 for details).
 
@@ -441,17 +439,13 @@ Both paths go through `_call_provider_with_retry()` which wraps every provider c
 
 Two tool executors, one per agentic agent type:
 
-**`ToolExecutor`** (researcher and computer) — tool set determined by agent type:
-
-For `RESEARCH`:
-1. **`submit_result`** — structured exit. Params: `target_id`, `description`, `method`, `result`, `confidence` (exact/approximate/partial), `notes`. Sets `stop_after_round = True`.
-2. **`report_progress`** — progress check. Params: `findings_so_far`, `remaining_questions`, `ready_to_conclude`. Does NOT stop.
+**`ToolExecutor`** (computer only) — tool set for `COMPUTE`:
 
 For `COMPUTE`:
 1. **`document_approach`** — records plan before coding. Params: `approach`, `assumptions`, `expected_outcome`. Available only on round 1, then removed via `active_tools`. Does NOT stop.
 2. **`execute_python`** — requires `purpose` and `code`. `purpose` preserved in logs; only `code` executed.
-3. **`submit_result`** — same as researcher.
-4. **`report_progress`** — same as researcher.
+3. **`submit_result`** — structured exit. Params: `target_id`, `description`, `method`, `result`, `confidence` (exact/approximate/partial), `notes`. Sets `stop_after_round = True`.
+4. **`report_progress`** — progress check. Params: `findings_so_far`, `remaining_questions`, `ready_to_conclude`. Does NOT stop.
 
 **`OrchestratorToolExecutor`** (orchestrator) — 11 state-mutation tools:
 1. **`add_hypothesis`** — creates new WH-NNN in `ResearchState`; optional `from_rq` links to originating RQ (copies evidence)
@@ -561,7 +555,7 @@ workspaces/<run>/
 
 A claim advances through this lifecycle:
 1. **Research Question (RQ-NNN)** — orchestrator creates via `add_research_question` for open-ended exploration
-2. **Explore** — `researcher` or `computer` investigates the question → `submit_result` → `Evidence` stored on RQ
+2. **Explore** — `researcher` or `computer` investigates the question → `Evidence` stored on RQ (researcher via one-shot JSON output; computer via `submit_result` tool)
 3. **Working Hypothesis (WH-NNN)** — orchestrator calls `add_hypothesis` (optionally with `from_rq` to link to originating RQ and copy evidence), creates `Hypothesis` with status WORKING. Direct WH creation (skipping RQ) is allowed when the claim is already concrete.
 4. **Review** — `reviewer` examines WH + evidence → one-shot structured JSON → `ReviewResult` stored on hypothesis (VERIFIED / REFUTED / INCONCLUSIVE)
 5. **Critique** — deep critic reviews strategy/direction via one-shot structured JSON, files objections
@@ -749,13 +743,19 @@ Non-VERIFIED review verdicts go to `pending_compute_verdicts` in `LoopState` (wi
 | Auto-increment CRIT-NNN | `process_response()` | Auto-assigns next CRIT-NNN via `research_state.next_critique_num()` | LLM using wrong or duplicate critique IDs |
 | Invalid severity default | `process_response()` | Defaults to MEDIUM when severity value is not a valid `Severity` enum member | LLM using non-standard severity strings |
 
-#### Researcher/Computer corrections (`agents/researcher.py`, `agents/computer.py`)
+#### Researcher corrections (`agents/researcher.py`)
+
+| Mechanism | Function | What it does | Failure compensated |
+|-----------|----------|--------------|---------------------|
+| JSON parse → Evidence object | `process_response()` | Calls `_parse_researcher_json(text)` to extract `{result, method, confidence, summary}` JSON; builds `Evidence` with full response text as `reasoning` | Ensures structured data reaches state regardless of LLM output format |
+| Fallback evidence on parse failure | `process_response()` | Creates minimal `Evidence` from response text when JSON parsing fails | LLM producing unparseable output |
+
+#### Computer corrections (`agents/computer.py`)
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
 | Structured tool exit → Evidence object | `process_response()` | Routes `submit_result` tool data to `Evidence` object stored on target entity in `ResearchState` | Ensures structured data reaches state regardless of LLM output format |
 | Fallback evidence on no exit tool | `process_response()` | Creates minimal `Evidence` with "Agent produced no exit tool call" when no `submit_result` called | Agent producing no output despite forced final call |
-| Dynamic tool set | `ToolExecutor.tools_for_task_type()` | Sets researcher tools (submit_result + report_progress) vs computer tools (document_approach + execute_python + submit_result + report_progress) based on task type | Prevent model from accessing wrong tools for the agent type |
 | `active_tools` dynamic switching | `ToolExecutor.active_tools` property | After `document_approach` called, removes it from tool set so model cannot re-document instead of coding | Model avoiding code execution by repeatedly documenting approach |
 | NameError recovery hint | `_execute_python()` in `tools.py` | Detects NameError in stderr and appends "FRESH Python process" reminder | Models (esp. Kimi K2.5) treating execute_python as persistent REPL, causing NameErrors from referencing prior-script variables |
 | Structured output header | `_execute_python()` in `tools.py` | Prepends `=== script_name ===` header with purpose and exit status to every script output | Model loses track of which script produced which output across multi-call sessions |
@@ -860,7 +860,7 @@ The `messages` list grows unboundedly across rounds. Large tool outputs can push
 All documentation was synced with the codebase on 2026-03-19.
 
 - **ResearchState as source of truth** — `research_state.py` (480 lines) provides authoritative structured state; agents mutate via tools, Markdown rendered from state for git snapshots only
-- **Three agentic agents** — orchestrator (11 tools via `OrchestratorToolExecutor`), researcher (2 tools via `ToolExecutor`), computer (4 tools via `ToolExecutor` with `active_tools` dynamic switching); all use `stop_after_round` mechanism. **Two one-shot structured JSON agents** — reviewer (`_parse_review_json()`) and critic (`_parse_critic_json()` + `render_critic_context()`)
+- **Two agentic agents** — orchestrator (11 tools via `OrchestratorToolExecutor`), computer (4 tools via `ToolExecutor` with `active_tools` dynamic switching); both use `stop_after_round` mechanism. **Three one-shot structured JSON agents** — researcher (`_parse_researcher_json()`), reviewer (`_parse_review_json()`), and critic (`_parse_critic_json()` + `render_critic_context()`)
 - **Three specialized work agents** — researcher (analytical), computer (code), reviewer (adversarial review); each has focused prompt, tool set, and context view; evidence inlined on entities as `Evidence` and `ReviewResult`
 - **Renderers** — `renderers.py` produces Markdown snapshot files from ResearchState; agents render context from `self.research_state` via renderers; MD files rendered centrally by engine's `_render_files_for_git()`
 - **Formatter agent** — `agents/formatter.py` produces `ANSWER.md` on successful termination

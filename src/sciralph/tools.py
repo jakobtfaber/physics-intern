@@ -127,47 +127,6 @@ class ToolExecutor:
         },
     }
 
-    _SUBMIT_RESEARCH_DEF: ClassVar[dict] = {
-        "type": "function",
-        "function": {
-            "name": "submit_result",
-            "description": (
-                "Submit the result of your analytical derivation. Call this ONCE "
-                "when you have a concrete result. This immediately ends your session."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reasoning": {
-                        "type": "string",
-                        "description": (
-                            "Full derivation — all steps, substitutions, intermediate "
-                            "results. This is the core evidence."
-                        ),
-                    },
-                    "result": {
-                        "type": "string",
-                        "description": "Compact conclusion (quotable in one paragraph).",
-                    },
-                    "method": {
-                        "type": "string",
-                        "description": "Analytical approach name (e.g. 'variational method', 'contour integration').",
-                    },
-                    "confidence": {
-                        "type": "string",
-                        "enum": ["exact", "approximate", "partial"],
-                        "description": "Confidence level of the result.",
-                    },
-                    "summary": {
-                        "type": "string",
-                        "description": "One-sentence summary for banners and quick reference.",
-                    },
-                },
-                "required": ["reasoning", "result", "method", "confidence", "summary"],
-            },
-        },
-    }
-
     _REPORT_PROGRESS_DEF: ClassVar[dict] = {
         "type": "function",
         "function": {
@@ -235,9 +194,6 @@ class ToolExecutor:
     }
 
     # Tool sets by agent type
-    RESEARCHER_TOOLS: ClassVar[list[dict]] = [
-        _SUBMIT_RESEARCH_DEF,
-    ]
     COMPUTER_TOOLS: ClassVar[list[dict]] = [
         _DOCUMENT_APPROACH_DEF,
         _EXECUTE_PYTHON_DEF,
@@ -250,8 +206,6 @@ class ToolExecutor:
     @classmethod
     def tools_for_task_type(cls, task_type: "TaskType") -> list[dict]:
         """Return the appropriate tool set for a task type."""
-        if task_type == TaskType.RESEARCH:
-            return cls.RESEARCHER_TOOLS
         if task_type == TaskType.COMPUTE:
             return cls.COMPUTER_TOOLS
         return cls.TOOL_DEFINITIONS  # default fallback
@@ -367,10 +321,7 @@ class ToolExecutor:
         - Before document_approach: only [document_approach, submit_result]
         - After document_approach: [execute_python, submit_result]
         - During progress check: adds report_progress temporarily
-        Researcher agent: returns None (static tool set).
         """
-        if self._task_type == TaskType.RESEARCH:
-            return None
         if not self._approach_documented:
             return self._COMPUTER_TOOLS_INITIAL
         if self._progress_check_pending:

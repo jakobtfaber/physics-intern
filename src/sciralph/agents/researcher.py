@@ -1,13 +1,13 @@
-"""Researcher agent: analytical reasoning and derivation."""
+"""Researcher agent: one-shot analytical reasoning with structured JSON output."""
 
 from __future__ import annotations
 
+import json
 import re
-from typing import ClassVar, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from ..llm import AgentResult
+from ..llm import LLMResponse
 from ..research_state import Evidence
-from ..tools import ToolExecutor
 from .base import BaseAgent
 
 if TYPE_CHECKING:
@@ -16,12 +16,60 @@ if TYPE_CHECKING:
 
 _ENTITY_ID_RE = re.compile(r"(?:ER|WH|RQ)-\d+")
 
+# ---------------------------------------------------------------------------
+# JSON parsing (mirrors reviewer/critic pattern)
+# ---------------------------------------------------------------------------
+
+_JSON_FENCE_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
+
+_VALID_CONFIDENCE = {"exact", "approximate", "partial"}
+
+
+def _parse_researcher_json(text: str) -> dict | None:
+    """Extract the last JSON block containing a 'result' key from model output.
+
+    Tries fenced ```json blocks first (last match), then falls back to
+    brace-counting for bare JSON (needed because the reasoning field may
+    contain braces).
+    """
+    # Prefer fenced ```json blocks — take the last one
+    fenced = list(_JSON_FENCE_RE.finditer(text))
+    if fenced:
+        try:
+            parsed = json.loads(fenced[-1].group(1).strip())
+            if isinstance(parsed, dict) and "result" in parsed:
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Bare JSON fallback: brace-counting (like critic)
+    depth = 0
+    start = None
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                candidate = text[start : i + 1]
+                if '"result"' in candidate:
+                    try:
+                        parsed = json.loads(candidate)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                start = None
+
+    return None
+
 
 class ResearcherAgent(BaseAgent):
     name = "researcher"
     prompt_file = "researcher.md"
-    tools = ToolExecutor.RESEARCHER_TOOLS
-    max_tool_rounds: ClassVar[int | None] = 3  # 1 real round + 2 safety margin
+    tools = []  # one-shot: no tools
 
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
@@ -80,33 +128,30 @@ class ResearcherAgent(BaseAgent):
             return self.research_state.hypotheses[target_claim].statement
         return None
 
-    def process_response(self, response: AgentResult, task: Task, iteration: int):
-        """Build Evidence from submit_result and store on target entity."""
-        result_tc = next(
-            (tc for tc in response.tool_calls if tc.tool_name == "submit_result"),
-            None,
-        )
+    def process_response(self, response: LLMResponse, task: Task, iteration: int):
+        """Parse structured JSON from one-shot response text and build Evidence."""
+        text = response.text or ""
+        parsed = _parse_researcher_json(text)
 
-        if result_tc and isinstance(result_tc.tool_input, dict):
-            params = result_tc.tool_input
-            # Prefer response.text as the full derivation (the text accompanying
-            # the tool call IS the derivation); fall back to tool params.
-            reasoning = response.text or params.get("reasoning", "")
+        if parsed and "result" in parsed:
+            confidence = parsed.get("confidence", "partial")
+            if confidence not in _VALID_CONFIDENCE:
+                confidence = "partial"
             evidence = Evidence(
                 type="research",
-                reasoning=reasoning,
-                method=params.get("method", ""),
-                result=params.get("result", ""),
-                confidence=params.get("confidence", "partial"),
-                summary=params.get("summary", ""),
+                reasoning=text,  # full derivation text
+                result=parsed.get("result", ""),
+                method=parsed.get("method", ""),
+                confidence=confidence,
+                summary=parsed.get("summary", ""),
                 iteration=iteration,
             )
         else:
-            # No exit tool called — build minimal evidence from text
+            # Parse failure — build minimal evidence from text
             evidence = Evidence(
                 type="research",
-                reasoning=response.text[:2000] if response.text else "",
-                result="Agent produced no exit tool call.",
+                reasoning=text[:2000] if text else "",
+                result="Failed to parse structured research output.",
                 confidence="partial",
                 iteration=iteration,
             )

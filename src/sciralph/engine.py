@@ -371,7 +371,7 @@ class SciRalph:
         if tt == TaskType.RESEARCH:
             console.print("[green]Researcher[/green] reasoning...")
             self.researcher.research_state = self.research_state
-            result = self.researcher.run(task, self.iteration, on_round=self._on_compute_round)
+            result = self.researcher.run(task, self.iteration)
             self._state.last_content_iteration = self.iteration
             return "researcher", result
 
@@ -441,7 +441,7 @@ class SciRalph:
         else:
             console.print(f"[yellow]Unknown task type '{tt}', defaulting to researcher[/yellow]")
             self.researcher.research_state = self.research_state
-            result = self.researcher.run(task, self.iteration, on_round=self._on_compute_round)
+            result = self.researcher.run(task, self.iteration)
             return "researcher", result
 
     def _critic_overdue(self) -> bool:

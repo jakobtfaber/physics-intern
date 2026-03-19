@@ -290,12 +290,14 @@ class TestActiveToolsLifecycle:
         names = {t["function"]["name"] for t in executor.active_tools}
         assert "report_progress" not in names
 
-    def test_researcher_returns_none(self):
-        """Researcher agent uses static tools (active_tools returns None)."""
+    def test_non_compute_returns_initial(self):
+        """Non-COMPUTE task type gets initial tool set (document_approach + submit_result)."""
         from sciralph.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.RESEARCH)
-        assert executor.active_tools is None
+        tools = executor.active_tools
+        names = {t["function"]["name"] for t in tools}
+        assert names == {"document_approach", "submit_result"}
 
 
 class TestSubmitResult:
@@ -356,12 +358,6 @@ class TestSubmitResult:
 
 
 class TestToolSetsForTaskType:
-    def test_researcher_tools(self):
-        from sciralph.task import TaskType
-        tools = ToolExecutor.tools_for_task_type(TaskType.RESEARCH)
-        names = {t["function"]["name"] for t in tools}
-        assert names == {"submit_result"}
-
     def test_computer_tools(self):
         from sciralph.task import TaskType
         tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE)

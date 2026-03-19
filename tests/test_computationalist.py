@@ -71,11 +71,9 @@ class TestNewAgentImports:
 class TestNewAgentTools:
     """Verify the new agents have correct tool configurations."""
 
-    def test_researcher_has_tools(self):
+    def test_researcher_is_one_shot(self):
         from sciralph.agents.researcher import ResearcherAgent
-        assert ResearcherAgent.tools
-        names = {t["function"]["name"] for t in ResearcherAgent.tools}
-        assert "submit_result" in names
+        assert ResearcherAgent.tools == []
 
     def test_computer_has_tools(self):
         from sciralph.agents.computer import ComputerAgent
@@ -168,7 +166,7 @@ class TestComputerProcessResponse:
 
 
 class TestResearcherProcessResponse:
-    """Test ResearcherAgent.process_response builds Evidence correctly."""
+    """Test ResearcherAgent.process_response builds Evidence correctly (one-shot JSON)."""
 
     def _make_agent(self):
         from sciralph.agents.researcher import ResearcherAgent
@@ -177,33 +175,27 @@ class TestResearcherProcessResponse:
         agent.research_state = ResearchState(problem_statement="test")
         rq_id = f"RQ-{agent.research_state.next_entity_num():03d}"
         agent.research_state.research_questions[rq_id] = ResearchQuestion(id=rq_id, question="Derive X?")
-        agent._last_script_names = []
         return agent, rq_id
 
-    def _make_result(self, text="", tool_calls=None):
-        from sciralph.llm import AgentResult
-        return AgentResult(text=text, tool_calls=tool_calls or [])
+    def _make_response(self, text=""):
+        from sciralph.llm import LLMResponse
+        return LLMResponse(text=text, input_tokens=100, output_tokens=50,
+                           stop_reason="end_turn", duration=0.1)
 
-    def _make_tc(self, name, tool_input, output="ok", is_error=False):
-        from sciralph.tools import ToolCall
-        return ToolCall(tool_name=name, tool_input=tool_input, output=output, is_error=is_error, duration=0.1)
-
-    def test_evidence_from_submit_result(self):
+    def test_evidence_from_json_block(self):
         from sciralph.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body=f"Derive for {rq_id}", target_claim=rq_id)
-        tool_calls = [
-            self._make_tc("submit_result", {
-                "reasoning": "By direct calculation...",
-                "result": "T_H = 1/(8*pi*M)",
-                "method": "Euclidean path integral",
-                "confidence": "exact",
-                "summary": "Hawking temperature derived",
-            }),
-        ]
-        result = self._make_result(text="Full derivation text here...", tool_calls=tool_calls)
-        agent.process_response(result, task, iteration=1)
+        text = (
+            'Full derivation text here...\n\n'
+            '```json\n'
+            '{"result": "T_H = 1/(8*pi*M)", "method": "Euclidean path integral", '
+            '"confidence": "exact", "summary": "Hawking temperature derived"}\n'
+            '```'
+        )
+        response = self._make_response(text=text)
+        agent.process_response(response, task, iteration=1)
         evidence = agent.research_state.research_questions[rq_id].evidence
         assert evidence is not None
         assert evidence.type == "research"
@@ -212,71 +204,43 @@ class TestResearcherProcessResponse:
         assert evidence.confidence == "exact"
         assert evidence.summary == "Hawking temperature derived"
 
-    def test_reasoning_from_response_text(self):
-        """Evidence.reasoning should prefer response.text over tool params."""
+    def test_reasoning_is_full_response_text(self):
+        """Evidence.reasoning is the full response text (derivation + JSON)."""
         from sciralph.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body=f"Derive for {rq_id}", target_claim=rq_id)
-        derivation_text = "Starting from the metric ds^2 = -(1-2M/r)dt^2 + ... we find..."
-        tool_calls = [
-            self._make_tc("submit_result", {
-                "reasoning": "short summary in tool",
-                "result": "T_H = 1/(8*pi*M)",
-                "method": "analytical",
-                "confidence": "exact",
-                "summary": "Derived T_H",
-            }),
-        ]
-        result = self._make_result(text=derivation_text, tool_calls=tool_calls)
-        agent.process_response(result, task, iteration=1)
+        derivation_text = (
+            'Starting from the metric ds^2 = -(1-2M/r)dt^2 + ... we find...\n\n'
+            '```json\n'
+            '{"result": "T_H = 1/(8*pi*M)", "method": "analytical", '
+            '"confidence": "exact", "summary": "Derived T_H"}\n'
+            '```'
+        )
+        response = self._make_response(text=derivation_text)
+        agent.process_response(response, task, iteration=1)
         evidence = agent.research_state.research_questions[rq_id].evidence
-        assert evidence.reasoning == derivation_text
-
-    def test_reasoning_falls_back_to_tool_params(self):
-        """When response.text is empty, reasoning comes from tool params."""
-        from sciralph.task import Task, TaskType
-        agent, rq_id = self._make_agent()
-        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
-                    body=f"Derive for {rq_id}", target_claim=rq_id)
-        tool_calls = [
-            self._make_tc("submit_result", {
-                "reasoning": "Detailed reasoning in tool params",
-                "result": "T = 42",
-                "method": "algebra",
-                "confidence": "exact",
-                "summary": "Found T",
-            }),
-        ]
-        result = self._make_result(text="", tool_calls=tool_calls)
-        agent.process_response(result, task, iteration=1)
-        evidence = agent.research_state.research_questions[rq_id].evidence
-        assert evidence.reasoning == "Detailed reasoning in tool params"
+        assert "Starting from the metric" in evidence.reasoning
 
     def test_target_from_task_target_claim(self):
-        """Target ID comes from task.target_claim, not tool params."""
+        """Target ID comes from task.target_claim."""
         from sciralph.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body="Some task", target_claim=rq_id)
-        tool_calls = [
-            self._make_tc("submit_result", {
-                "reasoning": "...", "result": "42", "method": "m",
-                "confidence": "exact", "summary": "s",
-            }),
-        ]
-        result = self._make_result(tool_calls=tool_calls)
-        agent.process_response(result, task, iteration=1)
+        text = '```json\n{"result": "42", "method": "m", "confidence": "exact", "summary": "s"}\n```'
+        response = self._make_response(text=text)
+        agent.process_response(response, task, iteration=1)
         assert agent.research_state.research_questions[rq_id].evidence is not None
 
-    def test_fallback_no_tool_call(self):
-        """When no tool call, build minimal evidence from response text."""
+    def test_fallback_no_json(self):
+        """When no JSON block, build minimal evidence from response text."""
         from sciralph.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body=f"Derive for {rq_id}", target_claim=rq_id)
-        result = self._make_result(text="Partial derivation that got cut off...")
-        agent.process_response(result, task, iteration=1)
+        response = self._make_response(text="Partial derivation that got cut off...")
+        agent.process_response(response, task, iteration=1)
         evidence = agent.research_state.research_questions[rq_id].evidence
         assert evidence is not None
         assert evidence.confidence == "partial"
