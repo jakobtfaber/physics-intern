@@ -7,7 +7,7 @@ errors? Did it waste budget? Did the orchestrator make good decisions?
 You will receive:
 - RESEARCH_STATE.md — the final document with results (ER-NNN established,
   WH-NNN hypotheses), derivations, and conclusions.
-- COMPUTATION_LOG.md — records of computational checks with VERIFIED / REFUTED /
+- EVIDENCE_LOG.md — records of computational checks with VERIFIED / REFUTED /
   INCONCLUSIVE verdicts.
 - CRITIQUE_LOG.md — adversarial critiques filed during the process, with
   resolution status and severity.

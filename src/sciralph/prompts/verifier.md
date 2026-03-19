@@ -7,7 +7,7 @@ You will receive:
 - ANSWER.md — the final answer document containing the main scientific conclusions.
 - RESEARCH_STATE.md — the main document containing results (ER-NNN established,
   WH-NNN hypotheses), derivations, and conclusions.
-- COMPUTATION_LOG.md — records of computational checks (symbolic and numerical).
+- EVIDENCE_LOG.md — records of computational checks (symbolic and numerical).
 - CRITIQUE_LOG.md — adversarial critiques filed during the research process,
   with resolution status.
 - Optionally, re-run results of computation scripts (independent execution).

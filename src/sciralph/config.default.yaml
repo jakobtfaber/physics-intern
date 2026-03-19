@@ -10,7 +10,7 @@ critic_every_n: 4
 compress_threshold:
   RESEARCH_STATE.md: 50000
   CRITIQUE_LOG.md: 30000
-  COMPUTATION_LOG.md: 40000
+  EVIDENCE_LOG.md: 40000
 sympy_timeout_seconds: 60
 max_tool_rounds: 10
 progress_check_interval: 4
@@ -36,7 +36,7 @@ compress_soft_multiplier: 1.5
 budget_synthesis_margin: 3
 
 # --- Orchestrator context ---
-# Number of COMPUTATION_LOG tail entries fed to orchestrator context
+# Number of EVIDENCE_LOG tail entries fed to orchestrator context
 orchestrator_comp_log_tail: 5
 
 # --- Prior failure enrichment ---

@@ -76,7 +76,7 @@ class WorkspaceContents:
     workspace_dir: str
     research_state: str = ""
     critique_log: str = ""
-    computation_log: str = ""
+    evidence_log: str = ""
     current_task: str = ""
     computation_scripts: list[str] = field(default_factory=list)
     terminated_cleanly: bool = False
@@ -166,7 +166,7 @@ def load_workspace(workspace_dir: str, *, include_process_data: bool = False) ->
     for fname, attr in [
         ("RESEARCH_STATE.md", "research_state"),
         ("CRITIQUE_LOG.md", "critique_log"),
-        ("EVIDENCE_LOG.md", "computation_log"),
+        ("EVIDENCE_LOG.md", "evidence_log"),
         ("CURRENT_TASK.md", "current_task"),
     ]:
         path = ws / fname
@@ -370,7 +370,7 @@ def build_verification_prompt(
     # Workspace files
     for label, text in [
         ("RESEARCH_STATE.md", contents.research_state),
-        ("COMPUTATION_LOG.md", contents.computation_log),
+        ("EVIDENCE_LOG.md", contents.evidence_log),
         ("CRITIQUE_LOG.md", contents.critique_log),
     ]:
         if text:
@@ -703,7 +703,7 @@ def build_process_audit_prompt(contents: WorkspaceContents) -> tuple[str, str]:
     # Core workspace files
     for label, text in [
         ("RESEARCH_STATE.md", contents.research_state),
-        ("COMPUTATION_LOG.md", contents.computation_log),
+        ("EVIDENCE_LOG.md", contents.evidence_log),
         ("CRITIQUE_LOG.md", contents.critique_log),
         ("CURRENT_TASK.md", contents.current_task),
     ]:

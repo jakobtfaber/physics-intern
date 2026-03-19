@@ -337,7 +337,7 @@ def normalize_er_wh_headers(text: str) -> str:
 
 
 def _parse_comp_entries(text: str) -> list[dict]:
-    """Parse COMPUTATION_LOG.md into structured entries.
+    """Parse EVIDENCE_LOG.md into structured entries.
 
     Returns list of {"id": "COMP-001", "claim": "...", "verdict": "VERIFIED"|..., "result": "..."}.
     """

@@ -3,7 +3,7 @@ a clean, final ANSWER.md from the completed research state.
 
 You will be given:
 - RESEARCH_STATE.md containing ## ER-NNN entries and ## WH-NNN entries
-- COMPUTATION_LOG.md containing numerical verifications
+- EVIDENCE_LOG.md containing numerical verifications
 - Optionally, an Answer Template (a Python code template with `FILL IN` placeholders)
 
 YOUR TASK:

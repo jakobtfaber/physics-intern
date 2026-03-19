@@ -83,7 +83,7 @@ Standard Schwarzschild derivation.
 # Resolved Critiques
 """
 
-COMPUTATION_LOG = """---
+EVIDENCE_LOG = """---
 total_computations: 1
 ---
 
@@ -140,12 +140,12 @@ Two of three results are correct but ER-002 has a potential issue.
 def _make_workspace(tmp_path, *, research_state=RESEARCH_STATE,
                     current_task=CURRENT_TASK_TERMINATED,
                     critique_log=CRITIQUE_LOG,
-                    computation_log=COMPUTATION_LOG):
+                    evidence_log=EVIDENCE_LOG):
     """Create a mock workspace directory."""
     (tmp_path / "RESEARCH_STATE.md").write_text(research_state)
     (tmp_path / "CURRENT_TASK.md").write_text(current_task)
     (tmp_path / "CRITIQUE_LOG.md").write_text(critique_log)
-    (tmp_path / "EVIDENCE_LOG.md").write_text(computation_log)
+    (tmp_path / "EVIDENCE_LOG.md").write_text(evidence_log)
     return str(tmp_path)
 
 
@@ -155,7 +155,7 @@ def test_load_workspace(tmp_path):
 
     assert contents.research_state == RESEARCH_STATE
     assert contents.critique_log == CRITIQUE_LOG
-    assert contents.computation_log == COMPUTATION_LOG
+    assert contents.evidence_log == EVIDENCE_LOG
     assert contents.terminated_cleanly is True
     assert contents.frontmatter.get("task_type") == "terminate"
 
@@ -175,7 +175,7 @@ def test_load_workspace_missing_files(tmp_path):
 
     assert contents.research_state == RESEARCH_STATE
     assert contents.critique_log == ""
-    assert contents.computation_log == ""
+    assert contents.evidence_log == ""
     assert contents.current_task == ""
     assert contents.terminated_cleanly is False
 
@@ -232,7 +232,7 @@ def test_build_prompt_includes_all_files(tmp_path):
     system, user_content = build_verification_prompt(contents)
 
     assert "RESEARCH_STATE.md" in user_content
-    assert "COMPUTATION_LOG.md" in user_content
+    assert "EVIDENCE_LOG.md" in user_content
     assert "CRITIQUE_LOG.md" in user_content
     assert "terminated cleanly" in user_content
     assert "ER-001" in user_content
