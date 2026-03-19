@@ -10,8 +10,8 @@ from rich.console import Console
 from ..critic_tools import CriticToolExecutor
 from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..renderers import (
-    render_critique_log_md,
-    render_research_state_md,
+    _critique_log_body,
+    _research_state_body,
     render_background_survey,
 )
 from ..research_state import Critique, CritiqueStatus, Severity
@@ -41,13 +41,13 @@ class CriticAgent(BaseAgent):
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [
             "<research-state>\n",
-            render_research_state_md(self.research_state) if self.research_state else "",
+            _research_state_body(self.research_state) if self.research_state else "",
             "\n</research-state>",
             "\n<background-survey>\n",
             render_background_survey(self.research_state) if self.research_state else "",
             "\n</background-survey>",
             "\n<previous-critiques>\n",
-            render_critique_log_md(self.research_state) if self.research_state else "",
+            _critique_log_body(self.research_state) if self.research_state else "",
             "\n</previous-critiques>",
         ]
         return "\n".join(parts)

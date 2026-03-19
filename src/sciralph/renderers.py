@@ -174,8 +174,8 @@ def render_research_state_md(state: ResearchState) -> str:
     return render_frontmatter(meta, body)
 
 
-def render_evidence_log_md(state: ResearchState) -> str:
-    """Render EVIDENCE_LOG.md from ResearchState — evidence and verification on hypotheses."""
+def _evidence_log_body(state: ResearchState) -> str:
+    """Build the body text for an evidence log rendering."""
     parts: list[str] = ["# Evidence Log\n"]
 
     # Collect all hypotheses with evidence or verification, sorted by iteration
@@ -250,8 +250,21 @@ def render_evidence_log_md(state: ResearchState) -> str:
     if not entries:
         parts.append("(No evidence or verification recorded yet.)\n")
 
-    meta = {"total_entries": len(entries)}
-    body = "\n".join(parts)
+    return "\n".join(parts)
+
+
+def render_evidence_log_md(state: ResearchState) -> str:
+    """Render EVIDENCE_LOG.md from ResearchState — evidence and verification on hypotheses."""
+    body = _evidence_log_body(state)
+    # Count entries for frontmatter
+    n_entries = sum(
+        1 for h in state.hypotheses.values() if h.evidence
+    ) + sum(
+        1 for h in state.hypotheses.values() if h.verification
+    ) + sum(
+        1 for rq in state.research_questions.values() if rq.evidence
+    )
+    meta = {"total_entries": n_entries}
     return render_frontmatter(meta, body)
 
 

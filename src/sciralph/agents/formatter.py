@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..llm import LLMResponse
-from ..renderers import render_evidence_log_md, render_research_state_md
+from ..renderers import _evidence_log_body, _research_state_body
 from .base import BaseAgent
 
 if TYPE_CHECKING:
@@ -29,10 +29,10 @@ class FormatterAgent(BaseAgent):
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [
             "<research-state>\n",
-            render_research_state_md(self.research_state) if self.research_state else "",
+            _research_state_body(self.research_state) if self.research_state else "",
             "\n</research-state>",
             "\n<evidence-log>\n",
-            render_evidence_log_md(self.research_state) if self.research_state else "",
+            _evidence_log_body(self.research_state) if self.research_state else "",
             "\n</evidence-log>",
         ]
         if self.answer_template:
