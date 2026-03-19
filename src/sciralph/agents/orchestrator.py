@@ -34,7 +34,12 @@ class OrchestratorAgent(BaseAgent):
         if self._system_prompt is None:
             base = (PROMPTS_DIR / self.prompt_file).read_text()
             if self.research_state and self.research_state.problem_statement:
-                base += "\n\n<problem-statement>\n" + self.research_state.problem_statement + "\n</problem-statement>"
+                base = base.replace(
+                    "## Problem Statement",
+                    "## Problem Statement\n\n<problem-statement>\n"
+                    + self.research_state.problem_statement
+                    + "\n</problem-statement>",
+                )
             self._system_prompt = base
         return self._system_prompt
 
@@ -87,10 +92,8 @@ class OrchestratorAgent(BaseAgent):
                 "Consider populating it with the unit system, sign conventions, "
                 "and variable definitions being used. <<<\n"
             )
-        budget_remaining = self.config.max_iterations - iteration
         parts.extend([
-            f"# Current Iteration: {iteration} of {self.config.max_iterations} "
-            f"({budget_remaining} remaining)\n",
+            f"# Current Iteration: {iteration}\n",
             state_text,
             "\n",
             render_orchestrator_critique_log(self.research_state) if self.research_state else "",

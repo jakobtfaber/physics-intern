@@ -194,16 +194,15 @@ class TestBudgetAwareTermination:
 
         assert orch._completion_analysis(iteration=19) is None
 
-    def test_context_includes_iteration_budget(self, workspace):
-        """build_context always shows iteration X of Y (Z remaining)."""
+    def test_context_includes_iteration(self, workspace):
+        """build_context shows current iteration number."""
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)
         metrics = MetricsTracker()
         orch = OrchestratorAgent(config, workspace, metrics)
         orch.research_state = ResearchState()
 
         context = orch.build_context(_EMPTY_TASK, iteration=5)
-        assert "5 of 20" in context
-        assert "15 remaining" in context
+        assert "# Current Iteration: 5" in context
 
 
 class TestConventionReminder:
