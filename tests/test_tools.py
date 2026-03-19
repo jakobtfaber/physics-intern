@@ -169,9 +169,9 @@ class TestFilenameHandling:
 class TestToolDefinitions:
     def test_definitions_format(self):
         defs = ToolExecutor.TOOL_DEFINITIONS
-        assert len(defs) == 4
+        assert len(defs) == 3
         names = {d["function"]["name"] for d in defs}
-        assert names == {"document_approach", "execute_python", "submit_result", "report_progress"}
+        assert names == {"document_approach", "execute_python", "submit_result"}
         for d in defs:
             assert d["type"] == "function"
 
@@ -198,7 +198,7 @@ class TestToolDefinitions:
         assert set(func["parameters"]["required"]) == {"approach"}
 
     def test_report_progress_schema(self):
-        func = next(d["function"] for d in ToolExecutor.TOOL_DEFINITIONS if d["function"]["name"] == "report_progress")
+        func = ToolExecutor._REPORT_PROGRESS_DEF["function"]
         assert func["name"] == "report_progress"
         props = func["parameters"]["properties"]
         assert set(props.keys()) == {"findings_so_far", "remaining_questions", "ready_to_conclude"}
@@ -242,6 +242,62 @@ class TestDocumentApproach:
         assert not hasattr(executor, 'stop_after_round') or not executor.stop_after_round
 
 
+class TestActiveToolsLifecycle:
+    """Test dynamic tool switching: document_approach → execute_python, progress check."""
+
+    def test_initial_tools_before_approach(self):
+        """Before approach, only document_approach and submit_result are available."""
+        from sciralph.task import TaskType
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
+        tools = executor.active_tools
+        names = {t["function"]["name"] for t in tools}
+        assert names == {"document_approach", "submit_result"}
+
+    def test_tools_after_approach(self):
+        """After document_approach, execute_python replaces it."""
+        from sciralph.task import TaskType
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
+        executor.execute("document_approach", {"approach": "test"})
+        tools = executor.active_tools
+        names = {t["function"]["name"] for t in tools}
+        assert names == {"execute_python", "submit_result"}
+
+    def test_progress_check_exposes_report_progress(self):
+        """Setting _progress_check_pending adds report_progress to tools."""
+        from sciralph.task import TaskType
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
+        executor._approach_documented = True
+        executor._progress_check_pending = True
+        tools = executor.active_tools
+        names = {t["function"]["name"] for t in tools}
+        assert "report_progress" in names
+
+    def test_report_progress_clears_pending(self):
+        """Calling report_progress removes it from next tool set."""
+        from sciralph.task import TaskType
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
+        executor._approach_documented = True
+        executor._progress_check_pending = True
+        executor.execute("report_progress", {
+            "findings_so_far": "done", "remaining_questions": "",
+            "ready_to_conclude": False,
+        })
+        assert executor._progress_check_pending is False
+        names = {t["function"]["name"] for t in executor.active_tools}
+        assert "report_progress" not in names
+
+    def test_researcher_returns_none(self):
+        """Researcher agent uses static tools (active_tools returns None)."""
+        from sciralph.task import TaskType
+        root = Path(tempfile.mkdtemp())
+        executor = ToolExecutor(workspace_root=root, task_type=TaskType.RESEARCH)
+        assert executor.active_tools is None
+
+
 class TestSubmitResult:
     def test_sets_stop_flag(self):
         executor = _make_executor()
@@ -277,13 +333,13 @@ class TestToolSetsForTaskType:
         from sciralph.task import TaskType
         tools = ToolExecutor.tools_for_task_type(TaskType.RESEARCH)
         names = {t["function"]["name"] for t in tools}
-        assert names == {"submit_result", "report_progress"}
+        assert names == {"submit_result"}
 
     def test_computer_tools(self):
         from sciralph.task import TaskType
         tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE)
         names = {t["function"]["name"] for t in tools}
-        assert names == {"document_approach", "execute_python", "submit_result", "report_progress"}
+        assert names == {"document_approach", "execute_python", "submit_result"}
 
 
 class TestExitToolName:

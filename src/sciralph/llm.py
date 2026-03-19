@@ -515,6 +515,9 @@ def run_agent_loop(
                     "to true."
                 ).format(n=consecutive_exec_python, exit_tool=_exit_tool)
                 messages.append({"role": "user", "content": _progress_msg})
+                # Expose report_progress tool for the next round
+                if hasattr(tool_executor, "_progress_check_pending"):
+                    tool_executor._progress_check_pending = True
                 round_log.append({
                     "kind": "scaffold_injection", "round": round_num,
                     "label": "progress_check", "content": _progress_msg,

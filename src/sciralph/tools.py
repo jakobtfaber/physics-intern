@@ -246,13 +246,11 @@ class ToolExecutor:
     # Tool sets by agent type
     RESEARCHER_TOOLS: ClassVar[list[dict]] = [
         _SUBMIT_RESULT_DEF,
-        _REPORT_PROGRESS_DEF,
     ]
     COMPUTER_TOOLS: ClassVar[list[dict]] = [
         _DOCUMENT_APPROACH_DEF,
         _EXECUTE_PYTHON_DEF,
         _SUBMIT_RESULT_DEF,
-        _REPORT_PROGRESS_DEF,
     ]
 
     # Default tool set (computer tools)
@@ -267,8 +265,16 @@ class ToolExecutor:
             return cls.COMPUTER_TOOLS
         return cls.TOOL_DEFINITIONS  # default fallback
 
-    # Tool sets available after document_approach has been called
+    # Dynamic tool sets for computer agent lifecycle
+    _COMPUTER_TOOLS_INITIAL: ClassVar[list[dict]] = [
+        _DOCUMENT_APPROACH_DEF,
+        _SUBMIT_RESULT_DEF,
+    ]
     COMPUTER_TOOLS_POST_APPROACH: ClassVar[list[dict]] = [
+        _EXECUTE_PYTHON_DEF,
+        _SUBMIT_RESULT_DEF,
+    ]
+    _COMPUTER_TOOLS_PROGRESS: ClassVar[list[dict]] = [
         _EXECUTE_PYTHON_DEF,
         _SUBMIT_RESULT_DEF,
         _REPORT_PROGRESS_DEF,
@@ -285,6 +291,7 @@ class ToolExecutor:
         self.ready_to_conclude_signaled = False
         self._script_names: list[str] = []
         self._approach_documented: bool = False
+        self._progress_check_pending: bool = False
 
     @staticmethod
     def _sanitize_filename(raw: str, max_len: int = 60) -> str:
@@ -357,15 +364,23 @@ class ToolExecutor:
     def active_tools(self) -> list[dict] | None:
         """Return dynamic tool set, or None to keep the original tools.
 
-        After document_approach is called, remove it from the tool set
-        so the model cannot call it again.
+        Computer agent lifecycle:
+        - Before document_approach: only [document_approach, submit_result]
+        - After document_approach: [execute_python, submit_result]
+        - During progress check: adds report_progress temporarily
+        Researcher agent: returns None (static tool set).
         """
-        if self._approach_documented:
-            return self.COMPUTER_TOOLS_POST_APPROACH
-        return None
+        if self._task_type == TaskType.RESEARCH:
+            return None
+        if not self._approach_documented:
+            return self._COMPUTER_TOOLS_INITIAL
+        if self._progress_check_pending:
+            return self._COMPUTER_TOOLS_PROGRESS
+        return self.COMPUTER_TOOLS_POST_APPROACH
 
     def _report_progress(self, params: dict) -> tuple[str, bool]:
         """Acknowledge progress report and guide next action."""
+        self._progress_check_pending = False
         exit_tool = self.exit_tool_name
         ready = params.get("ready_to_conclude", False)
         if ready:

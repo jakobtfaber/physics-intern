@@ -76,7 +76,6 @@ class TestNewAgentTools:
         assert ResearcherAgent.tools
         names = {t["function"]["name"] for t in ResearcherAgent.tools}
         assert "submit_result" in names
-        assert "report_progress" in names
 
     def test_computer_has_tools(self):
         from sciralph.agents.computer import ComputerAgent
@@ -84,7 +83,6 @@ class TestNewAgentTools:
         names = {t["function"]["name"] for t in ComputerAgent.tools}
         assert "execute_python" in names
         assert "submit_result" in names
-        assert "report_progress" in names
 
     def test_verifier_has_tools(self):
         from sciralph.agents.verifier import VerifierAgent
@@ -181,7 +179,6 @@ class TestToolsForTaskType:
         from sciralph.tools import ToolExecutor
         names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.RESEARCH)}
         assert "submit_result" in names
-        assert "report_progress" in names
 
     def test_compute_tools(self):
         from sciralph.task import TaskType
@@ -189,4 +186,3 @@ class TestToolsForTaskType:
         names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.COMPUTE)}
         assert "execute_python" in names
         assert "submit_result" in names
-        assert "report_progress" in names
