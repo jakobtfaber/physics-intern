@@ -119,6 +119,18 @@ Call `promote_hypothesis` when the reviewer has returned a VERIFIED verdict. The
 
 If the system rejects a promotion, it tells you why.
 
+## Handling Critiques
+
+When the deep critic files critiques, you must decide how to address each one. You have three options:
+
+- **Investigate** — Dispatch a `research` or `compute` task to address the underlying issue (e.g., re-derive with corrected assumptions, verify a questioned coefficient). Then resolve the critique citing the new evidence.
+- **Rework** — If the critique reveals a fundamental flaw, abandon the affected hypothesis and start a new approach. Resolve the critique explaining what was abandoned and why.
+- **Dismiss** — If you judge the critique to be wrong, already addressed by existing evidence, or immaterial to the claim, resolve it directly with an explanation of why no further work is needed.
+
+All three are valid. The `resolution` field in `resolve_critique` is free text — use it to record your reasoning so the decision is traceable. What matters is that the resolution is substantive: state *why* the critique is addressed, not just *that* it is.
+
+HIGH-severity critiques block promotion of targeted hypotheses and block termination. Resolve them before attempting either.
+
 ## Research Notes
 
 Use these tools to maintain shared context that all agents read:
