@@ -646,7 +646,7 @@ Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter
 
 | Category | Event keys |
 |----------|-----------|
-| `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `progress_check`, `forced_final_call`, `forced_final_call_failed`, `empty_end_turn_fallthrough`, `tool_timeout`, `tool_output_truncation` |
+| `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `progress_check`, `forced_final_call`, `forced_final_call_failed`, `forced_exit_tool_retry`, `empty_end_turn_recovery`, `tool_timeout`, `tool_output_truncation` |
 | `state_invariants` | All `Violation.check` values from validation checks (e.g. `er_demotion_safety`, `phantom_labels`, `stale_unverified_labels`, `critique_resolution_consistency`) |
 | `loop_control` | `forced_critic`, `compute_enrichment`, `termination_blocked`, `dispatch_failure`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry` |
 | `output_normalization` | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened`, `preamble_stripped`, `critique_self_retracted`, `empty_response_stub`, `header_injected`, `claim_id_injected`, `submit_review_text_extracted` |
@@ -688,7 +688,7 @@ These mechanisms prevent agentic agents from wasting rounds or producing empty o
 |-----------|---------|--------|
 | Progress check injection | N consecutive `execute_python` rounds without `report_progress` (`progress_check_interval`, default 3) | Inject user-turn message requiring `report_progress` tool call; fires again at 2N, 3N, etc. if model ignores |
 | Two-round escalating warning | At `max_rounds - 2`: warning; at `max_rounds - 1`: CRITICAL | Inject agent-agnostic user-turn messages with escalating urgency (no agent-specific format references); mentions `submit_review` as preferred exit |
-| Forced text-only final call | Loop exits via max rounds or tool-call failure | Single forced text-only call via agent-agnostic user message (system prompt unchanged), `tools` omitted, stop_reason set to `max_rounds_forced`; empty text is honest failure (no synthesis fallback) |
+| Forced final call with exit tool | Loop exits via max rounds, empty end_turn exhaustion, or tool-call failure | Forced call with exit tool available (up to 3 attempts with retry if model ignores exit tool); falls back to text-only when exit tool not in tool set or provider failure; system prompt unchanged; stop_reason `max_rounds_forced` or `executor_stop` |
 | `submit_review` / `submit_result` structured exit | Model calls exit tool | Structured data bypasses free-text generation; sets `stop_after_round` → `executor_stop`; `process_response` creates `Evidence` or `ReviewResult` from tool parameters. Plays WITH tool-calling tendency instead of against it |
 | `report_progress` tool | Model calls `report_progress` tool (prompted by progress check injection) | Captures structured reasoning (`findings_so_far`, `remaining_questions`, `ready_to_conclude`); enriches conversation history with explicit reasoning; if `ready_to_conclude`, response guides model to exit tool. Works WITH tool-calling tendency |
 | `execute_python` purpose parameter | Model calls `execute_python` | Required `purpose` field forces model to articulate WHY before each run; preserved in logs for audit; not enforced at execution time (schema-level only) |

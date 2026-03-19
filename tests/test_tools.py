@@ -522,7 +522,7 @@ class TestAgentLoop:
         )
         provider.call.side_effect = [
             tool_response, tool_response, tool_response,  # 3 tool-use rounds
-            text_response,  # forced final call
+            text_response, text_response, text_response,  # 3 forced final retries
         ]
 
         executor = _make_executor()
@@ -532,11 +532,11 @@ class TestAgentLoop:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=3,
         )
 
-        assert result.rounds == 4  # 3 tool rounds + 1 forced
+        assert result.rounds == 6  # 3 tool rounds + 3 forced retries
         assert result.truncated
         assert result.stop_reason == "max_rounds_forced"
         assert len(result.tool_calls) == 3
-        assert provider.call.call_count == 4
+        assert provider.call.call_count == 6
 
     @patch("sciralph.llm._get_provider")
     def test_token_accumulation(self, mock_get_provider):
@@ -591,8 +591,8 @@ class TestForcedPartialOutput:
     """Test the forced text-only final call when max_rounds is exhausted."""
 
     @patch("sciralph.llm._get_provider")
-    def test_forced_call_has_no_tools_param(self, mock_get_provider):
-        """Last call should NOT include tools parameter."""
+    def test_forced_call_includes_exit_tool(self, mock_get_provider):
+        """Forced final call should include the exit tool (submit_result)."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
@@ -605,7 +605,7 @@ class TestForcedPartialOutput:
         )
         provider.call.side_effect = [
             tool_response, tool_response,  # 2 rounds of tool use
-            text_response,  # forced final call
+            text_response, text_response, text_response,  # 3 forced final retries
         ]
 
         executor = _make_executor()
@@ -615,13 +615,15 @@ class TestForcedPartialOutput:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=2,
         )
 
-        # Verify the last call had no tools parameter and system prompt is unchanged
         calls = provider.call.call_args_list
-        assert len(calls) == 3
-        # First two calls should have tools
+        assert len(calls) == 5  # 2 tool rounds + 3 forced retries
+        # First two calls should have full tool set
         assert calls[0].kwargs.get("tools") is not None
-        # Last call should NOT have tools
-        assert calls[2].kwargs.get("tools") is None
+        # Forced calls should include only the exit tool
+        forced_tools = calls[2].kwargs.get("tools")
+        assert forced_tools is not None
+        tool_names = {t["function"]["name"] for t in forced_tools}
+        assert tool_names == {"submit_result"}
         # System prompt is unchanged (no mutation)
         assert calls[2].kwargs.get("system") == "sys"
 
@@ -638,7 +640,8 @@ class TestForcedPartialOutput:
         text_response = _mock_provider_response(
             "Forced partial output here", "end_turn", 150, 80
         )
-        provider.call.side_effect = [tool_response, text_response]
+        provider.call.side_effect = [tool_response,
+                                     text_response, text_response, text_response]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -652,7 +655,7 @@ class TestForcedPartialOutput:
 
     @patch("sciralph.llm._get_provider")
     def test_token_accumulation_includes_forced(self, mock_get_provider):
-        """Total tokens should include the forced call."""
+        """Total tokens should include all forced call retries."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
@@ -661,7 +664,8 @@ class TestForcedPartialOutput:
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
         text_response = _mock_provider_response("Final", "end_turn", 300, 120)
-        provider.call.side_effect = [tool_response, text_response]
+        provider.call.side_effect = [tool_response,
+                                     text_response, text_response, text_response]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -670,9 +674,9 @@ class TestForcedPartialOutput:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=1,
         )
 
-        assert result.total_input_tokens == 500  # 200 + 300
-        assert result.total_output_tokens == 200  # 80 + 120
-        assert result.rounds == 2  # 1 tool round + 1 forced
+        assert result.total_input_tokens == 1100  # 200 + 3*300
+        assert result.total_output_tokens == 440  # 80 + 3*120
+        assert result.rounds == 4  # 1 tool round + 3 forced retries
 
     @patch("sciralph.llm._get_provider")
     def test_stop_reason_is_max_rounds_forced(self, mock_get_provider):
@@ -685,7 +689,8 @@ class TestForcedPartialOutput:
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
         text_response = _mock_provider_response("Done", "end_turn", 100, 50)
-        provider.call.side_effect = [tool_response, text_response]
+        provider.call.side_effect = [tool_response,
+                                     text_response, text_response, text_response]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -732,8 +737,8 @@ class TestEmptyTextFallthrough:
         assert provider.call.call_count == 3  # tool_use + empty + recovery response
 
     @patch("sciralph.llm._get_provider")
-    def test_two_consecutive_empty_end_turns_forced_final(self, mock_get_provider):
-        """Two consecutive empty end_turns fall through to forced final call."""
+    def test_empty_end_turns_retry_until_max_rounds(self, mock_get_provider):
+        """Empty end_turns retry until max_rounds, then forced final with exit tool."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
@@ -742,26 +747,32 @@ class TestEmptyTextFallthrough:
             "", "tool_use", 200, 80,
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(42)"}}],
         )
-        # Round 2: first empty end_turn -> recovery injected
+        # Rounds 2-3: empty end_turns -> recovery injected each time
         round2 = _mock_provider_response("", "end_turn", 150, 0)
-        # Round 3: second empty end_turn -> falls through to forced final
         round3 = _mock_provider_response("", "end_turn", 150, 0)
-        # Round 4: forced final call produces text
-        round4 = _mock_provider_response(
+        # Forced final calls: model returns text (no exit tool called)
+        forced1 = _mock_provider_response("Partial.", "end_turn", 150, 60)
+        forced2 = _mock_provider_response("More.", "end_turn", 150, 60)
+        forced3 = _mock_provider_response(
             "## COMP-001: Forced result", "end_turn", 300, 100
         )
-        provider.call.side_effect = [round1, round2, round3, round4]
+        provider.call.side_effect = [round1, round2, round3,
+                                     forced1, forced2, forced3]
 
         executor = _make_executor()
         result = run_agent_loop(
             system="sys", user_content="question",
             config=_make_config(), tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=3,
         )
 
         assert "COMP-001" in result.text
         assert result.stop_reason == "max_rounds_forced"
-        assert provider.call.call_count == 4
+        # 3 main (1 tool_use + 2 empty) + 3 forced retries
+        assert provider.call.call_count == 6
+        # Forced calls included exit tool
+        forced_call = provider.call.call_args_list[3]
+        assert forced_call.kwargs.get("tools") is not None
 
     @patch("sciralph.llm._get_provider")
     def test_empty_end_turn_with_text_returns_normally(self, mock_get_provider):
@@ -1128,8 +1139,8 @@ class TestForcedFinalWithExitTool:
         assert any(tc.tool_name == "submit_result" for tc in result.tool_calls)
 
     @patch("sciralph.llm._get_provider")
-    def test_forced_final_no_exit_tool_without_ready(self, mock_get_provider):
-        """max_rounds hit, no ready_to_conclude → forced call without tools (existing behavior)."""
+    def test_forced_final_always_includes_exit_tool(self, mock_get_provider):
+        """max_rounds hit → forced call always includes exit tool, retries if not called."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
@@ -1139,11 +1150,13 @@ class TestForcedFinalWithExitTool:
             tool_calls=[{"id": "t1", "name": "execute_python",
                          "input": {"purpose": "Check", "code": "print(1)"}}],
         )
-        # Forced final call: text-only
-        forced_resp = _mock_provider_response(
+        # Forced final calls: model returns text (doesn't call exit tool)
+        forced1 = _mock_provider_response("Partial.", "end_turn", 150, 60)
+        forced2 = _mock_provider_response("More.", "end_turn", 150, 60)
+        forced3 = _mock_provider_response(
             "INCONCLUSIVE result.", "end_turn", 150, 60
         )
-        provider.call.side_effect = [round1, forced_resp]
+        provider.call.side_effect = [round1, forced1, forced2, forced3]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -1154,6 +1167,10 @@ class TestForcedFinalWithExitTool:
 
         assert result.stop_reason == "max_rounds_forced"
         assert result.truncated
-        # Forced call had no tools parameter
-        forced_call = provider.call.call_args_list[-1]
-        assert forced_call.kwargs.get("tools") is None
+        # Forced call included exit tool
+        forced_call = provider.call.call_args_list[1]
+        assert forced_call.kwargs.get("tools") is not None
+        tool_names = {t["function"]["name"] for t in forced_call.kwargs["tools"]}
+        assert "submit_result" in tool_names
+        # 3 forced retries (model never called exit tool)
+        assert provider.call.call_count == 4

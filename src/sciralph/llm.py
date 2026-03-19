@@ -341,29 +341,24 @@ def run_agent_loop(
         if resp.stop_reason == "end_turn":
             if not round_text.strip() and all_tool_calls:
                 empty_end_turn_count += 1
-                if empty_end_turn_count == 1:
-                    # First empty end_turn: inject recovery message and continue
-                    _recovery_msg = (
-                        f"Your response was empty. You still need to call `{_exit_tool}` "
-                        f"to complete your task. Review your findings and call "
-                        f"`{_exit_tool}` now."
-                    )
-                    messages.append(provider.format_assistant_message(resp.raw_content))
-                    messages.append({"role": "user", "content": _recovery_msg})
-                    round_log.append({
-                        "kind": "scaffold_injection", "round": round_num,
-                        "label": "empty_end_turn_recovery", "content": _recovery_msg,
-                    })
-                    if config.workspace_dir:
-                        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
-                                           "empty_end_turn_recovery", f"round={round_num}")
-                    continue
-                # Second consecutive empty end_turn: fall through to forced final
-                loop_exit_reason = "empty_end_turn"
+                # Inject recovery message and retry — the for loop
+                # naturally exhausts at max_rounds
+                _recovery_msg = (
+                    f"Your response was empty. You still need to call `{_exit_tool}` "
+                    f"to complete your task. Review your findings and call "
+                    f"`{_exit_tool}` now."
+                )
+                messages.append(provider.format_assistant_message(resp.raw_content))
+                messages.append({"role": "user", "content": _recovery_msg})
+                round_log.append({
+                    "kind": "scaffold_injection", "round": round_num,
+                    "label": "empty_end_turn_recovery", "content": _recovery_msg,
+                })
                 if config.workspace_dir:
                     log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
-                                       "empty_end_turn_fallthrough", f"rounds={round_num}")
-                break
+                                       "empty_end_turn_recovery",
+                                       f"round={round_num}, count={empty_end_turn_count}")
+                continue
             empty_end_turn_count = 0  # non-empty turn resets counter
 
             # Ready-to-conclude recovery: agent signaled ready but answered in text
@@ -553,7 +548,7 @@ def run_agent_loop(
                     "label": "critical_warning", "content": _crit_msg,
                 })
 
-    # --- Post-loop: one forced text-only final call ---
+    # --- Post-loop: forced final call(s) with exit tool ---
     _reasons_human = {
         "max_rounds": "You have reached the maximum number of tool-use rounds.",
         "tool_call_failure": "The tool-calling interface is unavailable due to a provider error.",
@@ -565,20 +560,19 @@ def run_agent_loop(
     if config.workspace_dir:
         log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "forced_final_call", loop_exit_reason)
 
-    # Part B: When agent signaled ready_to_conclude, keep exit tool available
-    _ready_conclude_forced = (
-        getattr(tool_executor, "ready_to_conclude_signaled", False)
-        and loop_exit_reason not in ("tool_call_failure", "provider_side_400")
+    # Always include the exit tool unless a provider-side failure prevents tool use
+    _forced_with_exit_tool = (
+        loop_exit_reason not in ("tool_call_failure", "provider_side_400")
     )
     _exit_tool_defs = None
-    if _ready_conclude_forced:
+    if _forced_with_exit_tool:
         _exit_tool_defs = [t for t in tools if t["function"]["name"] == _exit_tool]
         if not _exit_tool_defs:
-            _ready_conclude_forced = False
+            _forced_with_exit_tool = False
 
     # Agent-agnostic forced exit message (delivered as user message, not system prompt mutation).
     # Each agent's process_response() handles format normalization for its own output.
-    if _ready_conclude_forced:
+    if _forced_with_exit_tool:
         forced_msg = (
             f"IMPORTANT: {reason}\n\n"
             f"You MUST call `{_exit_tool}` now with your findings.\n"
@@ -595,69 +589,99 @@ def run_agent_loop(
     round_log.append({"kind": "scaffold_injection", "round": round_num + 1,
                        "label": "forced_final_message", "content": forced_msg})
 
-    # Single call, no retry
+    # Retry forced final call if model doesn't call exit tool
+    _forced_max_retries = 2 if _forced_with_exit_tool else 0
     final_text = ""
     final_in = final_out = final_reasoning = final_answer = 0
     final_dur = 0.0
-    _forced_call_kwargs = dict(
-        model=config.model_id,
-        max_tokens=config.max_tokens,
-        system=system,       # UNCHANGED system prompt
-        messages=provider.prepare_messages(messages),   # includes forced user message
-    )
-    if _ready_conclude_forced:
-        _forced_call_kwargs["tools"] = _exit_tool_defs
-    # else: no tools parameter — forces text-only response
-    try:
-        start = time.time()
-        final_resp = _call_provider_with_retry(
-            provider, config,
-            workspace_dir=config.workspace_dir,
-            iteration=iteration,
-            **_forced_call_kwargs,
+    for _forced_attempt in range(_forced_max_retries + 1):
+        _forced_call_kwargs = dict(
+            model=config.model_id,
+            max_tokens=config.max_tokens,
+            system=system,       # UNCHANGED system prompt
+            messages=provider.prepare_messages(messages),
         )
-        final_dur = time.time() - start
-        final_in = final_resp.input_tokens
-        final_out = final_resp.output_tokens
-        final_reasoning = final_resp.reasoning_tokens
-        final_answer = final_resp.answer_tokens
-        final_text = final_resp.text.strip()
+        if _forced_with_exit_tool:
+            _forced_call_kwargs["tools"] = _exit_tool_defs
+        # else: no tools parameter — forces text-only response
+        try:
+            start = time.time()
+            final_resp = _call_provider_with_retry(
+                provider, config,
+                workspace_dir=config.workspace_dir,
+                iteration=iteration,
+                **_forced_call_kwargs,
+            )
+            dur = time.time() - start
+            final_in += final_resp.input_tokens
+            final_out += final_resp.output_tokens
+            final_reasoning += final_resp.reasoning_tokens
+            final_answer += final_resp.answer_tokens
+            final_dur += dur
+            final_text = final_resp.text.strip()
 
-        # Process exit tool call if returned during ready-to-conclude forced final
-        if _ready_conclude_forced and final_resp.tool_calls:
-            for tc_info in final_resp.tool_calls:
-                if tc_info["name"] == _exit_tool:
-                    tc = tool_executor.execute(tc_info["name"], tc_info["input"])
-                    all_tool_calls.append(tc)
-                    round_log.append({
-                        "kind": "tool_result", "round": round_num + 1,
-                        "tool_name": tc.tool_name, "tool_input": tc.tool_input,
-                        "output": tc.output, "is_error": tc.is_error,
-                        "duration": tc.duration,
-                    })
-    except Exception as exc:
-        console.print(
-            f"[yellow]Forced final call failed: {type(exc).__name__}: {exc}[/yellow]"
-        )
-        if config.workspace_dir:
-            log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
-                               "forced_final_call_failed",
-                               f"{type(exc).__name__}: {str(exc)[:200]}")
+            # Process exit tool call if returned
+            if _forced_with_exit_tool and final_resp.tool_calls:
+                for tc_info in final_resp.tool_calls:
+                    if tc_info["name"] == _exit_tool:
+                        tc = tool_executor.execute(tc_info["name"], tc_info["input"])
+                        all_tool_calls.append(tc)
+                        round_log.append({
+                            "kind": "tool_result",
+                            "round": round_num + 1 + _forced_attempt,
+                            "tool_name": tc.tool_name, "tool_input": tc.tool_input,
+                            "output": tc.output, "is_error": tc.is_error,
+                            "duration": tc.duration,
+                        })
 
-    # Token accumulation AFTER try/except (correct for both success and failure)
+            # Exit tool called — done
+            if getattr(tool_executor, "stop_after_round", False):
+                break
+
+            # Retry if exit tool not called and retries remain
+            if _forced_with_exit_tool and _forced_attempt < _forced_max_retries:
+                messages.append(provider.format_assistant_message(final_resp.raw_content))
+                _retry_msg = (
+                    f"You did not call `{_exit_tool}`. "
+                    f"You MUST call `{_exit_tool}` with your findings to complete your task."
+                )
+                messages.append({"role": "user", "content": _retry_msg})
+                round_log.append({
+                    "kind": "scaffold_injection",
+                    "round": round_num + 1 + _forced_attempt,
+                    "label": "forced_exit_tool_retry",
+                    "content": _retry_msg,
+                })
+                if config.workspace_dir:
+                    log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
+                                       "forced_exit_tool_retry",
+                                       f"attempt={_forced_attempt + 1}")
+                continue
+            break  # No retries configured or all retries exhausted
+        except Exception as exc:
+            console.print(
+                f"[yellow]Forced final call failed: {type(exc).__name__}: {exc}[/yellow]"
+            )
+            if config.workspace_dir:
+                log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
+                                   "forced_final_call_failed",
+                                   f"{type(exc).__name__}: {str(exc)[:200]}")
+            break
+
+    # Token accumulation AFTER retry loop (correct for both success and failure)
     total_input += final_in
     total_output += final_out
     total_reasoning += final_reasoning
     total_answer += final_answer
 
-    # Exit tool successfully called during ready-to-conclude forced final
-    if _ready_conclude_forced and getattr(tool_executor, "stop_after_round", False):
+    # Exit tool successfully called during forced final
+    if _forced_with_exit_tool and getattr(tool_executor, "stop_after_round", False):
         if on_round:
             on_round(round_num + 1, "executor_stop", [], total_input, total_output,
                      final_in, final_out, final_dur)
         round_log.append({
             "kind": "forced_final_call", "round": round_num + 1,
-            "reason": "ready_conclude_exit_tool", "text": final_text,
+            "reason": "forced_exit_tool", "text": final_text,
             "input_tokens": final_in, "output_tokens": final_out,
             "reasoning_tokens": final_reasoning, "answer_tokens": final_answer,
             "duration": final_dur,
@@ -667,7 +691,7 @@ def run_agent_loop(
             tool_calls=all_tool_calls,
             total_input_tokens=total_input,
             total_output_tokens=total_output,
-            rounds=round_num + 1,
+            rounds=round_num + 1 + _forced_attempt,
             truncated=False,
             duration=time.time() - overall_start,
             stop_reason="executor_stop",
@@ -707,7 +731,7 @@ def run_agent_loop(
         tool_calls=all_tool_calls,
         total_input_tokens=total_input,
         total_output_tokens=total_output,
-        rounds=round_num + 1,
+        rounds=round_num + 1 + _forced_attempt,
         truncated=True,
         duration=time.time() - overall_start,
         stop_reason="max_rounds_forced",
