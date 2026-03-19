@@ -1284,53 +1284,6 @@ class TestSurveyorEngine:
         engine._apply_survey()
         assert engine.research_state.background_survey is None
 
-    def test_survey_dispatch(self):
-        from sciralph.llm import LLMResponse
-        engine = self._make_engine()
-        engine.surveyor.research_state = None
-        engine.surveyor._system_prompt = "cached"
-        engine.surveyor.run = MagicMock(return_value=LLMResponse(
-            text="Some survey notes.", input_tokens=100, output_tokens=200,
-            stop_reason="end_turn", duration=0.5,
-        ))
-        engine.surveyor.parsed_survey = None
-
-        task = Task(
-            task_id="TASK-005", task_type=TaskType.SURVEY,
-            assigned_to="surveyor", iteration=5,
-        )
-        agent_name, result = engine._dispatch(task)
-        assert agent_name == "surveyor"
-        engine.surveyor.run.assert_called_once()
-
-    def test_should_suggest_resurvey_heuristic(self):
-        from sciralph.research_state import Hypothesis, HypothesisStatus, BackgroundSurvey
-        engine = self._make_engine()
-
-        # No survey → no suggestion
-        assert not engine._should_suggest_resurvey()
-
-        # With survey but iteration too low
-        engine.research_state.background_survey = BackgroundSurvey(iteration_updated=0)
-        engine.iteration = 3
-        assert not engine._should_suggest_resurvey()
-
-        # Iteration high enough but not enough abandoned
-        engine.iteration = 6
-        assert not engine._should_suggest_resurvey()
-
-        # 3+ abandoned, 0 established → should suggest
-        for i in range(3):
-            engine.research_state.hypotheses[f"WH-{i+1:03d}"] = Hypothesis(
-                id=f"WH-{i+1:03d}", status=HypothesisStatus.ABANDONED,
-            )
-        assert engine._should_suggest_resurvey()
-
-        # Survey recently updated → no suggestion
-        engine.research_state.background_survey.iteration_updated = 5
-        assert not engine._should_suggest_resurvey()
-
-
 class TestTerminationCircuitBreaker:
     """Test the circuit breaker that auto-abandons WHs after repeated termination blocks."""
 

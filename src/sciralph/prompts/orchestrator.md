@@ -67,7 +67,7 @@ Three agents advance the research:
 ### Dispatch rules
 
 - **Single target:** Each task targets EXACTLY ONE entity (RQ, WH, or ER). Always include `target_claim` in `set_next_task`.
-- **Task type** must be one of: `research`, `compute`, `verify`, `critique`, or `terminate`.
+- **Task type** must be one of: `research`, `compute`, `verify`, `critique`, or `terminate`. No other values are valid.
 
 ### Structured dispatch
 

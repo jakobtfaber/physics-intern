@@ -265,19 +265,6 @@ class SciRalph:
 
         self.research_state.background_survey = survey
 
-    def _should_suggest_resurvey(self) -> bool:
-        """Heuristic: suggest re-survey when the research is stalled."""
-        if self.iteration < 5:
-            return False
-        survey = self.research_state.background_survey
-        if survey is None:
-            return False
-        if self.iteration - survey.iteration_updated <= 3:
-            return False
-        abandoned_count = len(self.research_state.abandoned_hypotheses())
-        established_count = len(self.research_state.established_hypotheses())
-        return abandoned_count >= 3 and established_count == 0
-
     def _record_agent_failures(self, task: Task, agent_name: str, result):
         """Inspect agent result for failure signals and record for orchestrator context."""
         from .llm import AgentResult
@@ -368,12 +355,6 @@ class SciRalph:
                 lines.append(f"  - {f['task_id']} ({f['agent']}): {f['event']}. {f['detail']}")
             lines.append(">>> END AGENT FAILURES <<<\n")
             self._state.agent_failures.clear()
-        if self._should_suggest_resurvey():
-            lines.append(
-                ">>> STRATEGIC STALL: 3+ abandoned hypotheses with 0 established results. "
-                "Consider revising your strategy via update_section(section=\"Strategy\") "
-                "and/or dispatching task_type: survey to refresh your background survey. <<<"
-            )
         return "\n".join(lines)
 
     def _dispatch(self, task: Task) -> tuple[str, "LLMResponse | AgentResult"]:
@@ -451,15 +432,6 @@ class SciRalph:
                         f"{high} HIGH, {med} MEDIUM, {low} LOW[/red]"
                     )
             return "deep_critic", response
-
-        elif tt == TaskType.SURVEY:
-            console.print("[cyan]Surveyor[/cyan] re-surveying...")
-            self.surveyor.research_state = self.research_state
-            self.surveyor._system_prompt = None
-            result = self.surveyor.run(task, self.iteration)
-            self._print_call_summary(result)
-            self._apply_survey()
-            return "surveyor", result
 
         else:
             console.print(f"[yellow]Unknown task type '{tt}', defaulting to researcher[/yellow]")
