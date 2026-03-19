@@ -25,7 +25,7 @@ class OrchestratorAgent(BaseAgent):
 
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
-        self.context_prefix: str = ""
+        self.context_suffix: str = ""
         self._tool_executor: OrchestratorToolExecutor | None = None
         self.research_state: ResearchState | None = None
 
@@ -77,9 +77,6 @@ class OrchestratorAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         parts = []
-        if self.context_prefix:
-            parts.append(self.context_prefix)
-            self.context_prefix = ""  # consume after use
         banner = self._completion_analysis(iteration)
         if banner:
             parts.append(f"{banner}\n")
@@ -107,6 +104,10 @@ class OrchestratorAgent(BaseAgent):
             for note in self.research_state.research_notes[-10:]:  # show last 10
                 note_lines.append(f"- [iter {note.get('iteration', '?')}] {note.get('text', '')}")
             parts.append("\n<research-notes>\n" + "\n".join(note_lines) + "\n</research-notes>\n")
+        # Inter-iteration banners (evidence results, verified hypotheses, etc.) at the end
+        if self.context_suffix:
+            parts.append(self.context_suffix)
+            self.context_suffix = ""  # consume after use
         return "\n".join(parts)
 
     def _call_with_tools(

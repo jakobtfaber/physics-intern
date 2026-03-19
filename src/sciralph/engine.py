@@ -229,7 +229,7 @@ class SciRalph:
         console.print("[cyan]Orchestrator[/cyan] planning...")
 
         # Set context prefix for violations/blockers
-        self.orchestrator.context_prefix = self._build_context_prefix()
+        self.orchestrator.context_suffix = self._build_context_suffix()
         # Pass research state reference for tool executor and context rendering
         self.orchestrator.research_state = self.research_state
 
@@ -300,8 +300,8 @@ class SciRalph:
                                "agent_failure_max_rounds",
                                f"task={task.task_id}, agent={agent_name}, rounds={result.rounds}")
 
-    def _build_context_prefix(self) -> str:
-        """Build prefix for orchestrator context with violations, blockers, and agent failures."""
+    def _build_context_suffix(self) -> str:
+        """Build suffix for orchestrator context with violations, blockers, and agent failures."""
         lines = []
         if self._state.pending_violations:
             lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
@@ -323,7 +323,8 @@ class SciRalph:
         if self._state.pending_explore_results:
             lines.append(">>> EVIDENCE RESULTS (previous iteration) <<<")
             for r in self._state.pending_explore_results:
-                lines.append(f"- {r['target_id']}: {r['description']}  [{r['confidence']}]")
+                provenance = f"  [from {r['task_id']}: {r['task_type']} on {r['target_id']}]"
+                lines.append(f"- {r['target_id']}: {r['description']}  [{r['confidence']}]{provenance}")
                 if r.get("result"):
                     lines.append(f"  Result: {r['result'][:800]}")
                 lines.append("  Consider: formulate a concrete WH from this evidence (add_hypothesis with from_rq).")
@@ -332,14 +333,16 @@ class SciRalph:
         if self._state.pending_verified_results:
             lines.append(">>> VERIFIED HYPOTHESES (previous iteration) <<<")
             for v in self._state.pending_verified_results:
-                lines.append(f"- {v['claim']} VERIFIED by verifier")
+                provenance = f"  [from {v['task_id']}]" if v.get("task_id") else ""
+                lines.append(f"- {v['claim']} VERIFIED by verifier{provenance}")
             lines.append("  Consider resolving related critiques and proceeding to promotion.")
             lines.append(">>> END VERIFIED HYPOTHESES <<<\n")
             self._state.pending_verified_results.clear()
         if self._state.pending_compute_verdicts:
             lines.append(">>> VERIFICATION RESULTS (previous iteration) <<<")
             for v in self._state.pending_compute_verdicts:
-                lines.append(f"- {v['verdict']}: {v['claim'][:120]}")
+                provenance = f"  [from {v['task_id']}]" if v.get("task_id") else ""
+                lines.append(f"- {v['verdict']}: {v['claim'][:120]}{provenance}")
                 lines.append(f"  Attempt {v['attempt']}/{self.config.stall_recompute_limit}")
                 if v.get('notes'):
                     lines.append(f"  Notes: {v['notes']}")
@@ -352,7 +355,7 @@ class SciRalph:
         if self._state.agent_failures:
             lines.append(">>> AGENT FAILURES (previous iteration) <<<")
             for f in self._state.agent_failures:
-                lines.append(f"  - {f['task_id']} ({f['agent']}): {f['event']}. {f['detail']}")
+                lines.append(f"  - [{f['task_id']}] {f['agent']}: {f['event']}. {f['detail']}")
             lines.append(">>> END AGENT FAILURES <<<\n")
             self._state.agent_failures.clear()
         return "\n".join(lines)
@@ -511,6 +514,8 @@ class SciRalph:
                     "description": ev.method[:500] if ev.method else "unknown",
                     "result": ev.result[:500],
                     "confidence": ev.confidence or "partial",
+                    "task_id": task.task_id,
+                    "task_type": task.task_type.value,
                 })
                 snippet = ev.result[:120].replace("\n", " ")
                 conf = f", {ev.confidence}" if ev.confidence else ""
@@ -531,6 +536,7 @@ class SciRalph:
                 self._state.pending_verified_results.append({
                     "claim": target_id,
                     "verdict": verdict,
+                    "task_id": task.task_id,
                 })
                 self._state.claim_failure_count.pop(target_id, None)
                 console.print(f"  [green]{target_id} VERIFIED[/green]")
@@ -542,6 +548,7 @@ class SciRalph:
                     "claim": target_id,
                     "attempt": count,
                     "notes": h.verification.reasoning[:300] if h.verification.reasoning else "",
+                    "task_id": task.task_id,
                 })
                 detail = h.verification.reasoning[:120].replace("\n", " ") if h.verification.reasoning else ""
                 console.print(f"  [red]{target_id} REFUTED[/red] — {detail}")
@@ -553,6 +560,7 @@ class SciRalph:
                     "claim": target_id,
                     "attempt": count,
                     "notes": h.verification.reasoning[:300] if h.verification.reasoning else "",
+                    "task_id": task.task_id,
                 })
                 detail = h.verification.reasoning[:120].replace("\n", " ") if h.verification.reasoning else ""
                 console.print(f"  [yellow]{target_id} INCONCLUSIVE[/yellow] — {detail}")

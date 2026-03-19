@@ -186,7 +186,7 @@ class TestComputeVerdictTracking:
         assert engine._state.pending_compute_verdicts[0]["verdict"] == "INCONCLUSIVE"
 
     def test_stalled_verdict_signal(self):
-        """After N failures, signal says STALLED in context prefix."""
+        """After N failures, signal says STALLED in context suffix."""
         engine = self._make_engine()
         self._set_verification(engine, "WH-001", "REFUTED")
         engine._state.claim_failure_count["WH-001"] = 1  # next will be 2 == limit
@@ -198,7 +198,7 @@ class TestComputeVerdictTracking:
 
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["attempt"] == 2
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
         assert "STALLED" in prefix
         assert "do NOT schedule another verify" in prefix
 
@@ -232,19 +232,19 @@ class TestComputeVerdictTracking:
         assert v["verdict"] == "VERIFIED"
 
     def test_verified_banner_renders_and_consumed_once(self):
-        """VERIFIED HYPOTHESES banner renders in context prefix and is consumed."""
+        """VERIFIED HYPOTHESES banner renders in context suffix and is consumed."""
         engine = self._make_engine()
         engine._state.pending_verified_results = [{
             "claim": "WH-001", "verdict": "VERIFIED",
         }]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
         assert "VERIFIED HYPOTHESES" in prefix
         assert "WH-001 VERIFIED by verifier" in prefix
         assert "Consider resolving related critiques" in prefix
         # Consumed
         assert len(engine._state.pending_verified_results) == 0
         # Second call should be empty
-        prefix2 = engine._build_context_prefix()
+        prefix2 = engine._build_context_suffix()
         assert "VERIFIED HYPOTHESES" not in prefix2
 
     def test_verified_banner_with_claim_id(self):
@@ -253,7 +253,7 @@ class TestComputeVerdictTracking:
         engine._state.pending_verified_results = [{
             "claim": "WH-001", "verdict": "VERIFIED",
         }]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
         assert "WH-001" in prefix
 
     def test_verified_banner_ordering(self):
@@ -262,6 +262,7 @@ class TestComputeVerdictTracking:
         engine._state.pending_explore_results = [{
             "target_id": "WH-002", "description": "Explore result",
             "result": "x = 42", "confidence": "exact",
+            "task_id": "TASK-001", "task_type": "compute",
         }]
         engine._state.pending_verified_results = [{
             "claim": "WH-001", "verdict": "VERIFIED",
@@ -270,11 +271,66 @@ class TestComputeVerdictTracking:
             "verdict": "REFUTED", "claim": "WH-003", "attempt": 1,
             "notes": "",
         }]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
         explore_pos = prefix.index("EVIDENCE RESULTS")
         verified_pos = prefix.index("VERIFIED HYPOTHESES")
         verdicts_pos = prefix.index("VERIFICATION RESULTS")
         assert explore_pos < verified_pos < verdicts_pos
+
+    def test_provenance_in_evidence_banner(self):
+        """Evidence results banner includes task provenance."""
+        engine = self._make_engine()
+        engine._state.pending_explore_results = [{
+            "target_id": "RQ-001", "description": "Derived formula",
+            "result": "T = 1/(8*pi*M)", "confidence": "exact",
+            "task_id": "TASK-002", "task_type": "research",
+        }]
+        suffix = engine._build_context_suffix()
+        assert "[from TASK-002: research on RQ-001]" in suffix
+
+    def test_provenance_in_verified_banner(self):
+        """Verified hypotheses banner includes task provenance."""
+        engine = self._make_engine()
+        engine._state.pending_verified_results = [{
+            "claim": "WH-001", "verdict": "VERIFIED",
+            "task_id": "TASK-003",
+        }]
+        suffix = engine._build_context_suffix()
+        assert "[from TASK-003]" in suffix
+
+    def test_provenance_in_verdict_banner(self):
+        """Verification results banner includes task provenance."""
+        engine = self._make_engine()
+        engine._state.pending_compute_verdicts = [{
+            "verdict": "REFUTED", "claim": "WH-001", "attempt": 1,
+            "notes": "", "task_id": "TASK-004",
+        }]
+        suffix = engine._build_context_suffix()
+        assert "[from TASK-004]" in suffix
+
+    def test_track_agent_result_stores_provenance(self):
+        """_track_agent_result stores task_id and task_type in pending results."""
+        engine = self._make_engine()
+        from sciralph.research_state import Evidence
+        rq = engine.research_state.research_questions.get("RQ-001")
+        if rq is None:
+            from sciralph.research_state import ResearchQuestion
+            engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
+                id="RQ-001", question="What is T?",
+            )
+        engine.research_state.research_questions["RQ-001"].evidence = Evidence(
+            type="research", reasoning="Derived", method="algebra",
+            result="T = 1/(8*pi*M)", confidence="exact", iteration=1,
+        )
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH,
+                    assigned_to="researcher", target_claim="RQ-001",
+                    body="Derive temperature")
+        engine._track_agent_result(task)
+
+        assert len(engine._state.pending_explore_results) == 1
+        r = engine._state.pending_explore_results[0]
+        assert r["task_id"] == "TASK-005"
+        assert r["task_type"] == "research"
 
     def test_different_claims_tracked_independently(self):
         """Two different WH IDs have separate counters."""
@@ -304,38 +360,38 @@ class TestComputeVerdictTracking:
         v = engine._state.pending_compute_verdicts[0]
         assert v["notes"] == "Expected 1/(8*pi*M) but got 1/(4*pi*M)"
 
-    def test_context_prefix_renders_notes(self):
-        """Context prefix renders notes when present in verdict dict."""
+    def test_context_suffix_renders_notes(self):
+        """Context suffix renders notes when present in verdict dict."""
         engine = self._make_engine()
         engine._state.pending_compute_verdicts = [{
             "verdict": "REFUTED", "claim": "WH-001", "attempt": 1,
             "notes": "Factor of 2 discrepancy",
         }]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
         assert "Notes: Factor of 2 discrepancy" in prefix
 
-    def test_context_prefix_renders_failure_detail(self):
-        """Context prefix renders notes when present."""
+    def test_context_suffix_renders_failure_detail(self):
+        """Context suffix renders notes when present."""
         engine = self._make_engine()
         engine._state.pending_compute_verdicts = [{
             "verdict": "REFUTED", "claim": "WH-001", "attempt": 1,
             "notes": "Division by zero at r=0",
         }]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
         assert "Notes: Division by zero at r=0" in prefix
 
     def test_empty_notes_and_failure_detail_omitted(self):
-        """Empty notes are omitted from prefix."""
+        """Empty notes are omitted from suffix."""
         engine = self._make_engine()
         engine._state.pending_compute_verdicts = [{
             "verdict": "REFUTED", "claim": "WH-001", "attempt": 1,
             "notes": "",
         }]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
         assert "Notes:" not in prefix
 
-    def test_compute_verdict_signal_in_context_prefix(self):
-        """Non-VERIFIED verdict appears in context prefix with attempt count."""
+    def test_compute_verdict_signal_in_context_suffix(self):
+        """Non-VERIFIED verdict appears in context suffix with attempt count."""
         engine = self._make_engine()
         self._set_verification(engine, "WH-001", "REFUTED")
         task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
@@ -343,7 +399,7 @@ class TestComputeVerdictTracking:
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
         assert "VERIFICATION RESULTS" in prefix
         assert "REFUTED" in prefix
         assert "Attempt 1/2" in prefix
@@ -456,8 +512,8 @@ class TestTerminationGate:
         assert allowed is True
         assert blockers == []
 
-    def test_build_context_prefix_with_violations(self):
-        """Context prefix includes pending violations."""
+    def test_build_context_suffix_with_violations(self):
+        """Context suffix includes pending violations."""
         engine, _ = self._make_engine()
         engine._state.pending_violations = [
             Violation(
@@ -465,34 +521,34 @@ class TestTerminationGate:
                 message="Something wrong",
             ),
         ]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
 
         assert "POST-INTEGRATION VIOLATIONS" in prefix
         assert "test_check" in prefix
         assert "Something wrong" in prefix
         assert len(engine._state.pending_violations) == 0  # consumed
 
-    def test_build_context_prefix_with_blockers(self):
-        """Context prefix includes termination blockers."""
+    def test_build_context_suffix_with_blockers(self):
+        """Context suffix includes termination blockers."""
         engine, _ = self._make_engine()
         engine._state.pending_termination_blockers = [
             "Missing numerical verification",
             "Unresolved critiques remain",
         ]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
 
         assert "TERMINATION BLOCKED" in prefix
         assert "Missing numerical verification" in prefix
         assert "Unresolved critiques remain" in prefix
         assert len(engine._state.pending_termination_blockers) == 0  # consumed
 
-    def test_build_context_prefix_empty_when_no_issues(self):
-        """Context prefix is empty when no violations or blockers."""
+    def test_build_context_suffix_empty_when_no_issues(self):
+        """Context suffix is empty when no violations or blockers."""
         engine, _ = self._make_engine()
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
         assert prefix == ""
 
-    def test_context_prefix_includes_er_demotion_safety(self):
+    def test_context_suffix_includes_er_demotion_safety(self):
         """ER demotion safety violations now appear in context (no longer silently filtered)."""
         engine, _ = self._make_engine()
         engine._state.pending_violations = [
@@ -506,12 +562,12 @@ class TestTerminationGate:
                 message="Phantom reference COMP-999",
             ),
         ]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
 
         assert "POST-INTEGRATION VIOLATIONS" in prefix
         assert "phantom_references" in prefix
         assert "COMP-999" in prefix
-        # ER demotion safety violations now appear in context prefix
+        # ER demotion safety violations now appear in context suffix
         assert "er_demotion_safety" in prefix
         assert len(engine._state.pending_violations) == 0  # consumed
 
@@ -797,14 +853,14 @@ class TestDispatchFailureRecovery:
 
         engine.run()
 
-        # Violation was consumed by _build_context_prefix on iteration 2, but
-        # we can verify it was created by checking the context_prefix set on orchestrator
-        prefix = engine.orchestrator.context_prefix
+        # Violation was consumed by _build_context_suffix on iteration 2, but
+        # we can verify it was created by checking the context_suffix set on orchestrator
+        prefix = engine.orchestrator.context_suffix
         assert "dispatch_failure" in prefix
 
 
 class TestAgentFailureRouting:
-    """Test _record_agent_failures and its integration with _build_context_prefix."""
+    """Test _record_agent_failures and its integration with _build_context_suffix."""
 
     def _make_engine(self):
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
@@ -865,8 +921,8 @@ class TestAgentFailureRouting:
 
         assert len(engine._state.agent_failures) == 0
 
-    def test_context_prefix_includes_agent_failures(self):
-        """Agent failures appear in context prefix banner."""
+    def test_context_suffix_includes_agent_failures(self):
+        """Agent failures appear in context suffix banner."""
         engine = self._make_engine()
         engine._state.agent_failures = [{
             "task_id": "TASK-004",
@@ -879,7 +935,7 @@ class TestAgentFailureRouting:
             ),
             "iteration": 4,
         }]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
 
         assert "AGENT FAILURES" in prefix
         assert "TASK-004" in prefix
@@ -887,8 +943,8 @@ class TestAgentFailureRouting:
         assert "Decompose" in prefix
         assert "token limit" in prefix
 
-    def test_context_prefix_clears_agent_failures(self):
-        """Agent failures are cleared after building context prefix."""
+    def test_context_suffix_clears_agent_failures(self):
+        """Agent failures are cleared after building context suffix."""
         engine = self._make_engine()
         engine._state.agent_failures = [{
             "task_id": "TASK-004",
@@ -897,7 +953,7 @@ class TestAgentFailureRouting:
             "detail": "Task too large.",
             "iteration": 4,
         }]
-        engine._build_context_prefix()
+        engine._build_context_suffix()
         assert len(engine._state.agent_failures) == 0
 
     def test_compute_verdict_appends_to_pending_verdicts(self):
@@ -942,8 +998,8 @@ class TestAgentFailureRouting:
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["attempt"] == 2
 
-    def test_context_prefix_ordering(self):
-        """Violations appear before agent failures in context prefix."""
+    def test_context_suffix_ordering(self):
+        """Violations appear before agent failures in context suffix."""
         engine = self._make_engine()
         engine._state.pending_violations = [
             Violation(check="test", severity=ViolationSeverity.WARNING,
@@ -956,7 +1012,7 @@ class TestAgentFailureRouting:
             "detail": "Exhausted 10 tool-use rounds without completing.",
             "iteration": 4,
         }]
-        prefix = engine._build_context_prefix()
+        prefix = engine._build_context_suffix()
 
         violations_pos = prefix.index("VIOLATIONS")
         failures_pos = prefix.index("AGENT FAILURES")
