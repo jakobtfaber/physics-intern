@@ -337,6 +337,47 @@ class TestPromoteHypothesis:
         assert "ER-001" in state.hypotheses
         assert "WH-001" not in state.hypotheses
 
+    def test_promote_termination_nudge_fires(self):
+        """When no open RQs, working hypotheses, or HIGH critiques remain, nudge terminate."""
+        ws = _make_workspace()
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Only hypothesis",
+            status=HypothesisStatus.WORKING, derivation="Derivation.",
+            iteration_created=1, iteration_modified=1,
+        )
+        state.hypotheses["WH-001"].review = ReviewResult(
+            verdict=Verdict.VERIFIED, summary="Verified", iteration=3,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "All checks pass.",
+        })
+        assert not tc.is_error
+        assert "Promoted" in tc.output
+        assert "terminate" in tc.output
+
+    def test_promote_termination_nudge_suppressed(self):
+        """When open RQs or HIGH critiques remain, normal batch nudge is returned."""
+        from sciralph.research_state import ResearchQuestion, RQStatus
+
+        ws = _make_workspace()
+        state = _make_state_with_verified("WH-001")
+        # Add an open research question so termination nudge should NOT fire
+        state.research_questions["RQ-010"] = ResearchQuestion(
+            id="RQ-010", question="Open question",
+            status=RQStatus.OPEN, iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
+        tc = ex.execute("promote_hypothesis", {
+            "id": "WH-001",
+            "justification": "Verified.",
+        })
+        assert not tc.is_error
+        assert "Promoted" in tc.output
+        assert "terminate" not in tc.output
+
 
 # ---------------------------------------------------------------------------
 # resolve_critique

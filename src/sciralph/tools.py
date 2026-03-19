@@ -179,9 +179,8 @@ class ToolExecutor:
                         ),
                     },
                     "assumptions": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of assumptions underlying the computation.",
+                        "type": "string",
+                        "description": "Assumptions underlying the computation.",
                     },
                     "expected_outcome": {
                         "type": "string",
@@ -303,7 +302,7 @@ class ToolExecutor:
                 "Call execute_python to run your code, or submit_result to finish."
             ), True
         approach = params.get("approach", "")
-        assumptions = params.get("assumptions", [])
+        assumptions = params.get("assumptions", "")
         expected_outcome = params.get("expected_outcome", "")
         self._documented_approach = {
             "approach": approach,

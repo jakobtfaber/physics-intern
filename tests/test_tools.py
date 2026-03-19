@@ -230,7 +230,7 @@ class TestTruncation:
 class TestDocumentApproach:
     def test_stores_approach(self):
         executor = _make_executor()
-        params = {"approach": "Compute partition function via SymPy", "assumptions": ["T > 0"]}
+        params = {"approach": "Compute partition function via SymPy", "assumptions": "T > 0"}
         tc = executor.execute("document_approach", params)
         assert not tc.is_error
         assert "documented" in tc.output.lower()

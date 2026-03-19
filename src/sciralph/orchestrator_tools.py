@@ -665,7 +665,18 @@ class OrchestratorToolExecutor:
         console.print(f"  [bold green]{wh_id} → {er_id}[/] promoted")
 
         self.mutations_applied = True
-        return f"Promoted {wh_id} → {er_id}." + _BATCH_NUDGE
+        msg = f"Promoted {wh_id} → {er_id}. If this is the final result asked by the problem statement, consider closing the remaining RQ and calling set_next_task with task_type 'terminate'."
+        if (not state.working_hypotheses()
+                and not state.open_research_questions()
+                and not state.unresolved_high_critiques()):
+            msg += (
+                " No open RQs, working hypotheses, or unresolved HIGH critiques remain."
+                " If this completes the research, consider set_next_task"
+                " with task_type 'terminate'."
+            )
+        else:
+            msg += _BATCH_NUDGE
+        return msg
 
     def _resolve_critique(self, args: dict) -> str:
         from .research_state import CritiqueStatus

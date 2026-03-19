@@ -127,7 +127,7 @@ class TestComputerProcessResponse:
         tool_calls = [
             self._make_tc("document_approach", {
                 "approach": "Compute via SymPy",
-                "assumptions": ["T > 0", "Natural units"],
+                "assumptions": "T > 0. Natural units",
                 "expected_outcome": "Should match Hawking formula",
             }),
             self._make_tc("submit_result", {
@@ -142,9 +142,7 @@ class TestComputerProcessResponse:
         evidence = agent.research_state.research_questions[rq_id].evidence
         assert evidence is not None
         assert "Compute via SymPy" in evidence.approach
-        assert "Assumptions:" in evidence.approach
-        assert "- T > 0" in evidence.approach
-        assert "- Natural units" in evidence.approach
+        assert "Assumptions: T > 0. Natural units" in evidence.approach
         assert "Expected outcome: Should match Hawking formula" in evidence.approach
 
     def test_approach_without_assumptions_or_expected_outcome(self):
