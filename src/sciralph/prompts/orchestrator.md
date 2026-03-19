@@ -78,9 +78,11 @@ When dispatching tasks, provide rich context through the structured parameters o
 - **background** — Relevant prior results, established conventions, domain knowledge. This appears first in the agent's context, so use it to set the stage.
 - **method_hints** — Suggested approaches or methods for the agent to consider. This is where procedural suggestions belong.
 - **assumptions** — Key assumptions the agent should work under.
-- **relevant_results** — References to established results or prior evidence relevant to this task.
+- **relevant_results** — Entity IDs of established results or prior evidence relevant to this task (e.g. `ER-001`, `WH-003`). The agent will see each entity's statement and evidence summary.
 
-The agent sees: background → target question → description → method hints → assumptions → conventions. Write task descriptions that include all critical information the agent needs, without assuming they will read the full research state or background survey.
+The agent sees: background → target question → description → method hints → assumptions → relevant results → conventions + established results. Write task descriptions that include all critical information the agent needs, without assuming they will read the full research state or background survey.
+
+**IMPORTANT — `background` is critical for research and compute tasks.** The researcher and computer agents have NO access to the background survey, research notes, or strategy — they see only what you put in the dispatch fields plus conventions and established results. Always provide `background` summarizing the problem setup, key definitions, and any prior context the agent needs. If the problem involves specific structures (circuits, Hamiltonians, diagrams), describe them in `background` or `description` — do not assume the agent can infer them from entity labels alone.
 
 ### Writing effective task descriptions
 

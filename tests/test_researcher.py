@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from sciralph.agents.evidence_base import render_relevant_results
 from sciralph.agents.researcher import ResearcherAgent, _parse_researcher_json
 from sciralph.llm import LLMResponse
 from sciralph.research_state import (
@@ -273,6 +274,130 @@ class TestResearcherBuildContext:
                     body="Derive something")
         ctx = agent.build_context(task, iteration=1)
         assert "<task>" in ctx
+
+    def test_relevant_results_resolved_wh(self):
+        """relevant_results WH IDs are resolved to statement + evidence summary."""
+        agent = _make_researcher()
+        agent.research_state.hypotheses["WH-002"].evidence = Evidence(
+            type="research",
+            result="T_H = 1/(8*pi*M)",
+            method="Euclidean",
+            confidence="exact",
+            summary="Hawking temperature via Euclidean method",
+        )
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body="Derive", target_claim="RQ-001",
+                    relevant_results=["WH-002"])
+        ctx = agent.build_context(task, iteration=1)
+        assert "<relevant-results>" in ctx
+        assert "WH-002" in ctx
+        assert "T_H = 1/(8*pi*M)" in ctx
+        assert "Hawking temperature via Euclidean method" in ctx
+
+    def test_relevant_results_resolved_rq(self):
+        """relevant_results RQ IDs are resolved to question + evidence."""
+        agent = _make_researcher()
+        agent.research_state.research_questions["RQ-001"].evidence = Evidence(
+            type="compute",
+            result="F(p) = 1 - 16/25 p^2",
+            confidence="approximate",
+            summary="Leading-order fidelity term",
+        )
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body="Derive", target_claim="WH-002",
+                    relevant_results=["RQ-001"])
+        ctx = agent.build_context(task, iteration=1)
+        assert "RQ-001" in ctx
+        assert "Hawking temperature" in ctx  # the RQ question
+        assert "Leading-order fidelity term" in ctx
+
+    def test_relevant_results_unknown_id(self):
+        """Unknown IDs render with (not found in current state)."""
+        agent = _make_researcher()
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body="Derive", target_claim="RQ-001",
+                    relevant_results=["WH-999"])
+        ctx = agent.build_context(task, iteration=1)
+        assert "WH-999" in ctx
+        assert "not found" in ctx
+
+    def test_relevant_results_free_text_passthrough(self):
+        """Non-ID entries in relevant_results are passed through as-is."""
+        agent = _make_researcher()
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body="Derive", target_claim="RQ-001",
+                    relevant_results=["The partition function diverges at T=0"])
+        ctx = agent.build_context(task, iteration=1)
+        assert "partition function diverges" in ctx
+
+    def test_relevant_results_no_research_state(self):
+        """With no research_state, IDs are rendered as bare text."""
+        agent = _make_researcher()
+        agent.research_state = None
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body="Derive", relevant_results=["WH-002"])
+        ctx = agent.build_context(task, iteration=1)
+        assert "WH-002" in ctx
+
+
+# ---------------------------------------------------------------------------
+# render_relevant_results (from evidence_base)
+# ---------------------------------------------------------------------------
+
+
+class TestRenderRelevantResults:
+    def test_hypothesis_with_evidence(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            statement="T_H = 1/(8*pi*M)",
+            evidence=Evidence(
+                type="research", result="T_H derived",
+                confidence="exact", summary="Hawking temperature",
+            ),
+        )
+        result = render_relevant_results(["WH-001"], state)
+        assert "**WH-001**" in result
+        assert "T_H = 1/(8*pi*M)" in result
+        assert "Hawking temperature" in result
+        assert "exact" in result
+
+    def test_hypothesis_without_evidence(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Some claim",
+        )
+        result = render_relevant_results(["WH-001"], state)
+        assert "**WH-001**: Some claim" in result
+        assert "Evidence" not in result
+
+    def test_rq_resolved(self):
+        state = ResearchState()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is X?",
+            evidence=Evidence(
+                type="compute", result="X = 42",
+                confidence="exact", summary="Computed X",
+            ),
+        )
+        result = render_relevant_results(["RQ-001"], state)
+        assert "**RQ-001**: What is X?" in result
+        assert "Computed X" in result
+
+    def test_mixed_ids_and_text(self):
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Claim A",
+        )
+        result = render_relevant_results(
+            ["WH-001", "The theory predicts divergence"], state,
+        )
+        assert "**WH-001**: Claim A" in result
+        assert "- The theory predicts divergence" in result
+
+    def test_none_state(self):
+        result = render_relevant_results(["WH-001"], None)
+        assert "- WH-001" in result
 
 
 # ---------------------------------------------------------------------------
