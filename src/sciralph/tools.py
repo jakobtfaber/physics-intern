@@ -395,6 +395,10 @@ class ToolExecutor:
         # Build script name
         if filename:
             sanitized = self._sanitize_filename(filename)
+            # Strip leading counter if agent already included one
+            sanitized = re.sub(r"^\d+_", "", sanitized)
+            if not sanitized or sanitized == ".py":
+                sanitized = "script.py"
             script_name = f"{self._counter:03d}_{sanitized}"
         else:
             script_name = f"tool_exec_{self._counter:03d}.py"

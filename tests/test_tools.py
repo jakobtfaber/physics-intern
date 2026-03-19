@@ -114,6 +114,26 @@ class TestFilenameHandling:
         })
         assert (executor._computations_dir / "001_verify_enum.py").exists()
 
+    def test_agent_counter_prefix_stripped(self):
+        """Agent-provided filenames like '002_verify_exact.py' should not get double-prefixed."""
+        executor = _make_executor()
+        executor.execute("execute_python", {
+            "code": "print(1)", "purpose": "test", "filename": "002_verify_exact.py",
+        })
+        assert (executor._computations_dir / "001_verify_exact.py").exists()
+        assert not (executor._computations_dir / "001_002_verify_exact.py").exists()
+
+    def test_agent_counter_prefix_stripped_various(self):
+        """Multiple counter-prefix patterns are handled."""
+        executor = _make_executor()
+        executor.execute("execute_python", {
+            "code": "print(1)", "purpose": "a", "filename": "01_foo.py",
+        })
+        executor.execute("execute_python", {
+            "code": "print(2)", "purpose": "b", "filename": "0003_bar.py",
+        })
+        assert executor._script_names == ["001_foo.py", "002_bar.py"]
+
     def test_script_names_tracking(self):
         executor = _make_executor()
         executor.execute("execute_python", {"code": "print(1)", "purpose": "a"})
