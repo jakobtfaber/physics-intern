@@ -545,6 +545,66 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
     return "\n\n".join(parts)
 
 
+def render_formatter_context(state: ResearchState) -> str:
+    """Render focused context for the formatter agent using XML tags.
+
+    Includes only what the formatter needs: problem statement, conventions,
+    established results (with evidence/review), and a brief warning for any
+    remaining open RQs or WHs.
+    """
+    parts: list[str] = []
+
+    # Problem Statement
+    parts.append(f"<problem-statement>\n{state.problem_statement or '(No problem statement.)'}\n</problem-statement>")
+
+    # Conventions
+    if state.conventions:
+        parts.append(f"<conventions>\n{state.conventions}\n</conventions>")
+
+    # Established Results
+    ers = sorted(
+        [h for h in state.hypotheses.values() if h.status == HypothesisStatus.ESTABLISHED],
+        key=lambda h: h.id,
+    )
+    if ers:
+        er_lines: list[str] = []
+        for h in ers:
+            h_parts: list[str] = []
+            if h.statement:
+                h_parts.append(f"Statement: {h.statement}")
+            if h.derivation:
+                h_parts.append(f"Derivation: {h.derivation}")
+            if h.evidence:
+                ev = h.evidence
+                ev_parts: list[str] = []
+                if ev.method:
+                    ev_parts.append(f"Method: {ev.method}")
+                if ev.result:
+                    ev_parts.append(f"Result: {ev.result}")
+                if ev.confidence:
+                    ev_parts.append(f"Confidence: {ev.confidence}")
+                h_parts.append("<evidence>\n" + "\n".join(ev_parts) + "\n</evidence>")
+            if h.review:
+                h_parts.append(f"Review verdict: {h.review.verdict}")
+            er_lines.append(f'<result id="{h.id}">\n' + "\n".join(h_parts) + "\n</result>")
+        parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+    else:
+        parts.append("<established-results>\n(No established results.)\n</established-results>")
+
+    # Unresolved items warning
+    open_rqs = [rq for rq in state.research_questions.values() if rq.status == RQStatus.OPEN]
+    working_whs = [h for h in state.hypotheses.values() if h.status == HypothesisStatus.WORKING]
+    if open_rqs or working_whs:
+        warning_lines: list[str] = []
+        for rq in sorted(open_rqs, key=lambda r: r.id):
+            warning_lines.append(f"- {rq.id} [OPEN]: {rq.question}")
+        for h in sorted(working_whs, key=lambda h: h.id):
+            warning_lines.append(f"- {h.id} [WORKING]: {h.statement}")
+        parts.append("<unresolved-items>\n" + "\n".join(warning_lines) + "\n</unresolved-items>")
+
+    return "\n\n".join(parts)
+
+
 def render_orchestrator_critique_log(state: ResearchState) -> str:
     """Render critique log for orchestrator context using XML tags."""
     if not state.critiques:
