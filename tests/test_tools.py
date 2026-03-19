@@ -300,7 +300,7 @@ class TestExitToolName:
 
     def test_critic_exit_tool(self):
         from sciralph.critic_tools import CriticToolExecutor
-        assert CriticToolExecutor.exit_tool_name == "finish_review"
+        assert CriticToolExecutor.exit_tool_name == "submit_review"
 
     def test_verifier_exit_tool(self):
         from sciralph.verifier_tools import VerifierToolExecutor

@@ -1,4 +1,4 @@
-"""Deep Critic agent: adversarial review of research state via tool-use."""
+"""Deep Critic agent: single-round strategic review via submit_review tool."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class CriticAgent(BaseAgent):
         iteration: int,
         on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
     ) -> AgentResult:
-        """Run the critic with submit_critique/finish_review tools."""
+        """Run the critic with submit_review tool (single round)."""
         # Count existing critiques for CRIT-NNN auto-numbering
         if self.research_state:
             existing_count = self.research_state.next_critique_num() - 1
@@ -73,7 +73,7 @@ class CriticAgent(BaseAgent):
             config=self.config,
             tool_executor=self._tool_executor,
             tools=self.tools,
-            max_rounds=self.config.max_tool_rounds,
+            max_rounds=1,
             agent_name=self.name,
             iteration=iteration,
             on_round=on_round,
@@ -95,7 +95,7 @@ class CriticAgent(BaseAgent):
         return result
 
     def process_response(self, response: LLMResponse | AgentResult, task: Task, iteration: int):
-        """Process critique output from tool-based agent loop."""
+        """Process review output from submit_review tool call."""
         if not self._tool_executor:
             return
 

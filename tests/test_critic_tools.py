@@ -7,55 +7,63 @@ from sciralph.critic_tools import CriticToolExecutor
 
 class TestCriticToolExecutor:
 
-    def test_submit_critique_auto_numbers(self):
+    def test_submit_review_with_critiques(self):
         executor = CriticToolExecutor(existing_critique_count=3)
-        tc = executor.execute("submit_critique", {
-            "severity": "HIGH",
-            "target_id": "WH-001",
-            "argument": "Sign error in step 3.",
+        tc = executor.execute("submit_review", {
+            "summary": "Reviewed strategy and 2 ERs.",
+            "details": "Full analysis of the research direction...",
+            "critiques": [
+                {
+                    "severity": "HIGH",
+                    "target_id": "WH-001",
+                    "argument": "Sign error in step 3.",
+                },
+            ],
         })
         assert not tc.is_error
         assert executor.filed_critiques[0]["id"] == "CRIT-004"
         assert executor.filed_critiques[0]["severity"] == "HIGH"
-        assert not executor.stop_after_round
+        assert executor.stop_after_round
+        assert executor.review_summary == "Reviewed strategy and 2 ERs."
+        assert executor.review_details == "Full analysis of the research direction..."
 
-    def test_submit_multiple_critiques(self):
+    def test_submit_review_multiple_critiques(self):
         executor = CriticToolExecutor(existing_critique_count=0)
-        executor.execute("submit_critique", {
-            "severity": "HIGH",
-            "target_id": "WH-001",
-            "argument": "First issue.",
+        tc = executor.execute("submit_review", {
+            "summary": "Found 2 issues.",
+            "details": "Detailed reasoning here.",
+            "critiques": [
+                {
+                    "severity": "HIGH",
+                    "target_id": "WH-001",
+                    "argument": "First issue.",
+                },
+                {
+                    "severity": "MEDIUM",
+                    "target_id": "ER-002",
+                    "argument": "Second issue.",
+                },
+            ],
         })
-        executor.execute("submit_critique", {
-            "severity": "MEDIUM",
-            "target_id": "ER-002",
-            "argument": "Second issue.",
-        })
+        assert not tc.is_error
         assert len(executor.filed_critiques) == 2
         assert executor.filed_critiques[0]["id"] == "CRIT-001"
         assert executor.filed_critiques[1]["id"] == "CRIT-002"
+        assert "2 critique(s) filed" in tc.output
 
-    def test_finish_review_sets_stop(self):
+    def test_submit_review_clean(self):
         executor = CriticToolExecutor()
-        tc = executor.execute("finish_review", {"summary": "Reviewed 3 claims."})
+        tc = executor.execute("submit_review", {
+            "summary": "All clear.",
+            "details": "Examined strategy and all ERs, no issues.",
+            "critiques": [],
+        })
         assert not tc.is_error
         assert executor.stop_after_round
-        assert executor.review_summary == "Reviewed 3 claims."
-
-    def test_finish_review_clean_message(self):
-        executor = CriticToolExecutor()
-        tc = executor.execute("finish_review", {"summary": "All clear."})
+        assert executor.review_summary == "All clear."
+        assert executor.review_details == "Examined strategy and all ERs, no issues."
+        assert len(executor.filed_critiques) == 0
         assert "No critiques filed" in tc.output
-
-    def test_finish_review_with_critiques(self):
-        executor = CriticToolExecutor()
-        executor.execute("submit_critique", {
-            "severity": "LOW",
-            "target_id": "WH-001",
-            "argument": "Minor issue.",
-        })
-        tc = executor.execute("finish_review", {"summary": "Found 1 issue."})
-        assert "1 critique(s) filed" in tc.output
 
     def test_unknown_tool(self):
         executor = CriticToolExecutor()
@@ -63,67 +71,74 @@ class TestCriticToolExecutor:
         assert tc.is_error
         assert "Unknown tool" in tc.output
 
-    def test_suggested_verification_stored(self):
-        executor = CriticToolExecutor()
-        executor.execute("submit_critique", {
-            "severity": "HIGH",
-            "target_id": "WH-001",
-            "argument": "Boundary issue.",
-            "suggested_verification": "Check at x=0.",
-        })
-        assert executor.filed_critiques[0]["suggested_verification"] == "Check at x=0."
-
     def test_numbering_from_zero(self):
         executor = CriticToolExecutor(existing_critique_count=0)
-        executor.execute("submit_critique", {
-            "severity": "LOW",
-            "target_id": "WH-001",
-            "argument": "Test.",
+        executor.execute("submit_review", {
+            "summary": "Test.",
+            "details": "Test details.",
+            "critiques": [
+                {"severity": "LOW", "target_id": "WH-001", "argument": "Test."},
+            ],
         })
         assert executor.filed_critiques[0]["id"] == "CRIT-001"
 
     def test_numbering_continues(self):
         executor = CriticToolExecutor(existing_critique_count=10)
-        executor.execute("submit_critique", {
-            "severity": "LOW",
-            "target_id": "WH-001",
-            "argument": "Test.",
+        executor.execute("submit_review", {
+            "summary": "Test.",
+            "details": "Test details.",
+            "critiques": [
+                {"severity": "LOW", "target_id": "WH-001", "argument": "Test."},
+            ],
         })
         assert executor.filed_critiques[0]["id"] == "CRIT-011"
-
-    def test_no_critiques_before_finish(self):
-        executor = CriticToolExecutor()
-        executor.execute("finish_review", {"summary": "Clean."})
-        assert len(executor.filed_critiques) == 0
-        assert executor.stop_after_round
 
     def test_tool_definitions_exist(self):
         defs = CriticToolExecutor.TOOL_DEFINITIONS
         names = {d["function"]["name"] for d in defs}
-        assert names == {"submit_critique", "finish_review"}
+        assert names == {"submit_review"}
 
-    def test_submit_critique_return_value(self):
+    def test_submit_review_strategy_target(self):
+        """submit_review with target_id='STRATEGY' stores correctly."""
         executor = CriticToolExecutor(existing_critique_count=0)
-        tc = executor.execute("submit_critique", {
-            "severity": "HIGH",
-            "target_id": "ER-001",
-            "argument": "Wrong factor.",
-        })
-        assert "CRIT-001" in tc.output
-        assert "HIGH" in tc.output
-        assert "ER-001" in tc.output
-
-    def test_submit_critique_strategy_target(self):
-        """submit_critique with target_id='STRATEGY' stores correctly."""
-        executor = CriticToolExecutor(existing_critique_count=0)
-        tc = executor.execute("submit_critique", {
-            "severity": "MEDIUM",
-            "target_id": "STRATEGY",
-            "argument": "Strategy recommends refuted approach.",
+        tc = executor.execute("submit_review", {
+            "summary": "Strategy review.",
+            "details": "The strategy recommends a refuted approach.",
+            "critiques": [
+                {
+                    "severity": "MEDIUM",
+                    "target_id": "STRATEGY",
+                    "argument": "Strategy recommends refuted approach.",
+                },
+            ],
         })
         assert not tc.is_error
         assert len(executor.filed_critiques) == 1
         crit = executor.filed_critiques[0]
         assert crit["target_id"] == "STRATEGY"
         assert crit["severity"] == "MEDIUM"
-        assert "CRIT-001" in tc.output
+        assert "1 critique(s) filed" in tc.output
+
+    def test_exit_tool_name(self):
+        assert CriticToolExecutor.exit_tool_name == "submit_review"
+
+    def test_details_captured(self):
+        """The details field is stored on the executor."""
+        executor = CriticToolExecutor()
+        executor.execute("submit_review", {
+            "summary": "Brief.",
+            "details": "This is a very long analysis of the research...",
+            "critiques": [],
+        })
+        assert "very long analysis" in executor.review_details
+
+    def test_empty_critiques_default(self):
+        """Missing critiques key defaults to empty list."""
+        executor = CriticToolExecutor()
+        tc = executor.execute("submit_review", {
+            "summary": "Done.",
+            "details": "Nothing found.",
+        })
+        assert not tc.is_error
+        assert len(executor.filed_critiques) == 0
+        assert executor.stop_after_round
