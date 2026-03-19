@@ -34,7 +34,7 @@ def test_build_context_initial():
     context = agent.build_context(_make_task(), iteration=0)
 
     assert "Derive the Hawking temperature." in context
-    assert "Current Research State" not in context
+    assert "<current-research-state>" not in context
 
 
 def test_build_context_replan():
@@ -45,7 +45,7 @@ def test_build_context_replan():
     context = agent.build_context(_make_task(), iteration=5)
 
     assert "Derive the Hawking temperature." in context
-    assert "Current Research State" in context
+    assert "<current-research-state>" in context
 
 
 # ---------- process_response tests ----------

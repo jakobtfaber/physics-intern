@@ -26,20 +26,13 @@ if TYPE_CHECKING:
 # Snapshot renderers (full Markdown files from state)
 # ---------------------------------------------------------------------------
 
-def _h(level: int, offset: int) -> str:
-    """Return a Markdown heading prefix at the given level + offset."""
-    return "#" * (level + offset)
-
-
-def render_background_survey(state: ResearchState, *, heading_offset: int = 0) -> str:
+def render_background_survey(state: ResearchState) -> str:
     """Render the background survey section from ResearchState."""
     survey = state.background_survey
     if survey is None:
         return "(No background survey.)"
 
-    h1 = _h(1, heading_offset)
-
-    parts: list[str] = [f"{h1} Background Survey\n"]
+    parts: list[str] = ["# Background Survey\n"]
     if survey.survey_notes:
         parts.append(survey.survey_notes)
         parts.append("")
@@ -47,41 +40,22 @@ def render_background_survey(state: ResearchState, *, heading_offset: int = 0) -
     return "\n".join(parts)
 
 
-def _research_state_body(
-    state: ResearchState,
-    *,
-    include_problem_statement: bool = True,
-    skip_empty_dead_ends: bool = False,
-    include_background_survey: bool = False,
-    heading_offset: int = 0,
-) -> str:
-    """Build the body text for a research state rendering.
-
-    Shared by the snapshot renderer and orchestrator context renderer.
-    *heading_offset* shifts all heading levels (0 = H1/H2, 2 = H3/H4).
-    """
-    h1 = _h(1, heading_offset)
-    h2 = _h(2, heading_offset)
+def _research_state_body(state: ResearchState) -> str:
+    """Build the body text for a research state snapshot rendering."""
     parts: list[str] = []
 
     # Problem Statement
-    if include_problem_statement:
-        parts.append(f"{h1} Problem Statement\n")
-        parts.append(state.problem_statement or "(No problem statement.)")
-        parts.append("")
-
-    # Background Survey (when requested and present)
-    if include_background_survey and state.background_survey is not None:
-        parts.append(render_background_survey(state, heading_offset=heading_offset))
-        parts.append("")
+    parts.append("# Problem Statement\n")
+    parts.append(state.problem_statement or "(No problem statement.)")
+    parts.append("")
 
     # Conventions
-    parts.append(f"{h1} Conventions\n")
+    parts.append("# Conventions\n")
     parts.append(state.conventions or "(To be populated by the orchestrator as conventions become clear.)")
     parts.append("")
 
     # Strategy
-    parts.append(f"{h1} Strategy\n")
+    parts.append("# Strategy\n")
     parts.append(state.strategy or "(No strategy set. The orchestrator should formulate an initial research strategy based on the background survey.)")
     parts.append("")
 
@@ -89,9 +63,9 @@ def _research_state_body(
     open_rqs = [rq for rq in state.research_questions.values() if rq.status == RQStatus.OPEN]
     resolved_rqs = [rq for rq in state.research_questions.values() if rq.status != RQStatus.OPEN]
     if state.research_questions:
-        parts.append(f"{h1} Research Questions\n")
+        parts.append("# Research Questions\n")
         for rq in sorted(open_rqs, key=lambda r: r.id):
-            parts.append(f"{h2} {rq.id} [OPEN] — {rq.question}")
+            parts.append(f"## {rq.id} [OPEN] — {rq.question}")
             if rq.context:
                 parts.append(f"  Context: {rq.context}")
             if rq.evidence:
@@ -100,7 +74,7 @@ def _research_state_body(
             parts.append("")
         for rq in sorted(resolved_rqs, key=lambda r: r.id):
             status_tag = f"[{rq.status.upper()}]"
-            parts.append(f"{h2} {rq.id} {status_tag} — {rq.question}")
+            parts.append(f"## {rq.id} {status_tag} — {rq.question}")
             if rq.resolved_to:
                 parts.append(f"  Resolved to: {', '.join(rq.resolved_to)}")
             resolution_parts: list[str] = []
@@ -114,8 +88,8 @@ def _research_state_body(
             parts.append("")
 
     # Working Hypotheses and Established Results
-    parts.append(f"{h1} Working Hypotheses (WH) and Established Results (ER)\n")
-    parts.append(f"Claims use {h2} ER-NNN (established, verified) or {h2} WH-NNN (working hypothesis, pending).")
+    parts.append("# Working Hypotheses (WH) and Established Results (ER)\n")
+    parts.append("Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, pending).")
     parts.append("")
 
     # Sort hypotheses: ER first (by number), then WH (by number)
@@ -127,7 +101,7 @@ def _research_state_body(
         if h.status == HypothesisStatus.ABANDONED:
             continue  # abandoned go in Dead Ends
         statement_part = f" — {h.statement}" if h.statement else ""
-        parts.append(f"{h2} {h.id}{statement_part}\n")
+        parts.append(f"## {h.id}{statement_part}\n")
         if h.depends_on:
             parts.append(f"**Depends on:** {', '.join(h.depends_on)}\n")
         if h.promotion_justification:
@@ -158,26 +132,25 @@ def _research_state_body(
     has_dead_ends = bool(state.failed_approaches) or any(
         h.status == HypothesisStatus.ABANDONED for h in state.hypotheses.values()
     )
-    if not (skip_empty_dead_ends and not has_dead_ends):
-        parts.append(f"{h1} Dead Ends\n")
-        for fa in state.failed_approaches:
-            parts.append(f"- {fa.description}")
-            if fa.reason:
-                parts.append(f"  Reason: {fa.reason}")
-            if fa.derivation_excerpt:
-                parts.append(f"  Derivation: {fa.derivation_excerpt}")
-            if fa.related_entities:
-                parts.append(f"  Related entities: {', '.join(fa.related_entities)}")
-        # Only render abandoned hypotheses not already covered by failed_approaches
-        fa_descriptions = {fa.description for fa in state.failed_approaches}
-        for h in sorted_hyps:
-            if h.status == HypothesisStatus.ABANDONED:
-                desc = f"Abandoned {h.id} — {h.statement}"
-                if desc not in fa_descriptions:
-                    parts.append(f"- {desc}")
-        if not has_dead_ends:
-            parts.append("(None yet.)")
-        parts.append("")
+    parts.append("# Dead Ends\n")
+    for fa in state.failed_approaches:
+        parts.append(f"- {fa.description}")
+        if fa.reason:
+            parts.append(f"  Reason: {fa.reason}")
+        if fa.derivation_excerpt:
+            parts.append(f"  Derivation: {fa.derivation_excerpt}")
+        if fa.related_entities:
+            parts.append(f"  Related entities: {', '.join(fa.related_entities)}")
+    # Only render abandoned hypotheses not already covered by failed_approaches
+    fa_descriptions = {fa.description for fa in state.failed_approaches}
+    for h in sorted_hyps:
+        if h.status == HypothesisStatus.ABANDONED:
+            desc = f"Abandoned {h.id} — {h.statement}"
+            if desc not in fa_descriptions:
+                parts.append(f"- {desc}")
+    if not has_dead_ends:
+        parts.append("(None yet.)")
+    parts.append("")
 
     return "\n".join(parts)
 
@@ -330,22 +303,149 @@ def render_task_md(task: Task) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Per-agent context renderers
+# Per-agent context renderers (XML-delimited for dynamic content)
 # ---------------------------------------------------------------------------
 
 def render_orchestrator_research_state(state: ResearchState) -> str:
-    """Render research state for orchestrator context (no frontmatter, no problem statement)."""
-    return _research_state_body(
-        state,
-        include_problem_statement=False,
-        skip_empty_dead_ends=True,
-        include_background_survey=True,
-        heading_offset=2,
+    """Render research state for orchestrator context using XML tags."""
+    parts: list[str] = []
+
+    # Background Survey
+    if state.background_survey and state.background_survey.survey_notes:
+        parts.append(f"<background-survey>\n{state.background_survey.survey_notes}\n</background-survey>")
+
+    # Conventions
+    conv = state.conventions or "(To be populated by the orchestrator as conventions become clear.)"
+    parts.append(f"<conventions>\n{conv}\n</conventions>")
+
+    # Strategy
+    strat = state.strategy or "(No strategy set. The orchestrator should formulate an initial research strategy based on the background survey.)"
+    parts.append(f"<strategy>\n{strat}\n</strategy>")
+
+    # Research Questions
+    if state.research_questions:
+        open_rqs = sorted(
+            [rq for rq in state.research_questions.values() if rq.status == RQStatus.OPEN],
+            key=lambda r: r.id,
+        )
+        resolved_rqs = sorted(
+            [rq for rq in state.research_questions.values() if rq.status != RQStatus.OPEN],
+            key=lambda r: r.id,
+        )
+        rq_lines: list[str] = []
+        for rq in open_rqs:
+            rq_content = [rq.question]
+            if rq.context:
+                rq_content.append(f"Context: {rq.context}")
+            if rq.evidence:
+                ev = rq.evidence
+                rq_content.append(f"Evidence ({ev.type}): {ev.result[:200] if ev.result else 'pending'}")
+            rq_lines.append(f'<rq id="{rq.id}" status="OPEN">\n' + "\n".join(rq_content) + "\n</rq>")
+        for rq in resolved_rqs:
+            rq_content = [rq.question]
+            if rq.resolved_to:
+                rq_content.append(f"Resolved to: {', '.join(rq.resolved_to)}")
+            resolution_parts: list[str] = []
+            if rq.iteration_resolved is not None:
+                resolution_parts.append(f"iteration {rq.iteration_resolved}")
+            if rq.resolution_reason:
+                resolution_parts.append(rq.resolution_reason)
+            if resolution_parts:
+                rq_content.append(f"Closed: {' — '.join(resolution_parts)}")
+            rq_content.append("This RQ is closed. Do not resolve it again or create a WH from it.")
+            status_tag = rq.status.upper()
+            rq_lines.append(f'<rq id="{rq.id}" status="{status_tag}">\n' + "\n".join(rq_content) + "\n</rq>")
+        parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
+
+    # Hypotheses
+    sorted_hyps = sorted(
+        state.hypotheses.values(),
+        key=lambda h: (0 if h.id.startswith("ER-") else 1, h.id),
     )
+    hyp_lines: list[str] = []
+    for h in sorted_hyps:
+        if h.status == HypothesisStatus.ABANDONED:
+            continue
+        h_parts: list[str] = []
+        if h.statement:
+            h_parts.append(f"Statement: {h.statement}")
+        if h.depends_on:
+            h_parts.append(f"Depends on: {', '.join(h.depends_on)}")
+        if h.promotion_justification:
+            h_parts.append(f"Promotion justification: {h.promotion_justification}")
+        if h.derivation:
+            h_parts.append(f"<derivation>\n{h.derivation}\n</derivation>")
+        if h.evidence:
+            ev = h.evidence
+            ev_parts = [f"Method: {ev.method or 'not specified'}"]
+            if ev.confidence:
+                ev_parts.append(f"Confidence: {ev.confidence}")
+            if ev.result:
+                ev_parts.append(f"Result: {ev.result[:300]}")
+            h_parts.append(f'<evidence type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
+        if h.verification:
+            v = h.verification
+            v_parts: list[str] = []
+            if v.reasoning:
+                v_parts.append(f"Reasoning: {v.reasoning[:300]}")
+            if v.critiques:
+                v_parts.append(f"Critiques: {len(v.critiques)} filed")
+            h_parts.append(f'<verification verdict="{v.verdict}">\n' + "\n".join(v_parts) + "\n</verification>")
+        hyp_lines.append(f'<hypothesis id="{h.id}">\n' + "\n".join(h_parts) + "\n</hypothesis>")
+    parts.append("<hypotheses>\n" + "\n".join(hyp_lines) + "\n</hypotheses>")
+
+    # Dead Ends
+    has_dead_ends = bool(state.failed_approaches) or any(
+        h.status == HypothesisStatus.ABANDONED for h in state.hypotheses.values()
+    )
+    if has_dead_ends:
+        de_parts: list[str] = []
+        for fa in state.failed_approaches:
+            de_parts.append(f"- {fa.description}")
+            if fa.reason:
+                de_parts.append(f"  Reason: {fa.reason}")
+            if fa.derivation_excerpt:
+                de_parts.append(f"  Derivation: {fa.derivation_excerpt}")
+            if fa.related_entities:
+                de_parts.append(f"  Related entities: {', '.join(fa.related_entities)}")
+        fa_descriptions = {fa.description for fa in state.failed_approaches}
+        for h in sorted_hyps:
+            if h.status == HypothesisStatus.ABANDONED:
+                desc = f"Abandoned {h.id} — {h.statement}"
+                if desc not in fa_descriptions:
+                    de_parts.append(f"- {desc}")
+        parts.append("<dead-ends>\n" + "\n".join(de_parts) + "\n</dead-ends>")
+
+    return "\n\n".join(parts)
 
 
 def render_orchestrator_critique_log(state: ResearchState) -> str:
-    """Render critique log for orchestrator context (no frontmatter, compact when empty)."""
+    """Render critique log for orchestrator context using XML tags."""
     if not state.critiques:
         return "No critiques filed."
-    return _critique_log_body(state)
+
+    active = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
+    resolved = [c for c in state.critiques.values() if c.status in (CritiqueStatus.RESOLVED, CritiqueStatus.WITHDRAWN)]
+
+    parts: list[str] = []
+
+    for c in sorted(active, key=lambda c: c.id):
+        target_str = ", ".join(c.targets) if c.targets else "general"
+        content = c.argument or ""
+        parts.append(f'<critique id="{c.id}" severity="{c.severity}" status="UNRESOLVED" target="{target_str}">\n{content}\n</critique>')
+
+    for c in sorted(resolved, key=lambda c: c.id):
+        target_str = ", ".join(c.targets) if c.targets else "general"
+        content = c.argument or ""
+        if c.resolution:
+            content += f"\n<resolution>{c.resolution}</resolution>"
+        status_tag = c.status.upper()
+        parts.append(f'<critique id="{c.id}" severity="{c.severity}" status="{status_tag}" target="{target_str}">\n{content}\n</critique>')
+
+    if state.critic_clean_reviews:
+        review_lines: list[str] = []
+        for rev in sorted(state.critic_clean_reviews, key=lambda r: r.get("iteration", 0)):
+            review_lines.append(f"Iteration {rev.get('iteration', '?')}: {rev.get('summary', '')}")
+        parts.append("<clean-reviews>\n" + "\n".join(review_lines) + "\n</clean-reviews>")
+
+    return "\n".join(parts)

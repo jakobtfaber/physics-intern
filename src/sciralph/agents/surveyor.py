@@ -27,13 +27,16 @@ class SurveyorAgent(BaseAgent):
         self.parsed_survey: BackgroundSurvey | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
-        parts = []
-        parts.append("## Problem Statement\n")
-        parts.append(self.research_state.problem_statement if self.research_state else "")
+        parts = [
+            "<problem-statement>\n",
+            self.research_state.problem_statement if self.research_state else "",
+            "\n</problem-statement>",
+        ]
         # On re-survey (iteration > 0), include current state + previous survey
         if iteration > 0 and self.research_state:
-            parts.append("\n## Current Research State\n")
+            parts.append("\n<current-research-state>\n")
             parts.append(render_orchestrator_research_state(self.research_state))
+            parts.append("\n</current-research-state>")
         return "\n".join(parts)
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):

@@ -28,14 +28,17 @@ class FormatterAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [
-            "## RESEARCH_STATE.md\n",
+            "<research-state>\n",
             render_research_state_md(self.research_state) if self.research_state else "",
-            "\n## EVIDENCE_LOG.md\n",
+            "\n</research-state>",
+            "\n<evidence-log>\n",
             render_evidence_log_md(self.research_state) if self.research_state else "",
+            "\n</evidence-log>",
         ]
         if self.answer_template:
-            parts.append("\n## Answer Template\n")
+            parts.append("\n<answer-template>\n")
             parts.append(self.answer_template)
+            parts.append("\n</answer-template>")
         return "\n".join(parts)
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):

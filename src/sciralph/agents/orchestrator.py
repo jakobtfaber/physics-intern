@@ -34,7 +34,7 @@ class OrchestratorAgent(BaseAgent):
         if self._system_prompt is None:
             base = (PROMPTS_DIR / self.prompt_file).read_text()
             if self.research_state and self.research_state.problem_statement:
-                base += "\n\n## Problem Statement\n\n" + self.research_state.problem_statement
+                base += "\n\n<problem-statement>\n" + self.research_state.problem_statement + "\n</problem-statement>"
             self._system_prompt = base
         return self._system_prompt
 
@@ -94,19 +94,19 @@ class OrchestratorAgent(BaseAgent):
         parts.extend([
             f"# Current Iteration: {iteration} of {self.config.max_iterations} "
             f"({budget_remaining} remaining)\n",
-            "## Research State\n",
             state_text,
-            "\n## Critique Log\n",
+            "\n",
             render_orchestrator_critique_log(self.research_state) if self.research_state else "",
         ])
         # Short-term plan
         if self.research_state and self.research_state.short_term_plan:
-            parts.append(f"\n## Short-term Plan\n{self.research_state.short_term_plan}\n")
+            parts.append(f"\n<short-term-plan>\n{self.research_state.short_term_plan}\n</short-term-plan>\n")
         # Research notes
         if self.research_state and self.research_state.research_notes:
-            parts.append("\n## Research Notes\n")
+            note_lines = []
             for note in self.research_state.research_notes[-10:]:  # show last 10
-                parts.append(f"- [iter {note.get('iteration', '?')}] {note.get('text', '')}\n")
+                note_lines.append(f"- [iter {note.get('iteration', '?')}] {note.get('text', '')}")
+            parts.append("\n<research-notes>\n" + "\n".join(note_lines) + "\n</research-notes>\n")
         return "\n".join(parts)
 
     def _call_with_tools(

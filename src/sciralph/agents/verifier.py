@@ -29,55 +29,56 @@ class VerifierAgent(BaseAgent):
     def build_context(self, task: Task, iteration: int) -> str:
         """Build focused verification context: WH + evidence + light state."""
         parts = [
-            "## CURRENT_TASK.md\n",
+            "<task>\n",
             self.workspace.read_file("CURRENT_TASK.md"),
+            "\n</task>",
         ]
 
         if self.research_state and task.target_claim:
             target_id = task.target_claim
             h = self.research_state.hypotheses.get(target_id)
             if h:
-                parts.append(f"\n## Claim Under Verification: {target_id}\n")
-                parts.append(f"**Statement:** {h.statement}\n")
+                claim_parts: list[str] = [f"Statement: {h.statement}"]
                 if h.derivation:
-                    parts.append(f"**Derivation:**\n{h.derivation}\n")
+                    claim_parts.append(f"<derivation>\n{h.derivation}\n</derivation>")
+                parts.append(f'\n<claim id="{target_id}">\n' + "\n".join(claim_parts) + "\n</claim>")
 
                 # Evidence
                 if h.evidence:
                     ev = h.evidence
-                    parts.append("\n## Evidence\n")
-                    parts.append(f"**Type:** {ev.type}\n")
+                    ev_parts: list[str] = []
                     if ev.approach:
-                        parts.append(f"**Approach:** {ev.approach}\n")
+                        ev_parts.append(f"<approach>\n{ev.approach}\n</approach>")
                     if ev.method:
-                        parts.append(f"**Method:** {ev.method}\n")
+                        ev_parts.append(f"<method>{ev.method}</method>")
                     if ev.result:
-                        parts.append(f"**Result:** {ev.result}\n")
+                        ev_parts.append(f"<result>{ev.result}</result>")
                     if ev.scripts:
-                        parts.append(f"**Scripts:** {', '.join(ev.scripts)}\n")
+                        ev_parts.append(f"<scripts>{', '.join(ev.scripts)}</scripts>")
                     if ev.output:
-                        parts.append(f"**Output:**\n```\n{ev.output[:3000]}\n```\n")
+                        ev_parts.append(f"<output>\n{ev.output[:3000]}\n</output>")
                     if ev.reasoning:
-                        parts.append(f"**Reasoning:**\n{ev.reasoning[:3000]}\n")
+                        ev_parts.append(f"<reasoning>\n{ev.reasoning[:3000]}\n</reasoning>")
                     if ev.confidence:
-                        parts.append(f"**Confidence:** {ev.confidence}\n")
+                        ev_parts.append(f"<confidence>{ev.confidence}</confidence>")
+                    parts.append(f'\n<evidence type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
 
                 # Find originating RQ
                 for rq in self.research_state.research_questions.values():
                     if target_id in rq.resolved_to:
-                        parts.append(f"\n## Original Question\n{rq.id}: {rq.question}\n")
+                        rq_content = f"{rq.id}: {rq.question}"
                         if rq.context:
-                            parts.append(f"Context: {rq.context}\n")
+                            rq_content += f"\nContext: {rq.context}"
+                        parts.append(f'\n<original-question id="{rq.id}">\n{rq_content}\n</original-question>')
                         break
 
             # Light established context
             ers = self.research_state.established_hypotheses()
             if ers:
-                parts.append("\n## Established Context\n")
-                for er in ers:
-                    parts.append(f"- **{er.id}**: {er.statement}\n")
+                er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
+                parts.append("\n<established-context>\n" + "\n".join(er_lines) + "\n</established-context>")
             if self.research_state.conventions:
-                parts.append(f"\n## Conventions\n{self.research_state.conventions}\n")
+                parts.append(f"\n<conventions>\n{self.research_state.conventions}\n</conventions>")
 
         return "\n".join(parts)
 

@@ -527,37 +527,37 @@ class TestRenderOrchestratorResearchState:
 
     def test_no_problem_statement(self, populated_state):
         text = render_orchestrator_research_state(populated_state)
-        assert "# Problem Statement" not in text
+        assert "<problem-statement>" not in text
         assert "Derive the Hawking temperature" not in text
 
     def test_conventions_included(self, populated_state):
         text = render_orchestrator_research_state(populated_state)
-        assert "# Conventions" in text
+        assert "<conventions>" in text
         assert "Natural units" in text
 
     def test_hypotheses_included(self, populated_state):
         text = render_orchestrator_research_state(populated_state)
-        assert "## ER-001" in text
-        assert "## WH-002" in text
+        assert 'id="ER-001"' in text
+        assert 'id="WH-002"' in text
 
     def test_skips_empty_dead_ends(self, empty_state):
         text = render_orchestrator_research_state(empty_state)
-        assert "# Dead Ends" not in text
+        assert "<dead-ends>" not in text
 
     def test_includes_populated_dead_ends(self, populated_state):
         text = render_orchestrator_research_state(populated_state)
-        assert "# Dead Ends" in text
+        assert "<dead-ends>" in text
         assert "Abandoned WH-003" in text
 
     def test_evidence_summary_in_context(self, populated_state):
         """Orchestrator context includes evidence summaries on hypotheses."""
         text = render_orchestrator_research_state(populated_state)
-        assert "Evidence (compute)" in text
+        assert 'type="compute"' in text
 
     def test_verification_in_context(self, populated_state):
         """Orchestrator context includes verification status on hypotheses."""
         text = render_orchestrator_research_state(populated_state)
-        assert "Verification:" in text
+        assert 'verdict="VERIFIED"' in text
 
 
 # ===========================================================================
@@ -576,9 +576,9 @@ class TestRenderOrchestratorCritiqueLog:
 
     def test_body_without_frontmatter(self, populated_state):
         text = render_orchestrator_critique_log(populated_state)
-        assert "# Active Critiques" in text
+        assert 'status="UNRESOLVED"' in text
         assert "CRIT-001" in text
-        assert "# Resolved Critiques" in text
+        assert 'status="RESOLVED"' in text
         assert "CRIT-002" in text
 
 
@@ -647,11 +647,11 @@ class TestRenderBackgroundSurvey:
     def test_background_survey_rendered_in_orchestrator_context(self):
         state = self._make_survey_state()
         text = render_orchestrator_research_state(state)
-        assert "# Background Survey" in text
+        assert "<background-survey>" in text
         assert "Killing vector method" in text
 
     def test_background_survey_none_renders_nothing_in_orchestrator(self):
         """When survey is None, no background survey section in orchestrator context."""
         state = ResearchState(problem_statement="Test")
         text = render_orchestrator_research_state(state)
-        assert "# Background Survey" not in text
+        assert "<background-survey>" not in text

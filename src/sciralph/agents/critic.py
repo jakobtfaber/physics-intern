@@ -40,12 +40,15 @@ class CriticAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [
-            "## RESEARCH_STATE.md\n",
+            "<research-state>\n",
             render_research_state_md(self.research_state) if self.research_state else "",
-            "\n## BACKGROUND SURVEY\n",
+            "\n</research-state>",
+            "\n<background-survey>\n",
             render_background_survey(self.research_state) if self.research_state else "",
-            "\n## Your Previous Critiques (do not repeat)\n",
+            "\n</background-survey>",
+            "\n<previous-critiques>\n",
             render_critique_log_md(self.research_state) if self.research_state else "",
+            "\n</previous-critiques>",
         ]
         return "\n".join(parts)
 

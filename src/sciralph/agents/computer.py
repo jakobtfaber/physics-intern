@@ -28,25 +28,25 @@ class ComputerAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [
-            "## CURRENT_TASK.md\n",
+            "<task>\n",
             self.workspace.read_file("CURRENT_TASK.md"),
+            "\n</task>",
         ]
         if self.research_state:
-            parts.append("\n## Research Context\n")
+            rc_parts: list[str] = []
             if self.research_state.conventions:
-                parts.append(f"### Conventions\n{self.research_state.conventions}\n")
+                rc_parts.append(f"<conventions>\n{self.research_state.conventions}\n</conventions>")
             if self.research_state.strategy:
-                parts.append(f"### Strategy\n{self.research_state.strategy}\n")
+                rc_parts.append(f"<strategy>\n{self.research_state.strategy}\n</strategy>")
             ers = self.research_state.established_hypotheses()
             if ers:
-                parts.append("### Established Results\n")
-                for er in ers:
-                    parts.append(f"- **{er.id}**: {er.statement}\n")
+                er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
+                rc_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
             open_rqs = self.research_state.open_research_questions()
             if open_rqs:
-                parts.append("### Open Questions\n")
-                for rq in open_rqs:
-                    parts.append(f"- **{rq.id}**: {rq.question}\n")
+                rq_lines = [f"- **{rq.id}**: {rq.question}" for rq in open_rqs]
+                rc_parts.append("<open-questions>\n" + "\n".join(rq_lines) + "\n</open-questions>")
+            parts.append("\n<research-context>\n" + "\n".join(rc_parts) + "\n</research-context>")
         return "\n".join(parts)
 
     def process_response(self, response: AgentResult, task: Task, iteration: int):

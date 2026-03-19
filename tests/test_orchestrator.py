@@ -236,13 +236,13 @@ class TestSystemPrompt:
             problem_statement="Derive the Hawking temperature for a Schwarzschild black hole.",
         )
         prompt = orchestrator.system_prompt
-        assert "## Problem Statement" in prompt
+        assert "<problem-statement>" in prompt
         assert "Derive the Hawking temperature" in prompt
 
     def test_system_prompt_without_research_state(self, orchestrator):
         # No research_state set — should still return the base prompt
         prompt = orchestrator.system_prompt
-        assert "## Problem Statement" not in prompt
+        assert "<problem-statement>" not in prompt
 
     def test_system_prompt_cached(self, orchestrator):
         orchestrator.research_state = ResearchState(
