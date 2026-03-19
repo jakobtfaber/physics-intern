@@ -6,7 +6,7 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 
 SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
 
-**How it works.** Seven specialised LLM agent roles (orchestrator, researcher, computer, verifier, deep critic, compressor, formatter) take turns in a loop. The orchestrator dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), formulates working hypotheses from the evidence, then sends them to a **verifier** for adversarial review. No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
+**How it works.** Seven specialised LLM agent roles (orchestrator, researcher, computer, reviewer, deep critic, compressor, formatter) take turns in a loop. The orchestrator dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), formulates working hypotheses from the evidence, then sends them to a **reviewer** for adversarial review. No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
 
 **Current status.** Core functionality is complete (827 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 4 categories) compensates for predictable LLM failures. Every mechanism is instrumented — `EVENT_LOG.jsonl` records each intervention. See `CODEBASE.md` §7 for the full catalog.
 
@@ -79,7 +79,7 @@ Seven agent roles take turns in a main loop. Each agent gets a fresh context per
 │  │ (plan next    │    │                      │   │
 │  │  task)        │    │  researcher          │   │
 │  └──────────────┘    │  computer            │   │
-│         ▲            │  verifier            │   │
+│         ▲            │  reviewer            │   │
 │         │            │  critique            │   │
 │         │            │  format / compress   │   │
 │  ┌──────┴───────┐    │                      │   │
@@ -92,40 +92,40 @@ Seven agent roles take turns in a main loop. Each agent gets a fresh context per
 
 ### Agents
 
-Three core agents produce evidence and verify claims:
+Three core agents produce evidence and review claims:
 
 | Agent | Role | Mode | Context source | Mutates |
 |-------|------|------|----------------|---------|
 | **Orchestrator** | Plans next task, mutates state via tools | Agentic (12 tools) | ResearchState via renderers | ResearchState, `CURRENT_TASK.md` |
 | **Researcher** | Analytical reasoning, derivation | Agentic (2 tools) | CURRENT_TASK.md + light research state | Evidence on RQ/WH |
 | **Computer** | Computational work via code | Agentic (4 tools) | CURRENT_TASK.md + light research state | Evidence on RQ/WH |
-| **Verifier** | Adversarial verification without code | Agentic (3 tools) | Focused package: WH + evidence + light state | VerificationResult on WH |
+| **Reviewer** | Adversarial review without code | One-turn (1 tool) | Focused package: WH + evidence + light state | ReviewResult on WH |
 | **Deep Critic** | Strategic review — research direction, coherence | Agentic (2 tools) | ResearchState via renderers | Critique objects |
 | **Compressor** | Archives and shrinks files exceeding size thresholds | One-shot | Target file | Compressed target file |
 | **Formatter** | Produces clean `ANSWER.md` from final research state | One-shot | ResearchState via renderers | `ANSWER.md` |
 
 ### Research Lifecycle
 
-The typical lifecycle of a claim: **RQ → evidence → WH → verification → ER**
+The typical lifecycle of a claim: **RQ → evidence → WH → review → ER**
 
 1. Orchestrator creates a **Research Question** (RQ) and dispatches to researcher or computer
 2. Researcher/Computer produces **Evidence** (reasoning or code+output), stored on the RQ
 3. Orchestrator formulates a **Working Hypothesis** (WH) from the evidence (auto-copies evidence from RQ)
-4. Orchestrator dispatches to **Verifier** with the WH + evidence
-5. Verifier submits verdict (VERIFIED/REFUTED/INCONCLUSIVE) + optional critiques
+4. Orchestrator dispatches to **Reviewer** with the WH + evidence
+5. Reviewer submits review (verdict: VERIFIED/REFUTED/INCONCLUSIVE, summary, details)
 6. If VERIFIED: Orchestrator promotes WH to **Established Result** (ER)
 
 Entity numbers are unified — RQ-003 → WH-003 → ER-003.
 
-### Verification Stack
+### Review Stack
 
-Results go through layered verification before being promoted to "Established":
+Results go through layered review before being promoted to "Established":
 
-1. **Verifier review** — adversarial examination of evidence, methodology, and logical consistency
+1. **Reviewer** — adversarial examination of evidence, methodology, and logical consistency
 2. **Strategic critique** — Deep Critic reviews research direction and inter-result coherence
 3. **Dependency tracking** — All prerequisite results must themselves be Established
 
-The orchestrator enforces promotion criteria via its `promote_hypothesis` tool and forces periodic critic passes every N iterations. A post-integration validation pipeline (`validation.py`) runs 4 checks on ResearchState after every orchestrator pass — demoting unverified ERs, stripping phantom labels, and ensuring critique resolution consistency.
+The orchestrator enforces promotion criteria via its `promote_hypothesis` tool and forces periodic critic passes every N iterations. A post-integration validation pipeline (`validation.py`) runs 4 checks on ResearchState after every orchestrator pass — demoting unreviewed ERs, stripping phantom labels, and ensuring critique resolution consistency.
 
 ### Workspace Files
 
@@ -136,7 +136,7 @@ All research state is persisted under `workspaces/<run>/` (each run gets a times
 | `RESEARCH_STATE.md` | Established results, working hypotheses, evidence, dead ends |
 | `CURRENT_TASK.md` | Current task with YAML frontmatter + structured dispatch context |
 | `RESEARCH_GRAPH.json` | Authoritative structured state (ResearchState serialized as JSON) |
-| `EVIDENCE_LOG.md` | Log of all evidence and verification results |
+| `EVIDENCE_LOG.md` | Log of all evidence and review results |
 | `CRITIQUE_LOG.md` | All critiques with severity and resolution status |
 | `METRICS.md` | Token usage, file sizes, alerts |
 | `EVENT_LOG.jsonl` | Unified event log — LLM call metadata + scaffolding intervention events |
@@ -153,7 +153,7 @@ src/sciralph/
   renderers.py         — Snapshot renderers (state → Markdown) + per-agent context renderers
   orchestrator_tools.py — OrchestratorToolExecutor: 12 state-mutation tools for orchestrator
   critic_tools.py      — CriticToolExecutor: submit_critique + finish_review tools for deep critic
-  verifier_tools.py    — VerifierToolExecutor: submit_verdict + submit_critique + report_progress
+  reviewer_tools.py    — ReviewerToolExecutor: submit_review tool for reviewer agent
   tools.py             — ToolExecutor + ToolCall for researcher/computer (document_approach, execute_python, submit_result, report_progress)
   categories.py        — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
   validation.py        — Post-integration checks (4 checks on ResearchState) + termination gates
@@ -170,12 +170,12 @@ src/sciralph/
     orchestrator.py    — Plans tasks, mutates ResearchState via tools
     researcher.py      — Analytical reasoning; writes Evidence to RQ/WH
     computer.py        — Computational work via code; writes Evidence to RQ/WH
-    verifier.py        — Adversarial verification; writes VerificationResult to WH
+    reviewer.py        — Adversarial review; writes ReviewResult to WH
     critic.py          — Strategic review via submit_critique/finish_review tools
     compressor.py      — File size management
     formatter.py       — Produces ANSWER.md from final research state
     surveyor.py        — Background surveyor: maps the research landscape (one-shot)
-  prompts/             — Static .md system prompt files (one per agent): orchestrator.md, researcher.md, computer.md, verify_agent.md, deep_critic.md, compressor.md, formatter.md, surveyor.md, verifier.md (independent verify script)
+  prompts/             — Static .md system prompt files (one per agent): orchestrator.md, researcher.md, computer.md, reviewer.md, deep_critic.md, compressor.md, formatter.md, surveyor.md, verifier.md (independent verify script)
   providers/
     base.py            — LLMProvider ABC + ProviderResponse dataclass
     anthropic.py       — Anthropic Claude adapter

@@ -6,7 +6,7 @@ from sciralph.orchestrator_tools import OrchestratorToolExecutor
 from sciralph.research_state import (
     ResearchState, Hypothesis, HypothesisStatus, Verdict,
     Critique, Severity, CritiqueStatus, FailedApproach,
-    Evidence, VerificationResult,
+    Evidence, ReviewResult,
 )
 
 
@@ -38,34 +38,34 @@ def _make_state() -> ResearchState:
 
 
 def _make_state_with_verified(target: str = "WH-001") -> ResearchState:
-    """State with a VERIFIED verification result on *target*."""
+    """State with a VERIFIED review result on *target*."""
     state = _make_state()
-    state.hypotheses[target].verification = VerificationResult(
-        verdict=Verdict.VERIFIED, reasoning=f"Verified {target}", iteration=3,
+    state.hypotheses[target].review = ReviewResult(
+        verdict=Verdict.VERIFIED, summary=f"Verified {target}", iteration=3,
     )
     return state
 
 
 def _make_state_with_refuted(target: str = "WH-001") -> ResearchState:
-    """State with a REFUTED verification result on *target*."""
+    """State with a REFUTED review result on *target*."""
     state = _make_state()
-    state.hypotheses[target].verification = VerificationResult(
-        verdict=Verdict.REFUTED, reasoning=f"Refuted {target}", iteration=3,
+    state.hypotheses[target].review = ReviewResult(
+        verdict=Verdict.REFUTED, summary=f"Refuted {target}", iteration=3,
     )
     return state
 
 
 def _make_state_with_refuted_and_verified(target: str = "WH-001") -> ResearchState:
-    """State with a VERIFIED verification result on *target* (supersedes earlier refutation)."""
+    """State with a VERIFIED review result on *target* (supersedes earlier refutation)."""
     state = _make_state()
-    state.hypotheses[target].verification = VerificationResult(
-        verdict=Verdict.VERIFIED, reasoning=f"Verified {target} (corrected)", iteration=4,
+    state.hypotheses[target].review = ReviewResult(
+        verdict=Verdict.VERIFIED, summary=f"Verified {target} (corrected)", iteration=4,
     )
     return state
 
 
 def _make_state_with_high_critique(target: str = "WH-001") -> ResearchState:
-    """State with VERIFIED verification + unresolved HIGH critique targeting *target*."""
+    """State with VERIFIED review + unresolved HIGH critique targeting *target*."""
     state = _make_state_with_verified(target)
     state.critiques["CRIT-001"] = Critique(
         id="CRIT-001", targets=[target], severity=Severity.HIGH,
@@ -552,14 +552,14 @@ class TestSetNextTask:
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3)
         tc = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "priority": "high",
             "target_claim": "WH-001",
             "description": "Verify WH-001 numerically.",
         })
         assert not tc.is_error
         assert ex.task_data is not None
-        assert ex.task_data["task_type"] == "verify"
+        assert ex.task_data["task_type"] == "review"
         assert ex.task_data["target_claim"] == "WH-001"
 
     def test_sets_stop_after_round(self):
@@ -668,23 +668,23 @@ class TestDependencyGraph:
         assert "ER-002" in state.hypotheses
         assert state.hypotheses["ER-002"].promotion_justification == "Verified by COMP-001, dependency ER-001 established"
 
-    def test_promotion_blocked_without_verification_evidence(self):
-        """Promotion requires a VERIFIED verification result."""
+    def test_promotion_blocked_without_review_evidence(self):
+        """Promotion requires a VERIFIED review result."""
         ws = _make_workspace()
-        state = _make_state()  # no verification
+        state = _make_state()  # no review
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("promote_hypothesis", {
             "id": "WH-001",
             "justification": "Just because",
         })
-        assert "no VERIFIED verification" in tc.output
+        assert "no VERIFIED review" in tc.output
 
-    def test_promotion_allowed_with_verification_result(self):
-        """A VERIFIED verification result allows promotion."""
+    def test_promotion_allowed_with_review_result(self):
+        """A VERIFIED review result allows promotion."""
         ws = _make_workspace()
         state = _make_state()
-        state.hypotheses["WH-001"].verification = VerificationResult(
-            verdict=Verdict.VERIFIED, reasoning="Analytical verification passed", iteration=2,
+        state.hypotheses["WH-001"].review = ReviewResult(
+            verdict=Verdict.VERIFIED, summary="Analytical review passed", iteration=2,
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("promote_hypothesis", {
@@ -836,7 +836,7 @@ class TestTwoPhaseGate:
 
         # set_next_task in same round → rejected
         tc2 = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "target_claim": "WH-003",
             "description": "Verify new claim.",
         })
@@ -893,7 +893,7 @@ class TestTwoPhaseGate:
 
         # set_next_task still works
         tc3 = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "target_claim": "WH-003",
             "description": "Verify.",
         })
@@ -919,7 +919,7 @@ class TestTwoPhaseGate:
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         tc = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "target_claim": "WH-001",
             "description": "Verify.",
         })
@@ -937,7 +937,7 @@ class TestTwoPhaseGate:
         ex.execute("add_hypothesis", {"statement": "Claim"})
         # set_next_task in same response → rejected
         tc_reject = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "target_claim": "WH-003",
             "description": "Verify.",
         })
@@ -947,7 +947,7 @@ class TestTwoPhaseGate:
         # Phase 2: new response (begin_round clears mutations_this_round)
         ex.begin_round()
         tc_ok = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "target_claim": "WH-003",
             "description": "Verify.",
         })
@@ -963,11 +963,11 @@ class TestTwoPhaseGate:
 
         ex.execute("add_hypothesis", {"statement": "Claim"})
         tc1 = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "description": "First try.",
         })
         tc2 = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "description": "Second try.",
         })
         assert "Error" in tc1.output
@@ -987,7 +987,7 @@ class TestTwoPhaseGate:
         })
 
         tc = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "description": "Verify.",
         })
         assert "Error" in tc.output
@@ -1008,7 +1008,7 @@ class TestTwoPhaseGate:
         ex.begin_round()
         assert len(ex.mutations_this_round) == 0
         tc = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "target_claim": "WH-003",
             "description": "Verify.",
         })
@@ -1035,7 +1035,7 @@ class TestTwoPhaseGate:
             "section": "Conventions", "content": "Natural units.",
         })
         tc = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "target_claim": "WH-001",
             "description": "Verify.",
         })
@@ -1055,7 +1055,7 @@ class TestTargetClaimValidation:
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "target_claim": "WH-001",
             "description": "Verify.",
         })
@@ -1083,7 +1083,7 @@ class TestTargetClaimValidation:
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "target_claim": "WH-099",
             "description": "Verify.",
         })
@@ -1121,7 +1121,7 @@ class TestTargetClaimValidation:
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "description": "Verify something.",
         })
         assert "Task set" in tc.output
@@ -1131,7 +1131,7 @@ class TestTargetClaimValidation:
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
         tc = ex.execute("set_next_task", {
-            "task_type": "verify",
+            "task_type": "review",
             "target_claim": "WH-099",
             "description": "Verify.",
         })

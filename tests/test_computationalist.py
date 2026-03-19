@@ -64,8 +64,8 @@ class TestNewAgentImports:
         assert ComputerAgent.name == "computer"
 
     def test_verifier_agent_importable(self):
-        from sciralph.agents.verifier import VerifierAgent
-        assert VerifierAgent.name == "verifier"
+        from sciralph.agents.reviewer import ReviewerAgent
+        assert ReviewerAgent.name == "reviewer"
 
 
 class TestNewAgentTools:
@@ -85,10 +85,10 @@ class TestNewAgentTools:
         assert "submit_result" in names
 
     def test_verifier_has_tools(self):
-        from sciralph.agents.verifier import VerifierAgent
-        assert VerifierAgent.tools
-        names = {t["function"]["name"] for t in VerifierAgent.tools}
-        assert "submit_verdict" in names
+        from sciralph.agents.reviewer import ReviewerAgent
+        assert ReviewerAgent.tools
+        names = {t["function"]["name"] for t in ReviewerAgent.tools}
+        assert "submit_review" in names
 
     def test_critic_has_tools(self):
         from sciralph.agents.critic import CriticAgent

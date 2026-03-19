@@ -257,7 +257,7 @@ def run_agent_loop(
     ready_conclude_recovery_count = 0
     loop_exit_reason = "max_rounds"  # default; overridden on early exits
     # Resolve exit tool name for context-aware messages
-    _exit_tool = getattr(tool_executor, "exit_tool_name", "submit_verdict")
+    _exit_tool = getattr(tool_executor, "exit_tool_name", "submit_review")
     for round_num in range(1, max_rounds + 1):
         start = time.time()
         # Allow executor to dynamically switch tool set (e.g. after document_approach)
@@ -777,10 +777,10 @@ def _render_tool_input(name: str, input_data) -> str:
         purpose = input_data.get("purpose", "")
         purpose_line = f"**Purpose:** {purpose}\n\n" if purpose else ""
         return f"{purpose_line}~~~python\n{input_data['code']}\n~~~"
-    if name == "submit_verdict" and isinstance(input_data, dict):
+    if name == "submit_review" and isinstance(input_data, dict):
         verdict = input_data.get("verdict", "?")
-        claim = input_data.get("claim", "?")
-        return f"**Verdict: {verdict}** for {claim}"
+        summary = input_data.get("summary", "?")
+        return f"**Verdict: {verdict}** — {summary[:200]}"
     if name == "report_progress" and isinstance(input_data, dict):
         ready = "Yes" if input_data.get("ready_to_conclude") else "No"
         findings = input_data.get("findings_so_far", "?")

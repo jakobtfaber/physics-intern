@@ -71,11 +71,11 @@ class Evidence:
 
 
 @dataclass
-class VerificationResult:
-    """Verification result produced by the verifier agent."""
+class ReviewResult:
+    """Review result produced by the reviewer agent."""
     verdict: str = ""        # VERIFIED/REFUTED/INCONCLUSIVE
-    reasoning: str = ""
-    critiques: list[dict] = field(default_factory=list)
+    summary: str = ""
+    details: str = ""
     iteration: int | None = None
 
 
@@ -91,7 +91,7 @@ class Hypothesis:
     depends_on: list[str] = field(default_factory=list)
     promotion_justification: str = ""
     evidence: Evidence | None = None
-    verification: VerificationResult | None = None
+    review: ReviewResult | None = None
 
 
 @dataclass
@@ -167,11 +167,11 @@ class ResearchState:
     # --- Query methods ---
 
     def has_verified_evidence(self, hypothesis_id: str) -> bool:
-        """True if hypothesis has a VERIFIED verification result."""
+        """True if hypothesis has a VERIFIED review result."""
         h = self.hypotheses.get(hypothesis_id)
-        if not h or not h.verification:
+        if not h or not h.review:
             return False
-        return h.verification.verdict == Verdict.VERIFIED
+        return h.review.verdict == Verdict.VERIFIED
 
     def hypotheses_with_evidence(self) -> list[Hypothesis]:
         """Hypotheses that have evidence attached."""
@@ -349,13 +349,14 @@ class ResearchState:
                     confidence=edata.get("confidence", ""),
                     iteration=edata.get("iteration"),
                 )
-            verification = None
-            if hdata.get("verification"):
-                vdata = hdata["verification"]
-                verification = VerificationResult(
+            review = None
+            # Read "review" key, with backward-compat for legacy "verification"
+            vdata = hdata.get("review") or hdata.get("verification")
+            if vdata:
+                review = ReviewResult(
                     verdict=vdata.get("verdict", ""),
-                    reasoning=vdata.get("reasoning", ""),
-                    critiques=vdata.get("critiques", []),
+                    summary=vdata.get("summary", "") or vdata.get("reasoning", ""),
+                    details=vdata.get("details", ""),
                     iteration=vdata.get("iteration"),
                 )
             state.hypotheses[hid] = Hypothesis(
@@ -369,7 +370,7 @@ class ResearchState:
                 depends_on=hdata.get("depends_on", []),
                 promotion_justification=hdata.get("promotion_justification", ""),
                 evidence=evidence,
-                verification=verification,
+                review=review,
             )
         for crid, crdata in data.get("critiques", {}).items():
             state.critiques[crid] = Critique(

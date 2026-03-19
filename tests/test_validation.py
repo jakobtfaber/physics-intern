@@ -21,7 +21,7 @@ from sciralph.research_state import (
     RQStatus,
     Severity,
     Verdict,
-    VerificationResult,
+    ReviewResult,
 )
 
 
@@ -80,8 +80,8 @@ class TestErDemotionSafety:
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", statement="T = 1/(8piM)",
             status=HypothesisStatus.ESTABLISHED,
-            verification=VerificationResult(
-                verdict=Verdict.REFUTED, reasoning="Calculation error", iteration=1,
+            review=ReviewResult(
+                verdict=Verdict.REFUTED, summary="Calculation error", iteration=1,
             ),
         )
         violations = check_er_demotion_safety(state)
@@ -96,8 +96,8 @@ class TestErDemotionSafety:
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", statement="T = 1/(8piM)",
             status=HypothesisStatus.ESTABLISHED,
-            verification=VerificationResult(
-                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=2,
+            review=ReviewResult(
+                verdict=Verdict.VERIFIED, summary="Confirmed", iteration=2,
             ),
         )
         violations = check_er_demotion_safety(state)
@@ -117,8 +117,8 @@ class TestErDemotionSafety:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
-            verification=VerificationResult(
-                verdict=Verdict.REFUTED, reasoning="Failed", iteration=1,
+            review=ReviewResult(
+                verdict=Verdict.REFUTED, summary="Failed", iteration=1,
             ),
         )
         violations = check_er_demotion_safety(state)
@@ -143,8 +143,8 @@ class TestPhantomLabels:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", derivation="WH-001 is VERIFIED by computation.",
-            verification=VerificationResult(
-                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            review=ReviewResult(
+                verdict=Verdict.VERIFIED, summary="Confirmed", iteration=1,
             ),
         )
         violations = check_phantom_labels(state)
@@ -169,8 +169,8 @@ class TestStaleUnverifiedLabels:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", derivation="WH-001 is [unverified] pending verification.",
-            verification=VerificationResult(
-                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            review=ReviewResult(
+                verdict=Verdict.VERIFIED, summary="Confirmed", iteration=1,
             ),
         )
         violations = check_stale_unverified_labels(state)
@@ -275,8 +275,8 @@ class TestStrategyTerminationBlocking:
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-            verification=VerificationResult(
-                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            review=ReviewResult(
+                verdict=Verdict.VERIFIED, summary="Confirmed", iteration=1,
             ),
         )
         state.critiques["CRIT-001"] = Critique(
@@ -330,8 +330,8 @@ class TestCanTerminate:
         state = self._make_state()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-            verification=VerificationResult(
-                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            review=ReviewResult(
+                verdict=Verdict.VERIFIED, summary="Confirmed", iteration=1,
             ),
         )
         allowed, blockers = can_terminate(
@@ -345,8 +345,8 @@ class TestCanTerminate:
         state = self._make_state()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-            verification=VerificationResult(
-                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            review=ReviewResult(
+                verdict=Verdict.VERIFIED, summary="Confirmed", iteration=1,
             ),
         )
         allowed, blockers = can_terminate(
@@ -403,12 +403,12 @@ class TestCanTerminate:
         assert any("WH-002" in b for b in blockers)
 
     def test_blocks_wh_with_verified_backing(self):
-        """WH with VERIFIED verification should get specific promote/abandon message."""
+        """WH with VERIFIED review should get specific promote/abandon message."""
         state = self._make_state()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
-            verification=VerificationResult(
-                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=1,
+            review=ReviewResult(
+                verdict=Verdict.VERIFIED, summary="Confirmed", iteration=1,
             ),
         )
         allowed, blockers = can_terminate(
@@ -436,8 +436,8 @@ class TestCanTerminate:
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
             evidence=Evidence(type="compute", result="T=1/(8piM)", iteration=1),
-            verification=VerificationResult(
-                verdict=Verdict.VERIFIED, reasoning="Confirmed", iteration=2,
+            review=ReviewResult(
+                verdict=Verdict.VERIFIED, summary="Confirmed", iteration=2,
             ),
         )
         allowed, blockers = can_terminate(
@@ -447,8 +447,8 @@ class TestCanTerminate:
         )
         assert allowed
 
-    def test_wh_without_verification_gets_verify_message(self):
-        """WH without verification result should say 'emit verify', not 'promote'."""
+    def test_wh_without_verification_gets_review_message(self):
+        """WH without review result should say 'emit review', not 'promote'."""
         state = self._make_state()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -459,7 +459,7 @@ class TestCanTerminate:
             research_state=state,
         )
         assert not allowed
-        # Should say "verify", not "promote"
+        # Should say "review", not "promote"
         wh_blocker = [b for b in blockers if "WH-001" in b][0]
-        assert "verify" in wh_blocker.lower()
+        assert "review" in wh_blocker.lower()
         assert "promote_hypothesis" not in wh_blocker

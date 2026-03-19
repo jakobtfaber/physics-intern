@@ -13,7 +13,7 @@ import yaml
 class TaskType(StrEnum):
     RESEARCH = "research"
     COMPUTE = "compute"
-    VERIFY = "verify"
+    REVIEW = "review"
     CRITIQUE = "critique"
     TERMINATE = "terminate"
     FORMAT = "format"
@@ -23,7 +23,7 @@ class TaskType(StrEnum):
 TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
     TaskType.RESEARCH: "researcher",
     TaskType.COMPUTE: "computer",
-    TaskType.VERIFY: "verifier",
+    TaskType.REVIEW: "reviewer",
     TaskType.CRITIQUE: "deep_critic",
     TaskType.TERMINATE: "orchestrator",
     TaskType.FORMAT: "formatter",
@@ -99,7 +99,7 @@ class Task:
                 items = "\n".join(f"- {r}" for r in self.relevant_results)
                 parts.append(f"<relevant-results>\n{items}\n</relevant-results>")
         else:
-            # Verifier: include background only (orchestrator doubt context)
+            # Reviewer: include background only (orchestrator doubt context)
             if self.background:
                 parts.append(f"<background>\n{self.background}\n</background>")
         return "\n\n".join(parts)

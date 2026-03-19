@@ -1,4 +1,4 @@
-"""Verifier agent: adversarial verification of hypotheses."""
+"""Reviewer agent: strategic review of hypotheses."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ..llm import AgentResult, run_agent_loop
-from ..research_state import VerificationResult
-from ..verifier_tools import VerifierToolExecutor
+from ..research_state import ReviewResult
+from ..reviewer_tools import ReviewerToolExecutor
 from ..tools import ToolCall
 from .base import BaseAgent
 
@@ -16,17 +16,17 @@ if TYPE_CHECKING:
     from ..task import Task
 
 
-class VerifierAgent(BaseAgent):
-    name = "verifier"
-    prompt_file = "verify_agent.md"
-    tools = VerifierToolExecutor.TOOL_DEFINITIONS
+class ReviewerAgent(BaseAgent):
+    name = "reviewer"
+    prompt_file = "reviewer.md"
+    tools = ReviewerToolExecutor.TOOL_DEFINITIONS
 
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
-        self._tool_executor: VerifierToolExecutor | None = None
+        self._tool_executor: ReviewerToolExecutor | None = None
         self.research_state: ResearchState | None = None
 
-    # Maximum characters per script injected into verifier context
+    # Maximum characters per script injected into reviewer context
     _MAX_SCRIPT_CHARS = 8000
     # Maximum characters for evidence output
     _MAX_OUTPUT_CHARS = 6000
@@ -102,11 +102,8 @@ class VerifierAgent(BaseAgent):
         iteration: int,
         on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
     ) -> AgentResult:
-        """Run the verifier with verdict + critique tools."""
-        existing_count = 0
-        if self.research_state:
-            existing_count = self.research_state.next_critique_num() - 1
-        self._tool_executor = VerifierToolExecutor(existing_critique_count=existing_count)
+        """Run the reviewer with submit_review tool."""
+        self._tool_executor = ReviewerToolExecutor()
 
         result = run_agent_loop(
             system=self.system_prompt,
@@ -114,7 +111,7 @@ class VerifierAgent(BaseAgent):
             config=self.config,
             tool_executor=self._tool_executor,
             tools=self.tools,
-            max_rounds=min(self.config.max_tool_rounds, 4),
+            max_rounds=1,
             agent_name=self.name,
             iteration=iteration,
             on_round=on_round,
@@ -136,35 +133,34 @@ class VerifierAgent(BaseAgent):
         return result
 
     def process_response(self, response: AgentResult, task: Task, iteration: int):
-        """Store VerificationResult on the target hypothesis."""
+        """Store ReviewResult on the target hypothesis."""
         if not self._tool_executor:
             return
 
-        verdict_data = self._tool_executor.verdict_data
-        filed_critiques = self._tool_executor.filed_critiques
+        review_data = self._tool_executor.review_data
 
-        if verdict_data:
-            verification = VerificationResult(
-                verdict=verdict_data.get("verdict", "INCONCLUSIVE"),
-                reasoning=verdict_data.get("reasoning", ""),
-                critiques=filed_critiques,
+        if review_data:
+            review = ReviewResult(
+                verdict=review_data.get("verdict", "INCONCLUSIVE"),
+                summary=review_data.get("summary", ""),
+                details=review_data.get("details", ""),
                 iteration=iteration,
             )
         else:
-            verification = VerificationResult(
+            review = ReviewResult(
                 verdict="INCONCLUSIVE",
-                reasoning="Agent produced no submit_verdict call.",
-                critiques=filed_critiques,
+                summary="Agent produced no submit_review call.",
+                details="",
                 iteration=iteration,
             )
 
         # Store on target hypothesis
         if self.research_state:
             target_id = ""
-            if verdict_data:
-                target_id = verdict_data.get("target_id", "")
+            if review_data:
+                target_id = review_data.get("target_id", "")
             if not target_id:
                 target_id = task.target_claim
 
             if target_id and target_id in self.research_state.hypotheses:
-                self.research_state.hypotheses[target_id].verification = verification
+                self.research_state.hypotheses[target_id].review = review

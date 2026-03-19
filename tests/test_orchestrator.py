@@ -17,7 +17,7 @@ from sciralph.research_state import (
     ResearchState,
     Severity,
     Verdict,
-    VerificationResult,
+    ReviewResult,
 )
 from sciralph.task import Task, TaskType
 from sciralph.workspace import WorkspaceManager
@@ -43,8 +43,8 @@ def orchestrator(workspace):
 
 TASK_TEXT = """---
 task_id: TASK-002
-task_type: verify
-assigned_to: verifier
+task_type: review
+assigned_to: reviewer
 priority: high
 iteration: 2
 ---
@@ -59,7 +59,7 @@ class TestParseTask:
     def test_bare_text(self, orchestrator):
         task = orchestrator.parse_task(TASK_TEXT)
         assert task.task_id == "TASK-002"
-        assert task.task_type == "verify"
+        assert task.task_type == "review"
 
     def test_parse_task_missing_id_uses_engine_iteration(self, orchestrator):
         text = "---\ntask_type: research\nassigned_to: researcher\npriority: high\n---\nDo something."
@@ -68,7 +68,7 @@ class TestParseTask:
         assert task.iteration == 7
 
     def test_parse_task_present_id_preferred(self, orchestrator):
-        text = "---\ntask_id: TASK-042\ntask_type: verify\nassigned_to: verifier\npriority: high\niteration: 42\n---\nVerify."
+        text = "---\ntask_id: TASK-042\ntask_type: review\nassigned_to: reviewer\npriority: high\niteration: 42\n---\nVerify."
         task = orchestrator.parse_task(text, iteration=5)
         assert task.task_id == "TASK-042"
         assert task.iteration == 42

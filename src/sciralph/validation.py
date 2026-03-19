@@ -50,13 +50,13 @@ def check_er_demotion_safety(research_state: ResearchState) -> list[Violation]:
         if not hid.startswith("ER-"):
             continue
         # Check for REFUTED verification without a superseding VERIFIED
-        if h.verification and h.verification.verdict == Verdict.REFUTED:
+        if h.review and h.review.verdict == Verdict.REFUTED:
             new_id = research_state.demote_hypothesis(hid)
             if new_id:
                 violations.append(Violation(
                     check="er_demotion_safety",
                     severity=ViolationSeverity.WARNING,
-                    message=f"{hid} has REFUTED verification — demoted to {new_id}",
+                    message=f"{hid} has REFUTED review — demoted to {new_id}",
                     detail=hid,
                 ))
 
@@ -67,10 +67,10 @@ def check_phantom_labels(research_state: ResearchState) -> list[Violation]:
     """Strip unsubstantiated VERIFIED labels from hypothesis derivations."""
     violations: list[Violation] = []
 
-    # Build set of hypothesis IDs that have VERIFIED verification
+    # Build set of hypothesis IDs that have VERIFIED review
     verified_ids: set[str] = set()
     for hid, h in research_state.hypotheses.items():
-        if h.verification and h.verification.verdict == Verdict.VERIFIED:
+        if h.review and h.review.verdict == Verdict.VERIFIED:
             verified_ids.add(hid)
 
     for hid, h in research_state.hypotheses.items():
@@ -103,10 +103,10 @@ def check_stale_unverified_labels(research_state: ResearchState) -> list[Violati
     """Promote [unverified] labels to VERIFIED when backed by verification."""
     violations: list[Violation] = []
 
-    # Build set of hypothesis IDs that have VERIFIED verification
+    # Build set of hypothesis IDs that have VERIFIED review
     verified_ids: set[str] = set()
     for hid, h in research_state.hypotheses.items():
-        if h.verification and h.verification.verdict == Verdict.VERIFIED:
+        if h.review and h.review.verdict == Verdict.VERIFIED:
             verified_ids.add(hid)
             # Also add the ER form if WH was verified and has been promoted
             if hid.startswith("WH-"):
@@ -253,7 +253,7 @@ def can_terminate(
 
     # Gate 1: At least one critic pass if verified results exist
     has_verified = any(
-        h.verification and h.verification.verdict == Verdict.VERIFIED
+        h.review and h.review.verdict == Verdict.VERIFIED
         for h in research_state.hypotheses.values()
     )
     if has_verified and metrics.last_critic_iteration == 0:
@@ -296,16 +296,16 @@ def can_terminate(
 
     for h in research_state.hypotheses.values():
         if h.status == HypothesisStatus.WORKING:
-            if h.verification and h.verification.verdict == Verdict.VERIFIED:
+            if h.review and h.review.verdict == Verdict.VERIFIED:
                 blockers.append(
-                    f"{h.id} has VERIFIED verification but was not promoted. "
+                    f"{h.id} has VERIFIED review but was not promoted. "
                     f"Call promote_hypothesis(id=\"{h.id}\") or "
                     f"abandon_hypothesis(id=\"{h.id}\") before terminating."
                 )
             else:
                 blockers.append(
-                    f"{h.id} has no VERIFIED verification. "
-                    f"Emit task_type: verify targeting {h.id}, "
+                    f"{h.id} has no VERIFIED review. "
+                    f"Emit task_type: review targeting {h.id}, "
                     f"or call abandon_hypothesis(id=\"{h.id}\"), before terminating."
                 )
 

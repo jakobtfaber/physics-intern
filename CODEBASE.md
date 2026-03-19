@@ -20,7 +20,7 @@
 
 ## 1. Architecture Overview
 
-SciRalph is a multi-agent scaffolding system for autonomous scientific research in theoretical physics. Seven agent roles take turns in a main loop: researcher (analytical reasoning), computer (code execution), verifier (adversarial verification), deep critic (strategy review), surveyor, compressor, and formatter. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. LLM calls go through a provider abstraction layer supporting Anthropic, OpenAI, Google Gemini, and HuggingFace.
+SciRalph is a multi-agent scaffolding system for autonomous scientific research in theoretical physics. Seven agent roles take turns in a main loop: researcher (analytical reasoning), computer (code execution), reviewer (adversarial review), deep critic (strategy review), surveyor, compressor, and formatter. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. LLM calls go through a provider abstraction layer supporting Anthropic, OpenAI, Google Gemini, and HuggingFace.
 
 ```
                         ┌──────────────────┐
@@ -45,7 +45,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
      ┌────────▼────────────────▼───────────────────┐
      │                   Agents                     │
      │  orchestrator    researcher                  │
-     │  computer        verifier                    │
+     │  computer        reviewer                    │
      │  critic          compressor                  │
      │  formatter       surveyor                    │
      └─────────────────────────────────────────────┘
@@ -59,7 +59,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 
      ┌─────────────────────────────────────────────┐
      │  orchestrator_tools.py  tools.py             │
-     │  verifier_tools.py  critic_tools.py          │
+     │  reviewer_tools.py  critic_tools.py          │
      │  (Tool executors for agentic agents)         │
      └─────────────────────────────────────────────┘
 
@@ -80,10 +80,10 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 
 - **ResearchState as source of truth.** All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`). Agents mutate state via tool calls, then Markdown files (`RESEARCH_STATE.md`, `EVIDENCE_LOG.md`, `CRITIQUE_LOG.md`) are rendered from the state for git snapshots and agent context.
 - **Fresh context per call.** Agents are stateless — each call starts from a fresh context built from the current state. No conversation history is carried between iterations.
-- **Three specialized work agents.** Researcher (analytical, no code), Computer (code execution), and Verifier (adversarial verification, no code). Each has a focused prompt, tool set, and context view.
-- **Evidence inlined on entities.** Rather than a separate `Computation` entity, evidence is inlined as `Evidence` on `Hypothesis` and `ResearchQuestion`, and verification is inlined as `VerificationResult` on `Hypothesis`.
+- **Three specialized work agents.** Researcher (analytical, no code), Computer (code execution), and Reviewer (adversarial review, no code). Each has a focused prompt, tool set, and context view.
+- **Evidence inlined on entities.** Rather than a separate `Computation` entity, evidence is inlined as `Evidence` on `Hypothesis` and `ResearchQuestion`, and review is inlined as `ReviewResult` on `Hypothesis`.
 - **Mandatory critic passes.** The scaffold forces critic reviews every N iterations, regardless of agent judgment.
-- **Tool-based state mutation.** Five agents are agentic — orchestrator (11 tools via `OrchestratorToolExecutor`), researcher (2 tools via `ToolExecutor`), computer (4 tools via `ToolExecutor`, with dynamic tool switching via `active_tools`), verifier (3 tools via `VerifierToolExecutor`), and critic (2 tools via `CriticToolExecutor`). Tool calls use the `stop_after_round` mechanism to signal completion.
+- **Tool-based state mutation.** Five agents are agentic — orchestrator (11 tools via `OrchestratorToolExecutor`), researcher (2 tools via `ToolExecutor`), computer (4 tools via `ToolExecutor`, with dynamic tool switching via `active_tools`), reviewer (1 tool via `ReviewerToolExecutor`, one-turn), and critic (2 tools via `CriticToolExecutor`). Tool calls use the `stop_after_round` mechanism to signal completion.
 - **Provider-agnostic.** LLM calls go through a `providers/` abstraction layer. Model selection is resolved via `models.yaml` registry (friendly key → provider + model_id + env_key + cost). The `verify.py` script is Anthropic-only.
 
 ### Source file map
@@ -92,10 +92,10 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 |------|------:|---------|
 | `main.py` | 82 | CLI entry point, arg parsing, workspace naming (includes model label in dir name) |
 | `engine.py` | 758 | `SciRalph` class, `LoopState` dataclass: main loop, dispatch, `_render_files_for_git()`, compression, scaffolding log events |
-| `research_state.py` | 480 | `ResearchState` dataclass: authoritative structured state (hypotheses with evidence/verification, research_questions, critiques, failed_approaches), query/mutation methods, JSON serialization |
+| `research_state.py` | 480 | `ResearchState` dataclass: authoritative structured state (hypotheses with evidence/review, research_questions, critiques, failed_approaches), query/mutation methods, JSON serialization |
 | `renderers.py` | 351 | Snapshot renderers (state → `RESEARCH_STATE.md`, `EVIDENCE_LOG.md`, `CRITIQUE_LOG.md`) + `render_background_survey()` helper |
 | `orchestrator_tools.py` | 912 | `OrchestratorToolExecutor`: 11 state-mutation tools for orchestrator agent |
-| `verifier_tools.py` | 207 | `VerifierToolExecutor`: `submit_verdict` + `submit_critique` + `report_progress` tools for verifier agent |
+| `reviewer_tools.py` | 207 | `ReviewerToolExecutor`: `submit_review` tool for reviewer agent |
 | `critic_tools.py` | 154 | `CriticToolExecutor`: `submit_critique` + `finish_review` tools for critic agent |
 | `tools.py` | 478 | `ToolExecutor`, `ToolCall`, `execute_python` + `document_approach` + `submit_result` + `report_progress` tool schemas; `tools_for_task_type()`; `active_tools` property for dynamic tool switching |
 | `categories.py` | 10 | `CompensationCategory` enum (call_reliability, state_invariants, loop_control, output_normalization) |
@@ -114,7 +114,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `agents/orchestrator.py` | 190 | Agentic: state mutation via `OrchestratorToolExecutor`, emits `CURRENT_TASK.md` |
 | `agents/researcher.py` | 98 | Agentic: analytical reasoning via `ToolExecutor` (submit_result + report_progress); writes `Evidence` on target entity |
 | `agents/computer.py` | 118 | Agentic: code execution via `ToolExecutor` (document_approach + execute_python + submit_result + report_progress); writes `Evidence` on target entity |
-| `agents/verifier.py` | 156 | Agentic: adversarial verification via `VerifierToolExecutor` (submit_verdict + submit_critique + report_progress); writes `VerificationResult` on target hypothesis |
+| `agents/reviewer.py` | 156 | One-turn: adversarial review via `ReviewerToolExecutor` (submit_review); writes `ReviewResult` on target hypothesis |
 | `agents/critic.py` | 147 | Agentic: strategy/direction review via `CriticToolExecutor`, writes `Critique` objects to `ResearchState` |
 | `agents/compressor.py` | 27 | One-shot: file size management |
 | `agents/formatter.py` | 43 | One-shot: produces `ANSWER.md` from final research state |
@@ -163,14 +163,14 @@ The loop runs `while self.iteration < self.config.max_iterations`, incrementing 
 │        └─ Allowed → run formatter → set status completed → break     │
 │        └─ Blocked → continue (blockers shown next pass)              │
 │                                                                      │
-│  6. DISPATCH to researcher / computer / verifier / critic / formatter│
+│  6. DISPATCH to researcher / computer / reviewer / critic / formatter│
 │     └─ Wrapped in try/except for transient API errors                │
 │     └─ _record_agent_failures(): capture max_tokens/max_rounds/etc.  │
 │                                                                      │
 │  7. POST-DISPATCH CHECKS                                             │
 │     └─ _track_agent_result(): for RESEARCH/COMPUTE checks evidence   │
 │        on target entity → pending_explore_results;                   │
-│        for VERIFY checks h.verification →                            │
+│        for REVIEW checks h.review →                            │
 │        VERIFIED → pending_verified_results,                          │
 │        non-VERIFIED → pending_compute_verdicts                       │
 │     └─ _record_agent_failures(): max_tokens/max_rounds detection     │
@@ -195,7 +195,7 @@ Two hooks run inline in `run()` before dispatch, replacing the old override chai
 | Forced critic | `_critic_overdue()` — more than `critic_every_n` since last critic AND new content exists | Skip orchestrator entirely, dispatch critic directly (saves an LLM call) |
 | Compute enrichment | `_enrich_compute_task_with_prior_failures()` — COMPUTE task with prior failures on same claim | Append failure excerpts to task body |
 
-Non-VERIFIED verification verdicts are no longer auto-recomputed. Instead they are stored in `pending_compute_verdicts` (with `notes` and `failure_detail`) and rendered as a VERIFICATION RESULTS banner in the orchestrator's next context. VERIFIED verdicts go to `pending_verified_results` and render as a VERIFIED HYPOTHESES banner. Evidence results from researcher/computer go to `pending_explore_results` and render as an EVIDENCE RESULTS banner. The orchestrator decides what to do (re-verify, re-derive, promote, or accept provisionally). Stall warnings appear when attempts reach `stall_recompute_limit`.
+Non-VERIFIED review verdicts are no longer auto-recomputed. Instead they are stored in `pending_compute_verdicts` (with `notes` and `failure_detail`) and rendered as a REVIEW RESULTS banner in the orchestrator's next context. VERIFIED verdicts go to `pending_verified_results` and render as a VERIFIED HYPOTHESES banner. Evidence results from researcher/computer go to `pending_explore_results` and render as an EVIDENCE RESULTS banner. The orchestrator decides what to do (re-review, re-derive, promote, or accept provisionally). Stall warnings appear when attempts reach `stall_recompute_limit`.
 
 ### Termination paths
 
@@ -216,7 +216,7 @@ Dispatch follows `TASK_TYPE_AGENT_MAP` (in `task.py`):
 |----------|-------|-------|
 | `research` | `researcher` | Analytical exploration and derivation; stores `Evidence` on target entity |
 | `compute` | `computer` | Computational work via code; stores `Evidence` on target entity |
-| `verify` | `verifier` | Adversarial verification; stores `VerificationResult` on target hypothesis |
+| `review` | `reviewer` | Adversarial review; stores `ReviewResult` on target hypothesis |
 | `critique` | `deep_critic` | Strategy/direction review; post-dispatch: `_no_critiques_filed` detection |
 | `format` | `formatter` | Dispatched automatically on successful termination |
 | `terminate` | `orchestrator` | Handled by engine termination gate |
@@ -247,9 +247,9 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Five agents are agentic: orchestrator (11 tools via `OrchestratorToolExecutor`), researcher (2 tools via `ToolExecutor`), computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching), verifier (3 tools via `VerifierToolExecutor`), and critic (2 tools via `CriticToolExecutor`). Three agents are one-shot: surveyor, compressor, and formatter.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Five agents are agentic: orchestrator (11 tools via `OrchestratorToolExecutor`), researcher (2 tools via `ToolExecutor`), computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching), reviewer (1 tool via `ReviewerToolExecutor`, one-turn), and critic (2 tools via `CriticToolExecutor`). Three agents are one-shot: surveyor, compressor, and formatter.
 
-All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_verdict`, `submit_result`, `finish_review`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`.
+All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_review`, `submit_result`, `finish_review`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`.
 
 **No retry on truncation:** `_call_with_retry` returns immediately when `stop_reason == "max_tokens"` (no retries). The engine's `_record_agent_failures()` detects the truncation and injects a CAPACITY EXCEEDED banner into the orchestrator's next context via `_build_context_prefix()`, prompting task decomposition.
 
@@ -259,8 +259,8 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **Entity dataclasses:**
 - `Evidence` — `type` ("research" or "compute"), `reasoning`, `approach` (computer's document_approach output), `scripts` (list of script filenames), `output` (code execution output summary), `method`, `result`, `confidence` (exact/approximate/partial), `iteration`. Inlined on `Hypothesis` and `ResearchQuestion`.
-- `VerificationResult` — `verdict` (VERIFIED/REFUTED/INCONCLUSIVE), `reasoning`, `critiques` (list of dicts from verifier's submit_critique calls), `iteration`. Inlined on `Hypothesis`.
-- `Hypothesis` — `id`, `statement`, `status` (`HypothesisStatus`: WORKING/ESTABLISHED/REFUTED/ABANDONED), `derivation`, `critiques` (list of CRIT IDs), `iteration_created`, `iteration_modified`, `depends_on` (list of hypothesis IDs), `promotion_justification`, `evidence: Evidence | None`, `verification: VerificationResult | None`
+- `ReviewResult` — `verdict` (VERIFIED/REFUTED/INCONCLUSIVE), `summary`, `details`, `iteration`. Inlined on `Hypothesis`.
+- `Hypothesis` — `id`, `statement`, `status` (`HypothesisStatus`: WORKING/ESTABLISHED/REFUTED/ABANDONED), `derivation`, `critiques` (list of CRIT IDs), `iteration_created`, `iteration_modified`, `depends_on` (list of hypothesis IDs), `promotion_justification`, `evidence: Evidence | None`, `review: ReviewResult | None`
 - `ResearchQuestion` — `id` (RQ-NNN), `question`, `context`, `resolved_to` (list of hypothesis IDs), `status` (`RQStatus`: OPEN/RESOLVED/ABANDONED), `iteration_created`, `iteration_resolved`, `resolution_reason`, `evidence: Evidence | None`
 - `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `iteration_filed`, `iteration_resolved`
 - `FailedApproach` — `description`, `reason`, `related_entities`, `iteration`, `derivation_excerpt`
@@ -277,7 +277,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **Snapshot renderers** (produce full Markdown files from state):
 - `render_research_state_md(state)` → `RESEARCH_STATE.md` (problem statement, conventions, WH/ER sections, dead ends, open questions)
-- `render_evidence_log_md(state)` → `EVIDENCE_LOG.md` (evidence and verification on hypotheses, sorted by iteration)
+- `render_evidence_log_md(state)` → `EVIDENCE_LOG.md` (evidence and review on hypotheses, sorted by iteration)
 - `render_critique_log_md(state)` → `CRITIQUE_LOG.md` (active/resolved/withdrawn sections with frontmatter counts)
 
 **Helpers:** `render_background_survey(state)` — returns the background survey section as a string.
@@ -292,7 +292,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `add_hypothesis` — creates new WH-NNN in state, auto-assigns ID; optional `from_rq` param links to originating RQ (copies evidence from RQ)
 - `update_hypothesis` — updates statement/derivation for existing WH/ER
 - `abandon_hypothesis` — marks as ABANDONED, records in `failed_approaches`
-- `promote_hypothesis` — promotes WH → ER with guardrails (requires `h.verification.verdict == "VERIFIED"`, no HIGH-severity verifier critiques, no unresolved HIGH deep critic critiques, blocks on unestablished `depends_on`)
+- `promote_hypothesis` — promotes WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, no unresolved HIGH deep critic critiques, blocks on unestablished `depends_on`)
 - `resolve_critique` — marks critique as RESOLVED with resolution text
 - `update_section` — replaces content of Conventions, Strategy, or Situation Assessment
 - `append_note` — appends a research note to `research_notes` list
@@ -302,13 +302,13 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `set_next_task` — emits next task with structured dispatch params (background, method_hints, assumptions, relevant_results); triggers `stop_after_round` to end agent loop
 
 **Context (largest in the system):**
-- `context_prefix` from engine — violations, termination blockers, evidence results, verified hypotheses, verification results, agent failures (6 consumed-once banners)
+- `context_prefix` from engine — violations, termination blockers, evidence results, verified hypotheses, review results, agent failures (6 consumed-once banners)
 - Completion analysis banner (if ER count sufficient, or budget pressure) — includes synthesis instruction
 - Full research state, critique log, and metrics — all rendered from `self.research_state` via renderers (not from file reads)
 
 **Output processing:** Only processes if `_tool_executor.mutations_applied` is true. Writes `CURRENT_TASK.md` from `set_next_task` tool data. (MD files are rendered centrally by the engine's `_render_files_for_git()`, not by individual agents.)
 
-**Prompt rules (key):** COMPUTE-FIRST (new hypotheses get verification before critique); converged derivation → move to verification; stall loops → escalate or downgrade; LOW critiques don't block promotion.
+**Prompt rules (key):** COMPUTE-FIRST (new hypotheses get review before critique); converged derivation → move to review; stall loops → escalate or downgrade; LOW critiques don't block promotion.
 
 #### Researcher (`agents/researcher.py`)
 
@@ -345,24 +345,22 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - Never widen tolerance on failure → result must be INCONCLUSIVE
 - Execution errors → INCONCLUSIVE, never REFUTED
 
-#### Verifier (`agents/verifier.py` + `verifier_tools.py`)
+#### Reviewer (`agents/reviewer.py` + `reviewer_tools.py`)
 
-**Role:** Adversarial verification of hypotheses. Gets **focused context** (WH + evidence + light state), not the full research state.
+**Role:** Adversarial review of hypotheses. One-turn agent (max_rounds=1). Gets **focused context** (WH + evidence + light state), not the full research state.
 
-**Tools** (3, via `VerifierToolExecutor`):
-- `submit_verdict` — final verification verdict with target_id, verdict (VERIFIED/REFUTED/INCONCLUSIVE), reasoning, notes. Sets `stop_after_round = True`. Verifier critique IDs use `VCRIT-NNN` prefix.
-- `submit_critique` — files a critique with severity/argument during verification. Does NOT stop (can file multiple critiques before verdict). Auto-increments VCRIT-NNN.
-- `report_progress` — progress check. Does NOT stop.
+**Tools** (1, via `ReviewerToolExecutor`):
+- `submit_review` — review with target_id, verdict (VERIFIED/REFUTED/INCONCLUSIVE), summary, details. Sets `stop_after_round = True`.
 
-**Context (focused, not full state):** `CURRENT_TASK.md` + claim under verification (statement, derivation) + evidence (type, approach, method, result, scripts, output, reasoning, confidence) + originating RQ (if any) + light established context (ER list) + conventions.
+**Context (focused, not full state):** `CURRENT_TASK.md` + claim under review (statement, derivation) + evidence (type, approach, method, result, scripts, output, reasoning, confidence) + originating RQ (if any) + light established context (ER list) + conventions.
 
-**Output processing:** Builds `VerificationResult` from `submit_verdict` tool data (or fallback INCONCLUSIVE). Stores verification on the target hypothesis in `research_state`. Filed critiques are included in the `VerificationResult.critiques` list.
+**Output processing:** Builds `ReviewResult` from `submit_review` tool data (or fallback INCONCLUSIVE). Stores review on the target hypothesis in `research_state`.
 
 **3-valued verdict system:** VERIFIED / REFUTED / INCONCLUSIVE
 
 #### Deep Critic (`agents/critic.py` + `critic_tools.py`)
 
-**Role:** Strategy and direction review via agentic tool-use. Refocused on **strategy/direction only**, not per-claim verification (which is handled by the verifier). Files structured critiques, never suggests fixes.
+**Role:** Strategy and direction review via agentic tool-use. Refocused on **strategy/direction only**, not per-claim review (which is handled by the reviewer). Files structured critiques, never suggests fixes.
 
 **Tools** (2, via `CriticToolExecutor`):
 - `submit_critique` — files a critique with severity/target_id/argument; auto-increments CRIT-NNN; does NOT stop the loop (can file multiple critiques)
@@ -434,7 +432,7 @@ Two calling patterns:
 
 **`call_llm`** — stateless one-shot. Uses `_call_provider_with_retry()` for API resilience. Returns `LLMResponse(text, input_tokens, output_tokens, stop_reason, duration)`. Used by surveyor, compressor, formatter.
 
-**`run_agent_loop`** — stateful multi-turn. Maintains a growing `messages` list across rounds. Each round: LLM response → tool extraction → tool executor's `execute()` → tool result fed back. Checks `tool_executor.active_tools` each round for dynamic tool switching (used by computer agent to remove `document_approach` after first call). Returns `AgentResult(text, tool_calls, total_input/output_tokens, rounds, truncated, duration, stop_reason)`. Used by orchestrator, researcher, computer, verifier, and critic. On `max_rounds` exhaustion or `tool_call_failure`, forces a single text-only final call via agent-agnostic user message (system prompt unchanged); empty text is honest failure (no synthesis fallback). Agent-agnostic warnings at `max_rounds-2` and `max_rounds-1` (no agent-specific format references).
+**`run_agent_loop`** — stateful multi-turn. Maintains a growing `messages` list across rounds. Each round: LLM response → tool extraction → tool executor's `execute()` → tool result fed back. Checks `tool_executor.active_tools` each round for dynamic tool switching (used by computer agent to remove `document_approach` after first call). Returns `AgentResult(text, tool_calls, total_input/output_tokens, rounds, truncated, duration, stop_reason)`. Used by orchestrator, researcher, computer, reviewer, and critic. On `max_rounds` exhaustion or `tool_call_failure`, forces a single text-only final call via agent-agnostic user message (system prompt unchanged); empty text is honest failure (no synthesis fallback). Agent-agnostic warnings at `max_rounds-2` and `max_rounds-1` (no agent-specific format references).
 
 Both paths go through `_call_provider_with_retry()` which wraps every provider call in an exponential-backoff retry loop (see §7 for details).
 
@@ -442,7 +440,7 @@ Both paths go through `_call_provider_with_retry()` which wraps every provider c
 - JSONL event entry in `EVENT_LOG.jsonl` via `log_llm_call()` (metadata only, no prompts; includes round number for tool-use and per-call cost; `kind: "llm_call"`)
 - Full conversation log in `logs/iter{NNN}_{agent}_{seq}.md` (system prompt + context + response)
 
-### Tool execution (`tools.py`, `orchestrator_tools.py`, `verifier_tools.py`, `critic_tools.py`)
+### Tool execution (`tools.py`, `orchestrator_tools.py`, `reviewer_tools.py`, `critic_tools.py`)
 
 Four tool executors, one per agentic agent type:
 
@@ -462,7 +460,7 @@ For `COMPUTE`:
 1. **`add_hypothesis`** — creates new WH-NNN in `ResearchState`; optional `from_rq` links to originating RQ (copies evidence)
 2. **`update_hypothesis`** — updates statement/derivation
 3. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
-4. **`promote_hypothesis`** — WH → ER with guardrails (requires `h.verification.verdict == "VERIFIED"`, HIGH critique checks from both verifier and deep critic, dependency checks)
+4. **`promote_hypothesis`** — WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, HIGH critique checks from deep critic, dependency checks)
 5. **`resolve_critique`** — marks CRIT-NNN as RESOLVED with resolution text
 6. **`update_section`** — replaces Conventions, Strategy, or Situation Assessment content
 7. **`append_note`** — appends to `research_notes` list
@@ -473,12 +471,10 @@ For `COMPUTE`:
 
 Tracks `mutations_applied` (bool) and `resolved_critique_ids` (set) for `process_response` to use.
 
-**`VerifierToolExecutor`** (verifier) — 3 verification tools:
-1. **`submit_verdict`** — final verdict with target_id, verdict, reasoning, notes; sets `stop_after_round = True`
-2. **`submit_critique`** — files critique with severity/argument during verification; auto-increments VCRIT-NNN; does NOT stop
-3. **`report_progress`** — progress check; does NOT stop
+**`ReviewerToolExecutor`** (reviewer) — 1 review tool:
+1. **`submit_review`** — review with target_id, verdict, summary, details; sets `stop_after_round = True`
 
-Accumulates `verdict_data` (dict) and `filed_critiques` (list) for `process_response` to convert into `VerificationResult`.
+Accumulates `review_data` (dict) for `process_response` to convert into `ReviewResult`.
 
 **`CriticToolExecutor`** (critic) — 2 review tools:
 1. **`submit_critique`** — files critique with severity/target_id/argument; auto-increments CRIT-NNN; does NOT stop
@@ -564,7 +560,7 @@ workspaces/<run>/
            │
            ├──► Researcher/Computer store Evidence on entities
            │
-           ├──► Verifier stores VerificationResult on hypotheses
+           ├──► Reviewer stores ReviewResult on hypotheses
            │
            ├──► Critic adds Critique objects
            │
@@ -581,9 +577,9 @@ A claim advances through this lifecycle:
 1. **Research Question (RQ-NNN)** — orchestrator creates via `add_research_question` for open-ended exploration
 2. **Explore** — `researcher` or `computer` investigates the question → `submit_result` → `Evidence` stored on RQ
 3. **Working Hypothesis (WH-NNN)** — orchestrator calls `add_hypothesis` (optionally with `from_rq` to link to originating RQ and copy evidence), creates `Hypothesis` with status WORKING. Direct WH creation (skipping RQ) is allowed when the claim is already concrete.
-4. **Verify** — `verifier` examines WH + evidence → `submit_verdict` → `VerificationResult` stored on hypothesis (VERIFIED / REFUTED / INCONCLUSIVE); may also file critiques via `submit_critique`
+4. **Review** — `reviewer` examines WH + evidence → `submit_review` → `ReviewResult` stored on hypothesis (VERIFIED / REFUTED / INCONCLUSIVE)
 5. **Critique** — deep critic reviews strategy/direction via `submit_critique` tool, files objections
-6. **Established Result (ER-NNN)** — orchestrator calls `promote_hypothesis` tool with guardrails: (a) `h.verification.verdict == "VERIFIED"`, (b) no HIGH-severity verifier critiques, (c) no unresolved HIGH deep critic critiques, (d) all `depends_on` entries are already established
+6. **Established Result (ER-NNN)** — orchestrator calls `promote_hypothesis` tool with guardrails: (a) `h.review.verdict == "VERIFIED"`, (b) no unresolved HIGH deep critic critiques, (c) all `depends_on` entries are already established
 7. **Termination** — orchestrator emits `terminate` task → `can_terminate()` gates → formatter produces `ANSWER.md`
 
 ---
@@ -640,7 +636,7 @@ All scaffolding interventions and LLM call metadata are recorded in a single fil
 Each entry is a single JSON line with a `kind` field discriminating the event type:
 
 ```json
-{"kind": "scaffold", "ts": "2026-03-13T14:22:01+00:00", "iter": 5, "category": "state_invariants", "event": "er_demotion", "detail": "ER-003 → WH-003 (REFUTED verification)"}
+{"kind": "scaffold", "ts": "2026-03-13T14:22:01+00:00", "iter": 5, "category": "state_invariants", "event": "er_demotion", "detail": "ER-003 → WH-003 (REFUTED review)"}
 {"kind": "llm_call", "ts": "2026-03-13T14:22:03+00:00", "iter": 5, "agent": "computer", "model": "claude-sonnet-4-6", "input_tokens": 12340, "output_tokens": 1890, "cost": 0.042, "round": 3}
 ```
 
@@ -653,7 +649,7 @@ Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter
 | `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `progress_check`, `forced_final_call`, `forced_final_call_failed`, `empty_end_turn_fallthrough`, `tool_timeout`, `tool_output_truncation` |
 | `state_invariants` | All `Violation.check` values from validation checks (e.g. `er_demotion_safety`, `phantom_labels`, `stale_unverified_labels`, `critique_resolution_consistency`) |
 | `loop_control` | `forced_critic`, `compute_enrichment`, `termination_blocked`, `dispatch_failure`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry` |
-| `output_normalization` | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened`, `preamble_stripped`, `critique_self_retracted`, `empty_response_stub`, `header_injected`, `claim_id_injected`, `submit_verdict_text_extracted` |
+| `output_normalization` | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened`, `preamble_stripped`, `critique_self_retracted`, `empty_response_stub`, `header_injected`, `claim_id_injected`, `submit_review_text_extracted` |
 
 **Quick analysis:**
 
@@ -691,9 +687,9 @@ These mechanisms prevent agentic agents from wasting rounds or producing empty o
 | Mechanism | Trigger | Action |
 |-----------|---------|--------|
 | Progress check injection | N consecutive `execute_python` rounds without `report_progress` (`progress_check_interval`, default 3) | Inject user-turn message requiring `report_progress` tool call; fires again at 2N, 3N, etc. if model ignores |
-| Two-round escalating warning | At `max_rounds - 2`: warning; at `max_rounds - 1`: CRITICAL | Inject agent-agnostic user-turn messages with escalating urgency (no agent-specific format references); mentions `submit_verdict` as preferred exit |
+| Two-round escalating warning | At `max_rounds - 2`: warning; at `max_rounds - 1`: CRITICAL | Inject agent-agnostic user-turn messages with escalating urgency (no agent-specific format references); mentions `submit_review` as preferred exit |
 | Forced text-only final call | Loop exits via max rounds or tool-call failure | Single forced text-only call via agent-agnostic user message (system prompt unchanged), `tools` omitted, stop_reason set to `max_rounds_forced`; empty text is honest failure (no synthesis fallback) |
-| `submit_verdict` / `submit_result` structured exit | Model calls exit tool | Structured data bypasses free-text generation; sets `stop_after_round` → `executor_stop`; `process_response` creates `Evidence` or `VerificationResult` from tool parameters. Plays WITH tool-calling tendency instead of against it |
+| `submit_review` / `submit_result` structured exit | Model calls exit tool | Structured data bypasses free-text generation; sets `stop_after_round` → `executor_stop`; `process_response` creates `Evidence` or `ReviewResult` from tool parameters. Plays WITH tool-calling tendency instead of against it |
 | `report_progress` tool | Model calls `report_progress` tool (prompted by progress check injection) | Captures structured reasoning (`findings_so_far`, `remaining_questions`, `ready_to_conclude`); enriches conversation history with explicit reasoning; if `ready_to_conclude`, response guides model to exit tool. Works WITH tool-calling tendency |
 | `execute_python` purpose parameter | Model calls `execute_python` | Required `purpose` field forces model to articulate WHY before each run; preserved in logs for audit; not enforced at execution time (schema-level only) |
 | `document_approach` round-1-only | Computer agent calls `document_approach` | Forces model to articulate plan before coding; `active_tools` removes it from tool set after first call so model cannot re-document instead of coding |
@@ -715,9 +711,9 @@ All 4 checks run after every orchestrator pass via `validate_post_integration(re
 
 | Check | Function | What it does | Failure compensated |
 |-------|----------|--------------|---------------------|
-| **ER demotion** | `check_er_demotion_safety()` | Demotes ER-NNN when `h.verification.verdict == "REFUTED"` → silently rewrites state (not injected into orchestrator context to prevent re-promotion churn) | LLM promoting WH to ER despite REFUTED verification |
-| **Phantom label stripping** | `check_phantom_labels()` | Builds verified set from `h.verification.verdict == "VERIFIED"`; finds "VERIFIED" labels in derivations without backing → returns violation | LLM copying "VERIFIED" from existing text without evidence |
-| **Stale-unverified label promotion** | `check_stale_unverified_labels()` | Finds hypotheses with stale unverified labels that now have verification → returns violation | Labels stuck as [unverified] after late verification |
+| **ER demotion** | `check_er_demotion_safety()` | Demotes ER-NNN when `h.review.verdict == "REFUTED"` → silently rewrites state (not injected into orchestrator context to prevent re-promotion churn) | LLM promoting WH to ER despite REFUTED review |
+| **Phantom label stripping** | `check_phantom_labels()` | Builds verified set from `h.review.verdict == "VERIFIED"`; finds "VERIFIED" labels in derivations without backing → returns violation | LLM copying "VERIFIED" from existing text without evidence |
+| **Stale-unverified label promotion** | `check_stale_unverified_labels()` | Finds hypotheses with stale unverified labels that now have review → returns violation | Labels stuck as [unverified] after late review |
 | **Critique resolution consistency** | `check_critique_resolution_consistency()` | Checks that resolved critiques actually had their fixes applied: target hypothesis still exists, no inconsistencies | LLM marking critiques "resolved" without applying the fix |
 | **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when VERIFIED hypotheses exist, (2) zero unresolved HIGH critiques, (3) computational evidence exists when `requires_numerical`, (4) all RQs resolved/abandoned, (5) all WHs either verified+promoted or abandoned | LLM trying to terminate prematurely |
 
@@ -730,7 +726,7 @@ All 4 checks run after every orchestrator pass via `validate_post_integration(re
 | Forced critic | `_critic_overdue()` + `_make_forced_critic_task()` | Overdue AND new content exists | Skip orchestrator, dispatch critic directly (saves an LLM call) | Orchestrator skipping critic indefinitely |
 | Compute enrichment | `_enrich_compute_task_with_prior_failures()` | COMPUTE task with prior failures on same claim | Append failure excerpts to task body | Model repeating identical failing code |
 
-Non-VERIFIED verification verdicts go to `pending_compute_verdicts` in `LoopState` (with `notes` and `failure_detail`), rendered as a VERIFICATION RESULTS banner in `_build_context_prefix()`. VERIFIED verdicts go to `pending_verified_results`, rendered as a VERIFIED HYPOTHESES banner. Evidence results from researcher/computer go to `pending_explore_results`, rendered as an EVIDENCE RESULTS banner. The orchestrator decides how to respond (re-verify, re-derive, promote, or accept). No auto-recompute.
+Non-VERIFIED review verdicts go to `pending_compute_verdicts` in `LoopState` (with `notes` and `failure_detail`), rendered as a REVIEW RESULTS banner in `_build_context_prefix()`. VERIFIED verdicts go to `pending_verified_results`, rendered as a VERIFIED HYPOTHESES banner. Evidence results from researcher/computer go to `pending_explore_results`, rendered as an EVIDENCE RESULTS banner. The orchestrator decides how to respond (re-review, re-derive, promote, or accept). No auto-recompute.
 
 #### Engine-level guards
 
@@ -742,9 +738,9 @@ Non-VERIFIED verification verdicts go to `pending_compute_verdicts` in `LoopStat
 | Scaffolding-maintained iteration counter | `_update_research_iteration()` | Updates `iteration` on ResearchState unconditionally at the top of each iteration | LLM forgetting or corrupting iteration count |
 | Status field safety-net exit | `_check_status_field()` | Reads ResearchState for `status: completed/abandoned/partially_complete` → exits loop | Loop continuing past a declared terminal state |
 | NO_CRITIQUES_FILED handling | `_dispatch()` | Detects `_no_critiques_filed` flag on critic agent → files `critic_clean` violation telling orchestrator to proceed to synthesize | Empty critic looping indefinitely |
-| Dispatch-level result tracking | `_track_agent_result()` | For RESEARCH/COMPUTE: checks evidence on target entity → `pending_explore_results`; for VERIFY: checks h.verification → VERIFIED → `pending_verified_results` (clears failure count), non-VERIFIED → `pending_compute_verdicts` with notes/failure_detail | Orchestrator unaware of agent results |
+| Dispatch-level result tracking | `_track_agent_result()` | For RESEARCH/COMPUTE: checks evidence on target entity → `pending_explore_results`; for REVIEW: checks h.review → VERIFIED → `pending_verified_results` (clears failure count), non-VERIFIED → `pending_compute_verdicts` with notes/failure_detail | Orchestrator unaware of agent results |
 | Agent failure routing | `_record_agent_failures()` + `_build_context_prefix()` | Records max_tokens truncation, max_rounds exhaustion, and non-VERIFIED verdicts; shows "AGENT FAILURES" banner to orchestrator on next pass | Orchestrator re-issuing identical failing tasks without awareness of prior failures |
-| Violations/blockers/evidence/verified/verdicts/failures as context prefix | `_build_context_prefix()` | 6 sections: violations, termination blockers, evidence results, verified hypotheses, verification results (with notes/failure_detail and stall warnings at limit), agent failures — serialised into orchestrator's next user message; all consumed-once (cleared after read) | Orchestrator ignoring validation failures or agent results |
+| Violations/blockers/evidence/verified/verdicts/failures as context prefix | `_build_context_prefix()` | 6 sections: violations, termination blockers, evidence results, verified hypotheses, review results (with notes/failure_detail and stall warnings at limit), agent failures — serialised into orchestrator's next user message; all consumed-once (cleared after read) | Orchestrator ignoring validation failures or agent results |
 | Compression at soft threshold | `_check_compression()` | Compresses files exceeding `compress_soft_multiplier` × threshold (single tier) | Runaway file growth crashing context window |
 
 ### output_normalization — Agent-level corrections and parsing tolerance
@@ -755,7 +751,7 @@ Non-VERIFIED verification verdicts go to `pending_compute_verdicts` in `LoopStat
 |-----------|----------|--------------|---------------------|
 | Budget-aware completion analysis | `_completion_analysis()` | Injects "COMPLETION CHECK" or "BUDGET SYNTHESIS REQUIRED" banners based on ER/WH/critique counts and remaining budget | Orchestrator failing to terminate when done |
 | Phantom marker cleaning | `build_context()` | Flattens nested `[[[ID:unverified]...]]` brackets and replaces `[ID:unverified]` with `ID (unverified)` before the LLM sees the state | LLM copying bracket syntax into new outputs |
-| `promote_hypothesis` guardrails | `OrchestratorToolExecutor._promote_hypothesis()` | Rejects promotion if verification verdict is not VERIFIED, or if unresolved HIGH critiques exist on target | LLM promoting unverified or contested hypotheses |
+| `promote_hypothesis` guardrails | `OrchestratorToolExecutor._promote_hypothesis()` | Rejects promotion if review verdict is not VERIFIED, or if unresolved HIGH critiques exist on target | LLM promoting unreviewed or contested hypotheses |
 | Conventions section staleness reminder | `build_context()` | From iteration 3+, injects banner if Conventions still says "To be populated" | LLM skipping conventions population |
 
 #### Critic corrections (`agents/critic.py`, `critic_tools.py`)
@@ -776,13 +772,12 @@ Non-VERIFIED verification verdicts go to `pending_compute_verdicts` in `LoopStat
 | NameError recovery hint | `_execute_python()` in `tools.py` | Detects NameError in stderr and appends "FRESH Python process" reminder | Models (esp. Kimi K2.5) treating execute_python as persistent REPL, causing NameErrors from referencing prior-script variables |
 | Structured output header | `_execute_python()` in `tools.py` | Prepends `=== script_name ===` header with purpose and exit status to every script output | Model loses track of which script produced which output across multi-call sessions |
 
-#### Verifier corrections (`agents/verifier.py`, `verifier_tools.py`)
+#### Reviewer corrections (`agents/reviewer.py`, `reviewer_tools.py`)
 
 | Mechanism | Function | What it does | Failure compensated |
 |-----------|----------|--------------|---------------------|
-| Structured tool exit → VerificationResult | `process_response()` | Routes `submit_verdict` tool data + filed critiques to `VerificationResult` stored on target hypothesis | Ensures structured verification data reaches state |
-| Fallback INCONCLUSIVE on no exit tool | `process_response()` | Creates `VerificationResult` with verdict="INCONCLUSIVE" when no `submit_verdict` called | Agent producing no verdict despite forced final call |
-| Auto-increment VCRIT-NNN | `VerifierToolExecutor._submit_critique()` | Auto-assigns next VCRIT-NNN based on existing critique count | LLM using wrong or duplicate critique IDs |
+| Structured tool exit → ReviewResult | `process_response()` | Routes `submit_review` tool data to `ReviewResult` stored on target hypothesis | Ensures structured review data reaches state |
+| Fallback INCONCLUSIVE on no exit tool | `process_response()` | Creates `ReviewResult` with verdict="INCONCLUSIVE" when no `submit_review` called | Agent producing no verdict despite forced final call |
 
 #### Markdown parsing tolerance (`markdown.py`)
 
@@ -821,7 +816,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 | `test_orchestrator_tools.py` | 1150 | OrchestratorToolExecutor: add/update/abandon/promote hypothesis, resolve critique, set_next_task, append_note, update_section |
 | `test_tools.py` | 1060 | ToolExecutor, submit_result, document_approach, run_agent_loop, truncation, token accumulation, active_tools |
 | `test_markdown.py` | 972 | Frontmatter, sections, critique lifecycle, header normalisation |
-| `test_research_state.py` | 929 | ResearchState dataclass, query methods, promote/demote, normalize_references, Evidence/VerificationResult, serialization |
+| `test_research_state.py` | 929 | ResearchState dataclass, query methods, promote/demote, normalize_references, Evidence/ReviewResult, serialization |
 | `test_llm_retry.py` | 895 | Retry logic, transient error classification, backoff, tool-call failure fallback |
 | `test_verify.py` | 852 | Workspace loading, verdict parsing, prompts, process audit, report patching |
 | `test_report_recommendations.py` | 682 | Report generation, recommendation analysis |
@@ -851,7 +846,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 - Compressor, formatter `process_response` methods
 - Workspace git operations
 - End-to-end `main.py` run path
-- VerifierToolExecutor integration (verifier agent process_response)
+- ReviewerToolExecutor integration (reviewer agent process_response)
 
 ---
 
@@ -876,13 +871,13 @@ The `messages` list grows unboundedly across rounds. Large tool outputs can push
 All documentation was synced with the codebase on 2026-03-18.
 
 - **ResearchState as source of truth** — `research_state.py` (480 lines) provides authoritative structured state; agents mutate via tools, Markdown rendered from state for git snapshots only
-- **Five agentic agents** — orchestrator (11 tools via `OrchestratorToolExecutor`), researcher (2 tools via `ToolExecutor`), computer (4 tools via `ToolExecutor` with `active_tools` dynamic switching), verifier (3 tools via `VerifierToolExecutor`), critic (2 tools via `CriticToolExecutor`); all use `stop_after_round` mechanism
-- **Three specialized work agents** — researcher (analytical), computer (code), verifier (adversarial verification); each has focused prompt, tool set, and context view; evidence inlined on entities as `Evidence` and `VerificationResult`
+- **Five agentic agents** — orchestrator (11 tools via `OrchestratorToolExecutor`), researcher (2 tools via `ToolExecutor`), computer (4 tools via `ToolExecutor` with `active_tools` dynamic switching), reviewer (1 tool via `ReviewerToolExecutor`, one-turn), critic (2 tools via `CriticToolExecutor`); all use `stop_after_round` mechanism
+- **Three specialized work agents** — researcher (analytical), computer (code), reviewer (adversarial review); each has focused prompt, tool set, and context view; evidence inlined on entities as `Evidence` and `ReviewResult`
 - **Renderers** — `renderers.py` produces Markdown snapshot files from ResearchState; agents render context from `self.research_state` via renderers; MD files rendered centrally by engine's `_render_files_for_git()`
 - **Formatter agent** — `agents/formatter.py` produces `ANSWER.md` on successful termination
 - Multi-provider support (Anthropic, OpenAI, Google Gemini, HuggingFace) fully implemented with `models.yaml` registry
 - API retry with exponential backoff implemented (transient errors + tool-call failures)
-- 4 post-integration validation checks (er_demotion_safety, phantom_labels, stale_unverified_labels, critique_resolution_consistency); all take `research_state: ResearchState`; checks use `h.verification.verdict` rather than computation-based lookups
+- 4 post-integration validation checks (er_demotion_safety, phantom_labels, stale_unverified_labels, critique_resolution_consistency); all take `research_state: ResearchState`; checks use `h.review.verdict` rather than computation-based lookups
 - Scaffolding-maintained iteration counter (no longer LLM-dependent)
 - `verify.py` remains Anthropic-only
 - Event log (`EVENT_LOG.jsonl`) instrumentation implemented across all 4 categories

@@ -152,20 +152,20 @@ class TestComputeVerdictTracking:
             engine.research_state = ResearchState()
         return engine
 
-    def _set_verification(self, engine, target, verdict_str, reasoning=""):
-        from sciralph.research_state import Hypothesis, VerificationResult
+    def _set_verification(self, engine, target, verdict_str, summary=""):
+        from sciralph.research_state import Hypothesis, ReviewResult
         if target not in engine.research_state.hypotheses:
             engine.research_state.hypotheses[target] = Hypothesis(id=target)
-        engine.research_state.hypotheses[target].verification = VerificationResult(
-            verdict=verdict_str, reasoning=reasoning, iteration=engine.iteration,
+        engine.research_state.hypotheses[target].review = ReviewResult(
+            verdict=verdict_str, summary=summary, iteration=engine.iteration,
         )
 
     def test_refuted_signals_orchestrator(self):
         """REFUTED verdict adds to pending_compute_verdicts."""
         engine = self._make_engine()
         self._set_verification(engine, "WH-001", "REFUTED")
-        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-001",
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
@@ -177,8 +177,8 @@ class TestComputeVerdictTracking:
         """INCONCLUSIVE also counted and signals orchestrator."""
         engine = self._make_engine()
         self._set_verification(engine, "WH-001", "INCONCLUSIVE")
-        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-001",
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
@@ -191,8 +191,8 @@ class TestComputeVerdictTracking:
         self._set_verification(engine, "WH-001", "REFUTED")
         engine._state.claim_failure_count["WH-001"] = 1  # next will be 2 == limit
 
-        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-001",
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
@@ -200,7 +200,7 @@ class TestComputeVerdictTracking:
         assert engine._state.pending_compute_verdicts[0]["attempt"] == 2
         prefix = engine._build_context_suffix()
         assert "STALLED" in prefix
-        assert "do NOT schedule another verify" in prefix
+        assert "do NOT schedule another review" in prefix
 
     def test_verified_clears_failure_count(self):
         """VERIFIED clears the failure counter and populates pending_verified_results."""
@@ -208,8 +208,8 @@ class TestComputeVerdictTracking:
         self._set_verification(engine, "WH-001", "VERIFIED")
         engine._state.claim_failure_count["WH-001"] = 1
 
-        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-001",
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
@@ -221,8 +221,8 @@ class TestComputeVerdictTracking:
         """VERIFIED verification populates dict with claim and verdict."""
         engine = self._make_engine()
         self._set_verification(engine, "WH-001", "VERIFIED")
-        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-001",
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
@@ -239,7 +239,7 @@ class TestComputeVerdictTracking:
         }]
         prefix = engine._build_context_suffix()
         assert "VERIFIED HYPOTHESES" in prefix
-        assert "WH-001 VERIFIED by verifier" in prefix
+        assert "WH-001 VERIFIED by reviewer" in prefix
         assert "Consider resolving related critiques" in prefix
         # Consumed
         assert len(engine._state.pending_verified_results) == 0
@@ -338,8 +338,8 @@ class TestComputeVerdictTracking:
         self._set_verification(engine, "WH-002", "REFUTED")
         engine._state.claim_failure_count["WH-001"] = 1
 
-        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-002",
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-002",
                     body="Verify WH-002 temperature")
         engine._track_agent_result(task)
 
@@ -350,9 +350,9 @@ class TestComputeVerdictTracking:
         """REFUTED verification with reasoning includes notes in pending_compute_verdicts."""
         engine = self._make_engine()
         self._set_verification(engine, "WH-001", "REFUTED",
-                               reasoning="Expected 1/(8*pi*M) but got 1/(4*pi*M)")
-        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-001",
+                               summary="Expected 1/(8*pi*M) but got 1/(4*pi*M)")
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
@@ -394,8 +394,8 @@ class TestComputeVerdictTracking:
         """Non-VERIFIED verdict appears in context suffix with attempt count."""
         engine = self._make_engine()
         self._set_verification(engine, "WH-001", "REFUTED")
-        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-001",
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
@@ -411,8 +411,8 @@ class TestComputeVerdictTracking:
         from sciralph.research_state import Hypothesis
         engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
 
-        task = Task(task_id="TASK-003", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-001",
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
@@ -661,7 +661,7 @@ class TestZeroOutputStallHandling:
 
 
 class TestDispatchNewAgents:
-    """Test dispatch routing to new agents (researcher, computer, verifier)."""
+    """Test dispatch routing to new agents (researcher, computer, reviewer)."""
 
     def _make_engine(self):
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
@@ -681,7 +681,7 @@ class TestDispatchNewAgents:
             engine.research_state = ResearchState()
             engine.researcher = MagicMock()
             engine.computer = MagicMock()
-            engine.verifier = MagicMock()
+            engine.reviewer = MagicMock()
             engine.critic = MagicMock()
             engine.formatter = MagicMock()
         return engine
@@ -702,17 +702,17 @@ class TestDispatchNewAgents:
 
     def test_verify_dispatch(self):
         engine = self._make_engine()
-        task = Task(task_id="TASK-005", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", iteration=5, body="Verify WH-001")
+        task = Task(task_id="TASK-005", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", iteration=5, body="Verify WH-001")
         name, _ = engine._dispatch(task)
-        assert name == "verifier"
+        assert name == "reviewer"
 
     def test_verify_routes_correctly(self):
         engine = self._make_engine()
-        task = Task(task_id="TASK-005", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", iteration=5, body="Verify something")
+        task = Task(task_id="TASK-005", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", iteration=5, body="Verify something")
         name, _ = engine._dispatch(task)
-        assert name == "verifier"
+        assert name == "reviewer"
 
 
 class TestUpdateResearchIteration:
@@ -772,7 +772,7 @@ class TestDispatchFailureRecovery:
             engine.orchestrator = MagicMock()
             engine.researcher = MagicMock()
             engine.computer = MagicMock()
-            engine.verifier = MagicMock()
+            engine.reviewer = MagicMock()
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()
@@ -791,8 +791,8 @@ class TestDispatchFailureRecovery:
 
         # Orchestrator returns a verify task each time
         task = Task(
-            task_id="TASK-001", task_type=TaskType.VERIFY,
-            assigned_to="verifier", iteration=1,
+            task_id="TASK-001", task_type=TaskType.REVIEW,
+            assigned_to="reviewer", iteration=1,
             body="Verify something.",
         )
         engine.orchestrator.parse_task = MagicMock(return_value=task)
@@ -803,7 +803,7 @@ class TestDispatchFailureRecovery:
             assigned_to="orchestrator", iteration=2,
         )
         engine.orchestrator.parse_task = MagicMock(side_effect=[task, task_terminate])
-        engine.verifier.run = MagicMock(side_effect=exc_504)
+        engine.reviewer.run = MagicMock(side_effect=exc_504)
 
         engine.run()
 
@@ -811,8 +811,8 @@ class TestDispatchFailureRecovery:
         engine.metrics.alert.assert_any_call(
             1, unittest_any_string_containing("Dispatch failed")
         )
-        # verifier was called once (failed), then orchestrator terminated
-        assert engine.verifier.run.call_count == 1
+        # reviewer was called once (failed), then orchestrator terminated
+        assert engine.reviewer.run.call_count == 1
         assert engine.iteration == 2
 
     def test_non_transient_error_propagates(self):
@@ -840,8 +840,8 @@ class TestDispatchFailureRecovery:
         exc_timeout.status_code = 504
 
         task = Task(
-            task_id="TASK-001", task_type=TaskType.VERIFY,
-            assigned_to="verifier", iteration=1,
+            task_id="TASK-001", task_type=TaskType.REVIEW,
+            assigned_to="reviewer", iteration=1,
             body="Verify something.",
         )
         task_terminate = Task(
@@ -849,7 +849,7 @@ class TestDispatchFailureRecovery:
             assigned_to="orchestrator", iteration=2,
         )
         engine.orchestrator.parse_task = MagicMock(side_effect=[task, task_terminate])
-        engine.verifier.run = MagicMock(side_effect=exc_timeout)
+        engine.reviewer.run = MagicMock(side_effect=exc_timeout)
 
         engine.run()
 
@@ -902,9 +902,9 @@ class TestAgentFailureRouting:
         from sciralph.llm import AgentResult
         engine = self._make_engine()
         result = AgentResult(text="partial", rounds=10, stop_reason="max_rounds_forced")
-        task = Task(task_id="TASK-005", task_type=TaskType.VERIFY, assigned_to="verifier")
+        task = Task(task_id="TASK-005", task_type=TaskType.REVIEW, assigned_to="reviewer")
 
-        engine._record_agent_failures(task, "verifier", result)
+        engine._record_agent_failures(task, "reviewer", result)
 
         assert len(engine._state.agent_failures) == 1
         assert engine._state.agent_failures[0]["event"] == "max_rounds_exhaustion"
@@ -958,17 +958,17 @@ class TestAgentFailureRouting:
 
     def test_compute_verdict_appends_to_pending_verdicts(self):
         """REFUTED verdict below stall limit appends to pending_compute_verdicts."""
-        from sciralph.research_state import Hypothesis, VerificationResult
+        from sciralph.research_state import Hypothesis, ReviewResult
 
         engine = self._make_engine()
         engine.iteration = 5
         engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
-        engine.research_state.hypotheses["WH-001"].verification = VerificationResult(
-            verdict="REFUTED", reasoning="Mismatch", iteration=5,
+        engine.research_state.hypotheses["WH-001"].review = ReviewResult(
+            verdict="REFUTED", summary="Mismatch", iteration=5,
         )
 
-        task = Task(task_id="TASK-005", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-001",
+        task = Task(task_id="TASK-005", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
@@ -979,19 +979,19 @@ class TestAgentFailureRouting:
 
     def test_compute_verdict_stall_signals_orchestrator(self):
         """At stall (count >= limit), verdict signal still goes to pending_compute_verdicts."""
-        from sciralph.research_state import Hypothesis, VerificationResult
+        from sciralph.research_state import Hypothesis, ReviewResult
 
         engine = self._make_engine()
         engine.iteration = 5
         engine.config.stall_recompute_limit = 2
         engine._state.claim_failure_count["WH-001"] = 1  # already at limit-1
         engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
-        engine.research_state.hypotheses["WH-001"].verification = VerificationResult(
-            verdict="INCONCLUSIVE", reasoning="Unclear", iteration=5,
+        engine.research_state.hypotheses["WH-001"].review = ReviewResult(
+            verdict="INCONCLUSIVE", summary="Unclear", iteration=5,
         )
 
-        task = Task(task_id="TASK-005", task_type=TaskType.VERIFY,
-                    assigned_to="verifier", target_claim="WH-001",
+        task = Task(task_id="TASK-005", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
                     body="Verify formula X = Y")
         engine._track_agent_result(task)
 
@@ -1007,7 +1007,7 @@ class TestAgentFailureRouting:
         ]
         engine._state.agent_failures = [{
             "task_id": "TASK-003",
-            "agent": "verifier",
+            "agent": "reviewer",
             "event": "max_rounds_exhaustion",
             "detail": "Exhausted 10 tool-use rounds without completing.",
             "iteration": 4,
@@ -1096,7 +1096,7 @@ class TestSyncOnTermination:
             engine.orchestrator = MagicMock()
             engine.researcher = MagicMock()
             engine.computer = MagicMock()
-            engine.verifier = MagicMock()
+            engine.reviewer = MagicMock()
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
             engine.formatter = MagicMock()

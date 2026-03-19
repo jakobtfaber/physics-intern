@@ -118,14 +118,12 @@ def _research_state_body(state: ResearchState) -> str:
             if ev.result:
                 parts.append(f"  Result: {ev.result[:800]}")
             parts.append("")
-        # Verification status
-        if h.verification:
-            v = h.verification
-            parts.append(f"**Verification:** {v.verdict}")
-            if v.reasoning:
-                parts.append(f"  Reasoning: {v.reasoning[:1500]}")
-            if v.critiques:
-                parts.append(f"  Critiques: {len(v.critiques)} filed")
+        # Review status
+        if h.review:
+            v = h.review
+            parts.append(f"**Review:** {v.verdict}")
+            if v.summary:
+                parts.append(f"  Summary: {v.summary[:1500]}")
             parts.append("")
 
     # Dead Ends
@@ -183,8 +181,8 @@ def _evidence_log_body(state: ResearchState) -> str:
     for h in state.hypotheses.values():
         if h.evidence:
             entries.append(("evidence", h.evidence.iteration or h.iteration_created, h))
-        if h.verification:
-            entries.append(("verification", h.verification.iteration or h.iteration_modified, h))
+        if h.review:
+            entries.append(("verification", h.review.iteration or h.iteration_modified, h))
     # Also check RQs for evidence — deduplicate when RQ was promoted to a WH
     for rq in state.research_questions.values():
         if rq.evidence:
@@ -237,14 +235,11 @@ def _evidence_log_body(state: ResearchState) -> str:
                 parts.append(f"**Reasoning:** {ev.reasoning[:2000]}")
             parts.append(f"**Iteration:** {iteration}\n")
         elif entry_type == "verification":
-            v = entity.verification
-            parts.append(f"## {entity.id}: Verification — {v.verdict}\n")
+            v = entity.review
+            parts.append(f"## {entity.id}: Review — {v.verdict}\n")
             parts.append(f"**Statement:** {entity.statement}")
-            if v.reasoning:
-                parts.append(f"**Reasoning:** {v.reasoning[:2000]}")
-            if v.critiques:
-                for c in v.critiques:
-                    parts.append(f"  - [{c.get('severity', '?')}] {c.get('argument', '')[:500]}")
+            if v.summary:
+                parts.append(f"**Summary:** {v.summary[:2000]}")
             parts.append(f"**Iteration:** {iteration}\n")
 
     if not entries:
@@ -260,7 +255,7 @@ def render_evidence_log_md(state: ResearchState) -> str:
     n_entries = sum(
         1 for h in state.hypotheses.values() if h.evidence
     ) + sum(
-        1 for h in state.hypotheses.values() if h.verification
+        1 for h in state.hypotheses.values() if h.review
     ) + sum(
         1 for rq in state.research_questions.values() if rq.evidence
     )
@@ -411,14 +406,12 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
             if ev.result:
                 ev_parts.append(f"Result: {ev.result[:1500]}")
             h_parts.append(f'<evidence type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
-        if h.verification:
-            v = h.verification
+        if h.review:
+            v = h.review
             v_parts: list[str] = []
-            if v.reasoning:
-                v_parts.append(f"Reasoning: {v.reasoning[:1500]}")
-            if v.critiques:
-                v_parts.append(f"Critiques: {len(v.critiques)} filed")
-            h_parts.append(f'<verification verdict="{v.verdict}">\n' + "\n".join(v_parts) + "\n</verification>")
+            if v.summary:
+                v_parts.append(f"Summary: {v.summary[:1500]}")
+            h_parts.append(f'<review verdict="{v.verdict}">\n' + "\n".join(v_parts) + "\n</review>")
         hyp_lines.append(f'<hypothesis id="{h.id}">\n' + "\n".join(h_parts) + "\n</hypothesis>")
     parts.append("<hypotheses>\n" + "\n".join(hyp_lines) + "\n</hypotheses>")
 

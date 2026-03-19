@@ -8,7 +8,7 @@ from sciralph.research_state import (
     Hypothesis,
     HypothesisStatus,
     Evidence,
-    VerificationResult,
+    ReviewResult,
     Verdict,
     Critique,
     Severity,
@@ -108,7 +108,7 @@ class TestQueryMethods:
             id="ER-002", statement="Verified",
             status=HypothesisStatus.ESTABLISHED,
             evidence=Evidence(type="compute", method="symbolic", result="ok"),
-            verification=VerificationResult(verdict=Verdict.VERIFIED, reasoning="Confirmed."),
+            review=ReviewResult(verdict=Verdict.VERIFIED, summary="Confirmed."),
         )
         state.critiques["CRIT-001"] = Critique(id="CRIT-001", targets=["WH-001"],
                                                 severity=Severity.HIGH,
@@ -426,7 +426,7 @@ class TestBackgroundSurveySerialization:
 
 
 # ---------------------------------------------------------------------------
-# Evidence and VerificationResult on Hypothesis
+# Evidence and ReviewResult on Hypothesis
 # ---------------------------------------------------------------------------
 
 class TestEvidenceOnHypothesis:
@@ -469,42 +469,40 @@ class TestEvidenceOnHypothesis:
         assert ev.confidence == "approximate"
         assert ev.iteration == 3
 
-    def test_verification_result_defaults(self):
-        vr = VerificationResult()
+    def test_review_result_defaults(self):
+        vr = ReviewResult()
         assert vr.verdict == ""
-        assert vr.reasoning == ""
-        assert vr.critiques == []
+        assert vr.summary == ""
         assert vr.iteration is None
 
-    def test_verification_result_json_round_trip(self):
+    def test_review_result_json_round_trip(self):
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
-            verification=VerificationResult(
+            review=ReviewResult(
                 verdict="VERIFIED",
-                reasoning="All checks pass.",
-                critiques=[{"severity": "LOW", "argument": "Minor notation issue"}],
+                summary="All checks pass.",
+                details="Minor notation issue noted but not blocking.",
                 iteration=5,
             ),
         )
         restored = ResearchState.from_json(state.to_json())
-        vr = restored.hypotheses["WH-001"].verification
+        vr = restored.hypotheses["WH-001"].review
         assert vr is not None
         assert vr.verdict == "VERIFIED"
-        assert vr.reasoning == "All checks pass."
-        assert len(vr.critiques) == 1
-        assert vr.critiques[0]["severity"] == "LOW"
+        assert vr.summary == "All checks pass."
+        assert vr.details == "Minor notation issue noted but not blocking."
         assert vr.iteration == 5
 
-    def test_hypothesis_without_evidence_or_verification(self):
+    def test_hypothesis_without_evidence_or_review(self):
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
         restored = ResearchState.from_json(state.to_json())
         assert restored.hypotheses["WH-001"].evidence is None
-        assert restored.hypotheses["WH-001"].verification is None
+        assert restored.hypotheses["WH-001"].review is None
 
     def test_backward_compat_missing_evidence_fields(self):
-        """Old JSON without evidence/verification on hypotheses uses None."""
+        """Old JSON without evidence/review on hypotheses uses None."""
         old_json = json.dumps({
             "iteration": 1,
             "hypotheses": {
@@ -520,7 +518,7 @@ class TestEvidenceOnHypothesis:
         state = ResearchState.from_json(old_json)
         h = state.hypotheses["WH-001"]
         assert h.evidence is None
-        assert h.verification is None
+        assert h.review is None
 
 
 # ---------------------------------------------------------------------------
@@ -533,7 +531,7 @@ class TestNewQueryMethods:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
-            verification=VerificationResult(verdict=Verdict.VERIFIED),
+            review=ReviewResult(verdict=Verdict.VERIFIED),
         )
         assert state.has_verified_evidence("WH-001") is True
 
@@ -546,7 +544,7 @@ class TestNewQueryMethods:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
-            verification=VerificationResult(verdict=Verdict.INCONCLUSIVE),
+            review=ReviewResult(verdict=Verdict.INCONCLUSIVE),
         )
         assert state.has_verified_evidence("WH-001") is False
 

@@ -18,7 +18,7 @@ from .workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
 from .agents.researcher import ResearcherAgent
 from .agents.computer import ComputerAgent
-from .agents.verifier import VerifierAgent
+from .agents.reviewer import ReviewerAgent
 from .agents.critic import CriticAgent
 from .agents.compressor import CompressorAgent
 from .agents.formatter import FormatterAgent
@@ -75,7 +75,7 @@ class SciRalph:
         self.orchestrator = OrchestratorAgent(self.config, self.workspace, self.metrics)
         self.researcher = ResearcherAgent(self.config, self.workspace, self.metrics)
         self.computer = ComputerAgent(self.config, self.workspace, self.metrics)
-        self.verifier = VerifierAgent(self.config, self.workspace, self.metrics)
+        self.reviewer = ReviewerAgent(self.config, self.workspace, self.metrics)
         self.critic = CriticAgent(self.config, self.workspace, self.metrics)
         self.compressor = CompressorAgent(self.config, self.workspace, self.metrics)
         self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
@@ -205,7 +205,7 @@ class SciRalph:
             self._record_agent_failures(task, agent_name, agent_result)
 
             # 6. Post-dispatch checks
-            if task.task_type in (TaskType.RESEARCH, TaskType.COMPUTE, TaskType.VERIFY):
+            if task.task_type in (TaskType.RESEARCH, TaskType.COMPUTE, TaskType.REVIEW):
                 self._track_agent_result(task)
 
             # 7. Compression, metrics, structured state snapshot, render files, git
@@ -334,7 +334,7 @@ class SciRalph:
             lines.append(">>> VERIFIED HYPOTHESES (previous iteration) <<<")
             for v in self._state.pending_verified_results:
                 provenance = f"  [from {v['task_id']}]" if v.get("task_id") else ""
-                lines.append(f"- {v['claim']} VERIFIED by verifier{provenance}")
+                lines.append(f"- {v['claim']} VERIFIED by reviewer{provenance}")
                 if v.get("reasoning"):
                     lines.append(f"  Reasoning: {v['reasoning']}")
             lines.append("  Consider resolving related critiques and proceeding to promotion.")
@@ -349,7 +349,7 @@ class SciRalph:
                 if v.get('notes'):
                     lines.append(f"  Notes: {v['notes']}")
                 if v['attempt'] >= self.config.stall_recompute_limit:
-                    lines.append("  STALLED — do NOT schedule another verify. Try alternative evidence.")
+                    lines.append("  STALLED — do NOT schedule another review. Try alternative evidence.")
                 else:
                     lines.append("  You must address this: gather new evidence or try a different approach.")
             lines.append(">>> END VERIFICATION RESULTS <<<\n")
@@ -382,12 +382,12 @@ class SciRalph:
             self._state.last_content_iteration = self.iteration
             return "computer", result
 
-        elif tt == TaskType.VERIFY:
-            console.print("[magenta]Verifier[/magenta] verifying...")
-            self.verifier.research_state = self.research_state
-            result = self.verifier.run(task, self.iteration, on_round=self._on_agent_round)
+        elif tt == TaskType.REVIEW:
+            console.print("[magenta]Reviewer[/magenta] reviewing...")
+            self.reviewer.research_state = self.research_state
+            result = self.reviewer.run(task, self.iteration, on_round=self._on_agent_round)
             self._state.last_content_iteration = self.iteration
-            return "verifier", result
+            return "reviewer", result
 
         elif tt == TaskType.FORMAT:
             console.print("[cyan]Formatter[/cyan] producing ANSWER.md...")
@@ -498,7 +498,7 @@ class SciRalph:
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
 
     def _track_agent_result(self, task: Task):
-        """After researcher/computer/verifier runs, track results for orchestrator banners."""
+        """After researcher/computer/reviewer runs, track results for orchestrator banners."""
         tt = task.task_type
         target_id = task.target_claim
 
@@ -527,19 +527,19 @@ class SciRalph:
                                    "evidence_suppressed", f"target={target_id}")
                 console.print(f"  [dim]No evidence produced for {target_id}[/dim]")
 
-        elif tt == TaskType.VERIFY:
+        elif tt == TaskType.REVIEW:
             if not target_id or target_id not in self.research_state.hypotheses:
                 return
             h = self.research_state.hypotheses[target_id]
-            if not h.verification:
+            if not h.review:
                 return
-            verdict = h.verification.verdict
+            verdict = h.review.verdict
             if verdict == Verdict.VERIFIED:
                 self._state.pending_verified_results.append({
                     "claim": target_id,
                     "verdict": verdict,
                     "task_id": task.task_id,
-                    "reasoning": h.verification.reasoning[:800] if h.verification.reasoning else "",
+                    "reasoning": h.review.summary[:800] if h.review.summary else "",
                 })
                 self._state.claim_failure_count.pop(target_id, None)
                 console.print(f"  [green]{target_id} VERIFIED[/green]")
@@ -550,10 +550,10 @@ class SciRalph:
                     "verdict": verdict,
                     "claim": target_id,
                     "attempt": count,
-                    "notes": h.verification.reasoning[:800] if h.verification.reasoning else "",
+                    "notes": h.review.summary[:800] if h.review.summary else "",
                     "task_id": task.task_id,
                 })
-                detail = h.verification.reasoning[:120].replace("\n", " ") if h.verification.reasoning else ""
+                detail = h.review.summary[:120].replace("\n", " ") if h.review.summary else ""
                 console.print(f"  [red]{target_id} REFUTED[/red] — {detail}")
             else:
                 count = self._state.claim_failure_count.get(target_id, 0) + 1
@@ -562,10 +562,10 @@ class SciRalph:
                     "verdict": verdict,
                     "claim": target_id,
                     "attempt": count,
-                    "notes": h.verification.reasoning[:800] if h.verification.reasoning else "",
+                    "notes": h.review.summary[:800] if h.review.summary else "",
                     "task_id": task.task_id,
                 })
-                detail = h.verification.reasoning[:120].replace("\n", " ") if h.verification.reasoning else ""
+                detail = h.review.summary[:120].replace("\n", " ") if h.review.summary else ""
                 console.print(f"  [yellow]{target_id} INCONCLUSIVE[/yellow] — {detail}")
 
     def _check_compression(self):
@@ -635,7 +635,7 @@ class SciRalph:
                 reason=(
                     f"Scaffolding circuit breaker: orchestrator attempted to terminate "
                     f"{self.config.max_termination_retries} times but {h.id} blocked it. "
-                    f"No verify-kind VERIFIED computation was scheduled."
+                    f"No review-kind VERIFIED result was obtained."
                 ),
                 iteration=self.iteration,
             ))

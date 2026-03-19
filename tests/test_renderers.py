@@ -23,7 +23,7 @@ from sciralph.research_state import (
     BackgroundSurvey,
     Severity,
     Verdict,
-    VerificationResult,
+    ReviewResult,
 )
 from sciralph.task import Task, TaskType
 
@@ -66,9 +66,9 @@ def populated_state():
             confidence="exact",
             iteration=3,
         ),
-        verification=VerificationResult(
+        review=ReviewResult(
             verdict=Verdict.VERIFIED,
-            reasoning="Symbolic computation confirms the formula.",
+            summary="Symbolic computation confirms the formula.",
             iteration=3,
         ),
     )
@@ -140,8 +140,8 @@ def empty_state():
 def sample_task():
     return Task(
         task_id="TASK-005",
-        task_type=TaskType.VERIFY,
-        assigned_to="verifier",
+        task_type=TaskType.REVIEW,
+        assigned_to="reviewer",
         priority="high",
         iteration=5,
         target_claim="ER-001",
@@ -325,7 +325,7 @@ class TestRenderResearchStateMd:
     def test_verification_rendered(self, populated_state):
         """Verification status appears in the research state output."""
         md = render_research_state_md(populated_state)
-        assert "**Verification:** VERIFIED" in md
+        assert "**Review:** VERIFIED" in md
 
 
 # ===========================================================================
@@ -348,7 +348,7 @@ class TestRenderEvidenceLogMd:
 
     def test_verification_entry_fields(self, populated_state):
         md = render_evidence_log_md(populated_state)
-        assert "ER-001: Verification" in md
+        assert "ER-001: Review" in md
         assert "VERIFIED" in md
         assert "Symbolic computation confirms" in md
 
@@ -421,9 +421,9 @@ class TestRenderEvidenceLogMd:
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", statement="Test",
             status=HypothesisStatus.WORKING,
-            verification=VerificationResult(
+            review=ReviewResult(
                 verdict=Verdict.VERIFIED,
-                reasoning=long_reasoning, iteration=2,
+                summary=long_reasoning, iteration=2,
             ),
         )
         md = render_evidence_log_md(state)
@@ -575,8 +575,8 @@ class TestRenderTaskMd:
         md = render_task_md(sample_task)
         meta, body = parse_frontmatter(md)
         assert meta["task_id"] == "TASK-005"
-        assert meta["task_type"] == "verify"
-        assert meta["assigned_to"] == "verifier"
+        assert meta["task_type"] == "review"
+        assert meta["assigned_to"] == "reviewer"
         assert meta["priority"] == "high"
         assert meta["iteration"] == 5
 

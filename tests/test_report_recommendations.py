@@ -17,7 +17,7 @@ from sciralph.research_state import (
     HypothesisStatus,
     ResearchState,
     Verdict,
-    VerificationResult,
+    ReviewResult,
 )
 from sciralph.task import Task, TaskType
 from sciralph.tools import ToolExecutor
@@ -342,7 +342,7 @@ class TestStaleUnverifiedLabels:
             id="ER-001",
             derivation="ER-001 is [unverified] pending computation.",
         )
-        state.hypotheses["ER-001"].verification = VerificationResult(
+        state.hypotheses["ER-001"].review = ReviewResult(
             verdict="VERIFIED", iteration=1,
         )
         check_stale_unverified_labels(state)
@@ -381,7 +381,7 @@ class TestStaleUnverifiedLabels:
             id="ER-002",
             derivation="ER-002 is [unverified].",
         )
-        state.hypotheses["ER-001"].verification = VerificationResult(
+        state.hypotheses["ER-001"].review = ReviewResult(
             verdict="VERIFIED", iteration=1,
         )
         check_stale_unverified_labels(state)
@@ -396,7 +396,7 @@ class TestStaleUnverifiedLabels:
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
             derivation="WH-001 was [unverified] but now promoted.",
         )
-        state.hypotheses["ER-001"].verification = VerificationResult(
+        state.hypotheses["ER-001"].review = ReviewResult(
             verdict="VERIFIED", iteration=1,
         )
         check_stale_unverified_labels(state)
@@ -412,7 +412,7 @@ class TestStaleUnverifiedLabels:
             id="WH-002",
             derivation="ER-002 — [unverified] result.",
         )
-        state.hypotheses["WH-002"].verification = VerificationResult(
+        state.hypotheses["WH-002"].review = ReviewResult(
             verdict="VERIFIED", iteration=1,
         )
         check_stale_unverified_labels(state)
@@ -436,7 +436,7 @@ class TestErDemotionNoAutoPromote:
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-            verification=VerificationResult(verdict="REFUTED", iteration=1),
+            review=ReviewResult(verdict="REFUTED", iteration=1),
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 1
@@ -448,7 +448,7 @@ class TestErDemotionNoAutoPromote:
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
-            verification=VerificationResult(verdict="VERIFIED", iteration=2),
+            review=ReviewResult(verdict="VERIFIED", iteration=2),
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 0
@@ -459,7 +459,7 @@ class TestErDemotionNoAutoPromote:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
-            verification=VerificationResult(verdict="VERIFIED", iteration=1),
+            review=ReviewResult(verdict="VERIFIED", iteration=1),
         )
         violations = check_er_demotion_safety(state)
         assert len(violations) == 0

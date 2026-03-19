@@ -126,8 +126,8 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
             "name": "promote_hypothesis",
             "description": (
                 "Promote a Working Hypothesis to an Established Result. "
-                "Requires a VERIFIED verdict from the verifier. "
-                "Call after the verifier has confirmed the claim."
+                "Requires a VERIFIED verdict from the reviewer. "
+                "Call after the reviewer has confirmed the claim."
             ),
             "parameters": {
                 "type": "object",
@@ -308,7 +308,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "task_type": {
                         "type": "string",
                         "enum": [
-                            "research", "compute", "verify",
+                            "research", "compute", "review",
                             "critique", "terminate",
                         ],
                     },
@@ -321,7 +321,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         "description": (
                             "The RQ/WH/ER ID this task targets. "
                             "For research/compute: the RQ or WH being investigated. "
-                            "For verify: the WH being verified."
+                            "For review: the WH being reviewed."
                         ),
                     },
                     "description": {
@@ -621,24 +621,12 @@ class OrchestratorToolExecutor:
         num = wh_id.split("-")[1]
         er_id = f"ER-{num}"
 
-        # Guardrail: require VERIFIED verification result
-        if not h.verification or h.verification.verdict != Verdict.VERIFIED:
+        # Guardrail: require VERIFIED review result
+        if not h.review or h.review.verdict != Verdict.VERIFIED:
             return (
-                f"Error: Cannot promote {wh_id} — no VERIFIED verification "
-                "result. Schedule a verify task first."
+                f"Error: Cannot promote {wh_id} — no VERIFIED review "
+                "result. Schedule a review task first."
             )
-
-        # Guardrail: check for HIGH-severity verifier critiques
-        if h.verification.critiques:
-            high_critiques = [
-                c for c in h.verification.critiques
-                if c.get("severity") == "HIGH"
-            ]
-            if high_critiques:
-                return (
-                    f"Error: Cannot promote {wh_id} — {len(high_critiques)} "
-                    "HIGH-severity verifier critique(s) must be addressed first."
-                )
 
         # Guardrail: check for unresolved HIGH critiques from deep critic
         for c in state.critiques.values():

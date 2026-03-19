@@ -75,58 +75,6 @@ class ToolExecutor:
         },
     }
 
-    _SUBMIT_VERDICT_DEF: ClassVar[dict] = {
-        "type": "function",
-        "function": {
-            "name": "submit_verdict",
-            "description": (
-                "Submit your final verification verdict. Call this ONCE when you "
-                "have enough evidence to conclude. This immediately ends your "
-                "session. Do NOT call execute_python in the same response as "
-                "submit_verdict."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "target_id": {
-                        "type": "string",
-                        "description": "The WH/ER ID being verified (e.g. 'WH-002').",
-                    },
-                    "claim": {
-                        "type": "string",
-                        "description": "The claim description (e.g. 'fidelity is 1 to first order').",
-                    },
-                    "method": {
-                        "type": "string",
-                        "description": "Computation method used.",
-                    },
-                    "result": {
-                        "type": "string",
-                        "description": "Key numerical results and observations.",
-                    },
-                    "verdict": {
-                        "type": "string",
-                        "enum": ["VERIFIED", "REFUTED", "INCONCLUSIVE"],
-                        "description": "Your verdict.",
-                    },
-                    "notes": {
-                        "type": "string",
-                        "description": "Summary notes (1-3 sentences).",
-                    },
-                    "evidence_scripts": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": (
-                            "List of script filenames providing key evidence "
-                            "(e.g. ['001_verify_enumeration.py'])."
-                        ),
-                    },
-                },
-                "required": ["target_id", "claim", "method", "result", "verdict", "notes"],
-            },
-        },
-    }
-
     _SUBMIT_RESULT_DEF: ClassVar[dict] = {
         "type": "function",
         "function": {
@@ -200,7 +148,7 @@ class ToolExecutor:
                     },
                     "ready_to_conclude": {
                         "type": "boolean",
-                        "description": "True if you have enough evidence to call submit_verdict/submit_result.",
+                        "description": "True if you have enough evidence to call submit_result.",
                     },
                 },
                 "required": ["findings_so_far", "remaining_questions", "ready_to_conclude"],

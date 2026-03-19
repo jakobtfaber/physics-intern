@@ -359,8 +359,8 @@ class TestExitToolName:
         assert CriticToolExecutor.exit_tool_name == "submit_review"
 
     def test_verifier_exit_tool(self):
-        from sciralph.verifier_tools import VerifierToolExecutor
-        assert VerifierToolExecutor.exit_tool_name == "submit_verdict"
+        from sciralph.reviewer_tools import ReviewerToolExecutor
+        assert ReviewerToolExecutor.exit_tool_name == "submit_review"
 
     def test_report_progress_mentions_submit_result(self):
         from sciralph.task import TaskType
