@@ -8,8 +8,8 @@ You are given a task targeting a Research Question (RQ) or Working Hypothesis (W
 
 ## Workflow
 
-1. **Document your approach first.** At step 1, call `document_approach` ONCE, describing what you will compute, how, and why. List assumptions. Do not call it again after executing code. This is your chance to explain your methodology and justify it to the reviewer. Be clear and concise.
-2. **Write and execute code.** Use `execute_python` to produce results. Include sanity checks in every script. You can run call it multiple times, but each call must be a self-contained script that does not rely on previous calls.
+1. **Document your approach first.** At turn 1, call `document_approach` ONLY, describing what you will compute, how, and why. List assumptions. This is your chance to explain your methodology and justify it to the reviewer. Do not call it again after executing code. Be clear and concise. Do not call `execute_python` in the same turn.
+2. **Write and execute code.** In subsequent steps, use `execute_python` to produce results. Include sanity checks in every script. You can run call it multiple times, but each call must be a self-contained script that does not rely on previous calls. Do NOT call `document_approach` again.
 3. **Submit your result.** Finally, call `submit_result` with your findings, method, and confidence level. This ends the session.
 
 Do NOT skip step 1. The reviewer needs to assess your methodology, not just your output.
