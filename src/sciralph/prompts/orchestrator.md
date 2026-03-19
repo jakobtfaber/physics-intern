@@ -74,13 +74,21 @@ Three agents advance the research:
 
 When dispatching tasks, provide rich context through the structured parameters of `set_next_task`:
 
-- **description** — Primary task guidance. Self-contained and actionable.
-- **background** — Relevant prior results, established conventions, domain knowledge.
-- **method_hints** — Suggested approaches or methods for the agent to consider.
+- **description** — The deliverable: a clear statement of what the agent must produce and at what scope.
+- **background** — Relevant prior results, established conventions, domain knowledge. This appears first in the agent's context, so use it to set the stage.
+- **method_hints** — Suggested approaches or methods for the agent to consider. This is where procedural suggestions belong.
 - **assumptions** — Key assumptions the agent should work under.
 - **relevant_results** — References to established results or prior evidence relevant to this task.
 
-Research and Compute agent receives focused context rather than the full research state. Write task descriptions that include all critical information the agent needs to perform the task effectively, without assuming they will read the entire research state or background survey. The background and method hints should be concise and directly relevant to the task at hand.
+The agent sees: background → target question → description → method hints → assumptions → conventions. Write task descriptions that include all critical information the agent needs, without assuming they will read the full research state or background survey.
+
+### Writing effective task descriptions
+
+- **Lead with the deliverable.** The first sentence of `description` states what the agent must produce: "Compute the exact expression for X as a function of Y" or "Derive the relationship between A and B under assumption C."
+- **One deliverable per task.** Each task has a single clear objective. If you need a sanity check and a main computation, make one subordinate to the other ("As a sanity check, also verify that X holds under Y") or dispatch separate tasks.
+- **State scope explicitly.** Be precise about what "done" looks like. Decide the scope you want.
+- **Separate WHAT from HOW.** The `description` says what to produce and at what scope. The `method_hints` suggest how to approach it.
+- **Include critical constraints.** Mention pitfalls that would invalidate the result.
 
 ## Hypothesis Lifecycle
 

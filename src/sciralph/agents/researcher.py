@@ -28,27 +28,57 @@ class ResearcherAgent(BaseAgent):
         self.research_state: ResearchState | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
-        parts = [
-            "<task>\n",
-            task.render_agent_context(include_structured=True),
-            "\n</task>",
-        ]
+        parts: list[str] = []
+
+        # 1. Background — domain context first
+        if task.background:
+            parts.append(f"<background>\n{task.background}\n</background>")
+
+        # 2. Target question/statement — what the agent is answering
+        target_text = self._resolve_target_text(task.target_claim)
+        if target_text:
+            parts.append(f"<target>\n{task.target_claim}: {target_text}\n</target>")
+
+        # 3. Task description + method hints + assumptions
+        task_parts: list[str] = []
+        if task.body:
+            task_parts.append(task.body)
+        if task.method_hints:
+            hints = "\n".join(f"- {h}" for h in task.method_hints)
+            task_parts.append(f"<method-hints>\n{hints}\n</method-hints>")
+        if task.assumptions:
+            items = "\n".join(f"- {a}" for a in task.assumptions)
+            task_parts.append(f"<assumptions>\n{items}\n</assumptions>")
+        if task.relevant_results:
+            items = "\n".join(f"- {r}" for r in task.relevant_results)
+            task_parts.append(f"<relevant-results>\n{items}\n</relevant-results>")
+        if task_parts:
+            parts.append("<task>\n" + "\n\n".join(task_parts) + "\n</task>")
+
+        # 4. Research context — conventions and established results only
+        #    (no strategy, no open questions — those are orchestrator concerns)
         if self.research_state:
             rc_parts: list[str] = []
             if self.research_state.conventions:
                 rc_parts.append(f"<conventions>\n{self.research_state.conventions}\n</conventions>")
-            if self.research_state.strategy:
-                rc_parts.append(f"<strategy>\n{self.research_state.strategy}\n</strategy>")
             ers = self.research_state.established_hypotheses()
             if ers:
                 er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
                 rc_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
-            open_rqs = self.research_state.open_research_questions()
-            if open_rqs:
-                rq_lines = [f"- **{rq.id}**: {rq.question}" for rq in open_rqs]
-                rc_parts.append("<open-questions>\n" + "\n".join(rq_lines) + "\n</open-questions>")
-            parts.append("\n<research-context>\n" + "\n".join(rc_parts) + "\n</research-context>")
-        return "\n".join(parts)
+            if rc_parts:
+                parts.append("<research-context>\n" + "\n".join(rc_parts) + "\n</research-context>")
+
+        return "\n\n".join(parts)
+
+    def _resolve_target_text(self, target_claim: str) -> str | None:
+        """Resolve a target_claim ID to its question or statement text."""
+        if not self.research_state or not target_claim:
+            return None
+        if target_claim in self.research_state.research_questions:
+            return self.research_state.research_questions[target_claim].question
+        if target_claim in self.research_state.hypotheses:
+            return self.research_state.hypotheses[target_claim].statement
+        return None
 
     def process_response(self, response: AgentResult, task: Task, iteration: int):
         """Build Evidence from submit_result and store on target entity."""

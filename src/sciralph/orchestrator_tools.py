@@ -327,9 +327,11 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "description": {
                         "type": "string",
                         "description": (
-                            "Detailed, self-contained task description (Markdown). "
-                            "This is the ONLY guidance the agent receives — include "
-                            "any relevant methodological requirements, scope, and known pitfalls."
+                            "Goal-focused task description. Lead with a single "
+                            "sentence stating the deliverable and its scope. "
+                            "Add critical constraints or pitfalls if needed. "
+                            "Do NOT write step-by-step procedures — put method "
+                            "suggestions in method_hints instead."
                         ),
                     },
                     "background": {
