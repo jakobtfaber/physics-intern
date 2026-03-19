@@ -367,7 +367,7 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
                 rq_content.append(f"Context: {rq.context}")
             if rq.evidence:
                 ev = rq.evidence
-                rq_content.append(f"Evidence ({ev.type}): {ev.result[:500] if ev.result else 'pending'}")
+                rq_content.append(f"Evidence ({ev.type}): {ev.result[:1000] if ev.result else 'pending'}")
             rq_lines.append(f'<rq id="{rq.id}" status="OPEN">\n' + "\n".join(rq_content) + "\n</rq>")
         for rq in resolved_rqs:
             rq_content = [rq.question]
@@ -409,13 +409,13 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
             if ev.confidence:
                 ev_parts.append(f"Confidence: {ev.confidence}")
             if ev.result:
-                ev_parts.append(f"Result: {ev.result[:300]}")
+                ev_parts.append(f"Result: {ev.result[:1500]}")
             h_parts.append(f'<evidence type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
         if h.verification:
             v = h.verification
             v_parts: list[str] = []
             if v.reasoning:
-                v_parts.append(f"Reasoning: {v.reasoning[:300]}")
+                v_parts.append(f"Reasoning: {v.reasoning[:1500]}")
             if v.critiques:
                 v_parts.append(f"Critiques: {len(v.critiques)} filed")
             h_parts.append(f'<verification verdict="{v.verdict}">\n' + "\n".join(v_parts) + "\n</verification>")

@@ -547,7 +547,7 @@ class SciRalph:
                     "verdict": verdict,
                     "claim": target_id,
                     "attempt": count,
-                    "notes": h.verification.reasoning[:300] if h.verification.reasoning else "",
+                    "notes": h.verification.reasoning[:800] if h.verification.reasoning else "",
                     "task_id": task.task_id,
                 })
                 detail = h.verification.reasoning[:120].replace("\n", " ") if h.verification.reasoning else ""
@@ -559,7 +559,7 @@ class SciRalph:
                     "verdict": verdict,
                     "claim": target_id,
                     "attempt": count,
-                    "notes": h.verification.reasoning[:300] if h.verification.reasoning else "",
+                    "notes": h.verification.reasoning[:800] if h.verification.reasoning else "",
                     "task_id": task.task_id,
                 })
                 detail = h.verification.reasoning[:120].replace("\n", " ") if h.verification.reasoning else ""
