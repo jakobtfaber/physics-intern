@@ -53,8 +53,10 @@ class ToolExecutor:
                     "purpose": {
                         "type": "string",
                         "description": (
-                            "Brief explanation of what this computation will determine "
-                            "and why it is needed beyond previous results."
+                            "What this script computes and what you expect to learn "
+                            "from the output. Be specific: state the quantity being "
+                            "computed, the method used, and how the result advances "
+                            "toward the deliverable."
                         ),
                     },
                     "code": {
