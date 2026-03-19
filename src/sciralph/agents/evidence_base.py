@@ -131,7 +131,10 @@ class EvidenceAgent(BaseAgent):
         if not self.research_state or not target_claim:
             return None
         if target_claim in self.research_state.research_questions:
-            return self.research_state.research_questions[target_claim].question
+            rq = self.research_state.research_questions[target_claim]
+            if rq.context:
+                return f"{rq.question}\nContext: {rq.context}"
+            return rq.question
         if target_claim in self.research_state.hypotheses:
             return self.research_state.hypotheses[target_claim].statement
         return None

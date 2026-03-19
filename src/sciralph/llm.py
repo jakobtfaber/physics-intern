@@ -345,7 +345,7 @@ def run_agent_loop(
                 # naturally exhausts at max_rounds
                 _recovery_msg = (
                     f"Your response was empty. You still need to call `{_exit_tool}` "
-                    f"to complete your task. Review your findings and call "
+                    f"to complete your task. If you are done, review your findings and call "
                     f"`{_exit_tool}` now."
                 )
                 messages.append(provider.format_assistant_message(resp.raw_content))

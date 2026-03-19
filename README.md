@@ -6,9 +6,9 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 
 SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
 
-**How it works.** Seven specialised LLM agent roles (orchestrator, researcher, computer, reviewer, deep critic, compressor, formatter) take turns in a loop. The orchestrator dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), formulates working hypotheses from the evidence, then sends them to a **reviewer** for adversarial review. No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
+**How it works.** Eight specialised LLM agent roles (surveyor, orchestrator, researcher, computer, reviewer, deep critic, compressor, formatter) take turns in a loop. A **surveyor** maps the research landscape before the main loop begins. The **orchestrator** dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), formulates working hypotheses from the evidence, then sends them to a **reviewer** for adversarial review. No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
 
-**Current status.** Core functionality is complete (827 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 4 categories) compensates for predictable LLM failures. Every mechanism is instrumented — `EVENT_LOG.jsonl` records each intervention. See `CODEBASE.md` §7 for the full catalog.
+**Current status.** Core functionality is complete (~910 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 4 categories) compensates for predictable LLM failures. Every mechanism is instrumented — `EVENT_LOG.jsonl` records each intervention. See `CODEBASE.md` §7 for the full catalog.
 
 ## Quick Start
 
@@ -32,7 +32,7 @@ uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --model g
 ```
 python -m sciralph.main <problem.yaml> [options]
 
-  --model MODEL           LLM model key (default: claude-sonnet-4-6, resolved via models.yaml)
+  --model MODEL           LLM model key (default: claude-sonnet-4.6, resolved via models.yaml)
   --provider PROVIDER     Force provider (anthropic/openai/google/huggingface)
   --max-iterations N      Max loop iterations (default: 200)
   --workspace-dir DIR     Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
@@ -57,7 +57,7 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 ```
 python -m sciralph.verify <workspace_dir> [options]
 
-  --model MODEL              LLM model (default: claude-opus-4-6)
+  --model MODEL              LLM model (default: claude-opus-4.6)
   --max-tokens N             Max output tokens (default: 16384)
   --rerun-computations       Re-run computation scripts before verification
   --timeout N                Computation timeout in seconds (default: 60)
@@ -68,39 +68,43 @@ The verifier evaluates each Established Result for mathematical/physical validit
 
 ## Architecture
 
-Seven agent roles take turns in a main loop. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
+Eight agent roles take turns in a main loop. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
 
 ```
+                 ┌────────────┐
+                 │  Surveyor   │  (runs once before loop,
+                 │ (one-shot)  │   can be re-invoked mid-loop)
+                 └──────┬─────┘
+                        ▼
 ┌─────────────────────────────────────────────────┐
 │                   Main Loop                      │
 │                                                  │
 │  ┌──────────────┐    ┌──────────────────────┐   │
 │  │ Orchestrator  │───>│  Dispatch to Agent    │   │
 │  │ (plan next    │    │                      │   │
-│  │  task)        │    │  researcher          │   │
-│  └──────────────┘    │  computer            │   │
-│         ▲            │  reviewer            │   │
-│         │            │  critique            │   │
-│         │            │  format / compress   │   │
+│  │  task)        │    │  researcher (1-shot) │   │
+│  └──────────────┘    │  computer  (agentic) │   │
+│         ▲            │  reviewer  (1-shot)  │   │
+│         │            │  critic    (1-shot)  │   │
+│         │            │  compress / format   │   │
 │  ┌──────┴───────┐    │                      │   │
-│  │ Workspace     │<───└──────────────────────┘   │
-│  │ (Markdown     │                               │
-│  │  files + git) │                               │
+│  │ ResearchState │<───└──────────────────────┘   │
+│  │ (JSON + MD    │                               │
+│  │  snapshots)   │                               │
 │  └──────────────┘                                │
 └─────────────────────────────────────────────────┘
 ```
 
 ### Agents
 
-Three core agents produce evidence and review claims:
-
 | Agent | Role | Mode | Context source | Mutates |
 |-------|------|------|----------------|---------|
+| **Surveyor** | Maps the research landscape before the main loop | One-shot | Problem statement + ResearchState | `BackgroundSurvey` on ResearchState |
 | **Orchestrator** | Plans next task, mutates state via tools | Agentic (12 tools) | ResearchState via renderers | ResearchState, `CURRENT_TASK.md` |
-| **Researcher** | Analytical reasoning, derivation | Agentic (2 tools) | CURRENT_TASK.md + light research state | Evidence on RQ/WH |
-| **Computer** | Computational work via code | Agentic (4 tools) | CURRENT_TASK.md + light research state | Evidence on RQ/WH |
-| **Reviewer** | Adversarial review without code | One-turn (1 tool) | Focused package: WH + evidence + light state | ReviewResult on WH |
-| **Deep Critic** | Strategic review — research direction, coherence | Agentic (2 tools) | ResearchState via renderers | Critique objects |
+| **Researcher** | Analytical reasoning, derivation | One-shot (structured JSON) | Task + target entity + method hints + light state | Evidence on RQ/WH |
+| **Computer** | Computational work via code | Agentic (4 tools) | Task + target entity + method hints + light state | Evidence on RQ/WH |
+| **Reviewer** | Adversarial review without code | One-shot (structured JSON) | Focused package: WH + evidence + light state | ReviewResult on WH |
+| **Deep Critic** | Strategic review — research direction, coherence | One-shot (structured JSON) | ResearchState via `render_critic_context()` | Critique objects |
 | **Compressor** | Archives and shrinks files exceeding size thresholds | One-shot | Target file | Compressed target file |
 | **Formatter** | Produces clean `ANSWER.md` from final research state | One-shot | ResearchState via renderers | `ANSWER.md` |
 
@@ -152,9 +156,7 @@ src/sciralph/
   research_state.py    — ResearchState dataclass: authoritative structured state (hypotheses, evidence, critiques)
   renderers.py         — Snapshot renderers (state → Markdown) + per-agent context renderers
   orchestrator_tools.py — OrchestratorToolExecutor: 12 state-mutation tools for orchestrator
-  critic_tools.py      — CriticToolExecutor: submit_critique + finish_review tools for deep critic
-  reviewer_tools.py    — ReviewerToolExecutor: submit_review tool for reviewer agent
-  tools.py             — ToolExecutor + ToolCall for researcher/computer (document_approach, execute_python, submit_result, report_progress)
+  tools.py             — ToolExecutor + ToolCall for computer (document_approach, execute_python, submit_result, report_progress)
   categories.py        — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
   validation.py        — Post-integration checks (4 checks on ResearchState) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
@@ -167,13 +169,14 @@ src/sciralph/
   metrics.py           — MetricsTracker (token counts, alerts, Markdown rendering)
   agents/
     base.py            — BaseAgent ABC with template method + retry + tool-use dispatch
+    evidence_base.py   — EvidenceAgent base class shared by researcher and computer (context building, evidence storage)
     orchestrator.py    — Plans tasks, mutates ResearchState via tools
-    researcher.py      — Analytical reasoning; writes Evidence to RQ/WH
-    computer.py        — Computational work via code; writes Evidence to RQ/WH
-    reviewer.py        — Adversarial review; writes ReviewResult to WH
-    critic.py          — Strategic review via submit_critique/finish_review tools
+    researcher.py      — Analytical reasoning (one-shot structured JSON); writes Evidence to RQ/WH
+    computer.py        — Computational work via code (agentic); writes Evidence to RQ/WH
+    reviewer.py        — Adversarial review (one-shot structured JSON); writes ReviewResult to WH
+    critic.py          — Strategic review (one-shot structured JSON); writes Critique objects
     compressor.py      — File size management
-    formatter.py       — Produces ANSWER.md from final research state
+    formatter.py       — Produces ANSWER.md from final research state (one-shot)
     surveyor.py        — Background surveyor: maps the research landscape (one-shot)
   prompts/             — Static .md system prompt files (one per agent): orchestrator.md, researcher.md, computer.md, reviewer.md, deep_critic.md, compressor.md, formatter.md, surveyor.md, verifier.md (independent verify script)
   providers/
@@ -183,7 +186,7 @@ src/sciralph/
     google.py          — Google Gemini adapter
     huggingface.py     — HuggingFace Inference Providers adapter
   models.yaml          — Model registry (friendly keys → provider + model_id + env_key + cost)
-tests/                 — ~827 pytest tests across 24+ files
+tests/                 — ~910 pytest tests across 29 files
 problems/
   tier1/               — 10 core problems
   tier2/               — 12 advanced problems
