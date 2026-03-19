@@ -441,6 +441,7 @@ class TestEvidenceOnHypothesis:
         assert ev.method == ""
         assert ev.result == ""
         assert ev.confidence == ""
+        assert ev.summary == ""
         assert ev.iteration is None
 
     def test_evidence_json_round_trip(self):
@@ -468,6 +469,45 @@ class TestEvidenceOnHypothesis:
         assert ev.result == "pi/4 ~ 0.785"
         assert ev.confidence == "approximate"
         assert ev.iteration == 3
+
+    def test_evidence_summary_round_trip(self):
+        """Evidence.summary survives JSON serialization."""
+        state = ResearchState()
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002",
+            evidence=Evidence(
+                type="research",
+                reasoning="Full derivation...",
+                method="contour integration",
+                result="I = 2*pi*i",
+                confidence="exact",
+                summary="Residue theorem gives I = 2*pi*i",
+                iteration=2,
+            ),
+        )
+        restored = ResearchState.from_json(state.to_json())
+        ev = restored.hypotheses["WH-002"].evidence
+        assert ev is not None
+        assert ev.summary == "Residue theorem gives I = 2*pi*i"
+        assert ev.reasoning == "Full derivation..."
+
+    def test_evidence_summary_on_rq_round_trip(self):
+        """Evidence.summary on RQ survives JSON serialization."""
+        from sciralph.research_state import ResearchQuestion
+        state = ResearchState()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is X?",
+            evidence=Evidence(
+                type="research", method="analysis",
+                result="X = 42", confidence="exact",
+                summary="Found X by direct calculation",
+                iteration=1,
+            ),
+        )
+        restored = ResearchState.from_json(state.to_json())
+        ev = restored.research_questions["RQ-001"].evidence
+        assert ev is not None
+        assert ev.summary == "Found X by direct calculation"
 
     def test_review_result_defaults(self):
         vr = ReviewResult()

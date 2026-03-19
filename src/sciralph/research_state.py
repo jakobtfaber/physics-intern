@@ -67,6 +67,7 @@ class Evidence:
     method: str = ""
     result: str = ""
     confidence: str = ""     # exact/approximate/partial
+    summary: str = ""        # One-sentence summary for banners
     iteration: int | None = None
 
 
@@ -347,6 +348,7 @@ class ResearchState:
                     method=edata.get("method", ""),
                     result=edata.get("result", ""),
                     confidence=edata.get("confidence", ""),
+                    summary=edata.get("summary", ""),
                     iteration=edata.get("iteration"),
                 )
             review = None
@@ -396,6 +398,7 @@ class ResearchState:
                     method=edata.get("method", ""),
                     result=edata.get("result", ""),
                     confidence=edata.get("confidence", ""),
+                    summary=edata.get("summary", ""),
                     iteration=edata.get("iteration"),
                 )
             state.research_questions[rqid] = ResearchQuestion(

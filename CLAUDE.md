@@ -39,7 +39,7 @@ src/sciralph/
   sandbox.py           — Python script execution with timeout
   metrics.py           — MetricsTracker (token counts, tool calls, alerts, Markdown rendering)
   agents/
-    base.py            — BaseAgent ABC with template method + retry + tool-use dispatch
+    base.py            — BaseAgent ABC with template method + retry + tool-use dispatch; `max_tool_rounds` class var override
     orchestrator.py    — Plans tasks, mutates ResearchState via OrchestratorToolExecutor tools
     researcher.py      — Analytical reasoning agent; writes Evidence objects to RQ/WH in ResearchState
     computer.py        — Computational agent with code execution; writes Evidence objects to RQ/WH in ResearchState
@@ -49,7 +49,7 @@ src/sciralph/
     formatter.py       — Produces ANSWER.md from final research state (one-shot)
     surveyor.py        — Background surveyor: produces background notes mapping the research landscape (one-shot)
   prompts/             — Static .md system prompt files (one per agent): orchestrator.md, researcher.md, computer.md, reviewer.md, deep_critic.md, compressor.md, formatter.md, surveyor.md, verifier.md (independent verify script), process_auditor.md
-tests/                 — ~827 pytest tests across 24+ files
+tests/                 — ~851 pytest tests across 24+ files
 problems/
   tier1/               — 10 core problem definitions
   tier2/               — 12 advanced problem definitions
@@ -70,7 +70,7 @@ Seven agent roles (surveyor, orchestrator, researcher, computer, reviewer, deep 
 
 | Agent | Role | Tools |
 |-------|------|-------|
-| **Researcher** | Analytical reasoning, derivation | submit_result, report_progress |
+| **Researcher** | Analytical reasoning, derivation (one-shot, `max_tool_rounds=3`) | submit_result (research variant: reasoning/result/method/confidence/summary) |
 | **Computer** | Computational work via code | document_approach, execute_python, submit_result, report_progress |
 | **Reviewer** | Adversarial review (no code) | submit_review |
 
@@ -91,7 +91,7 @@ Entity numbering is unified: RQ, WH, and ER share a single counter so the same n
 
 ### Entity Dataclasses
 
-- `Evidence` — `type` (research/compute), `reasoning`, `approach` (from document_approach), `scripts` (list), `output`, `method`, `result`, `confidence` (exact/approximate/partial), `iteration`
+- `Evidence` — `type` (research/compute), `reasoning`, `approach` (from document_approach), `scripts` (list), `output`, `method`, `result`, `confidence` (exact/approximate/partial), `summary` (one-sentence for banners), `iteration`
 - `ReviewResult` — `verdict` (VERIFIED/REFUTED/INCONCLUSIVE), `summary`, `details`, `iteration`
 - `Hypothesis` — `id`, `statement`, `status` (HypothesisStatus: WORKING/ESTABLISHED/REFUTED/ABANDONED), `derivation`, `critiques`, `iteration_created`, `iteration_modified`, `depends_on` (list of hypothesis IDs), `promotion_justification`, `evidence: Evidence | None`, `review: ReviewResult | None`
 - `ResearchQuestion` — `id` (RQ-NNN), `question`, `context`, `resolved_to` (list of hypothesis IDs), `status` (RQStatus: OPEN/RESOLVED/ABANDONED), `iteration_created`, `iteration_resolved`, `evidence: Evidence | None`
@@ -102,7 +102,7 @@ Entity numbering is unified: RQ, WH, and ER share a single counter so the same n
 
 - **Surveyor** runs before the main loop (iteration 0) to produce background notes. Can be re-invoked mid-loop via `task_type: survey`.
 - **Orchestrator** mutates ResearchState via 12 tools (add/update/abandon/promote hypothesis, resolve critique, update section, append note, add/resolve research question, record dead end, set next task), emits CURRENT_TASK.md. Integrates evidence results from the EVIDENCE RESULTS banner. Maintains Conventions, Strategy, Situation Assessment sections, and append-only Research Notes. Sees the background survey in its context.
-- **Researcher** (`researcher`) — analytical reasoning without code: `submit_result` + `report_progress`. Builds `Evidence(type="research")` and stores on target RQ or WH.
+- **Researcher** (`researcher`) — one-shot analytical reasoning without code (`max_tool_rounds=3`): own `submit_result` variant with `reasoning`/`result`/`method`/`confidence`/`summary` fields (no `target_id` — target comes from `task.target_claim`). Builds `Evidence(type="research")` with `reasoning` from `response.text` (full derivation) and stores on target RQ or WH.
 - **Computer** (`computer`) — computational work via code: `document_approach` + `execute_python` + `submit_result` + `report_progress`. Must call `document_approach` before first `execute_python` (enforced: tool removed from available set after first call via `active_tools` property). Builds `Evidence(type="compute")` with approach, scripts, and output.
 - **Reviewer** (`reviewer`) — adversarial review, one-turn with single `submit_review` tool. Gets focused context (WH + evidence + original RQ + established results + conventions), NOT the full research state. Builds `ReviewResult` with verdict, stored on target WH.
 - **Deep Critic** — strategic review via `submit_critique`/`finish_review` tools (CriticToolExecutor). Focuses on research strategy, inter-result coherence, and systematic issues — NOT per-claim verification (that's the reviewer's job). Writes Critique objects to ResearchState.
@@ -175,7 +175,7 @@ uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --wr
 
 ## Current Status
 
-All core functionality is implemented and working (~827 tests passing):
+All core functionality is implemented and working (~851 tests passing):
 
 - **Core loop** — seven agent roles (surveyor, orchestrator, researcher, computer, reviewer, deep critic, compressor, formatter), main loop with surveyor pre-pass (iteration 0), orchestrator integration via EVIDENCE RESULTS banner, forced critic pre-check, review result signaling, termination gates (`can_terminate`), `_sync_research_state` on termination; unified entity numbering (RQ/WH/ER share one counter, `next_entity_num()`); `_render_files_for_git()` consolidates all MD file writes; stall heuristic (`_should_suggest_resurvey`) injects banner when 3+ abandoned hypotheses with 0 established results
 - **Validation pipeline** — 4 post-integration checks operating on ResearchState directly (ER demotion safety via h.review.verdict, phantom labels, stale unverified labels, critique resolution consistency), violation injection into orchestrator context; WH→ER promotion via orchestrator's `promote_hypothesis` tool with dependency-aware guardrails, requires VERIFIED review result with no HIGH critiques

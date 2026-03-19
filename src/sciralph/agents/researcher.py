@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import ClassVar, TYPE_CHECKING
 
 from ..llm import AgentResult
 from ..research_state import Evidence
@@ -21,6 +21,7 @@ class ResearcherAgent(BaseAgent):
     name = "researcher"
     prompt_file = "researcher.md"
     tools = ToolExecutor.RESEARCHER_TOOLS
+    max_tool_rounds: ClassVar[int | None] = 3  # 1 real round + 2 safety margin
 
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
@@ -58,12 +59,16 @@ class ResearcherAgent(BaseAgent):
 
         if result_tc and isinstance(result_tc.tool_input, dict):
             params = result_tc.tool_input
+            # Prefer response.text as the full derivation (the text accompanying
+            # the tool call IS the derivation); fall back to tool params.
+            reasoning = response.text or params.get("reasoning", "")
             evidence = Evidence(
                 type="research",
-                reasoning=params.get("result", ""),
+                reasoning=reasoning,
                 method=params.get("method", ""),
                 result=params.get("result", ""),
                 confidence=params.get("confidence", "partial"),
+                summary=params.get("summary", ""),
                 iteration=iteration,
             )
         else:
@@ -76,14 +81,12 @@ class ResearcherAgent(BaseAgent):
                 iteration=iteration,
             )
 
-        # Store on target entity
+        # Store on target entity — use task.target_claim, not tool params
         if self.research_state:
-            target_id = ""
-            if result_tc and isinstance(result_tc.tool_input, dict):
-                target_id = result_tc.tool_input.get("target_id", "")
+            target_id = task.target_claim
             if not target_id:
                 ids = _ENTITY_ID_RE.findall(task.body or "")
-                target_id = ids[0] if ids else task.target_claim
+                target_id = ids[0] if ids else ""
 
             self._store_evidence(target_id, evidence)
 

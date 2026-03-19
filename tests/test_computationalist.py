@@ -171,6 +171,122 @@ class TestComputerProcessResponse:
         assert "Expected outcome:" not in evidence.approach
 
 
+class TestResearcherProcessResponse:
+    """Test ResearcherAgent.process_response builds Evidence correctly."""
+
+    def _make_agent(self):
+        from sciralph.agents.researcher import ResearcherAgent
+        from sciralph.research_state import ResearchState, ResearchQuestion
+        agent = ResearcherAgent.__new__(ResearcherAgent)
+        agent.research_state = ResearchState(problem_statement="test")
+        rq_id = f"RQ-{agent.research_state.next_entity_num():03d}"
+        agent.research_state.research_questions[rq_id] = ResearchQuestion(id=rq_id, question="Derive X?")
+        agent._last_script_names = []
+        return agent, rq_id
+
+    def _make_result(self, text="", tool_calls=None):
+        from sciralph.llm import AgentResult
+        return AgentResult(text=text, tool_calls=tool_calls or [])
+
+    def _make_tc(self, name, tool_input, output="ok", is_error=False):
+        from sciralph.tools import ToolCall
+        return ToolCall(tool_name=name, tool_input=tool_input, output=output, is_error=is_error, duration=0.1)
+
+    def test_evidence_from_submit_result(self):
+        from sciralph.task import Task, TaskType
+        agent, rq_id = self._make_agent()
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body=f"Derive for {rq_id}", target_claim=rq_id)
+        tool_calls = [
+            self._make_tc("submit_result", {
+                "reasoning": "By direct calculation...",
+                "result": "T_H = 1/(8*pi*M)",
+                "method": "Euclidean path integral",
+                "confidence": "exact",
+                "summary": "Hawking temperature derived",
+            }),
+        ]
+        result = self._make_result(text="Full derivation text here...", tool_calls=tool_calls)
+        agent.process_response(result, task, iteration=1)
+        evidence = agent.research_state.research_questions[rq_id].evidence
+        assert evidence is not None
+        assert evidence.type == "research"
+        assert evidence.method == "Euclidean path integral"
+        assert evidence.result == "T_H = 1/(8*pi*M)"
+        assert evidence.confidence == "exact"
+        assert evidence.summary == "Hawking temperature derived"
+
+    def test_reasoning_from_response_text(self):
+        """Evidence.reasoning should prefer response.text over tool params."""
+        from sciralph.task import Task, TaskType
+        agent, rq_id = self._make_agent()
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body=f"Derive for {rq_id}", target_claim=rq_id)
+        derivation_text = "Starting from the metric ds^2 = -(1-2M/r)dt^2 + ... we find..."
+        tool_calls = [
+            self._make_tc("submit_result", {
+                "reasoning": "short summary in tool",
+                "result": "T_H = 1/(8*pi*M)",
+                "method": "analytical",
+                "confidence": "exact",
+                "summary": "Derived T_H",
+            }),
+        ]
+        result = self._make_result(text=derivation_text, tool_calls=tool_calls)
+        agent.process_response(result, task, iteration=1)
+        evidence = agent.research_state.research_questions[rq_id].evidence
+        assert evidence.reasoning == derivation_text
+
+    def test_reasoning_falls_back_to_tool_params(self):
+        """When response.text is empty, reasoning comes from tool params."""
+        from sciralph.task import Task, TaskType
+        agent, rq_id = self._make_agent()
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body=f"Derive for {rq_id}", target_claim=rq_id)
+        tool_calls = [
+            self._make_tc("submit_result", {
+                "reasoning": "Detailed reasoning in tool params",
+                "result": "T = 42",
+                "method": "algebra",
+                "confidence": "exact",
+                "summary": "Found T",
+            }),
+        ]
+        result = self._make_result(text="", tool_calls=tool_calls)
+        agent.process_response(result, task, iteration=1)
+        evidence = agent.research_state.research_questions[rq_id].evidence
+        assert evidence.reasoning == "Detailed reasoning in tool params"
+
+    def test_target_from_task_target_claim(self):
+        """Target ID comes from task.target_claim, not tool params."""
+        from sciralph.task import Task, TaskType
+        agent, rq_id = self._make_agent()
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body="Some task", target_claim=rq_id)
+        tool_calls = [
+            self._make_tc("submit_result", {
+                "reasoning": "...", "result": "42", "method": "m",
+                "confidence": "exact", "summary": "s",
+            }),
+        ]
+        result = self._make_result(tool_calls=tool_calls)
+        agent.process_response(result, task, iteration=1)
+        assert agent.research_state.research_questions[rq_id].evidence is not None
+
+    def test_fallback_no_tool_call(self):
+        """When no tool call, build minimal evidence from response text."""
+        from sciralph.task import Task, TaskType
+        agent, rq_id = self._make_agent()
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body=f"Derive for {rq_id}", target_claim=rq_id)
+        result = self._make_result(text="Partial derivation that got cut off...")
+        agent.process_response(result, task, iteration=1)
+        evidence = agent.research_state.research_questions[rq_id].evidence
+        assert evidence is not None
+        assert evidence.confidence == "partial"
+        assert "Partial derivation" in evidence.reasoning
+
+
 class TestToolsForTaskType:
     """Test tools_for_task_type returns correct tool sets."""
 

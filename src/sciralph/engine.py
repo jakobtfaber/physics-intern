@@ -511,15 +511,16 @@ class SciRalph:
                 ev = self.research_state.hypotheses[target_id].evidence
 
             if ev and ev.result:
+                description = ev.summary or (ev.method[:500] if ev.method else "unknown")
                 self._state.pending_explore_results.append({
                     "target_id": target_id,
-                    "description": ev.method[:500] if ev.method else "unknown",
+                    "description": description,
                     "result": ev.result[:500],
                     "confidence": ev.confidence or "partial",
                     "task_id": task.task_id,
                     "task_type": task.task_type.value,
                 })
-                snippet = ev.result[:120].replace("\n", " ")
+                snippet = (ev.summary or ev.result[:120]).replace("\n", " ")
                 conf = f", {ev.confidence}" if ev.confidence else ""
                 console.print(f"  [blue]Evidence for {target_id}[/blue]{conf}: {snippet}")
             else:

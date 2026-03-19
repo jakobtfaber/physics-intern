@@ -113,6 +113,8 @@ def _research_state_body(state: ResearchState) -> str:
         if h.evidence:
             ev = h.evidence
             parts.append(f"**Evidence ({ev.type}):** {ev.method or 'not specified'}")
+            if ev.summary:
+                parts.append(f"  Summary: {ev.summary}")
             if ev.confidence:
                 parts.append(f"  Confidence: {ev.confidence}")
             if ev.result:
@@ -211,6 +213,8 @@ def _evidence_log_body(state: ResearchState) -> str:
             parts.append(f"## {entity.id}: Evidence ({ev.type})\n")
             parts.append(f"**Question:** {entity.question}")
             parts.append(f"**Method:** {ev.method}")
+            if ev.summary:
+                parts.append(f"**Summary:** {ev.summary}")
             if ev.approach:
                 parts.append(f"**Approach:** {ev.approach[:2000]}")
             parts.append(f"**Result:** {ev.result}")
@@ -224,6 +228,8 @@ def _evidence_log_body(state: ResearchState) -> str:
             parts.append(f"## {entity.id}: Evidence ({ev.type})\n")
             parts.append(f"**Statement:** {entity.statement}")
             parts.append(f"**Method:** {ev.method}")
+            if ev.summary:
+                parts.append(f"**Summary:** {ev.summary}")
             if ev.approach:
                 parts.append(f"**Approach:** {ev.approach[:2000]}")
             parts.append(f"**Result:** {ev.result}")

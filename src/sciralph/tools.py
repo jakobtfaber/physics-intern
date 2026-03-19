@@ -125,6 +125,47 @@ class ToolExecutor:
         },
     }
 
+    _SUBMIT_RESEARCH_DEF: ClassVar[dict] = {
+        "type": "function",
+        "function": {
+            "name": "submit_result",
+            "description": (
+                "Submit the result of your analytical derivation. Call this ONCE "
+                "when you have a concrete result. This immediately ends your session."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reasoning": {
+                        "type": "string",
+                        "description": (
+                            "Full derivation — all steps, substitutions, intermediate "
+                            "results. This is the core evidence."
+                        ),
+                    },
+                    "result": {
+                        "type": "string",
+                        "description": "Compact conclusion (quotable in one paragraph).",
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "Analytical approach name (e.g. 'variational method', 'contour integration').",
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["exact", "approximate", "partial"],
+                        "description": "Confidence level of the result.",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "One-sentence summary for banners and quick reference.",
+                    },
+                },
+                "required": ["reasoning", "result", "method", "confidence", "summary"],
+            },
+        },
+    }
+
     _REPORT_PROGRESS_DEF: ClassVar[dict] = {
         "type": "function",
         "function": {
@@ -193,7 +234,7 @@ class ToolExecutor:
 
     # Tool sets by agent type
     RESEARCHER_TOOLS: ClassVar[list[dict]] = [
-        _SUBMIT_RESULT_DEF,
+        _SUBMIT_RESEARCH_DEF,
     ]
     COMPUTER_TOOLS: ClassVar[list[dict]] = [
         _DOCUMENT_APPROACH_DEF,
@@ -348,7 +389,13 @@ class ToolExecutor:
         """Record exploratory result and signal loop to stop."""
         self.stop_after_round = True
         self._last_result = params
-        return f"Result recorded for {params.get('target_id', '?')}: {params.get('confidence', '?')}", False
+        target = params.get("target_id", "")
+        conf = params.get("confidence", "?")
+        if target:
+            return f"Result recorded for {target}: {conf}", False
+        summary = params.get("summary", "")
+        label = summary[:80] if summary else conf
+        return f"Result recorded: {label}", False
 
     def _execute_python(self, code: str, purpose: str = "", filename: str = "") -> tuple[str, bool]:
         """Write code to file, execute via sandbox, return (output, is_error)."""

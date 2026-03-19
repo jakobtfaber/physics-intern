@@ -327,6 +327,33 @@ class TestSubmitResult:
         assert "partial" in tc.output
         assert tc.tool_name == "submit_result"
 
+    def test_researcher_style_no_target_id(self):
+        """Researcher-style submit_result (no target_id, has summary)."""
+        executor = _make_executor()
+        params = {
+            "reasoning": "By direct computation...",
+            "result": "T_H = 1/(8*pi*M)",
+            "method": "analytical derivation",
+            "confidence": "exact",
+            "summary": "Hawking temperature derived via Euclidean path integral",
+        }
+        tc = executor.execute("submit_result", params)
+        assert not tc.is_error
+        assert executor.stop_after_round is True
+        assert "Hawking temperature" in tc.output
+        assert "WH-" not in tc.output  # no target_id in output
+
+    def test_researcher_style_summary_truncated(self):
+        """Researcher-style output truncates long summaries to 80 chars."""
+        executor = _make_executor()
+        long_summary = "A" * 100
+        tc = executor.execute("submit_result", {
+            "reasoning": "...", "result": "...", "method": "m",
+            "confidence": "exact", "summary": long_summary,
+        })
+        # The label should be truncated
+        assert len(tc.output) < len(long_summary) + 30  # "Result recorded: " + 80 chars
+
 
 class TestToolSetsForTaskType:
     def test_researcher_tools(self):

@@ -27,6 +27,7 @@ class BaseAgent(ABC):
     name: str = "base"
     prompt_file: str = ""
     tools: ClassVar[list[dict]] = []
+    max_tool_rounds: ClassVar[int | None] = None
 
     def __init__(self, config: Config, workspace: WorkspaceManager, metrics: MetricsTracker):
         self.config = config
@@ -87,7 +88,7 @@ class BaseAgent(ABC):
             config=self.config,
             tool_executor=tool_executor,
             tools=self.tools,
-            max_rounds=self.config.max_tool_rounds,
+            max_rounds=self.max_tool_rounds or self.config.max_tool_rounds,
             agent_name=self.name,
             iteration=iteration,
             on_round=on_round,
