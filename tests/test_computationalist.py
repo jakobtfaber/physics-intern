@@ -84,11 +84,9 @@ class TestNewAgentTools:
         assert "execute_python" in names
         assert "submit_result" in names
 
-    def test_verifier_has_tools(self):
+    def test_reviewer_is_one_shot(self):
         from sciralph.agents.reviewer import ReviewerAgent
-        assert ReviewerAgent.tools
-        names = {t["function"]["name"] for t in ReviewerAgent.tools}
-        assert "submit_review" in names
+        assert ReviewerAgent.tools == []
 
     def test_critic_has_tools(self):
         from sciralph.agents.critic import CriticAgent

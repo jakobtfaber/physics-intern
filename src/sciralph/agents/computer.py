@@ -103,6 +103,30 @@ class ComputerAgent(BaseAgent):
             None,
         )
 
+        # Collect per-script purposes from execute_python calls
+        purposes: dict[str, str] = {}
+        exec_idx = 0
+        for tc in response.tool_calls:
+            if tc.tool_name == "execute_python":
+                if exec_idx < len(self._last_script_names):
+                    purpose = ""
+                    if isinstance(tc.tool_input, dict):
+                        purpose = tc.tool_input.get("purpose", "")
+                    purposes[self._last_script_names[exec_idx]] = purpose
+                exec_idx += 1
+
+        # Filter scripts to evidence_scripts if provided by submit_result
+        all_scripts = list(self._last_script_names)
+        evidence_scripts_param: list[str] | None = None
+        if result_tc and isinstance(result_tc.tool_input, dict):
+            evidence_scripts_param = result_tc.tool_input.get("evidence_scripts")
+        if evidence_scripts_param:
+            # Validate against known scripts, keep only valid ones
+            valid = [s for s in evidence_scripts_param if s in all_scripts]
+            filtered_scripts = valid if valid else all_scripts
+        else:
+            filtered_scripts = all_scripts
+
         # Collect script outputs from execute_python calls
         exec_outputs = []
         for tc in response.tool_calls:
@@ -119,7 +143,8 @@ class ComputerAgent(BaseAgent):
             evidence = Evidence(
                 type="compute",
                 approach=approach_text,
-                scripts=list(self._last_script_names),
+                scripts=filtered_scripts,
+                script_purposes=purposes,
                 output="\n---\n".join(exec_outputs) if exec_outputs else "",
                 method=params.get("method", ""),
                 result=params.get("result", ""),
@@ -131,7 +156,8 @@ class ComputerAgent(BaseAgent):
             evidence = Evidence(
                 type="compute",
                 approach=approach_text,
-                scripts=list(self._last_script_names),
+                scripts=filtered_scripts,
+                script_purposes=purposes,
                 output="\n---\n".join(exec_outputs) if exec_outputs else "",
                 result="Agent produced no exit tool call.",
                 confidence="partial",

@@ -1,14 +1,14 @@
-"""Reviewer agent: strategic review of hypotheses."""
+"""Reviewer agent: one-shot structured review of hypotheses."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import json
+import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..llm import AgentResult, run_agent_loop
+from ..llm import LLMResponse
 from ..research_state import ReviewResult
-from ..reviewer_tools import ReviewerToolExecutor
-from ..tools import ToolCall
 from .base import BaseAgent
 
 if TYPE_CHECKING:
@@ -16,20 +16,38 @@ if TYPE_CHECKING:
     from ..task import Task
 
 
+# Match a fenced ```json ... ``` block or a bare top-level { ... } object
+_JSON_FENCE_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
+_BARE_JSON_RE = re.compile(r"\{[^{}]*\"verdict\"[^{}]*\}", re.DOTALL)
+
+
+def _parse_review_json(text: str) -> dict | None:
+    """Extract the last JSON block containing a verdict from model output."""
+    # Prefer fenced ```json blocks — take the last one
+    fenced = list(_JSON_FENCE_RE.finditer(text))
+    if fenced:
+        try:
+            return json.loads(fenced[-1].group(1).strip())
+        except (json.JSONDecodeError, ValueError):
+            pass
+    # Fall back to bare JSON objects containing "verdict"
+    bare = list(_BARE_JSON_RE.finditer(text))
+    if bare:
+        try:
+            return json.loads(bare[-1].group(0))
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return None
+
+
 class ReviewerAgent(BaseAgent):
     name = "reviewer"
     prompt_file = "reviewer.md"
-    tools = ReviewerToolExecutor.TOOL_DEFINITIONS
+    tools = []  # one-shot: no tools
 
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
-        self._tool_executor: ReviewerToolExecutor | None = None
         self.research_state: ResearchState | None = None
-
-    # Maximum characters per script injected into reviewer context
-    _MAX_SCRIPT_CHARS = 8000
-    # Maximum characters for evidence output
-    _MAX_OUTPUT_CHARS = 6000
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build focused verification context: WH + evidence + light state."""
@@ -58,20 +76,33 @@ class ReviewerAgent(BaseAgent):
                         ev_parts.append(f"<method>{ev.method}</method>")
                     if ev.result:
                         ev_parts.append(f"<result>{ev.result}</result>")
-                    # Inject full script contents
+                    # Per-script computation blocks (evidence scripts only)
                     if ev.scripts:
                         for script_name in ev.scripts:
+                            purpose = ev.script_purposes.get(script_name, "")
+                            # Read full script code
                             try:
-                                content = self.workspace.read_file(f"computations/{script_name}")
-                                if len(content) > self._MAX_SCRIPT_CHARS:
-                                    content = content[:self._MAX_SCRIPT_CHARS] + "\n... [truncated]"
-                                ev_parts.append(f'<script name="{script_name}">\n{content}\n</script>')
+                                code = self.workspace.read_file(f"computations/{script_name}")
                             except Exception:
-                                ev_parts.append(f'<script name="{script_name}">[not found]</script>')
-                    if ev.output:
-                        ev_parts.append(f"<output>\n{ev.output[:self._MAX_OUTPUT_CHARS]}\n</output>")
+                                code = "[not found]"
+                            # Read full output from companion .output file
+                            stem = Path(script_name).stem
+                            try:
+                                output = self.workspace.read_file(f"computations/{stem}.output")
+                            except Exception:
+                                output = "[not found]"
+                            comp_parts = []
+                            if purpose:
+                                comp_parts.append(f"  <purpose>{purpose}</purpose>")
+                            comp_parts.append(f'  <code language="python">\n{code}\n  </code>')
+                            comp_parts.append(f"  <output>\n{output}\n  </output>")
+                            ev_parts.append(
+                                f'<computation name="{script_name}">\n'
+                                + "\n".join(comp_parts)
+                                + "\n</computation>"
+                            )
                     if ev.reasoning:
-                        ev_parts.append(f"<reasoning>\n{ev.reasoning[:self._MAX_OUTPUT_CHARS]}\n</reasoning>")
+                        ev_parts.append(f"<reasoning>\n{ev.reasoning}\n</reasoning>")
                     if ev.confidence:
                         ev_parts.append(f"<confidence>{ev.confidence}</confidence>")
                     parts.append(f'\n<evidence type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
@@ -95,72 +126,31 @@ class ReviewerAgent(BaseAgent):
 
         return "\n".join(parts)
 
-    def _call_with_tools(
-        self,
-        context: str,
-        task: Task,
-        iteration: int,
-        on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
-    ) -> AgentResult:
-        """Run the reviewer with submit_review tool."""
-        self._tool_executor = ReviewerToolExecutor()
+    def process_response(self, response: LLMResponse, task: Task, iteration: int):
+        """Parse structured JSON verdict from one-shot response text."""
+        text = response.text or ""
+        parsed = _parse_review_json(text)
 
-        result = run_agent_loop(
-            system=self.system_prompt,
-            user_content=context,
-            config=self.config,
-            tool_executor=self._tool_executor,
-            tools=self.tools,
-            max_rounds=1,
-            agent_name=self.name,
-            iteration=iteration,
-            on_round=on_round,
-        )
-
-        self.metrics.record_call(
-            iteration=iteration,
-            agent=self.name,
-            input_tokens=result.total_input_tokens,
-            output_tokens=result.total_output_tokens,
-            duration=result.duration,
-            max_tokens_hit=result.truncated,
-            rounds=result.rounds,
-            tool_calls=len(result.tool_calls),
-            truncated=result.truncated,
-            reasoning_tokens=result.total_reasoning_tokens,
-            answer_tokens=result.total_answer_tokens,
-        )
-        return result
-
-    def process_response(self, response: AgentResult, task: Task, iteration: int):
-        """Store ReviewResult on the target hypothesis."""
-        if not self._tool_executor:
-            return
-
-        review_data = self._tool_executor.review_data
-
-        if review_data:
+        if parsed and "verdict" in parsed:
+            verdict = parsed["verdict"]
+            if verdict not in ("VERIFIED", "REFUTED", "INCONCLUSIVE"):
+                verdict = "INCONCLUSIVE"
             review = ReviewResult(
-                verdict=review_data.get("verdict", "INCONCLUSIVE"),
-                summary=review_data.get("summary", ""),
-                details=review_data.get("details", ""),
+                verdict=verdict,
+                summary=parsed.get("summary", ""),
+                details=parsed.get("details", ""),
                 iteration=iteration,
             )
         else:
             review = ReviewResult(
                 verdict="INCONCLUSIVE",
-                summary="Agent produced no submit_review call.",
-                details="",
+                summary="Failed to parse structured review output.",
+                details=text[:2000] if text else "",
                 iteration=iteration,
             )
 
         # Store on target hypothesis
         if self.research_state:
-            target_id = ""
-            if review_data:
-                target_id = review_data.get("target_id", "")
-            if not target_id:
-                target_id = task.target_claim
-
+            target_id = task.target_claim
             if target_id and target_id in self.research_state.hypotheses:
                 self.research_state.hypotheses[target_id].review = review

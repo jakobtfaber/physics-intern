@@ -63,6 +63,7 @@ class Evidence:
     reasoning: str = ""      # Researcher's analytical work
     approach: str = ""       # Computer's document_approach output
     scripts: list[str] = field(default_factory=list)
+    script_purposes: dict[str, str] = field(default_factory=dict)
     output: str = ""         # Code execution output summary
     method: str = ""
     result: str = ""
@@ -344,6 +345,7 @@ class ResearchState:
                     reasoning=edata.get("reasoning", ""),
                     approach=edata.get("approach", ""),
                     scripts=edata.get("scripts", []),
+                    script_purposes=edata.get("script_purposes", {}),
                     output=edata.get("output", ""),
                     method=edata.get("method", ""),
                     result=edata.get("result", ""),
@@ -394,6 +396,7 @@ class ResearchState:
                     reasoning=edata.get("reasoning", ""),
                     approach=edata.get("approach", ""),
                     scripts=edata.get("scripts", []),
+                    script_purposes=edata.get("script_purposes", {}),
                     output=edata.get("output", ""),
                     method=edata.get("method", ""),
                     result=edata.get("result", ""),

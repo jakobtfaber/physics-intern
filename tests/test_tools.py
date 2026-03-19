@@ -385,10 +385,6 @@ class TestExitToolName:
         from sciralph.critic_tools import CriticToolExecutor
         assert CriticToolExecutor.exit_tool_name == "submit_review"
 
-    def test_verifier_exit_tool(self):
-        from sciralph.reviewer_tools import ReviewerToolExecutor
-        assert ReviewerToolExecutor.exit_tool_name == "submit_review"
-
     def test_report_progress_mentions_submit_result(self):
         from sciralph.task import TaskType
         root = Path(tempfile.mkdtemp())
