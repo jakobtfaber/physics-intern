@@ -308,11 +308,19 @@ class ToolExecutor:
         start = time.time()
 
         if tool_name == "execute_python":
-            output, is_error = self._execute_python(
-                tool_input["code"],
-                purpose=tool_input.get("purpose", ""),
-                filename=tool_input.get("filename", ""),
-            )
+            if "code" not in tool_input:
+                output = (
+                    "ERROR: Missing required 'code' parameter. "
+                    "execute_python requires a 'code' field containing "
+                    "the complete Python script to run."
+                )
+                is_error = True
+            else:
+                output, is_error = self._execute_python(
+                    tool_input["code"],
+                    purpose=tool_input.get("purpose", ""),
+                    filename=tool_input.get("filename", ""),
+                )
         elif tool_name == "submit_result":
             output, is_error = self._submit_result(tool_input)
         elif tool_name == "document_approach":
