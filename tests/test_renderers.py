@@ -384,6 +384,81 @@ class TestRenderEvidenceLogMd:
         assert "RQ-001: Evidence (research)" in md
         assert "F = pi/4" in md
 
+    def test_long_approach_preserved_in_evidence_log(self):
+        """Approach text up to 2000 chars should not be truncated."""
+        long_approach = "x" * 1800
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Test",
+            status=HypothesisStatus.WORKING,
+            evidence=Evidence(
+                type="compute", method="test",
+                result="ok", approach=long_approach, iteration=1,
+            ),
+        )
+        md = render_evidence_log_md(state)
+        assert long_approach in md
+
+    def test_long_reasoning_preserved_in_evidence_log(self):
+        """Reasoning text up to 2000 chars should not be truncated."""
+        long_reasoning = "y" * 1800
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Test",
+            status=HypothesisStatus.WORKING,
+            evidence=Evidence(
+                type="research", method="test",
+                result="ok", reasoning=long_reasoning, iteration=1,
+            ),
+        )
+        md = render_evidence_log_md(state)
+        assert long_reasoning in md
+
+    def test_long_verification_reasoning_preserved(self):
+        """Verification reasoning up to 2000 chars should not be truncated."""
+        long_reasoning = "z" * 1800
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Test",
+            status=HypothesisStatus.WORKING,
+            verification=VerificationResult(
+                verdict=Verdict.VERIFIED,
+                reasoning=long_reasoning, iteration=2,
+            ),
+        )
+        md = render_evidence_log_md(state)
+        assert long_reasoning in md
+
+    def test_promoted_rq_shows_cross_reference(self):
+        """When RQ evidence was copied to a WH, the RQ entry should be a short cross-reference."""
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        ev = Evidence(
+            type="compute", method="symbolic", approach="Long approach text " * 50,
+            result="T = 1/(8*pi*M)", reasoning="Full reasoning " * 50, iteration=2,
+        )
+        state = ResearchState()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is T?",
+            resolved_to=["WH-001"], status=RQStatus.RESOLVED,
+            evidence=ev,
+        )
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="T = 1/(8*pi*M)",
+            status=HypothesisStatus.WORKING,
+            evidence=ev,  # same evidence, deep-copied in real code
+        )
+        md = render_evidence_log_md(state)
+        # WH-001 should have full evidence
+        assert "WH-001: Evidence (compute)" in md
+        # RQ-001 should be a short cross-reference, not full evidence
+        assert "RQ-001: Evidence (compute) → promoted" in md
+        assert "Full evidence under WH-001" in md
+        # The RQ block should NOT have the approach field (it's a brief xref)
+        rq_section_start = md.index("RQ-001: Evidence")
+        rq_section_end = md.index("**Iteration:**", rq_section_start) + 20
+        rq_section = md[rq_section_start:rq_section_end]
+        assert "**Approach:**" not in rq_section
+
 
 # ===========================================================================
 # render_critique_log_md

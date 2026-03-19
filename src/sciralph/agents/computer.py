@@ -70,7 +70,12 @@ class ComputerAgent(BaseAgent):
         exec_outputs = []
         for tc in response.tool_calls:
             if tc.tool_name == "execute_python" and not tc.is_error:
-                exec_outputs.append(tc.output[:500])
+                output = tc.output or ""
+                # Strip structured header (=== ... ===\nPurpose: ...\nExit: ...\n\n)
+                header_end = output.find("\n\n")
+                if header_end != -1 and output.startswith("==="):
+                    output = output[header_end + 2:]
+                exec_outputs.append(output[:2000])
 
         if result_tc and isinstance(result_tc.tool_input, dict):
             params = result_tc.tool_input
