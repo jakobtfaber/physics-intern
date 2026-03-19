@@ -184,7 +184,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                 "properties": {
                     "section": {
                         "type": "string",
-                        "enum": ["Conventions", "Strategy", "Short-term Plan"],
+                        "enum": ["Conventions", "Strategy", "Situation Assessment"],
                         "description": "Which section to update.",
                     },
                     "content": {
@@ -719,8 +719,8 @@ class OrchestratorToolExecutor:
             state.conventions = content.strip()
         elif section_name == "Strategy":
             state.strategy = content.strip()
-        elif section_name == "Short-term Plan":
-            state.short_term_plan = content.strip()
+        elif section_name == "Situation Assessment":
+            state.situation_assessment = content.strip()
         else:
             return f"Error: unknown section '{section_name}'"
 

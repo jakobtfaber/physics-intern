@@ -27,7 +27,7 @@
 - give more editable sections to the orchestrator.
 - conventions (already there)
 - high level strategy (already there but keep it higher level, it shouldn't change too often)
-- short term plan (more operational)
+- situation assessment (operational, updated every iteration)
 - various research notes like dead ends, open questions, ideas, etc. (append only, use append_note() tool)
 
 ### Deep critic

@@ -59,7 +59,7 @@ Read `VERIFICATION.md` in the workspace folder.
 Read `RESEARCH_GRAPH.json` (this is the authoritative state, not the markdown files):
 
 **Initial strategy**:
-- Investigate "strategy" and "short_term_plan" fields and assess the approach
+- Investigate "strategy" and "situation_assessment" fields and assess the approach
 - Check "research_notes" for intermediate insights and decisions
 
 **Hypothesis integrity:**

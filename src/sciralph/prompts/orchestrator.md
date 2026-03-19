@@ -85,9 +85,12 @@ Research and Compute agent receives focused context rather than the full researc
 
 Use these tools to maintain shared context that all agents read:
 
-- **`update_section`** with "Conventions" — Unit system, metric signature, sign conventions, variable definitions.
-- **`update_section`** with "Strategy" — High-level research plan: which approaches to pursue, in what order, and why. Keep it stable — only update when the direction genuinely changes.
-- **`update_section`** with "Situation Assessment" — Operational planning: what to do in the next few iterations and what is the reasoning and motivation for it. Can change frequently.
+- **`update_section`** with "Conventions" — Unit system, metric signature, sign conventions, variable definitions. Set once, update only when conventions genuinely change.
+- **`update_section`** with "Strategy" — High-level research plan: which approaches to pursue, in what order, and why. Set early, update only when the research direction changes (abandoned approach, new insight, critic feedback).
+- **`update_section`** with "Situation Assessment" — **Update every iteration.** Explain your reasoning about the current state:
+  - What just happened (what evidence/verdicts came back)
+  - What the current situation is (what's established, what's pending, what's blocked)
+  - What should happen next (plan for the next 2-3 iterations)
 - **`append_note`** — Record intermediate insights, observations, or decisions. Notes are append-only, use it when you want to record something that does not fit into the structured sections.
 
 ### Formulating strategy

@@ -265,7 +265,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `iteration_filed`, `iteration_resolved`
 - `FailedApproach` — `description`, `reason`, `related_entities`, `iteration`, `derivation_excerpt`
 
-**ResearchState fields:** `hypotheses` (dict by ID), `research_questions` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `critic_clean_reviews` (list), `iteration`, `problem_statement`, `conventions`, `strategy`, `short_term_plan`, `research_notes` (list of dicts), `status`, `title`, `background_survey` (BackgroundSurvey | None)
+**ResearchState fields:** `hypotheses` (dict by ID), `research_questions` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `critic_clean_reviews` (list), `iteration`, `problem_statement`, `conventions`, `strategy`, `situation_assessment`, `research_notes` (list of dicts), `status`, `title`, `background_survey` (BackgroundSurvey | None)
 
 **Key query methods:** `has_verified_evidence()`, `hypotheses_with_evidence()`, `active_critiques_for()`, `unresolved_high_critiques()`, `established_hypotheses()`, `working_hypotheses()`, `abandoned_hypotheses()`, `failures_for_hypothesis()`, `open_research_questions()`
 
@@ -294,7 +294,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `abandon_hypothesis` — marks as ABANDONED, records in `failed_approaches`
 - `promote_hypothesis` — promotes WH → ER with guardrails (requires `h.verification.verdict == "VERIFIED"`, no HIGH-severity verifier critiques, no unresolved HIGH deep critic critiques, blocks on unestablished `depends_on`)
 - `resolve_critique` — marks critique as RESOLVED with resolution text
-- `update_section` — replaces content of Conventions, Strategy, or Short-term Plan
+- `update_section` — replaces content of Conventions, Strategy, or Situation Assessment
 - `append_note` — appends a research note to `research_notes` list
 - `add_research_question` — creates new RQ-NNN for open-ended exploration targets
 - `resolve_research_question` — marks RQ as resolved, links to resulting hypothesis IDs
@@ -464,7 +464,7 @@ For `COMPUTE`:
 3. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
 4. **`promote_hypothesis`** — WH → ER with guardrails (requires `h.verification.verdict == "VERIFIED"`, HIGH critique checks from both verifier and deep critic, dependency checks)
 5. **`resolve_critique`** — marks CRIT-NNN as RESOLVED with resolution text
-6. **`update_section`** — replaces Conventions, Strategy, or Short-term Plan content
+6. **`update_section`** — replaces Conventions, Strategy, or Situation Assessment content
 7. **`append_note`** — appends to `research_notes` list
 8. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
 9. **`resolve_research_question`** — marks RQ as resolved, links to resulting hypothesis IDs
