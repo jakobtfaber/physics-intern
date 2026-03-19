@@ -446,6 +446,105 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
     return "\n\n".join(parts)
 
 
+def render_critic_context(state: ResearchState, iteration: int) -> str:
+    """Render strategic context for the deep critic using XML tags.
+
+    Provides a high-level view: strategy, conventions, situation assessment,
+    research notes, RQ list, hypothesis summaries (evidence/review one-liners),
+    dead ends, background survey, and previous critiques.  No derivations,
+    scripts, reasoning, or approach text.
+    """
+    parts: list[str] = []
+
+    parts.append(f"<iteration>{iteration}</iteration>")
+
+    # Strategy
+    strat = state.strategy or "(No strategy set.)"
+    parts.append(f"<strategy>\n{strat}\n</strategy>")
+
+    # Conventions
+    conv = state.conventions or "(No conventions set.)"
+    parts.append(f"<conventions>\n{conv}\n</conventions>")
+
+    # Situation Assessment
+    if state.situation_assessment:
+        parts.append(f"<situation-assessment>\n{state.situation_assessment}\n</situation-assessment>")
+
+    # Research Notes (last 10)
+    if state.research_notes:
+        notes = state.research_notes[-10:]
+        note_lines = []
+        for n in notes:
+            it = n.get("iteration", "?")
+            text = n.get("text", "")
+            note_lines.append(f'<note iteration="{it}">{text}</note>')
+        parts.append("<research-notes>\n" + "\n".join(note_lines) + "\n</research-notes>")
+
+    # Research Questions
+    if state.research_questions:
+        rq_lines: list[str] = []
+        for rq in sorted(state.research_questions.values(), key=lambda r: r.id):
+            rq_lines.append(f'<rq id="{rq.id}" status="{rq.status.upper()}">{rq.question}</rq>')
+        parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
+
+    # Hypotheses (one-liner summaries)
+    sorted_hyps = sorted(
+        state.hypotheses.values(),
+        key=lambda h: (0 if h.id.startswith("ER-") else 1, h.id),
+    )
+    hyp_lines: list[str] = []
+    for h in sorted_hyps:
+        if h.status == HypothesisStatus.ABANDONED:
+            continue
+        h_parts: list[str] = []
+        if h.statement:
+            h_parts.append(f"Statement: {h.statement}")
+        if h.depends_on:
+            h_parts.append(f"Depends on: {', '.join(h.depends_on)}")
+        if h.promotion_justification:
+            h_parts.append(f"Promotion justification: {h.promotion_justification}")
+        if h.evidence:
+            ev = h.evidence
+            result_short = (ev.result[:300] + "...") if ev.result and len(ev.result) > 300 else (ev.result or "")
+            h_parts.append(f"Evidence ({ev.type}): {ev.method or 'not specified'}, confidence={ev.confidence or '?'}, Result: {result_short}")
+        if h.review:
+            v = h.review
+            summary_short = (v.summary[:300] + "...") if v.summary and len(v.summary) > 300 else (v.summary or "")
+            h_parts.append(f"Review: {v.verdict} — {summary_short}")
+        hyp_lines.append(f'<hypothesis id="{h.id}">\n' + "\n".join(h_parts) + "\n</hypothesis>")
+    if hyp_lines:
+        parts.append("<hypotheses>\n" + "\n".join(hyp_lines) + "\n</hypotheses>")
+
+    # Dead Ends
+    has_dead_ends = bool(state.failed_approaches) or any(
+        h.status == HypothesisStatus.ABANDONED for h in state.hypotheses.values()
+    )
+    if has_dead_ends:
+        de_parts: list[str] = []
+        for fa in state.failed_approaches:
+            line = f"- {fa.description}"
+            if fa.reason:
+                line += f" (Reason: {fa.reason})"
+            de_parts.append(line)
+        fa_descriptions = {fa.description for fa in state.failed_approaches}
+        for h in sorted_hyps:
+            if h.status == HypothesisStatus.ABANDONED:
+                desc = f"Abandoned {h.id} — {h.statement}"
+                if desc not in fa_descriptions:
+                    de_parts.append(f"- {desc}")
+        parts.append("<dead-ends>\n" + "\n".join(de_parts) + "\n</dead-ends>")
+
+    # Background Survey
+    if state.background_survey and state.background_survey.survey_notes:
+        parts.append(f"<background-survey>\n{state.background_survey.survey_notes}\n</background-survey>")
+
+    # Previous Critiques (reuse existing XML renderer)
+    critique_xml = render_orchestrator_critique_log(state)
+    parts.append(f"<previous-critiques>\n{critique_xml}\n</previous-critiques>")
+
+    return "\n\n".join(parts)
+
+
 def render_orchestrator_critique_log(state: ResearchState) -> str:
     """Render critique log for orchestrator context using XML tags."""
     if not state.critiques:

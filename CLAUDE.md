@@ -15,9 +15,8 @@ src/sciralph/
   main.py              — Entry point (reads problem YAML, CLI flags)
   engine.py            — Main loop (LoopState): forced_critic_or_orchestrator → validate → enrich_compute → terminate_gate → dispatch → result_track → compress → git
   research_state.py    — ResearchState dataclass: authoritative structured state (hypotheses, research_questions, critiques, failed_approaches, background_survey); query/mutation methods; JSON serialization (RESEARCH_GRAPH.json). Entities: Hypothesis (with depends_on, promotion_justification, evidence, review fields), ResearchQuestion (RQ-NNN, RQStatus: open/resolved/abandoned, evidence field), Evidence, ReviewResult, Critique, FailedApproach, BackgroundSurvey
-  renderers.py         — Snapshot renderers (state → RESEARCH_STATE.md, EVIDENCE_LOG.md, CRITIQUE_LOG.md via _render_files_for_git()) and agent context builders (render_orchestrator_research_state, render_orchestrator_critique_log, render_background_survey)
+  renderers.py         — Snapshot renderers (state → RESEARCH_STATE.md, EVIDENCE_LOG.md, CRITIQUE_LOG.md via _render_files_for_git()) and agent context builders (render_orchestrator_research_state, render_orchestrator_critique_log, render_critic_context, render_background_survey)
   orchestrator_tools.py — OrchestratorToolExecutor: 12 state-mutation tools (add/update/abandon/promote hypothesis, resolve critique, update section, append note, add/resolve research question, record dead end, set next task)
-  critic_tools.py      — CriticToolExecutor + submit_critique/finish_review tools for agentic critic
   tools.py             — ToolExecutor + ToolCall for researcher/computer (document_approach, execute_python with optional `filename` param, submit_result with optional `evidence_scripts`, report_progress); tools_for_task_type() for dynamic tool sets; `active_tools` property for round-based tool switching; `_sanitize_filename()`, `_save_output_file()`, `_script_names` tracking; structured output headers; `.output` companion files; NameError detection hint
   categories.py        — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
   validation.py        — Post-integration checks (4 checks) + termination gates
@@ -43,7 +42,7 @@ src/sciralph/
     researcher.py      — Analytical reasoning agent; writes Evidence objects to RQ/WH in ResearchState
     computer.py        — Computational agent with code execution; writes Evidence objects to RQ/WH in ResearchState
     reviewer.py        — Adversarial review agent; writes ReviewResult to WH in ResearchState; uses ReviewerToolExecutor
-    critic.py          — Strategic review via submit_critique/finish_review tools (CriticToolExecutor); writes Critique objects to ResearchState
+    critic.py          — One-shot strategic review with structured JSON output; writes Critique objects to ResearchState
     compressor.py      — File size management
     formatter.py       — Produces ANSWER.md from final research state (one-shot)
     surveyor.py        — Background surveyor: produces background notes mapping the research landscape (one-shot)
@@ -104,7 +103,7 @@ Entity numbering is unified: RQ, WH, and ER share a single counter so the same n
 - **Researcher** (`researcher`) — one-shot analytical reasoning without code (`max_tool_rounds=3`): own `submit_result` variant with `reasoning`/`result`/`method`/`confidence`/`summary` fields (no `target_id` — target comes from `task.target_claim`). Builds `Evidence(type="research")` with `reasoning` from `response.text` (full derivation) and stores on target RQ or WH.
 - **Computer** (`computer`) — computational work via code: `document_approach` + `execute_python` + `submit_result` + `report_progress`. Must call `document_approach` before first `execute_python` (enforced: tool removed from available set after first call via `active_tools` property). Builds `Evidence(type="compute")` with approach, scripts, and output.
 - **Reviewer** (`reviewer`) — adversarial review, one-shot with structured JSON output (no tools). Gets focused context (WH + per-script `<computation>` blocks with purpose/code/output + original RQ + established results + conventions), NOT the full research state. Parses `{verdict, summary, details}` JSON from response text; builds `ReviewResult` stored on target WH.
-- **Deep Critic** — strategic review via `submit_critique`/`finish_review` tools (CriticToolExecutor). Focuses on research strategy, inter-result coherence, and systematic issues — NOT per-claim verification (that's the reviewer's job). Writes Critique objects to ResearchState.
+- **Deep Critic** — one-shot strategic review with structured JSON output (no tools). Gets dedicated context via `render_critic_context()` (high-level: strategy, conventions, situation assessment, research notes, hypothesis summaries, dead ends, background survey, previous critiques — no derivations/scripts). Parses `{summary, details, critiques}` JSON from response text; focuses on research strategy, inter-result coherence, and systematic issues — NOT per-claim verification (that's the reviewer's job). Writes Critique objects to ResearchState.
 - **Compressor** archives + shrinks files exceeding size thresholds.
 - **Formatter** produces clean ANSWER.md from final research state (dispatched on successful termination).
 
@@ -184,7 +183,7 @@ All core functionality is implemented and working (~851 tests passing):
 - **Orchestrator** — integration duty, critique resolution, context prefix for violations/blockers/evidence/verdicts; 12 tools including `append_note`, `update_section` (Conventions/Strategy/Situation Assessment), `add_research_question`/`resolve_research_question`/`record_dead_end` for RQ lifecycle; structured dispatch with background/method_hints/assumptions/relevant_results
 - **Evidence agents** — Researcher (analytical, no code) and Computer (computational, with code) produce Evidence objects stored on target RQ or WH; Computer uses document_approach (one-shot, removed after use via active_tools) + execute_python + submit_result; dynamic tool sets via `tools_for_task_type()`
 - **Reviewer** — one-shot adversarial review with structured JSON output; gets focused context (WH + per-script computation blocks + light state); parses `{verdict, summary, details}` from response text; produces ReviewResult stored on WH
-- **Deep Critic** — strategic review via CriticToolExecutor; focuses on research direction and inter-result coherence; writes Critique objects to ResearchState; `_no_critiques_filed` flag for clean review signaling
+- **Deep Critic** — one-shot structured JSON review via `render_critic_context()` + `_parse_critic_json()`; focuses on research direction and inter-result coherence; writes Critique objects to ResearchState; `_no_critiques_filed` flag for clean review signaling
 - **Verification** — independent verification script (Claude Opus, streaming), `run_and_verify.sh` convenience wrapper
 - **Logging** — JSONL audit logging (metadata + cost per LLM call, round field for tool-use), full conversation logs
 - **Scaffolding log** — `EVENT_LOG.jsonl` instrumentation across all 4 categories

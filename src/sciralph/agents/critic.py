@@ -1,21 +1,16 @@
-"""Deep Critic agent: single-round strategic review via submit_review tool."""
+"""Deep Critic agent: one-shot structured JSON review."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import json
+import re
 from typing import TYPE_CHECKING
 
 from rich.console import Console
 
-from ..critic_tools import CriticToolExecutor
-from ..llm import AgentResult, LLMResponse, run_agent_loop
-from ..renderers import (
-    _critique_log_body,
-    _research_state_body,
-    render_background_survey,
-)
+from ..llm import LLMResponse
+from ..renderers import render_critic_context
 from ..research_state import Critique, CritiqueStatus, Severity
-from ..tools import ToolCall
 from .base import BaseAgent
 from ..categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event
@@ -27,83 +22,92 @@ if TYPE_CHECKING:
     from ..task import Task
 
 
+# ---------------------------------------------------------------------------
+# JSON parsing (mirrors reviewer pattern, but handles nested critiques array)
+# ---------------------------------------------------------------------------
+
+_JSON_FENCE_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
+
+
+def _parse_critic_json(text: str) -> dict | None:
+    """Extract the last JSON block containing a critiques array from model output.
+
+    Tries fenced ```json blocks first (last match), then falls back to
+    brace-counting for bare JSON with nested objects.
+    """
+    # Prefer fenced ```json blocks — take the last one
+    fenced = list(_JSON_FENCE_RE.finditer(text))
+    if fenced:
+        try:
+            parsed = json.loads(fenced[-1].group(1).strip())
+            if isinstance(parsed, dict) and "critiques" in parsed:
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Bare JSON fallback: find outermost { ... } containing "critiques"
+    # using brace-counting (needed because critiques array has nested objects)
+    depth = 0
+    start = None
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                candidate = text[start : i + 1]
+                if '"critiques"' in candidate:
+                    try:
+                        parsed = json.loads(candidate)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                start = None
+
+    return None
+
+
 class CriticAgent(BaseAgent):
     name = "deep_critic"
     prompt_file = "deep_critic.md"
-    tools = CriticToolExecutor.TOOL_DEFINITIONS
+    tools = []  # one-shot: no tools
 
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
-        self._tool_executor: CriticToolExecutor | None = None
         self._no_critiques_filed: bool = False
         self.research_state: ResearchState | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
-        parts = [
-            "<research-state>\n",
-            _research_state_body(self.research_state) if self.research_state else "",
-            "\n</research-state>",
-            "\n<background-survey>\n",
-            render_background_survey(self.research_state) if self.research_state else "",
-            "\n</background-survey>",
-            "\n<previous-critiques>\n",
-            _critique_log_body(self.research_state) if self.research_state else "",
-            "\n</previous-critiques>",
-        ]
-        return "\n".join(parts)
+        return render_critic_context(self.research_state, iteration) if self.research_state else ""
 
-    def _call_with_tools(
-        self,
-        context: str,
-        task: Task,
-        iteration: int,
-        on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
-    ) -> AgentResult:
-        """Run the critic with submit_review tool (single round)."""
-        # Count existing critiques for CRIT-NNN auto-numbering
-        if self.research_state:
-            existing_count = self.research_state.next_critique_num() - 1
-        else:
-            existing_count = 0
-        self._tool_executor = CriticToolExecutor(existing_critique_count=existing_count)
+    def process_response(self, response: LLMResponse, task: Task, iteration: int):
+        """Parse structured JSON from one-shot response text."""
+        text = response.text or ""
+        parsed = _parse_critic_json(text)
 
-        result = run_agent_loop(
-            system=self.system_prompt,
-            user_content=context,
-            config=self.config,
-            tool_executor=self._tool_executor,
-            tools=self.tools,
-            max_rounds=1,
-            agent_name=self.name,
-            iteration=iteration,
-            on_round=on_round,
-        )
-
-        self.metrics.record_call(
-            iteration=iteration,
-            agent=self.name,
-            input_tokens=result.total_input_tokens,
-            output_tokens=result.total_output_tokens,
-            duration=result.duration,
-            max_tokens_hit=result.truncated,
-            rounds=result.rounds,
-            tool_calls=len(result.tool_calls),
-            truncated=result.truncated,
-            reasoning_tokens=result.total_reasoning_tokens,
-            answer_tokens=result.total_answer_tokens,
-        )
-        return result
-
-    def process_response(self, response: LLMResponse | AgentResult, task: Task, iteration: int):
-        """Process review output from submit_review tool call."""
-        if not self._tool_executor:
+        if parsed is None:
+            # Parse failure — treat as clean review
+            self._no_critiques_filed = True
+            log_scaffold_event(
+                self.workspace.root, iteration, CC.OUTPUT_NORMALIZATION,
+                "critic_json_parse_failure", f"text_length={len(text)}",
+            )
+            if self.research_state:
+                self.research_state.critic_clean_reviews.append({
+                    "iteration": iteration,
+                    "summary": "Parse failure — no critiques extracted.",
+                })
             return
 
-        filed = self._tool_executor.filed_critiques
-        self._no_critiques_filed = len(filed) == 0
+        critiques_data = parsed.get("critiques", [])
+        summary = parsed.get("summary", "")
 
-        if self._no_critiques_filed:
-            summary = self._tool_executor.review_summary
+        if not critiques_data:
+            # Clean review — no issues found
+            self._no_critiques_filed = True
             log_scaffold_event(
                 self.workspace.root, iteration, CC.LOOP_CONTROL,
                 "no_critiques_filed", f"summary={summary}",
@@ -113,38 +117,57 @@ class CriticAgent(BaseAgent):
                     "iteration": iteration,
                     "summary": summary,
                 })
-        elif self.research_state:
-            # Write Critique objects to research state
-            for critique_data in filed:
-                sev = Severity(critique_data["severity"])
-                crit = Critique(
-                    id=critique_data["id"],
-                    targets=[critique_data["target_id"]] if critique_data["target_id"] else [],
-                    severity=sev,
-                    argument=critique_data["argument"],
-                    status=CritiqueStatus.ACTIVE,
-                    iteration_filed=iteration,
-                )
-                self.research_state.critiques[crit.id] = crit
-                # Console output + scaffold event
-                sev_label = sev.value
-                target_str = critique_data["target_id"] or "general"
-                arg_short = critique_data["argument"][:80]
-                if sev == Severity.HIGH:
-                    style = "bold red"
-                elif sev == Severity.MEDIUM:
-                    style = "bold yellow"
-                else:
-                    style = "dim"
-                console.print(f"  [{style}]{crit.id}[/] [{sev_label}] targeting {target_str}: {arg_short}")
-                log_scaffold_event(
-                    self.workspace.root, iteration, CC.STATE_INVARIANTS,
-                    "file_critique",
-                    f"{crit.id} [{sev_label}] → {target_str}: {critique_data['argument'][:120]}",
-                )
-                # Link to hypothesis
-                for t in crit.targets:
-                    if t in self.research_state.hypotheses:
-                        h = self.research_state.hypotheses[t]
-                        if crit.id not in h.critiques:
-                            h.critiques.append(crit.id)
+            return
+
+        # Critiques present — assign IDs and store
+        self._no_critiques_filed = False
+        if not self.research_state:
+            return
+
+        for crit_data in critiques_data:
+            crit_num = self.research_state.next_critique_num()
+            crit_id = f"CRIT-{crit_num:03d}"
+
+            # Validate severity, default to MEDIUM
+            raw_severity = crit_data.get("severity", "MEDIUM")
+            try:
+                sev = Severity(raw_severity)
+            except ValueError:
+                sev = Severity.MEDIUM
+
+            target_id = crit_data.get("target_id", "")
+            argument = crit_data.get("argument", "")
+
+            crit = Critique(
+                id=crit_id,
+                targets=[target_id] if target_id else [],
+                severity=sev,
+                argument=argument,
+                status=CritiqueStatus.ACTIVE,
+                iteration_filed=iteration,
+            )
+            self.research_state.critiques[crit.id] = crit
+
+            # Console output + scaffold event
+            sev_label = sev.value
+            target_str = target_id or "general"
+            arg_short = argument[:80]
+            if sev == Severity.HIGH:
+                style = "bold red"
+            elif sev == Severity.MEDIUM:
+                style = "bold yellow"
+            else:
+                style = "dim"
+            console.print(f"  [{style}]{crit.id}[/] [{sev_label}] targeting {target_str}: {arg_short}")
+            log_scaffold_event(
+                self.workspace.root, iteration, CC.STATE_INVARIANTS,
+                "file_critique",
+                f"{crit.id} [{sev_label}] → {target_str}: {argument[:120]}",
+            )
+
+            # Link to hypothesis
+            for t in crit.targets:
+                if t in self.research_state.hypotheses:
+                    h = self.research_state.hypotheses[t]
+                    if crit.id not in h.critiques:
+                        h.critiques.append(crit.id)

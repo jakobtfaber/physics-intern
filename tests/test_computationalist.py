@@ -88,11 +88,9 @@ class TestNewAgentTools:
         from sciralph.agents.reviewer import ReviewerAgent
         assert ReviewerAgent.tools == []
 
-    def test_critic_has_tools(self):
+    def test_critic_is_one_shot(self):
         from sciralph.agents.critic import CriticAgent
-        assert len(CriticAgent.tools) == 1
-        names = {t["function"]["name"] for t in CriticAgent.tools}
-        assert names == {"submit_review"}
+        assert CriticAgent.tools == []
 
     def test_orchestrator_has_state_mutation_tools(self):
         from sciralph.agents.orchestrator import OrchestratorAgent

@@ -381,10 +381,6 @@ class TestExitToolName:
         from sciralph.orchestrator_tools import OrchestratorToolExecutor
         assert OrchestratorToolExecutor.exit_tool_name == "set_next_task"
 
-    def test_critic_exit_tool(self):
-        from sciralph.critic_tools import CriticToolExecutor
-        assert CriticToolExecutor.exit_tool_name == "submit_review"
-
     def test_report_progress_mentions_submit_result(self):
         from sciralph.task import TaskType
         root = Path(tempfile.mkdtemp())
