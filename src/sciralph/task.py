@@ -76,6 +76,34 @@ class Task:
         yaml_str = yaml.dump(meta, default_flow_style=False, sort_keys=False).strip()
         return f"---\n{yaml_str}\n---\n\n{self.body}"
 
+    def render_agent_context(self, include_structured: bool = True) -> str:
+        """Render task for agent context (no YAML metadata, no file read-back).
+
+        Args:
+            include_structured: If True, include background/method_hints/assumptions/
+                relevant_results.  Verifier passes False to avoid biasing.
+        """
+        parts: list[str] = []
+        if self.body:
+            parts.append(self.body)
+        if include_structured:
+            if self.background:
+                parts.append(f"<background>\n{self.background}\n</background>")
+            if self.method_hints:
+                hints = "\n".join(f"- {h}" for h in self.method_hints)
+                parts.append(f"<method-hints>\n{hints}\n</method-hints>")
+            if self.assumptions:
+                items = "\n".join(f"- {a}" for a in self.assumptions)
+                parts.append(f"<assumptions>\n{items}\n</assumptions>")
+            if self.relevant_results:
+                items = "\n".join(f"- {r}" for r in self.relevant_results)
+                parts.append(f"<relevant-results>\n{items}\n</relevant-results>")
+        else:
+            # Verifier: include background only (orchestrator doubt context)
+            if self.background:
+                parts.append(f"<background>\n{self.background}\n</background>")
+        return "\n\n".join(parts)
+
     @classmethod
     def from_frontmatter(cls, text: str, fallback_iteration: int = 0) -> Task:
         """Parse from YAML frontmatter text."""

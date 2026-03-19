@@ -335,6 +335,8 @@ class SciRalph:
             for v in self._state.pending_verified_results:
                 provenance = f"  [from {v['task_id']}]" if v.get("task_id") else ""
                 lines.append(f"- {v['claim']} VERIFIED by verifier{provenance}")
+                if v.get("reasoning"):
+                    lines.append(f"  Reasoning: {v['reasoning']}")
             lines.append("  Consider resolving related critiques and proceeding to promotion.")
             lines.append(">>> END VERIFIED HYPOTHESES <<<\n")
             self._state.pending_verified_results.clear()
@@ -537,6 +539,7 @@ class SciRalph:
                     "claim": target_id,
                     "verdict": verdict,
                     "task_id": task.task_id,
+                    "reasoning": h.verification.reasoning[:800] if h.verification.reasoning else "",
                 })
                 self._state.claim_failure_count.pop(target_id, None)
                 console.print(f"  [green]{target_id} VERIFIED[/green]")

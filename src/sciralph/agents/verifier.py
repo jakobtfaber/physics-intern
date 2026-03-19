@@ -26,11 +26,16 @@ class VerifierAgent(BaseAgent):
         self._tool_executor: VerifierToolExecutor | None = None
         self.research_state: ResearchState | None = None
 
+    # Maximum characters per script injected into verifier context
+    _MAX_SCRIPT_CHARS = 8000
+    # Maximum characters for evidence output
+    _MAX_OUTPUT_CHARS = 6000
+
     def build_context(self, task: Task, iteration: int) -> str:
         """Build focused verification context: WH + evidence + light state."""
         parts = [
             "<task>\n",
-            self.workspace.read_file("CURRENT_TASK.md"),
+            task.render_agent_context(include_structured=False),
             "\n</task>",
         ]
 
@@ -53,12 +58,20 @@ class VerifierAgent(BaseAgent):
                         ev_parts.append(f"<method>{ev.method}</method>")
                     if ev.result:
                         ev_parts.append(f"<result>{ev.result}</result>")
+                    # Inject full script contents
                     if ev.scripts:
-                        ev_parts.append(f"<scripts>{', '.join(ev.scripts)}</scripts>")
+                        for script_name in ev.scripts:
+                            try:
+                                content = self.workspace.read_file(f"computations/{script_name}")
+                                if len(content) > self._MAX_SCRIPT_CHARS:
+                                    content = content[:self._MAX_SCRIPT_CHARS] + "\n... [truncated]"
+                                ev_parts.append(f'<script name="{script_name}">\n{content}\n</script>')
+                            except Exception:
+                                ev_parts.append(f'<script name="{script_name}">[not found]</script>')
                     if ev.output:
-                        ev_parts.append(f"<output>\n{ev.output[:3000]}\n</output>")
+                        ev_parts.append(f"<output>\n{ev.output[:self._MAX_OUTPUT_CHARS]}\n</output>")
                     if ev.reasoning:
-                        ev_parts.append(f"<reasoning>\n{ev.reasoning[:3000]}\n</reasoning>")
+                        ev_parts.append(f"<reasoning>\n{ev.reasoning[:self._MAX_OUTPUT_CHARS]}\n</reasoning>")
                     if ev.confidence:
                         ev_parts.append(f"<confidence>{ev.confidence}</confidence>")
                     parts.append(f'\n<evidence type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
@@ -101,7 +114,7 @@ class VerifierAgent(BaseAgent):
             config=self.config,
             tool_executor=self._tool_executor,
             tools=self.tools,
-            max_rounds=self.config.max_tool_rounds,
+            max_rounds=min(self.config.max_tool_rounds, 4),
             agent_name=self.name,
             iteration=iteration,
             on_round=on_round,

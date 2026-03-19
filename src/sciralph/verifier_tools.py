@@ -113,12 +113,8 @@ VERIFIER_TOOL_DEFINITIONS: list[dict] = [
                         "type": "string",
                         "description": "What you still need to examine, if anything.",
                     },
-                    "ready_to_conclude": {
-                        "type": "boolean",
-                        "description": "True if you have enough evidence to call submit_verdict.",
-                    },
                 },
-                "required": ["findings_so_far", "remaining_questions", "ready_to_conclude"],
+                "required": ["findings_so_far", "remaining_questions"],
             },
         },
     },
@@ -139,7 +135,6 @@ class VerifierToolExecutor:
         self.verdict_data: dict | None = None
         self.filed_critiques: list[dict] = []
         self.stop_after_round: bool = False
-        self.ready_to_conclude_signaled: bool = False
         self._next_crit_num = existing_critique_count + 1
 
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
@@ -193,13 +188,6 @@ class VerifierToolExecutor:
         return f"Filed {crit_id} [{severity}]. Continue examining evidence, then call submit_verdict."
 
     def _report_progress(self, args: dict) -> str:
-        ready = args.get("ready_to_conclude", False)
-        if ready:
-            self.ready_to_conclude_signaled = True
-            return (
-                "Acknowledged. You have indicated you are ready to conclude. "
-                "Call submit_verdict now with your verdict."
-            )
         remaining = args.get("remaining_questions", "")
         return (
             f"Acknowledged. Remaining: {remaining}\n"

@@ -29,7 +29,7 @@ class ResearcherAgent(BaseAgent):
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [
             "<task>\n",
-            self.workspace.read_file("CURRENT_TASK.md"),
+            task.render_agent_context(include_structured=True),
             "\n</task>",
         ]
         if self.research_state:
