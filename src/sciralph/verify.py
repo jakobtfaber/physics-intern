@@ -989,20 +989,19 @@ def main():
             status = "TIMEOUT" if ex.timed_out else ("OK" if ex.returncode == 0 else "FAIL")
             console.print(f"  {name}: {status}")
 
-    # Load problem definition from YAML (if provided)
+    # Load problem definition from YAML (explicit flag or workspace fallback)
     problem_def = None
     known_answer = None
-    if args.problem:
-        problem_path = Path(args.problem)
-        if problem_path.exists():
-            with open(problem_path) as f:
-                problem_def = yaml.safe_load(f)
-            answer_val = problem_def.get("answer")
-            if answer_val is not None:
-                known_answer = str(answer_val)
-                console.print(f"[bold]Known answer:[/] {known_answer}")
-        else:
-            console.print(f"[yellow]Warning: problem file not found: {args.problem}[/]")
+    problem_path = Path(args.problem) if args.problem else Path(workspace_dir) / "problem.yaml"
+    if problem_path.exists():
+        with open(problem_path) as f:
+            problem_def = yaml.safe_load(f)
+        answer_val = problem_def.get("answer")
+        if answer_val is not None:
+            known_answer = str(answer_val)
+            console.print(f"[bold]Known answer:[/] {known_answer}")
+    elif args.problem:
+        console.print(f"[yellow]Warning: problem file not found: {args.problem}[/]")
 
     # Phase 1: Formal answer evaluation (fast, deterministic)
     console.print(f"\n[bold]Phase 1: Formal answer evaluation...[/]")

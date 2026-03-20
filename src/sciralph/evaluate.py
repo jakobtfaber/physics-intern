@@ -14,7 +14,17 @@ from __future__ import annotations
 
 import re
 import traceback
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any
+
+_SYMPY_TIMEOUT = 30  # seconds per comparison step
+
+
+def _with_timeout(fn, timeout=_SYMPY_TIMEOUT):
+    """Run *fn*() with a timeout. Returns result or raises on timeout/error."""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(fn)
+        return future.result(timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -125,33 +135,33 @@ def _compare_symbolic(
 
     # 1. simplify(candidate - truth) == 0
     try:
-        diff = sp.simplify(candidate - truth)
+        diff = _with_timeout(lambda: sp.simplify(candidate - truth))
         if diff == 0:
             return {"correct": True, "method": "simplify", "error": None, "details": str(diff)}
-    except Exception:
+    except (FuturesTimeoutError, Exception):
         pass
 
     # 2. simplify(expand(candidate - truth)) == 0
     try:
-        diff = sp.simplify(sp.expand(candidate - truth))
+        diff = _with_timeout(lambda: sp.simplify(sp.expand(candidate - truth)))
         if diff == 0:
             return {"correct": True, "method": "expand_simplify", "error": None, "details": str(diff)}
-    except Exception:
+    except (FuturesTimeoutError, Exception):
         pass
 
     # 3. Ratio test: simplify(candidate / truth) == 1
     try:
-        ratio = sp.simplify(candidate / truth)
+        ratio = _with_timeout(lambda: sp.simplify(candidate / truth))
         if ratio == 1:
             return {"correct": True, "method": "ratio", "error": None, "details": str(ratio)}
-    except Exception:
+    except (FuturesTimeoutError, Exception):
         pass
 
     # 4. .equals() — random numerical substitution (most robust)
     try:
-        if candidate.equals(truth):
+        if _with_timeout(lambda: candidate.equals(truth)):
             return {"correct": True, "method": "equals", "error": None, "details": "candidate.equals(truth)"}
-    except Exception:
+    except (FuturesTimeoutError, Exception):
         pass
 
     # 5. Numerical fallback for constant expressions (no free symbols)
