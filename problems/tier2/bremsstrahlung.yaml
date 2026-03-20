@@ -11,7 +11,6 @@ problem: |
   # Main problem:
   What is the Kramers spectral energy $dW/d\omega$ in the soft-photon limit ($\omega \to 0$) for classical bremsstrahlung of an electron in a Coulomb field of charge $Ze$, expressed in terms of $Z$, $e$, $m_e$, $v$, and $c$?
 
-requires_numerical: true
 
 answer: |
   dW_domega = 16 * sp.pi * Z**2 * e_charge**6 / (3 * sp.sqrt(3) * m_e**2 * c**3 * v**2)

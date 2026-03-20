@@ -41,7 +41,6 @@ problem: |
   Use these values in the equations of motions: $n = 80$, $V = \Lambda^{4}[1-cos(\vartheta/f)]$, $M_{Pl} = 1$, $\Lambda = 10^{-3}$, $f = 0.18$, $\vartheta[t = 0] = 7.23$ and $\dot{\vartheta}[t = 0] = 0$, where $\dot{\vartheta} = d\vartheta/dt$, $M_{Pl} = \frac{1}{\sqrt{8\pi G}}$ and $G$ is the gravitational constant.
   Using these values, give me the number of e-folds achieved at $t = 2000000$.
 
-requires_numerical: true
 
 answer: |
 

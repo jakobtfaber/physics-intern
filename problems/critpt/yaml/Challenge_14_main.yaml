@@ -16,7 +16,6 @@ problem: |
 
   Calculate the value $J$ for $n=3$ where $y=0$ in a $100\times 100$-site lattice to three decimal places.
 
-requires_numerical: true
 
 answer: |
 

@@ -661,7 +661,6 @@ problem: |
   Z_10 Z_11
   ```
 
-requires_numerical: true
 
 answer: |
 

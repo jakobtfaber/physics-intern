@@ -6,7 +6,6 @@ problem: |
 
   If there is an overdensity of dark matter at the device that is $178$ times the local dark matter density (take the local dark matter density to be $0.4\,\text{GeV}/\text{cm}^3$ and velocity to be $230\,\text{km}/\text{s}$), what is the smallest $\Lambda_\gamma^{-1}$ the Cosmic Explorer can probe at $200\,\text{Hz}$ with a signal-to-noise ratio of 1 and with an observation time of $1000\,\text{s}$ or $ 0.7\,\text{yrs}$, respectively? Keep at least three significant digits in the final result.
 
-requires_numerical: true
 
 answer: |
 

@@ -20,7 +20,6 @@ problem: |
 
    Suppose $\text{Res}_{d=2k}\gamma^{(k)}_{ij}=A_k\text{Res}_{d=2k}\Omega^{(k-1)}_{ij}$. Show that for $k=2,3$, $\gamma^{(k)}_{ij}-A_k\Omega^{(k-1)}_{ij}$ is proportional to $P^{k}{}_{i} P_{kj}$ and $B_{k(i}P^k{}_{j)}$, respectively. Determine these two coefficients.
 
-requires_numerical: true
 
 answer: |
 

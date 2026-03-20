@@ -20,7 +20,6 @@ problem: |
 
   Find the asymptotic population growth rate $\Lambda$ in terms of the model parameters $\lambda^+$, $\lambda^-$, $k_+$, $k_-$, $\alpha$, $\bar v_b$, $\beta$, and $\sigma^2$ for small $\sigma^2/\bar v_b^2$. Give your answer to first order in $\sigma^2/\bar v_b^2$. Explain how $\beta$ and $\sigma^2$ affect the population growth rate.
 
-requires_numerical: true
 
 answer: |
 

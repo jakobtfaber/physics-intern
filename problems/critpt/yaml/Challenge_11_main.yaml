@@ -13,7 +13,6 @@ problem: |
   Find the beta functions for coupling constants $\Delta$ and $x$ at one-loop level, with the convention that a positive beta function means that the
   system flows to strong coupling in the IR.
 
-requires_numerical: true
 
 answer: |
 

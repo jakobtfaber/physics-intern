@@ -16,7 +16,6 @@ problem: |
 
   What is the physical state fidelity of the final physical 4-qubit state at the end of the circuit as a function of the two-qubit gate error rate $p$?
 
-requires_numerical: true
 
 answer: |
   F_physical = (1 - sp.Rational(12, 15)* p)**2

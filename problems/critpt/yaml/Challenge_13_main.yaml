@@ -5,7 +5,6 @@ problem: |
   # Main problem:
   Given $k=2$, find the expectation values of Verlinde lines assuming the identity operator has expectation value 1. Return your answer as a tuple $(j_L,n_L,j_R,n_R,\lambda_{(j_L,n_L,j_R,n_R)})$, where $\lambda_{(j_L,n_L,j_R,n_R)}$ is the expectation value.
 
-requires_numerical: true
 
 answer: |
 

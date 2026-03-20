@@ -7,7 +7,6 @@ problem: |
 
   After performing a diffusion Monte Carlo simulation of the unpolarized two-dimensional electron gas with $N=122$ electrons at density $r_s=10$ in a square box in the Fermi liquid phase using the Slater-Jastrow wave function, what should one add to the total energy per electron to remove finite-size effects? Report the answer in Hartree and keep two significant digits.
 
-requires_numerical: true
 
 answer: |
 

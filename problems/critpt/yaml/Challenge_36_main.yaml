@@ -18,7 +18,6 @@ problem: |
 
   Find the mean-squared value of $C$, $\mathbb E\left[C^2\right]$, in terms of the model parameters $k$ and $n$, and determine how large $n$ needs to be to observe such oscillatory behavior.
 
-requires_numerical: true
 
 answer: |
 

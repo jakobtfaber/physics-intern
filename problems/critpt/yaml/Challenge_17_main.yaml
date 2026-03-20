@@ -6,7 +6,6 @@ problem: |
 
   Calculate the numerical value of $S/N$ to four decimal places.
 
-requires_numerical: true
 
 answer: |
 

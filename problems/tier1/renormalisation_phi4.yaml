@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the one-loop beta function $\beta(\lambda)$ for massless $\phi^4$ theory in $d = 4$ dimensions?
 
-requires_numerical: false
 
 answer: |
   beta_lambda = 3 * lam**2 / (16 * sp.pi**2)

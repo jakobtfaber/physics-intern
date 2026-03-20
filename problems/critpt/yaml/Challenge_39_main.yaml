@@ -22,7 +22,6 @@ problem: |
 
   Derive an expression for the cavity field coherences,  $\langle n'| \hat \rho_{c,ss}|n\rangle$, in steady state.
 
-requires_numerical: true
 
 answer: |
 

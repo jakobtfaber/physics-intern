@@ -7,7 +7,6 @@ problem: |
 
   Derive $\omega_t$ and $g$ with the given parameters.
 
-requires_numerical: true
 
 answer: |
 

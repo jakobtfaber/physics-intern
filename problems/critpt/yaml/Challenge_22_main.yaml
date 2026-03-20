@@ -16,7 +16,6 @@ problem: |
 
   Write the maximal value in terms of an optimization $\max_{x\in[0,1]} f(x)$, where $f(x)$ depends only on $x$ and nothing else. Find the function form of $f(x)$ explicitly.
 
-requires_numerical: true
 
 answer: |
 

@@ -9,7 +9,6 @@ problem: |
 
   To obtain analytical answers, assume that the Wannier functions can be approximated by the harmonic-oscillator eigenstates and that $W\gg\lambda$ and $V_0\gg E_R$.
 
-requires_numerical: true
 
 answer: |
 

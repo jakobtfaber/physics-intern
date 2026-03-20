@@ -13,7 +13,6 @@ problem: |
   # Main problem:
   What is the expectation value of the two-point correlation function $\lim_{N\rightarrow \infty} \langle Z_{N-2} Z_{N} \rangle$  of the qMPS in the thermodynamic limit as a function of $a$ and $b$?
 
-requires_numerical: true
 
 answer: |
 

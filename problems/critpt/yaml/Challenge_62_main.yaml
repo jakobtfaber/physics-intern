@@ -34,7 +34,6 @@ problem: |
 
   (3) Determine the value of $\phi$ at which the maximal quantum violation occurs, denoted as $\phi_{\max} $, as a function of $k$.
 
-requires_numerical: true
 
 answer: |
 

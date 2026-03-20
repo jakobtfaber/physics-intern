@@ -57,7 +57,6 @@ problem: |
 
   Choose all $\boldsymbol{Q}$ for $c^\dagger_{\boldsymbol{k}-\boldsymbol{Q},b}$ to satisfy (i) $\boldsymbol{Q}+\boldsymbol{q}_1$ is a reciprocal lattice vector and (ii) $|\boldsymbol{Q}|< 4.1 |\boldsymbol{b}_1|$.
 
-requires_numerical: true
 
 answer: |
 

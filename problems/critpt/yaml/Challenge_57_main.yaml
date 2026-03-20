@@ -6,7 +6,6 @@ problem: |
 
   Take the dark charge $Q_D$ to mass $M$ radio to be $\frac{Q_D}{M}\sim \frac{0.5}{m_n}$ for the inner mirrors, where $m_n$ is the mass of a neutron. We introduce a doped outer mirror, resulting in a differential forced between the inner and outer mirror. We assume the outer mirror gains an additiona $\delta \left(\frac{Q_D}{M}\right)\sim \frac{\delta q}{m_n}$, where $m_n$ is the mass of a neutron. With an observation time of $13$ years and SNR of $1$, what is the smallest $\epsilon_{B-L}$ it can probe at $250\,\text{Hz}$? Provide answers for scenarios where $\delta q=\{0.074, 6\times 10^{-3}, 5\times 10^{-4}\}$.
 
-requires_numerical: true
 
 answer: |
 

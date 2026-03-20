@@ -6,7 +6,6 @@ problem: |
 
   I create a driving field composed of three temporally identical laser pulses of 800 nm center wavelength, 50 fs FWHM pulse duration, with the peaks of the pulses at t = 0 fs, t = 30 fs, and t = 60 fs, respectively. The first pulse is left circularly polarized and carries an orbital angular momentum (OAM) of  $\ell = -1$, the second pulse is right circularly polarized and has OAM $\ell = 2$, and the third pulse is left circularly polarized and has OAM $\ell = 1$. The pulses are focused, overlapped in space, into a gas jet, and used to drive high-harmonic generation to produce EUV light. Calculate the OAM of the 23rd harmonic order and give the associated helicity $\sigma$ ($\pm 1$).
 
-requires_numerical: true
 
 answer: |
 

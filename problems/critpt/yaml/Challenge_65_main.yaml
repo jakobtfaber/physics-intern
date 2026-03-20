@@ -5,7 +5,6 @@ problem: |
   # Main problem:
   In the rank 2 theory, write down all the indecomposable gauge-invariant operators with charge smaller or equal to 5.
 
-requires_numerical: true
 
 answer: |
 

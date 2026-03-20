@@ -6,7 +6,6 @@ problem: |
   # Main problem:
    What are the critical Rayleigh number (allowing $\pm 0.5$ error) and associated critical horizontal wavenumber (allowing $\pm 0.02$ error), where above this critical Rayleigh number, the conduction base state is linearly unstable?
 
-requires_numerical: true
 
 answer: |
 

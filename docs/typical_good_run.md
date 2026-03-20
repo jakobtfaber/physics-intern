@@ -146,7 +146,6 @@ In ~30% of runs, the critic files a MEDIUM critique on STRATEGY (e.g., about asy
 **Scaffold:** `can_terminate()` checks all gates:
 - At least one critic pass has occurred
 - No unresolved HIGH critiques
-- Computational evidence exists (requires_numerical: true)
 - All RQs resolved or abandoned
 - All WHs either verified+promoted or abandoned
 

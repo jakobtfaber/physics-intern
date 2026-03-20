@@ -10,7 +10,6 @@ problem: |
 
   Using the geodesic approximation, determine the form of the one-point function $\langle \mathcal{O}(x) \rangle$. How does the result depend on the mass $m$ of the bulk field, the black hole radius $r_0$ and the brane tension $\eta$?
 
-requires_numerical: true
 
 answer: |
 

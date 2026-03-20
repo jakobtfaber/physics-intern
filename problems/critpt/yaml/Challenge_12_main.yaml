@@ -14,7 +14,6 @@ problem: |
   # Main problem:
   Find the phase between the initial ground state of the process $|\psi^i(q)\rangle$ and final ground state of the process $|\psi^f(q)\rangle$, where $q$ is the fusion channel between the unpaired zero modes. Your answer should depend on $k_{ij}\in Z_N$, where $k_{ij}<-\frac{\phi_{ij}}{2\pi}<k_{ij}+1$. Note that, for a Josephson phase between sites i and j, k_ij is a ground-state fusion channel.
 
-requires_numerical: true
 
 answer: |
 

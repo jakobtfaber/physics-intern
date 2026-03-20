@@ -26,7 +26,6 @@ problem: |
   # Main problem:
   Determine the coefficients of these terms in $X^{(4)}$.
 
-requires_numerical: true
 
 answer: |
 

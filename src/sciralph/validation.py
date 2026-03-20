@@ -262,20 +262,7 @@ def can_terminate(
             "Emit task_type: critique to run a review before terminating."
         )
 
-    # Gate 2: Numerical evidence required when problem requires it
-    meta = problem_meta or {}
-    if meta.get("requires_numerical", False):
-        has_compute_evidence = any(
-            h.evidence and h.evidence.type == "compute"
-            for h in research_state.hypotheses.values()
-        )
-        if not has_compute_evidence:
-            blockers.append(
-                "Problem requires numerical verification but no computational evidence found. "
-                "Emit task_type: compute to run at least one computation before terminating."
-            )
-
-    # Gate 3: All RQs and WHs must be resolved before termination
+    # Gate 2: All RQs and WHs must be resolved before termination
     for rq in research_state.research_questions.values():
         if rq.status == RQStatus.OPEN:
             blockers.append(

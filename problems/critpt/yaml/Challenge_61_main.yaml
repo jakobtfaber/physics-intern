@@ -13,7 +13,6 @@ problem: |
 
   Suppose $M=200$. Find the evolution time $T$ (rounded to the nearest integer) and the achievable probability $P$ (to two decimal places) of getting basis $\left|a\right\rangle$.
 
-requires_numerical: true
 
 answer: |
 

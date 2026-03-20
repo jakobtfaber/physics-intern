@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the Lamb shift (the energy splitting $2S_{1/2} - 2P_{1/2}$) for hydrogen, in MHz?
 
-requires_numerical: true
 
 answer: 1057.8
 

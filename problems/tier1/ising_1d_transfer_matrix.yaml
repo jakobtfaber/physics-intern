@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the free energy per spin $f(\beta, J, h)$ in the thermodynamic limit, expressed in terms of $\beta$, $J$, and $h$?
 
-requires_numerical: false
 
 answer: |
   f = -1/beta * sp.log(sp.exp(beta*J) * (sp.cosh(beta*h) + sp.sqrt(sp.sinh(beta*h)**2 + sp.exp(-4*beta*J))))

@@ -11,7 +11,6 @@ problem: |
   # Main problem:
   What is the Aharonov-Bohm differential scattering cross section $d\sigma/d\theta$ as a function of $k$, $\alpha$, and $\theta$?
 
-requires_numerical: true
 
 answer: |
   dsigma_dtheta = sp.sin(sp.pi * alpha)**2 / (2 * sp.pi * k * sp.sin(theta / 2)**2)

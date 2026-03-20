@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the Hawking temperature $T_H$ of a Schwarzschild black hole of mass $M$, expressed in terms of $\hbar$, $c$, $G$, $M$, and $k_B$?
 
-requires_numerical: true
 
 answer: |
   T_H = hbar * c**3 / (8 * sp.pi * G * M * k_B)

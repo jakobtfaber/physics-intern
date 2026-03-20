@@ -31,7 +31,6 @@ problem: |
 
   What is the logical state fidelity of the final 2-qubit logical state at the end of the circuit as a function of the two-qubit gate error rate $p$, assuming the state is post-selected on all detectable errors in the code?
 
-requires_numerical: true
 
 answer: |
   F_logical = 1 - (sp.Rational(16, 75)* p**2) / (1 - sp.Rational(8, 5)* p + sp.Rational(64, 75)* p**2)

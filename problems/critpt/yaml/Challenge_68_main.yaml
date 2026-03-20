@@ -9,7 +9,6 @@ problem: |
 
   Calculate $\frac{d}{dt} D^{\mathrm{std}}_f(\rho_t \|\sigma)$ at $t = 0.5$. Please be as accurate as possible
 
-requires_numerical: true
 
 answer: |
 

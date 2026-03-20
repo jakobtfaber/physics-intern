@@ -38,7 +38,6 @@ problem: |
   For all numerical calculations, please use the 43 shortest reciprocal lattice vectors, use a $60\times 60$ equal-spacing hexagonal-symmetric momentum mesh in the Brillouin zone, and keep four decimal places for all numerical answers.
   If any quantity is ill-defined, use N/A as the answer.
 
-requires_numerical: true
 
 answer: |
 

@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the Unruh temperature $T_U$ perceived by a uniformly accelerated observer with proper acceleration $a$?
 
-requires_numerical: false
 
 answer: |
   T_U = hbar * a_acc / (2 * sp.pi * c * k_B)

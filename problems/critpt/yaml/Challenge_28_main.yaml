@@ -9,7 +9,6 @@ problem: |
 
   At zero temperature, to the second order in $U$, what's the leading power law dependence of the Fermi momentum $k_F$ of this correction along $y$ direction per unit volume in the zero frequency limit? At zero temperature, to the second order in $U$, what's the leading power law dependence of the Fermi momentum $k_F$ of the quasiparticle scattering rate and transport scattering rate on the Fermi surface in the zero frequency limit?
 
-requires_numerical: true
 
 answer: |
 

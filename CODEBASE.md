@@ -203,7 +203,7 @@ Non-VERIFIED review verdicts are no longer auto-recomputed. Instead they are sto
 | Max iterations | Loop condition | `self.iteration >= self.config.max_iterations` |
 | Budget-aware synthesis | Orchestrator | Orchestrator sees budget pressure via `_completion_analysis()` context banner and chooses to synthesize/terminate |
 
-The `can_terminate()` gate requires: at least one VERIFIED hypothesis triggers a mandatory critic pass, computational evidence when `requires_numerical: true` in problem YAML, all RQs resolved or abandoned, and all WHs either verified and promoted or abandoned. If blocked, blockers are fed back to orchestrator.
+The `can_terminate()` gate requires: at least one VERIFIED hypothesis triggers a mandatory critic pass, all RQs resolved or abandoned, and all WHs either verified and promoted or abandoned. If blocked, blockers are fed back to orchestrator.
 
 ### Dispatch routing
 
@@ -695,7 +695,7 @@ All 4 checks run after every orchestrator pass via `validate_post_integration(re
 | **Phantom label stripping** | `check_phantom_labels()` | Builds verified set from `h.review.verdict == "VERIFIED"`; finds "VERIFIED" labels in derivations without backing → returns violation | LLM copying "VERIFIED" from existing text without evidence |
 | **Stale-unverified label promotion** | `check_stale_unverified_labels()` | Finds hypotheses with stale unverified labels that now have review → returns violation | Labels stuck as [unverified] after late review |
 | **Critique resolution consistency** | `check_critique_resolution_consistency()` | Checks that resolved critiques actually had their fixes applied: target hypothesis still exists, no inconsistencies | LLM marking critiques "resolved" without applying the fix |
-| **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when VERIFIED hypotheses exist, (2) computational evidence exists when `requires_numerical`, (3) all RQs resolved/abandoned, (4) all WHs either verified+promoted or abandoned | LLM trying to terminate prematurely |
+| **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when VERIFIED hypotheses exist, (2) all RQs resolved/abandoned, (3) all WHs either verified+promoted or abandoned | LLM trying to terminate prematurely |
 
 ### loop_control — Pre-dispatch hooks and dispatch guards (`engine.py`)
 

@@ -27,7 +27,6 @@ problem: |
   \end{align*}
   where the supremum is taken over all density operators $\rho$ and $\sigma$. Calculate $$f(\frac{1}{8}) + f(\frac{1}{4}) + f(\frac{1}{2}).$$
 
-requires_numerical: true
 
 answer: |
 

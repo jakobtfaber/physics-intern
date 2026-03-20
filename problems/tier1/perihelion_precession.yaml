@@ -11,7 +11,6 @@ problem: |
   # Main problem:
   What is the perihelion precession angle $\Delta\phi$ per orbit for a test particle in a Schwarzschild spacetime, expressed in terms of $G$, $M$, $a$, $e$, and $c$?
 
-requires_numerical: true
 
 answer: |
   Delta_phi = 6 * sp.pi * G * M / (a * (1 - e**2) * c**2)

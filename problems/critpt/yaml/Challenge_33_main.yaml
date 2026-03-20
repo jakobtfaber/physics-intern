@@ -35,7 +35,6 @@ problem: |
 
   Which kinds of particles will form a crystal state when $r > r_o$? Suppose $r_o$ scales with $v^a w^b z^c$ and $r_o \geq 10^s$. Please compute a + 10b + 100c and s.
 
-requires_numerical: true
 
 answer: |
 

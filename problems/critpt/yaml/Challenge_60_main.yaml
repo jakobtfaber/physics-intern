@@ -33,7 +33,6 @@ problem: |
   \gamma \equiv \int_{-\infty}^{\infty} d x \frac{\partial \psi(x)}{\partial x} \psi\left(x-u_2+u_1 \right)
   $.
 
-requires_numerical: true
 
 answer: |
 

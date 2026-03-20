@@ -39,7 +39,6 @@ problem: |
 
   (2) Similarly, determine the white-noise robustness $\eta$ of the set of effects $[\Pi^{\eta}_i \bigl], i=1,\cdots, 5$.
 
-requires_numerical: true
 
 answer: |
 

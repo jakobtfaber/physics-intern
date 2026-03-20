@@ -6,7 +6,6 @@ problem: |
 
   How will $\xi$ and the width of the plateau $\Delta V_g$ scale with the impurity density $n_i$?  Assuming $\xi\propto n_i^{\alpha}$, $\Delta V_g\propto n_i^{\beta}$, find $\alpha$ and $\beta$. Will such a plateau appear in a 3D topological insulator? Are the charged impurities still important there? Do charged impurities give long-range or short-range scattering? Will the long-range scattering in both graphene and a 3D topological insulator give longer mean free path than short-range scattering?
 
-requires_numerical: true
 
 answer: |
 

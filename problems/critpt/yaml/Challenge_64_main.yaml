@@ -10,7 +10,6 @@ problem: |
 
   (2) $x_1=1$, $x_2=2$, $x_3=3$, $x_4=4$, $x_5=5$.
 
-requires_numerical: true
 
 answer: |
 

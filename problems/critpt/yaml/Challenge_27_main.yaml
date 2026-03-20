@@ -6,7 +6,6 @@ problem: |
 
   Considering the initial state as a coherent spin state pointing in the $+x$ direction, calculate the Wineland spin-squeezing parameter optimized over time $t$ (labelled by $\xi^2_{\rm opt}$) based on the following parameters: $N=10^6$, $\chi=1.0\times 10^{-6}$, $\gamma=0.01$, $\gamma_z=0.01$. You should express the numerical result in terms of decibels and keep up to three significant figures.
 
-requires_numerical: true
 
 answer: |
 

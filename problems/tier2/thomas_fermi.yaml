@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the numerical value of the Thomas-Fermi constant $c$ (to 4 significant digits)?
 
-requires_numerical: true
 
 answer: 0.7687
 

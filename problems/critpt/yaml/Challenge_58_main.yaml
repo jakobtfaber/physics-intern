@@ -6,7 +6,6 @@ problem: |
 
   Please specify all possible magnetic space groups for the system below the magnetic phase transition. The answer should be provided using the BNS number.
 
-requires_numerical: true
 
 answer: |
 

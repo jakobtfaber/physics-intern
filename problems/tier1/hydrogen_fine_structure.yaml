@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the total fine-structure energy shift $\Delta E_{\rm fs}(n, j)$ of the hydrogen atom, expressed in terms of $m_e$, $c$, $\alpha$, $n$, and $j$?
 
-requires_numerical: true
 
 answer: |
   Delta_E_fs = -m_e * c**2 * alpha**4 / (2 * n**3) * (1 / (j + sp.Rational(1, 2)) - 3 / (4 * n))

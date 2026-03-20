@@ -5,7 +5,6 @@ problem: |
   # Main problem:
   Derive $\left\langle {{{\left| {I_{\theta}\left( \nu  \right)} \right|}^2}} \right\rangle$, then find out the maximum squeezed and anti-squeezed $\left\langle {{{\left| {I_{\theta}\left( \nu  \right)} \right|}^2}} \right\rangle$ if $\phi_2 - \phi_1 = \pi$.
 
-requires_numerical: true
 
 answer: |
 

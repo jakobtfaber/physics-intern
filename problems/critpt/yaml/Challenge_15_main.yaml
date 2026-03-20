@@ -17,7 +17,6 @@ problem: |
   \end{equation}
   where $R_{z}=e^{i\pi S_{z}}$, and $l$ is the string length. This represents the string order parameter with length $l$.
 
-requires_numerical: true
 
 answer: |
 

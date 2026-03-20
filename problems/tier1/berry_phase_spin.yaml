@@ -11,7 +11,6 @@ problem: |
   # Main problem:
   What is the Berry phase $\gamma_{\rm Berry}$ acquired by the spin-up eigenstate after one complete adiabatic cycle, expressed as a function of the solid angle $\Omega$?
 
-requires_numerical: false
 
 answer: |
   gamma_Berry = -Omega / 2

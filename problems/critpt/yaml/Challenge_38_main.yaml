@@ -19,7 +19,6 @@ problem: |
 
   Compute the temperature dependence of the energy phase space integral in the limit $U\gg W\gg k_BT\gg \epsilon_1$, where the chemical potential $\mu$ only crosses the lower Hubbard band, i.e., $0<\mu<W$.
 
-requires_numerical: true
 
 answer: |
 

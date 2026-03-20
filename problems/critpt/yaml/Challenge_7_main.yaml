@@ -7,7 +7,6 @@ problem: |
 
   Suppose that the noisy sensing dynamics has duration $t$, and each local parameter is the accumulated phase, i.e. $x_i = \omega^{(i)} t$. What is the quantum Fisher information for $\theta_1$? Do not explicitly include $\gamma$ and $t$ in the final expression. Instead, you may use another variable $q = (1 + e^{-\gamma t}) / 2$.
 
-requires_numerical: true
 
 answer: |
 

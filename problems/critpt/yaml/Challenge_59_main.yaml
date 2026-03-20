@@ -11,7 +11,6 @@ problem: |
 
   Calculate the structure factor to first order in $\varepsilon$ for diffraction peaks at reciprocal space vector $(n_x, n_y, x_z)$ for $\vec{\varepsilon} \parallel [100]$, $\vec{Q} \parallel [100]$. Write down the criteria for the structural factor to be nonvanishing (besides $n_x = M$) in the lowest-possible-order Brillouin Zone and the corresponding structural factor.
 
-requires_numerical: true
 
 answer: |
 

@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the Chandrasekhar mass limit $M_{\rm Ch}$ in units of solar masses, for a carbon-oxygen white dwarf ($\mu_e = 2$)? Obtain the answer by numerically solving the Lane-Emden equation for $n = 3$.
 
-requires_numerical: true
 
 answer: 1.459
 

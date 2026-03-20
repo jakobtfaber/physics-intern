@@ -27,7 +27,6 @@ problem: |
 
   Calculate $N(s)$, $H$, and $G(s)$ and use these results to obtain $P(s_1)$ to three decimal places.
 
-requires_numerical: true
 
 answer: |
 

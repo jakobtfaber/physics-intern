@@ -203,7 +203,6 @@ problem: |
   Derive the Hawking temperature of a Schwarzschild black hole
   from the Euclidean path integral approach...
 
-requires_numerical: true  # enforced by termination gate
 ```
 
 **Tier 1** — core problems (`problems/tier1/`):

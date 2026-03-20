@@ -5,7 +5,6 @@ problem: |
   # Main problem:
   Compute the generating function of the index of trace relations up to charge 15 in a free $U(2)$ gauge theory that contains only two adjoint fields: a charge 1 fermion $\psi$, and its derivative field $\partial\psi$ with charge 2.
 
-requires_numerical: true
 
 answer: |
 

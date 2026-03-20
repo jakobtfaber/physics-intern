@@ -20,7 +20,6 @@ problem: |
 
   Case 2: Assume that $E = 40$ meV.
 
-requires_numerical: true
 
 answer: |
 

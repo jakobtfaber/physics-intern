@@ -219,7 +219,6 @@ class TestEngineResume:
         # problem.yaml
         problem_def = {
             "problem": "Derive the Hawking temperature.",
-            "requires_numerical": False,
             "answer_template": "T_H = ...",
         }
         (ws_dir / "problem.yaml").write_text(_yaml.dump(problem_def))

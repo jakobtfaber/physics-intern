@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the exact Dirac-Coulomb energy spectrum $E_{n,j}$ for a bound electron in a Coulomb potential of charge $Ze$, expressed in terms of $m_e$, $c$, $Z$, $\alpha$, $n$, and $j$?
 
-requires_numerical: true
 
 answer: |
   E_nj = m_e * c**2 * (1 + (Z * alpha / (n - (j + sp.Rational(1,2)) + sp.sqrt((j + sp.Rational(1,2))**2 - Z**2 * alpha**2)))**2)**(-sp.Rational(1,2))

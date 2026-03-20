@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the dimensionless critical temperature $k_B T_c / J$ of the 2D Ising model on a square lattice?
 
-requires_numerical: true
 
 answer: |
   kBTc_over_J = 2 / sp.log(1 + sp.sqrt(2))

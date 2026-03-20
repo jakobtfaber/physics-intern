@@ -29,7 +29,6 @@ problem: |
   \end{equation}
   Simplify it to an elementary function.
 
-requires_numerical: true
 
 answer: |
 

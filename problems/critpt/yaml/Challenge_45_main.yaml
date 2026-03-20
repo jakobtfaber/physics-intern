@@ -5,7 +5,6 @@ problem: |
   # Main problem:
   Consider a two-band 2D intrinsic semiconductor under temperature $T$. The conduction band has a dispersion $E_c= \Delta/2+\sum_{\alpha=x,y}\frac{\hbar^2k_{\alpha}^2}{2m_{c,\alpha}}$, and the valence band has a dispersion $E_v= -\Delta/2-\sum_{\alpha=x,y}\frac{\hbar^2k_{\alpha}^2}{2m_{v,\alpha}}$, where $\Delta$ is the size of band gap. We further assume that the relaxation time of the electrons and holes are the same. What condition should the effective mass $m_{c/v,\alpha}$, with $ \alpha=x,y$, satisfy to exhibit goniopolarity?
 
-requires_numerical: true
 
 answer: |
 

@@ -11,7 +11,6 @@ problem: |
   # Main problem:
   What is the heat capacity $C_V(\beta, \omega)$ of a single quantum harmonic oscillator, expressed in terms of $k_B$, $\beta$, $\hbar$, and $\omega$?
 
-requires_numerical: true
 
 answer: |
   C_V = k_B * (beta * hbar * omega)**2 * sp.exp(beta * hbar * omega) / (sp.exp(beta * hbar * omega) - 1)**2

@@ -13,7 +13,6 @@ problem: |
 
   Let $\chi$ be the charge susceptibility, $\kappa$ be the quadrupole superfluid stiffness, and $\sigma$ be the coefficient of the leading order dissipative term. You may assume all other EFT coefficients are zero. Express your answer in terms of $\chi$, $\kappa$, and $\sigma$.
 
-requires_numerical: true
 
 answer: |
 

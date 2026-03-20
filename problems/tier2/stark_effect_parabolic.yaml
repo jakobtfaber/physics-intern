@@ -11,7 +11,6 @@ problem: |
   # Main problem:
   What is the first-order (linear) Stark energy shift $\Delta E$ for a hydrogen state with quantum numbers $(n, n_1, n_2)$, expressed in terms of $e$, $E$ (the electric field), $a_0$, $n$, $n_1$, and $n_2$?
 
-requires_numerical: true
 
 answer: |
   Delta_E = 3 * e_charge * E_field * a_0 * n * (n_1 - n_2) / 2

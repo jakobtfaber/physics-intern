@@ -25,7 +25,6 @@ problem: |
   \end{align}
   Carry out the above integral in three intervals: $x < 0$, $0<x<1$ and $x>1$. Then expand the final result in $\epsilon$ to $O(\epsilon^0)$ in the $\overline{\rm MS}$ scheme. The final results of $\tilde q_{\rm sail}(x,p^z,\epsilon,\mu)$ should be expressed as functions in $x$, $p^z$, $\epsilon_{\rm UV}$ or $\epsilon_{\rm IR}$, and $\mu$.
 
-requires_numerical: true
 
 answer: |
 

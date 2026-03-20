@@ -30,7 +30,6 @@ problem: |
   \end{align}
   where $\delta$ is the Dirac delta function, $\alpha_s$ is the strong coupling, $C_F$ is the Casimir constant, and $\epsilon_{\rm IR}$ is the infrared regulator in the dimensional regularization. Give the final expression of 1-loop correction $\tilde{f}_q^{(1)}(y,p_z,\epsilon_{\rm IR},\mu)$ in three intervals: $y < 0$, $0 < y < 1$ and $y > 1$.
 
-requires_numerical: true
 
 answer: |
 

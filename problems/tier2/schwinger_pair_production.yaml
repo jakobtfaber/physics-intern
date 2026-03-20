@@ -11,7 +11,6 @@ problem: |
   # Main problem:
   What is the leading-order ($n = 1$) Schwinger pair production rate per unit volume $\Gamma/V$ for spin-1/2 particles, expressed in terms of $e$, $E$ (the electric field), $m_e$, $\hbar$, and $c$?
 
-requires_numerical: true
 
 answer: |
   Gamma_over_V = (e_charge * E_field)**2 / (4 * sp.pi**3 * hbar**2 * c) * sp.exp(-sp.pi * m_e**2 * c**3 / (e_charge * E_field * hbar))

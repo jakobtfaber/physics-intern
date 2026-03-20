@@ -28,7 +28,6 @@ problem: |
 
   Compute $ a_{40}(3) $. Note that there may be multiple configurations that lead to the same $w_5 $, $ w_6 $, $ w_7$ and $w_8$ at $t = 3$. You should count all of them. Return your answer as an integer.
 
-requires_numerical: true
 
 answer: |
 

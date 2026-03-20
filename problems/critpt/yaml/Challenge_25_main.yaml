@@ -50,7 +50,6 @@ problem: |
 
   Your final answer should be a closed-form symbolic expression; do not insert numerical values.
 
-requires_numerical: true
 
 answer: |
 

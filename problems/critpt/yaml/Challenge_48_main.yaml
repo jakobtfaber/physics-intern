@@ -18,7 +18,6 @@ problem: |
   \end{equation}
   at $\eta = \frac{10}{3} \pi$, accurate to at least eight digits after the decimal point.
 
-requires_numerical: true
 
 answer: |
 

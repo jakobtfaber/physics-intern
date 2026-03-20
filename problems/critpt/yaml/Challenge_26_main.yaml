@@ -20,7 +20,6 @@ problem: |
 
   Compute the dimensionless cavity shift $\Delta \omega_c/\omega_c^{(0)}$ in non-relativistic quantum mechanics to three significant figures.
 
-requires_numerical: true
 
 answer: |
 

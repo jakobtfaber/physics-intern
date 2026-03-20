@@ -419,35 +419,6 @@ class TestCanTerminate:
         assert not allowed
         assert any("promote" in b.lower() for b in blockers)
 
-    def test_blocks_numerical_requirement(self):
-        state = self._make_state()
-        state.hypotheses["ER-001"] = Hypothesis(
-            id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        allowed, blockers = can_terminate(
-            MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
-            {"requires_numerical": True},
-            research_state=state,
-        )
-        assert not allowed
-        assert any("numerical" in b.lower() for b in blockers)
-
-    def test_numerical_requirement_satisfied(self):
-        state = self._make_state()
-        state.hypotheses["ER-001"] = Hypothesis(
-            id="ER-001", status=HypothesisStatus.ESTABLISHED,
-            evidence=Evidence(type="compute", result="T=1/(8piM)", iteration=1),
-            review=ReviewResult(
-                verdict=Verdict.VERIFIED, summary="Confirmed", iteration=2,
-            ),
-        )
-        allowed, blockers = can_terminate(
-            MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
-            {"requires_numerical": True},
-            research_state=state,
-        )
-        assert allowed
-
     def test_wh_without_verification_gets_review_message(self):
         """WH without review result should say 'emit review', not 'promote'."""
         state = self._make_state()

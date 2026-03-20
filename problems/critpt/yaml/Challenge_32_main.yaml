@@ -6,7 +6,6 @@ problem: |
 
   What is the critical Rayleigh number (allowing $\pm 0.05$ error) and associated critical horizontal wavenumber (allowing $\pm 0.02$ error), where, above this critical Rayleigh number, the conduction base state is linearly unstable? Moreover, consider eigenfunction of vertical velocity w(z) and temperature T(z) associated with this critical Rayleigh number and crical horizontal wavenumber, what is the value of w(z)/T(z) at z=0.67365, where the bottom wall is at z=0 and the top wall is at z=1?
 
-requires_numerical: true
 
 answer: |
 

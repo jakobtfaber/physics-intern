@@ -118,7 +118,6 @@ class SciRalph:
         with open(problem_yaml_path) as f:
             problem_def = _yaml.safe_load(f)
         problem_meta = {
-            "requires_numerical": problem_def.get("requires_numerical", False),
             "steps": problem_def.get("steps", []),
         }
         if not answer_template:

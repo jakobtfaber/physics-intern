@@ -6,7 +6,6 @@ problem: |
 
   Calculate the magic wavelengths for imaging the ground state of Yb atoms using the transitions between the ground state and the excited state $^3P_1$ for two Yb isotopes, Yb-171 and Yb-174, within the wavelength range from 400 nm to 600 nm. For each magic wavelength, give the associated transition type (choose from $\sigma$ and $\pi$).
 
-requires_numerical: true
 
 answer: |
 

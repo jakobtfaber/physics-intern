@@ -98,7 +98,6 @@ def _main_fresh(args) -> None:
 
     # Build problem metadata for termination gates
     problem_meta = {
-        "requires_numerical": problem_def.get("requires_numerical", False),
         "steps": problem_def.get("steps", []),
     }
 

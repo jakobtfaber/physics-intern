@@ -143,7 +143,6 @@ The orchestrator emits one of these task types (defined in `TaskType` enum): `re
 - Orchestrator tools (`orchestrator_tools.py`) mutate `self.research_state` directly; 12 tools total including `append_note` for research notes and `update_section` supporting Conventions, Strategy, and Situation Assessment; two-phase dispatch gate in `_set_next_task` rejects if entity-creating mutations occurred in same response; `add_hypothesis` with `from_rq` auto-copies evidence from RQ to new WH; `promote_hypothesis` checks `h.review.verdict == "VERIFIED"` and established dependencies
 - `_call_provider_with_retry()` wraps every provider call with exponential-backoff retry
 - Iteration counter is scaffolding-maintained (`_update_research_iteration()`), not LLM-dependent
-- Problem YAMLs may include `requires_numerical: true/false` — consumed by `can_terminate()` gate (checks for compute-type evidence)
 - See `CODEBASE.md` §7 for the complete LLM failure compensation catalog
 
 ## Running

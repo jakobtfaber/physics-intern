@@ -5,7 +5,6 @@ problem: |
   # Main problem:
   How many degenerate ground states are there? How many of them are in the flux-free sector? Compute the energy of the ground states with three decimal precision.
 
-requires_numerical: true
 
 answer: |
 

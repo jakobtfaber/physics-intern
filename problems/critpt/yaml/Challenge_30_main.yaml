@@ -17,7 +17,6 @@ problem: |
   \end{equation}
   where the overline indicates the average over $O$.
 
-requires_numerical: true
 
 answer: |
 

@@ -11,7 +11,6 @@ problem: |
   # Main problem:
   What is the exact propagator $K(x_f, T; x_i, 0)$ for the quantum harmonic oscillator, expressed in terms of $m$, $\omega$, $\hbar$, $T$, $x_i$, and $x_f$?
 
-requires_numerical: true
 
 answer: |
   K = sp.sqrt(m*omega/(2*sp.pi*sp.I*hbar*sp.sin(omega*T))) * sp.exp(sp.I*m*omega/(2*hbar*sp.sin(omega*T)) * ((x_f**2 + x_i**2)*sp.cos(omega*T) - 2*x_f*x_i))

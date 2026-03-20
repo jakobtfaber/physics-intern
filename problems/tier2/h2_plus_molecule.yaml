@@ -9,7 +9,6 @@ problem: |
   # Main problem:
   What is the dissociation energy $D_e$ of the $\mathrm{H}_2^+$ molecular ion, in electron volts (eV)?
 
-requires_numerical: true
 
 answer: 2.791
 

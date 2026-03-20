@@ -60,7 +60,7 @@ def json_to_yamls(json_path: str) -> None:
         indented_template = "\n".join(template_lines)
 
         # Build YAML content
-        yaml_content = f"problem: |\n{indented}\n\nrequires_numerical: true\n\nanswer: |\n{indented_answer}\n"
+        yaml_content = f"problem: |\n{indented}\n\nanswer: |\n{indented_answer}\n"
         if template:
             yaml_content += f"\nanswer_template: |\n{indented_template}\n"
 

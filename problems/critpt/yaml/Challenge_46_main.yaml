@@ -14,7 +14,6 @@ problem: |
 
   For the eigenstates inside $\mathcal{D}_0^+$, list the energies of the scar states and the base-10 logarithm of their overlap with the $Z_2$ state: $\log_{10}|\langle Z_2|\psi\rangle|^2$. All numerical results should be given to four decimal places. Set the system size to $L = 26$.
 
-requires_numerical: true
 
 answer: |
 

@@ -10,7 +10,6 @@ problem: |
 
   Consider the specific scenario where $\mu = 2$, and let us define $\varphi = \log_2 \ell$ and $z = \log_2 t$. Expand $\varphi$ in terms of $z$  for large $t$ and retain terms up to constant order in $z$. That is, you should fix any $\text{polylog}(z)$ corrections such as $\log_2(z)$ and $\log^2_2(z)$ if they are present; constant corrections can be ignored.
 
-requires_numerical: true
 
 answer: |
 
