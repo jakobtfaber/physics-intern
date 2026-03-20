@@ -1,0 +1,358 @@
+{
+  "_meta": {
+    "description": "Critical-path problem set — 70 challenges",
+    "difficulty_scale": "1 = standard formulas, 2 = solid domain knowledge, 3 = multi-step/cross-domain, 4 = deep expertise or heavy computation, 5 = cutting-edge research-level"
+  },
+  "challenges": [
+    {
+      "id": 1,
+      "summary": "Determine the coefficients of the holographic Weyl anomaly in 8 dimensions from the bulk gravitational on-shell action under Weyl transformations of the boundary metric.",
+      "difficulty": 5
+    },
+    {
+      "id": 2,
+      "summary": "Derive the asymptotic population growth rate of dividing bacterial cells whose growth rate switches stochastically between two states with gamma-distributed waiting times, to first order in division noise variance.",
+      "difficulty": 5
+    },
+    {
+      "id": 3,
+      "summary": "Compute the one-point function of a scalar operator in AdS3/BCFT2 using the geodesic approximation in a BTZ black hole geometry terminated by a brane of tension behind the horizon.",
+      "difficulty": 3
+    },
+    {
+      "id": 4,
+      "summary": "Calculate the orbital angular momentum and helicity of the 23rd harmonic order in high-harmonic generation driven by three time-delayed laser pulses with specified circular polarizations and OAM values.",
+      "difficulty": 3
+    },
+    {
+      "id": 5,
+      "summary": "Evaluate the derivative with respect to n at n=0 of a function defined via a Gauss hypergeometric function with parameter-dependent arguments.",
+      "difficulty": 3
+    },
+    {
+      "id": 6,
+      "summary": "Compute the Chern numbers of the top three bands and the gauge-invariant Wannier spread for the top band of a continuum model of twisted bilayer MoTe2 at the K valley.",
+      "difficulty": 4
+    },
+    {
+      "id": 7,
+      "summary": "Derive the quantum Fisher information for estimating the scaled average phase in a noisy distributed quantum sensor network using depolarized GHZ states with single-qubit dephasing.",
+      "difficulty": 4
+    },
+    {
+      "id": 8,
+      "summary": "Compute the curvature power spectrum ratio and perturbation relations in FRW cosmology with torsion via a Nieh-Yan coupling to a scalar field, evaluated at 60 e-folds before inflation ends.",
+      "difficulty": 5
+    },
+    {
+      "id": 9,
+      "summary": "Calculate the number of e-folds achieved at t=2000000 in an FRW cosmology with torsion introduced through a Nieh-Yan term coupled to a scalar field with a cosine potential.",
+      "difficulty": 4
+    },
+    {
+      "id": 10,
+      "summary": "Calculate the number of e-folds at t=25000 in an FRW cosmology with torsion introduced through a gravitational Chern-Simons coupling to a scalar field with a quadratic potential.",
+      "difficulty": 4
+    },
+    {
+      "id": 11,
+      "summary": "Compute the one-loop beta functions for the coupling constants in a (1+1)D theory of a Majorana fermion coupled to a compactified boson via a cosine interaction.",
+      "difficulty": 4
+    },
+    {
+      "id": 12,
+      "summary": "Find the phase acquired between initial and final ground states of Z_N parafermion zero modes on four sites after a four-stage tunneling process followed by a pairwise permutation.",
+      "difficulty": 4
+    },
+    {
+      "id": 13,
+      "summary": "Compute the expectation values of all Verlinde lines in a (1+1)D CFT on a torus formed by left- and right-moving edges of a Moore-Read state at filling fraction 1/2.",
+      "difficulty": 4
+    },
+    {
+      "id": 14,
+      "summary": "Find the critical coupling constant J where the boundary-condition free energy y vanishes for the n=3 random-bond Ising model on a 100x100 square lattice torus.",
+      "difficulty": 4
+    },
+    {
+      "id": 15,
+      "summary": "Compute the string order parameter of a noisy spin-1 bilinear-biquadratic (AKLT-type) chain as an exact function of system size, noise rate, and string length.",
+      "difficulty": 4
+    },
+    {
+      "id": 16,
+      "summary": "Determine the critical Hubbard interaction strength triggering a phase transition at quarter-filling of a two-sublattice tight-binding model on a square lattice.",
+      "difficulty": 4
+    },
+    {
+      "id": 17,
+      "summary": "Calculate the zero-temperature entropy per particle of a Sachdev-Ye-Kitaev (SYK) model with Majorana fermions in the large-N limit.",
+      "difficulty": 4
+    },
+    {
+      "id": 18,
+      "summary": "Derive the optical binding spring constants governing coupled axial motion of two dielectric nanoparticles in Gaussian optical tweezers.",
+      "difficulty": 3
+    },
+    {
+      "id": 19,
+      "summary": "Compute the maximum squeezed and anti-squeezed photocurrent noise spectra for two cascaded optical parametric amplifiers with a pi phase offset.",
+      "difficulty": 3
+    },
+    {
+      "id": 20,
+      "summary": "Derive the torsional oscillation frequency and dipole-dipole coupling rate for two dielectric ellipsoids trapped in optical tweezers.",
+      "difficulty": 3
+    },
+    {
+      "id": 21,
+      "summary": "Match a pion quasi-PDF to the physical PDF at 2 GeV using LaMET perturbative matching with DGLAP-resummed logarithms, and evaluate at specific momentum fractions.",
+      "difficulty": 5
+    },
+    {
+      "id": 22,
+      "summary": "Optimize the Holevo information over classical-quantum states built from parameterized 3x3 density matrices and express the maximum as a single-variable function.",
+      "difficulty": 3
+    },
+    {
+      "id": 23,
+      "summary": "Evaluate the one-loop sail-diagram contribution to the quasi-PDF in LaMET using dimensional regularization in the MSbar scheme across three kinematic regions.",
+      "difficulty": 5
+    },
+    {
+      "id": 24,
+      "summary": "Compute the one-loop Coulomb-gauge quasi-PDF matching kernel for a massless quark in LaMET using dimensional regularization in the MSbar scheme.",
+      "difficulty": 5
+    },
+    {
+      "id": 25,
+      "summary": "Derive a closed-form expression for the minimum Doppler factor of a relativistic blazar jet blob from X-ray cascade luminosity and photopion production constraints.",
+      "difficulty": 2
+    },
+    {
+      "id": 26,
+      "summary": "Compute the dimensionless cavity shift of the electron cyclotron frequency inside a spherical conducting cavity using non-relativistic QED perturbation theory.",
+      "difficulty": 4
+    },
+    {
+      "id": 27,
+      "summary": "Calculate the optimal Wineland spin-squeezing parameter for one-axis twisting with single-particle dephasing and spin-flip dissipation at given physical parameters.",
+      "difficulty": 4
+    },
+    {
+      "id": 28,
+      "summary": "Determine the leading Fermi-momentum power-law exponents of the second-order Hubbard correction to the paramagnetic conductivity and scattering rates on a 4D hypercubic lattice.",
+      "difficulty": 4
+    },
+    {
+      "id": 29,
+      "summary": "Derive the tunneling energy and contact interaction for the Hubbard model of fermionic atoms in a 2D optical lattice formed by counter-propagating laser beams.",
+      "difficulty": 3
+    },
+    {
+      "id": 30,
+      "summary": "Calculate the Haar-averaged squared overlap of a random orthogonal projection map between finite-dimensional Hilbert spaces in a quantum information setting.",
+      "difficulty": 4
+    },
+    {
+      "id": 31,
+      "summary": "Find the critical Rayleigh number and wavenumber for the onset of Rayleigh-Benard convection between plates with mixed boundary conditions (no-slip/constant-flux bottom, free-slip/fixed-temperature top).",
+      "difficulty": 3
+    },
+    {
+      "id": 32,
+      "summary": "Determine the critical Rayleigh number, wavenumber, and eigenfunction ratio for Rayleigh-Darcy convection in a porous medium with free/constant-temperature top and impermeable/constant-flux bottom boundaries.",
+      "difficulty": 3
+    },
+    {
+      "id": 33,
+      "summary": "Solve a system of transcendental equations to identify the Hamiltonian parameters for a three-species particle system, determine which particles crystallize, and find the scaling of the critical distance.",
+      "difficulty": 5
+    },
+    {
+      "id": 34,
+      "summary": "Compute the thermodynamic-limit two-point correlation function of a quantum matrix product state (qMPS) circuit built from parameterized two-qubit gates.",
+      "difficulty": 4
+    },
+    {
+      "id": 35,
+      "summary": "Reconstruct a 12-qubit Hamiltonian from symmetry constraints and partial knowledge of an energy eigenstate, expressed as a linear combination of one- and two-site Pauli strings.",
+      "difficulty": 5
+    },
+    {
+      "id": 36,
+      "summary": "Derive the mean-squared stochastic amplitude of oscillatory transient dynamics in an autocatalytic reaction cycle and find the minimum cycle length for oscillations to appear.",
+      "difficulty": 4
+    },
+    {
+      "id": 37,
+      "summary": "Compute the quantum metric, band gap, Z2 topology, and Wannier representability for the lowest two bands of a 2D spin-orbit-coupled Hamiltonian with hexagonal-lattice potentials.",
+      "difficulty": 4
+    },
+    {
+      "id": 38,
+      "summary": "Determine the temperature dependence of the quasiparticle scattering phase-space integral in the Hatsugai-Kohmoto model when the chemical potential crosses only the lower Hubbard band.",
+      "difficulty": 4
+    },
+    {
+      "id": 39,
+      "summary": "Derive the steady-state cavity field coherences for a three-level atom in a lossless cavity undergoing spontaneous emission from the excited state to a dark state.",
+      "difficulty": 4
+    },
+    {
+      "id": 40,
+      "summary": "Find the hydrodynamic mode spectrum for a 1D system with conserved charge, dipole, and quadrupole moments where the quadrupole symmetry is spontaneously broken.",
+      "difficulty": 4
+    },
+    {
+      "id": 41,
+      "summary": "Calculate the finite-size energy correction for a diffusion Monte Carlo simulation of the unpolarized 2D electron gas (N=122, rs=10) using a Slater-Jastrow wave function.",
+      "difficulty": 3
+    },
+    {
+      "id": 42,
+      "summary": "Determine scaling exponents for charge-puddle domain size and conductivity plateau width with impurity density in graphene on a 3D substrate, and compare with a 3D topological insulator.",
+      "difficulty": 3
+    },
+    {
+      "id": 43,
+      "summary": "Compute the fractional charge trapped at a disclination core in a 4-fold rotationally symmetric 2D insulator with ten occupied Wannierizable bands on a square lattice, for trivial and nontrivial translation-equivalence classes.",
+      "difficulty": 4
+    },
+    {
+      "id": 44,
+      "summary": "Determine the ground state degeneracy, flux-free sector count, and ground state energy of the Kitaev honeycomb model at the isotropic limit on a 3x2 periodic lattice.",
+      "difficulty": 3
+    },
+    {
+      "id": 45,
+      "summary": "Derive the condition on anisotropic effective masses in a two-band 2D intrinsic semiconductor for the thermoelectric power to exhibit goniopolarity (n-type in one direction, p-type in another).",
+      "difficulty": 2
+    },
+    {
+      "id": 46,
+      "summary": "Identify the scar eigenstates of the PXP model (Rydberg-blockaded spin chain) on a 26-site periodic lattice and compute their energies and overlaps with the Z2 Neel state.",
+      "difficulty": 4
+    },
+    {
+      "id": 47,
+      "summary": "Numerically evaluate Tr(L^4) for a Lax operator built from the Hilbert transform and a matrix-valued classical spin field with a specific wave-packet parameterization.",
+      "difficulty": 5
+    },
+    {
+      "id": 48,
+      "summary": "Analytically continue a replica partition function defined by a lattice sum with kernel K = I - (1/n)J to n=1 and evaluate the resulting function F at eta = (10/3)pi.",
+      "difficulty": 5
+    },
+    {
+      "id": 49,
+      "summary": "Solve the asymptotic expansion of cluster size in a long-range dispersal model with power-law index mu=2, retaining polylogarithmic corrections in the large-time limit.",
+      "difficulty": 3
+    },
+    {
+      "id": 50,
+      "summary": "Count the number of configurations at time t=3 in a recursive splitting-and-merging process of permutations in S_40, where all decompositions are minimal (transposition-count preserving).",
+      "difficulty": 4
+    },
+    {
+      "id": 51,
+      "summary": "Derive the closed-form generating function for the partition function of a composite particle on a 1D lattice that can split into constituent particles with g distinct channels and recombine upon meeting.",
+      "difficulty": 3
+    },
+    {
+      "id": 52,
+      "summary": "Compute the hyperangular overlap between non-interacting and Efimov three-body wave functions for three identical bosons, where s_1 is the first non-integer solution of the Efimov transcendental equation.",
+      "difficulty": 3
+    },
+    {
+      "id": 53,
+      "summary": "Determine the coefficients relating the Ricci-flat ambient metric expansion coefficients and extended obstruction tensors to the Schouten and Bach tensors in conformal geometry.",
+      "difficulty": 5
+    },
+    {
+      "id": 54,
+      "summary": "Calculate the magic wavelengths (400-600 nm) and associated transition types for imaging Yb-171 and Yb-174 atoms using the ground-state to 3P1 transitions.",
+      "difficulty": 4
+    },
+    {
+      "id": 55,
+      "summary": "Compute the second-harmonic (m=2) inelastic neutron scattering cross section from a 1D harmonic oscillator at low temperature for incident neutron energies of 1 meV and 40 meV.",
+      "difficulty": 2
+    },
+    {
+      "id": 56,
+      "summary": "Determine the smallest scalar-photon coupling that the Cosmic Explorer laser interferometer can probe at 200 Hz for a dark matter overdensity, at two different observation times.",
+      "difficulty": 3
+    },
+    {
+      "id": 57,
+      "summary": "Determine the smallest B-L gauge coupling detectable by LIGO using doped mirrors to create a differential dark-matter force, for three values of the charge asymmetry parameter.",
+      "difficulty": 3
+    },
+    {
+      "id": 58,
+      "summary": "Identify all possible magnetic space groups (BNS numbers) for a condensed matter system undergoing an out-of-plane magnetic phase transition with specific neutron scattering peaks, birefringence, and magneto-optic Kerr effect.",
+      "difficulty": 4
+    },
+    {
+      "id": 59,
+      "summary": "Compute the first-order structure factor for X-ray diffraction from a simple cubic crystal with a long-wavelength static periodic strain field, and determine the conditions for nonvanishing peaks.",
+      "difficulty": 2
+    },
+    {
+      "id": 60,
+      "summary": "Calculate the quantum Fisher information per photon for estimating a weighted centroid of two incoherent point sources imaged through a single lens, in the sub-Rayleigh regime.",
+      "difficulty": 4
+    },
+    {
+      "id": 61,
+      "summary": "Find the evolution time and success probability for quantum search by continuous-time quantum walk on a graph built by replacing each vertex of a simplex with a complete graph, at M=200.",
+      "difficulty": 3
+    },
+    {
+      "id": 62,
+      "summary": "Determine the range of phases and maximal violation of an N-slit nonclassicality inequality for a quantum particle in equal superposition across paths with a specific phase-encoding strategy.",
+      "difficulty": 3
+    },
+    {
+      "id": 63,
+      "summary": "Compute the white-noise robustness of KCBS measurements for proving generalized (Spekkens) contextuality, both with access to all quantum states and with restricted effects.",
+      "difficulty": 5
+    },
+    {
+      "id": 64,
+      "summary": "Evaluate the 5-point correlation function of three energy and two spin operators in the 2D Ising CFT at two sets of specified complex-plane positions.",
+      "difficulty": 5
+    },
+    {
+      "id": 65,
+      "summary": "Enumerate all indecomposable gauge-invariant operators of charge up to 5 for an adjoint fermion in a rank-2 U(N) gauge theory.",
+      "difficulty": 3
+    },
+    {
+      "id": 66,
+      "summary": "Compute the generating function of the Witten index of trace relations up to charge 15 in a free U(2) gauge theory with one adjoint fermion and its derivative.",
+      "difficulty": 4
+    },
+    {
+      "id": 67,
+      "summary": "Determine the quantum capacity of a private channel whose Choi operator is a Werner-state-based private state, at a specific mixing parameter.",
+      "difficulty": 4
+    },
+    {
+      "id": 68,
+      "summary": "Calculate the first derivative of the standard quantum f-divergence along a linear interpolation between two states, evaluated at the midpoint t=0.5.",
+      "difficulty": 4
+    },
+    {
+      "id": 69,
+      "summary": "Compute the contraction coefficient (supremal ratio of output to input relative entropy) of the qubit amplitude damping channel at three damping rates and sum the results.",
+      "difficulty": 4
+    },
+    {
+      "id": 70,
+      "summary": "Evaluate the trace of a Haar-averaged 4-copy operator acting row-wise on a lattice of qubits against four copies of the 3-qubit GHZ state.",
+      "difficulty": 4
+    }
+  ]
+}
