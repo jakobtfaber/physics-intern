@@ -42,7 +42,7 @@ if [ ! -f "$problem_file" ]; then
 fi
 
 # Determine workspace dir (same logic as main.py)
-timestamp=$(date -u +"%Y%m%d_%H%M%S")
+timestamp=$(date +"%Y%m%d_%H%M%S")
 stem=$(basename "$problem_file" .yaml)
 
 # Extract model name from run_args (--model flag), falling back to config default
