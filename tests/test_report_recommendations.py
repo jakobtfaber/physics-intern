@@ -84,13 +84,18 @@ class TestProgressCheck:
         mock_get_provider.return_value = provider
 
         tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
+        submit_tc = [{"id": "t2", "name": "submit_result",
+                      "input": {"target_id": "RQ-001", "description": "done",
+                                "method": "numerical", "result": "ok",
+                                "confidence": "exact", "notes": "done"}}]
         tool_response = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
         text_response = _mock_provider_response("Done.", "end_turn", 100, 50)
+        submit_response = _mock_provider_response("", "tool_use", 100, 50, tool_calls=submit_tc)
 
-        # 3 tool rounds (triggers progress check), then end_turn
+        # 3 tool rounds (triggers progress check), then text end_turn → recovery → submit_result
         provider.call.side_effect = [
             tool_response, tool_response, tool_response,
-            text_response,
+            text_response, submit_response,
         ]
 
         config = _make_config(progress_check_interval=3, max_tool_rounds=10)
@@ -122,12 +127,18 @@ class TestProgressCheck:
                         "input": {"findings_so_far": "ok", "remaining_questions": "",
                                   "ready_to_conclude": False}}]
 
+        submit_tc = [{"id": "t3", "name": "submit_result",
+                      "input": {"target_id": "RQ-001", "description": "done",
+                                "method": "numerical", "result": "ok",
+                                "confidence": "exact", "notes": "done"}}]
+
         exec_resp = _mock_provider_response("", "tool_use", 100, 50, tool_calls=exec_tc)
         progress_resp = _mock_provider_response("", "tool_use", 100, 50, tool_calls=progress_tc)
         final_resp = _mock_provider_response("Done.", "end_turn", 100, 50)
+        submit_resp = _mock_provider_response("", "tool_use", 100, 50, tool_calls=submit_tc)
 
-        # 2 exec → progress (resets) → 1 exec → end (no progress check since only 1 after reset)
-        provider.call.side_effect = [exec_resp, exec_resp, progress_resp, exec_resp, final_resp]
+        # 2 exec → progress (resets) → 1 exec → text end_turn → recovery → submit_result
+        provider.call.side_effect = [exec_resp, exec_resp, progress_resp, exec_resp, final_resp, submit_resp]
 
         config = _make_config(progress_check_interval=2, max_tool_rounds=10)
         executor = _make_executor()
@@ -154,11 +165,16 @@ class TestProgressCheck:
         mock_get_provider.return_value = provider
 
         tc = [{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}]
+        submit_tc = [{"id": "t2", "name": "submit_result",
+                      "input": {"target_id": "RQ-001", "description": "done",
+                                "method": "numerical", "result": "ok",
+                                "confidence": "exact", "notes": "done"}}]
         exec_resp = _mock_provider_response("", "tool_use", 100, 50, tool_calls=tc)
         final_resp = _mock_provider_response("Done.", "end_turn", 100, 50)
+        submit_resp = _mock_provider_response("", "tool_use", 100, 50, tool_calls=submit_tc)
 
-        # Only 2 exec rounds (interval=3), no progress check
-        provider.call.side_effect = [exec_resp, exec_resp, final_resp]
+        # Only 2 exec rounds (interval=3), no progress check; text end_turn → recovery → submit
+        provider.call.side_effect = [exec_resp, exec_resp, final_resp, submit_resp]
 
         config = _make_config(progress_check_interval=3, max_tool_rounds=10)
         executor = _make_executor()
@@ -304,10 +320,15 @@ class TestTokenAlert:
         mock_get_provider.return_value = provider
 
         tc = [{"id": "t1", "name": "execute_python", "input": {"code": "x=1"}}]
+        submit_tc = [{"id": "t2", "name": "submit_result",
+                      "input": {"target_id": "RQ-001", "description": "done",
+                                "method": "numerical", "result": "ok",
+                                "confidence": "exact", "notes": "done"}}]
         r1 = _mock_provider_response("", "tool_use", input_tokens=80_000, output_tokens=50, tool_calls=tc)
         r2 = _mock_provider_response("", "tool_use", input_tokens=80_000, output_tokens=50, tool_calls=tc)
         r3 = _mock_provider_response("Done.", "end_turn", input_tokens=80_000, output_tokens=50)
-        provider.call.side_effect = [r1, r2, r3]
+        r4 = _mock_provider_response("", "tool_use", input_tokens=10_000, output_tokens=50, tool_calls=submit_tc)
+        provider.call.side_effect = [r1, r2, r3, r4]
 
         config = _make_config(computation_token_alert=150_000)
         executor = _make_executor()
@@ -319,7 +340,7 @@ class TestTokenAlert:
 
         # 80K + 80K = 160K > 150K → should fire after round 2
         assert result.token_alert_fired is True
-        assert result.total_input_tokens == 240_000
+        assert result.total_input_tokens == 250_000  # 80K + 80K + 80K + 10K
 
 
 # ---------------------------------------------------------------------------

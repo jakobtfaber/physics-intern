@@ -473,7 +473,7 @@ class TestAgentLoop:
 
     @patch("sciralph.llm._get_provider")
     def test_one_tool_call_then_end(self, mock_get_provider):
-        """LLM calls a tool in round 1, then returns text in round 2."""
+        """LLM calls a tool in round 1, then returns text in round 2 → text_end_turn_recovery → submit_result."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
@@ -482,9 +482,17 @@ class TestAgentLoop:
             "", "tool_use",  200, 80,
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(42)"}}],
         )
-        # Round 2: end_turn
+        # Round 2: end_turn with text → text_end_turn_recovery fires
         round2 = _mock_provider_response("Done. VERDICT: VERIFIED", "end_turn", 300, 100)
-        provider.call.side_effect = [round1, round2]
+        # Round 3: after recovery, model calls submit_result
+        round3 = _mock_provider_response(
+            "", "tool_use", 150, 60,
+            tool_calls=[{"id": "t2", "name": "submit_result",
+                         "input": {"target_id": "RQ-001", "description": "verified",
+                                   "method": "numerical", "result": "ok",
+                                   "confidence": "exact", "notes": "done"}}],
+        )
+        provider.call.side_effect = [round1, round2, round3]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -493,10 +501,10 @@ class TestAgentLoop:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
         )
 
-        assert result.rounds == 2
-        assert len(result.tool_calls) == 1
+        assert result.rounds == 3
+        assert len(result.tool_calls) == 2
         assert result.tool_calls[0].tool_name == "execute_python"
-        assert "VERDICT: VERIFIED" in result.text
+        assert result.stop_reason == "executor_stop"
         assert not result.truncated
 
     @patch("sciralph.llm._get_provider")
@@ -544,8 +552,17 @@ class TestAgentLoop:
             "", "tool_use", 300, 90,
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
+        # Round 3: text end_turn → text_end_turn_recovery fires
         round3 = _mock_provider_response("Done.", "end_turn", 400, 100)
-        provider.call.side_effect = [round1, round2, round3]
+        # Round 4: after recovery, model calls submit_result
+        round4 = _mock_provider_response(
+            "", "tool_use", 150, 60,
+            tool_calls=[{"id": "t2", "name": "submit_result",
+                         "input": {"target_id": "RQ-001", "description": "done",
+                                   "method": "numerical", "result": "ok",
+                                   "confidence": "exact", "notes": "done"}}],
+        )
+        provider.call.side_effect = [round1, round2, round3, round4]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -554,9 +571,9 @@ class TestAgentLoop:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
         )
 
-        assert result.total_input_tokens == 900  # 200+300+400
-        assert result.total_output_tokens == 270  # 80+90+100
-        assert result.rounds == 3
+        assert result.total_input_tokens == 1050  # 200+300+400+150
+        assert result.total_output_tokens == 330  # 80+90+100+60
+        assert result.rounds == 4
 
     @patch("sciralph.llm._get_provider")
     def test_max_tokens_stop(self, mock_get_provider):
@@ -700,7 +717,7 @@ class TestEmptyTextFallthrough:
 
     @patch("sciralph.llm._get_provider")
     def test_empty_end_turn_recovery_then_text(self, mock_get_provider):
-        """First empty end_turn injects recovery; model responds with text."""
+        """First empty end_turn injects recovery; model responds with text → text_end_turn_recovery → falls through."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
@@ -709,24 +726,28 @@ class TestEmptyTextFallthrough:
             "", "tool_use", 200, 80,
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(42)"}}],
         )
-        # Round 2: end_turn but empty text -> recovery injected
+        # Round 2: end_turn but empty text -> empty_end_turn_recovery injected
         round2 = _mock_provider_response("", "end_turn", 150, 0)
-        # Round 3: model responds with text after recovery prompt
+        # Round 3: model responds with text → text_end_turn_recovery fires (count=1)
         round3 = _mock_provider_response(
             "## COMP-001: Result\n**VERDICT:** INCONCLUSIVE", "end_turn", 300, 100
         )
-        provider.call.side_effect = [round1, round2, round3]
+        # Round 4: model responds with text again → falls through (count=2)
+        round4 = _mock_provider_response(
+            "## COMP-001: Result\n**VERDICT:** INCONCLUSIVE", "end_turn", 300, 100
+        )
+        provider.call.side_effect = [round1, round2, round3, round4]
 
         executor = _make_executor()
         result = run_agent_loop(
             system="sys", user_content="question",
             config=_make_config(), tool_executor=executor,
-            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=6,
         )
 
         assert "COMP-001" in result.text
         assert result.stop_reason == "end_turn"
-        assert provider.call.call_count == 3  # tool_use + empty + recovery response
+        assert provider.call.call_count == 4
 
     @patch("sciralph.llm._get_provider")
     def test_empty_end_turns_retry_until_max_rounds(self, mock_get_provider):
@@ -767,8 +788,8 @@ class TestEmptyTextFallthrough:
         assert forced_call.kwargs.get("tools") is not None
 
     @patch("sciralph.llm._get_provider")
-    def test_empty_end_turn_with_text_returns_normally(self, mock_get_provider):
-        """end_turn with actual text should return normally (no fallthrough)."""
+    def test_empty_end_turn_with_text_triggers_recovery(self, mock_get_provider):
+        """end_turn with text after tool calls triggers text_end_turn_recovery."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
@@ -777,9 +798,17 @@ class TestEmptyTextFallthrough:
             "", "tool_use", 200, 80,
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
-        # Round 2: end_turn with real text
+        # Round 2: end_turn with real text → text_end_turn_recovery fires
         round2 = _mock_provider_response("## COMP-001\n**VERDICT:** VERIFIED", "end_turn", 300, 100)
-        provider.call.side_effect = [round1, round2]
+        # Round 3: after recovery, model calls submit_result
+        round3 = _mock_provider_response(
+            "", "tool_use", 150, 60,
+            tool_calls=[{"id": "t2", "name": "submit_result",
+                         "input": {"target_id": "RQ-001", "description": "verified",
+                                   "method": "numerical", "result": "ok",
+                                   "confidence": "exact", "notes": "done"}}],
+        )
+        provider.call.side_effect = [round1, round2, round3]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -788,9 +817,8 @@ class TestEmptyTextFallthrough:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
         )
 
-        assert result.stop_reason == "end_turn"
-        assert "VERIFIED" in result.text
-        assert provider.call.call_count == 2  # no forced call
+        assert result.stop_reason == "executor_stop"
+        assert provider.call.call_count == 3
 
 
 
@@ -854,7 +882,15 @@ class TestProgressCheckInLoop:
             tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
         )
         final_resp = _mock_provider_response("Done.", "end_turn", 100, 50)
-        provider.call.side_effect = [exec_resp, exec_resp, final_resp]
+        submit_resp = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t2", "name": "submit_result",
+                         "input": {"target_id": "RQ-001", "description": "done",
+                                   "method": "numerical", "result": "ok",
+                                   "confidence": "exact", "notes": "done"}}],
+        )
+        # 2 exec → text end_turn → recovery → submit_result
+        provider.call.side_effect = [exec_resp, exec_resp, final_resp, submit_resp]
 
         config = _make_config(progress_check_interval=3)
         executor = _make_executor()
@@ -864,7 +900,7 @@ class TestProgressCheckInLoop:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
         )
 
-        assert result.stop_reason == "end_turn"
+        assert result.stop_reason == "executor_stop"
         # No PROGRESS CHECK in any messages
         for call in provider.call.call_args_list:
             msgs = call.kwargs.get("messages", [])
@@ -889,8 +925,15 @@ class TestProgressCheckInLoop:
                                    "ready_to_conclude": False}}],
         )
         final_resp = _mock_provider_response("Done.", "end_turn", 100, 50)
-        # 2 exec → progress → 1 exec → end (no second progress check since only 1 after reset)
-        provider.call.side_effect = [exec_resp, exec_resp, progress_resp, exec_resp, final_resp]
+        submit_resp = _mock_provider_response(
+            "", "tool_use", 100, 50,
+            tool_calls=[{"id": "t3", "name": "submit_result",
+                         "input": {"target_id": "RQ-001", "description": "done",
+                                   "method": "numerical", "result": "ok",
+                                   "confidence": "exact", "notes": "done"}}],
+        )
+        # 2 exec → progress → 1 exec → text end_turn → recovery → submit_result
+        provider.call.side_effect = [exec_resp, exec_resp, progress_resp, exec_resp, final_resp, submit_resp]
 
         config = _make_config(progress_check_interval=2)
         executor = _make_executor()
@@ -900,7 +943,7 @@ class TestProgressCheckInLoop:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=10,
         )
 
-        assert result.stop_reason == "end_turn"
+        assert result.stop_reason == "executor_stop"
         # Progress check should have fired once (after round 2), not after round 4.
         # Count PROGRESS CHECK messages in the LAST call's messages (they accumulate).
         last_messages = provider.call.call_args_list[-1].kwargs["messages"]
@@ -1007,8 +1050,8 @@ class TestReadyToConcludeRecovery:
         assert recovery_found, "Recovery re-prompt should mention ready to conclude"
 
     @patch("sciralph.llm._get_provider")
-    def test_ready_conclude_no_recovery_without_flag(self, mock_get_provider):
-        """end_turn with text but no ready_to_conclude → normal end_turn (no recovery)."""
+    def test_ready_conclude_no_flag_triggers_text_recovery(self, mock_get_provider):
+        """end_turn with text but no ready_to_conclude → text_end_turn_recovery fires."""
         provider = _mock_provider()
         mock_get_provider.return_value = provider
 
@@ -1020,11 +1063,19 @@ class TestReadyToConcludeRecovery:
                                    "remaining_questions": "need more data",
                                    "ready_to_conclude": False}}],
         )
-        # Round 2: end_turn with text — should return normally (no recovery)
+        # Round 2: end_turn with text → text_end_turn_recovery fires
         round2 = _mock_provider_response(
             "Here is my conclusion.", "end_turn", 150, 60
         )
-        provider.call.side_effect = [round1, round2]
+        # Round 3: after recovery, model calls submit_result
+        round3 = _mock_provider_response(
+            "", "tool_use", 150, 60,
+            tool_calls=[{"id": "t2", "name": "submit_result",
+                         "input": {"target_id": "RQ-001", "description": "conclusion",
+                                   "method": "numerical", "result": "ok",
+                                   "confidence": "exact", "notes": "done"}}],
+        )
+        provider.call.side_effect = [round1, round2, round3]
 
         executor = _make_executor()
         result = run_agent_loop(
@@ -1033,9 +1084,9 @@ class TestReadyToConcludeRecovery:
             tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
         )
 
-        assert result.stop_reason == "end_turn"
-        assert result.rounds == 2
-        assert provider.call.call_count == 2  # no recovery, no forced final
+        assert result.stop_reason == "executor_stop"
+        assert result.rounds == 3
+        assert provider.call.call_count == 3
 
     @patch("sciralph.llm._get_provider")
     def test_ready_conclude_recovery_second_end_turn_falls_through(self, mock_get_provider):
@@ -1075,6 +1126,113 @@ class TestReadyToConcludeRecovery:
         assert result.stop_reason == "end_turn"
         assert result.rounds == 3
         assert result.text == "I already told you, 42."
+
+
+class TestTextEndTurnRecovery:
+    """Test text end_turn recovery when model writes findings as text without calling exit tool."""
+
+    @patch("sciralph.llm._get_provider")
+    def test_text_end_turn_recovery_then_exit_tool(self, mock_get_provider):
+        """tool_use → text end_turn → recovery → submit_result → executor_stop."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: tool_use with execute_python
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(42)"}}],
+        )
+        # Round 2: end_turn with text (model writes analysis instead of calling submit_result)
+        round2 = _mock_provider_response(
+            "The result is 42, confirmed by numerical computation.", "end_turn", 300, 100
+        )
+        # Round 3: after recovery, model calls submit_result
+        round3 = _mock_provider_response(
+            "", "tool_use", 150, 60,
+            tool_calls=[{"id": "t2", "name": "submit_result",
+                         "input": {"target_id": "RQ-001", "description": "result is 42",
+                                   "method": "numerical", "result": "42",
+                                   "confidence": "exact", "notes": "done"}}],
+        )
+        provider.call.side_effect = [round1, round2, round3]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+        )
+
+        assert result.stop_reason == "executor_stop"
+        assert result.rounds == 3
+        assert provider.call.call_count == 3
+        # Recovery message was injected
+        calls = provider.call.call_args_list
+        round3_messages = calls[2].kwargs["messages"]
+        recovery_found = any(
+            isinstance(msg.get("content"), str)
+            and "did not call" in msg["content"]
+            and "submit_result" in msg["content"]
+            for msg in round3_messages
+            if isinstance(msg, dict) and msg.get("role") == "user"
+        )
+        assert recovery_found, "Recovery message should mention submit_result"
+
+    @patch("sciralph.llm._get_provider")
+    def test_text_end_turn_recovery_no_prior_tools(self, mock_get_provider):
+        """text end_turn on round 1 (no prior tools) → immediate end_turn return (no recovery)."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: end_turn with text, no prior tool calls
+        round1 = _mock_provider_response(
+            "Here is my analysis.", "end_turn", 200, 80
+        )
+        provider.call.side_effect = [round1]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+        )
+
+        assert result.stop_reason == "end_turn"
+        assert result.rounds == 1
+        assert provider.call.call_count == 1  # no recovery
+
+    @patch("sciralph.llm._get_provider")
+    def test_text_end_turn_recovery_second_text_falls_through(self, mock_get_provider):
+        """tool_use → text end_turn → recovery → text end_turn again → falls through to end_turn."""
+        provider = _mock_provider()
+        mock_get_provider.return_value = provider
+
+        # Round 1: tool_use
+        round1 = _mock_provider_response(
+            "", "tool_use", 200, 80,
+            tool_calls=[{"id": "t1", "name": "execute_python", "input": {"code": "print(1)"}}],
+        )
+        # Round 2: text end_turn → recovery fires
+        round2 = _mock_provider_response(
+            "The answer is 42.", "end_turn", 150, 60
+        )
+        # Round 3: text end_turn AGAIN → falls through (no second recovery)
+        round3 = _mock_provider_response(
+            "I already said 42.", "end_turn", 150, 60
+        )
+        provider.call.side_effect = [round1, round2, round3]
+
+        executor = _make_executor()
+        result = run_agent_loop(
+            system="sys", user_content="question",
+            config=_make_config(), tool_executor=executor,
+            tools=ToolExecutor.TOOL_DEFINITIONS, max_rounds=5,
+        )
+
+        assert result.stop_reason == "end_turn"
+        assert result.rounds == 3
+        assert result.text == "I already said 42."
+        assert provider.call.call_count == 3
 
 
 class TestForcedFinalWithExitTool:

@@ -255,6 +255,7 @@ def run_agent_loop(
     tool_call_failure = False
     empty_end_turn_count = 0
     ready_conclude_recovery_count = 0
+    text_end_turn_recovery_count = 0
     loop_exit_reason = "max_rounds"  # default; overridden on early exits
     # Resolve exit tool name for context-aware messages
     _exit_tool = getattr(tool_executor, "exit_tool_name", "submit_review")
@@ -379,6 +380,29 @@ def run_agent_loop(
                     if config.workspace_dir:
                         log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
                                            "ready_conclude_recovery", f"round={round_num}")
+                    continue
+                # Second time: fall through to normal end_turn return
+
+            # Text end_turn recovery: model wrote findings as text without calling exit tool
+            if (round_text.strip() and all_tool_calls
+                    and not getattr(tool_executor, "stop_after_round", False)
+                    and not getattr(tool_executor, "ready_to_conclude_signaled", False)):
+                text_end_turn_recovery_count += 1
+                if text_end_turn_recovery_count == 1:
+                    _recovery_msg = (
+                        f"You wrote your findings as text but did not call `{_exit_tool}`. "
+                        f"You MUST call `{_exit_tool}` with your results to complete your task. "
+                        f"Use the text you just wrote to fill in the `{_exit_tool}` parameters."
+                    )
+                    messages.append(provider.format_assistant_message(resp.raw_content))
+                    messages.append({"role": "user", "content": _recovery_msg})
+                    round_log.append({
+                        "kind": "scaffold_injection", "round": round_num,
+                        "label": "text_end_turn_recovery", "content": _recovery_msg,
+                    })
+                    if config.workspace_dir:
+                        log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY,
+                                           "text_end_turn_recovery", f"round={round_num}")
                     continue
                 # Second time: fall through to normal end_turn return
 
