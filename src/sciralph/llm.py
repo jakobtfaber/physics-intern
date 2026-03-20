@@ -187,6 +187,10 @@ class AgentResult:
 def call_llm(system: str, user_content: str, config: Config,
              agent_name: str = "", iteration: int = 0) -> LLMResponse:
     """Call the LLM with retry on transient errors."""
+    if not user_content or not user_content.strip():
+        raise ValueError(
+            f"Empty user content in call_llm (agent={agent_name}, iteration={iteration})"
+        )
     provider = _get_provider(config)
 
     start = time.time()

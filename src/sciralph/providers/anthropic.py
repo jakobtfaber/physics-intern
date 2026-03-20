@@ -22,19 +22,34 @@ class AnthropicProvider(LLMProvider):
     def call(self, model: str, max_tokens: int, system: str,
              messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
         if self._thinking:
-            # Adaptive thinking: model decides when and how much to think.
-            # No budget_tokens — the model allocates within max_tokens.
-            thinking_cfg = {"type": "adaptive"}
-            kwargs = dict(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=messages,
-                thinking=thinking_cfg,
-                temperature=1.0,  # Required by Anthropic when thinking is enabled
-            )
-            if self._effort:
-                kwargs["output_config"] = {"effort": self._effort}
+            # Explicit thinking budget prevents 0-answer-token exhaustion:
+            # the model can think up to budget_tokens, leaving headroom for
+            # the actual answer.  API requires: 1024 <= budget < max_tokens.
+            if self._reasoning_budget:
+                budget = min(self._reasoning_budget, max_tokens - self._thinking_token_headroom)
+            else:
+                budget = max_tokens - self._thinking_token_headroom
+
+            if budget >= 1024 and budget < max_tokens:
+                thinking_cfg = {"type": "enabled", "budget_tokens": budget}
+                kwargs = dict(
+                    model=model,
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=messages,
+                    thinking=thinking_cfg,
+                    temperature=1.0,  # Required by Anthropic when thinking is enabled
+                )
+                if self._effort:
+                    kwargs["output_config"] = {"effort": self._effort}
+            else:
+                # max_tokens too small for thinking — fall back to non-thinking
+                kwargs = dict(
+                    model=model,
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=messages,
+                )
         else:
             kwargs = dict(
                 model=model,
