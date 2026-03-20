@@ -36,6 +36,15 @@ def _fmt_duration(seconds: float) -> str:
 
 
 @dataclass
+class DispatchRecord:
+    """One-line record of what was dispatched in a given iteration."""
+    iteration: int
+    task_type: str        # "compute", "review", "critique", etc.
+    target: str | None    # "WH-001", "RQ-003", or None
+    outcome: str          # "evidence (exact)", "REFUTED", "3 critique(s)", etc.
+
+
+@dataclass
 class LoopState:
     """Inter-iteration state for the main research loop."""
     claim_failure_count: dict[str, int] = field(default_factory=dict)
@@ -49,6 +58,8 @@ class LoopState:
     pending_explore_results: list[dict] = field(default_factory=list)
     agent_failures: list[dict] = field(default_factory=list)
     pending_critic_result: dict | None = None
+    # Persistent dispatch history (never cleared)
+    dispatch_history: list[DispatchRecord] = field(default_factory=list)
 
 
 class SciRalph:
@@ -170,6 +181,7 @@ class SciRalph:
                 # Circuit breaker: after repeated blocks, auto-abandon remaining WHs
                 if self._state.consecutive_termination_blocks >= self.config.max_termination_retries:
                     self._force_abandon_working_hypotheses()
+                self._append_dispatch_record(task)
                 continue  # re-enter loop
             else:
                 self._state.consecutive_termination_blocks = 0
@@ -208,6 +220,7 @@ class SciRalph:
             # 6. Post-dispatch checks
             if task.task_type in (TaskType.RESEARCH, TaskType.COMPUTE, TaskType.REVIEW):
                 self._track_agent_result(task)
+            self._append_dispatch_record(task)
 
             # 7. Compression, metrics, structured state snapshot, render files, git
             self._check_compression()
@@ -301,9 +314,63 @@ class SciRalph:
                                "agent_failure_max_rounds",
                                f"task={task.task_id}, agent={agent_name}, rounds={result.rounds}")
 
+    def _append_dispatch_record(self, task: Task):
+        """Derive outcome from authoritative state and append a DispatchRecord."""
+        tt = task.task_type
+        target = task.target_claim or None
+
+        if tt in (TaskType.RESEARCH, TaskType.COMPUTE):
+            ev = None
+            if target and target in self.research_state.research_questions:
+                ev = self.research_state.research_questions[target].evidence
+            elif target and target in self.research_state.hypotheses:
+                ev = self.research_state.hypotheses[target].evidence
+            if ev and ev.result:
+                outcome = f"evidence ({ev.confidence})" if ev.confidence else "evidence"
+            else:
+                outcome = "no evidence"
+
+        elif tt == TaskType.REVIEW:
+            if target and target in self.research_state.hypotheses:
+                h = self.research_state.hypotheses[target]
+                if h.review:
+                    outcome = h.review.verdict
+                else:
+                    outcome = "no review produced"
+            else:
+                outcome = "no review produced"
+
+        elif tt == TaskType.CRITIQUE:
+            cr = self._state.pending_critic_result
+            if cr is None:
+                outcome = "no critiques"
+            elif cr.get("clean"):
+                outcome = "no critiques"
+            else:
+                outcome = f"{cr['count']} critique(s)"
+
+        elif tt == TaskType.TERMINATE:
+            outcome = "blocked"
+
+        else:
+            outcome = "completed"
+
+        self._state.dispatch_history.append(DispatchRecord(
+            iteration=self.iteration,
+            task_type=tt.value,
+            target=target,
+            outcome=outcome,
+        ))
+
     def _build_context_suffix(self) -> str:
         """Build suffix for orchestrator context with violations, blockers, and agent failures."""
         lines = []
+        if self._state.dispatch_history:
+            lines.append(">>> DISPATCH HISTORY <<<")
+            for rec in self._state.dispatch_history:
+                target_str = f" → {rec.target}" if rec.target else ""
+                lines.append(f"Iter {rec.iteration}: {rec.task_type}{target_str} | {rec.outcome}")
+            lines.append(">>> END DISPATCH HISTORY <<<\n")
         if self._state.pending_violations:
             lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
             for v in self._state.pending_violations:

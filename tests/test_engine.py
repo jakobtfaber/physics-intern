@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch, PropertyMock, call
 
 from sciralph.config import Config
-from sciralph.engine import LoopState
+from sciralph.engine import DispatchRecord, LoopState
 from sciralph.research_state import ResearchState
 from sciralph.task import Task, TaskType
 from sciralph.validation import Violation, ViolationSeverity
@@ -1529,4 +1529,199 @@ class TestRedundantCriticPassFix:
         assert cr is not None
         assert cr["clean"] is True
         assert cr.get("can_terminate") is None
+
+
+class TestDispatchHistory:
+    """Test dispatch history recording and rendering in orchestrator context."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 3
+            engine._state = LoopState()
+            engine.research_state = ResearchState()
+        return engine
+
+    def test_dispatch_history_renders_in_context_suffix(self):
+        """DispatchRecords render in the DISPATCH HISTORY section."""
+        engine = self._make_engine()
+        engine._state.dispatch_history = [
+            DispatchRecord(iteration=1, task_type="compute", target="RQ-001", outcome="evidence (exact)"),
+            DispatchRecord(iteration=2, task_type="review", target="WH-001", outcome="REFUTED"),
+        ]
+        suffix = engine._build_context_suffix()
+        assert ">>> DISPATCH HISTORY <<<" in suffix
+        assert "Iter 1: compute → RQ-001 | evidence (exact)" in suffix
+        assert "Iter 2: review → WH-001 | REFUTED" in suffix
+        assert ">>> END DISPATCH HISTORY <<<" in suffix
+
+    def test_dispatch_history_persists_across_calls(self):
+        """Dispatch history is NOT consumed — persists across _build_context_suffix calls."""
+        engine = self._make_engine()
+        engine._state.dispatch_history = [
+            DispatchRecord(iteration=1, task_type="compute", target="RQ-001", outcome="evidence (exact)"),
+        ]
+        suffix1 = engine._build_context_suffix()
+        suffix2 = engine._build_context_suffix()
+        assert "DISPATCH HISTORY" in suffix1
+        assert "DISPATCH HISTORY" in suffix2
+        assert len(engine._state.dispatch_history) == 1
+
+    def test_dispatch_history_empty_no_section(self):
+        """No dispatch history → no DISPATCH HISTORY section."""
+        engine = self._make_engine()
+        suffix = engine._build_context_suffix()
+        assert "DISPATCH HISTORY" not in suffix
+
+    def test_dispatch_history_no_target_omits_arrow(self):
+        """Records with no target omit the arrow."""
+        engine = self._make_engine()
+        engine._state.dispatch_history = [
+            DispatchRecord(iteration=4, task_type="critique", target=None, outcome="3 critique(s)"),
+        ]
+        suffix = engine._build_context_suffix()
+        assert "Iter 4: critique | 3 critique(s)" in suffix
+        assert "→" not in suffix.split("Iter 4:")[1].split("|")[0]
+
+    def test_append_dispatch_record_compute_with_evidence(self):
+        """Compute task with evidence on target RQ records confidence."""
+        engine = self._make_engine()
+        from sciralph.research_state import ResearchQuestion, Evidence
+        engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is T?",
+        )
+        engine.research_state.research_questions["RQ-001"].evidence = Evidence(
+            type="compute", result="T = 1/(8*pi*M)", confidence="exact", iteration=1,
+        )
+        task = Task(task_id="TASK-001", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", target_claim="RQ-001")
+        engine._append_dispatch_record(task)
+
+        assert len(engine._state.dispatch_history) == 1
+        rec = engine._state.dispatch_history[0]
+        assert rec.task_type == "compute"
+        assert rec.target == "RQ-001"
+        assert rec.outcome == "evidence (exact)"
+
+    def test_append_dispatch_record_compute_no_evidence(self):
+        """Compute task with no evidence on target records 'no evidence'."""
+        engine = self._make_engine()
+        from sciralph.research_state import ResearchQuestion
+        engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is T?",
+        )
+        task = Task(task_id="TASK-001", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", target_claim="RQ-001")
+        engine._append_dispatch_record(task)
+
+        assert engine._state.dispatch_history[0].outcome == "no evidence"
+
+    def test_append_dispatch_record_research_on_hypothesis(self):
+        """Research task targeting a WH reads evidence from hypothesis."""
+        engine = self._make_engine()
+        from sciralph.research_state import Hypothesis, Evidence
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            evidence=Evidence(type="research", result="derived", confidence="approximate", iteration=2),
+        )
+        task = Task(task_id="TASK-002", task_type=TaskType.RESEARCH,
+                    assigned_to="researcher", target_claim="WH-001")
+        engine._append_dispatch_record(task)
+
+        assert engine._state.dispatch_history[0].outcome == "evidence (approximate)"
+
+    def test_append_dispatch_record_review_verdict(self):
+        """Review task captures the reviewer's verdict."""
+        engine = self._make_engine()
+        from sciralph.research_state import Hypothesis, ReviewResult
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            review=ReviewResult(verdict="VERIFIED", summary="Correct.", iteration=3),
+        )
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001")
+        engine._append_dispatch_record(task)
+
+        rec = engine._state.dispatch_history[0]
+        assert rec.task_type == "review"
+        assert rec.target == "WH-001"
+        assert rec.outcome == "VERIFIED"
+
+    def test_append_dispatch_record_review_no_review(self):
+        """Review task with no review result records 'no review produced'."""
+        engine = self._make_engine()
+        from sciralph.research_state import Hypothesis
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001")
+        engine._append_dispatch_record(task)
+
+        assert engine._state.dispatch_history[0].outcome == "no review produced"
+
+    def test_append_dispatch_record_critique_with_critiques(self):
+        """Critique task reads pending_critic_result count."""
+        engine = self._make_engine()
+        engine._state.pending_critic_result = {"clean": False, "count": 3}
+        task = Task(task_id="TASK-004", task_type=TaskType.CRITIQUE,
+                    assigned_to="deep_critic")
+        engine._append_dispatch_record(task)
+
+        rec = engine._state.dispatch_history[0]
+        assert rec.task_type == "critique"
+        assert rec.target is None
+        assert rec.outcome == "3 critique(s)"
+
+    def test_append_dispatch_record_critique_clean(self):
+        """Critique task with clean result records 'no critiques'."""
+        engine = self._make_engine()
+        engine._state.pending_critic_result = {"clean": True}
+        task = Task(task_id="TASK-004", task_type=TaskType.CRITIQUE,
+                    assigned_to="deep_critic")
+        engine._append_dispatch_record(task)
+
+        assert engine._state.dispatch_history[0].outcome == "no critiques"
+
+    def test_append_dispatch_record_terminate_blocked(self):
+        """Terminate task records 'blocked'."""
+        engine = self._make_engine()
+        task = Task(task_id="TASK-005", task_type=TaskType.TERMINATE,
+                    assigned_to="orchestrator")
+        engine._append_dispatch_record(task)
+
+        rec = engine._state.dispatch_history[0]
+        assert rec.task_type == "terminate"
+        assert rec.outcome == "blocked"
+
+    def test_append_dispatch_record_format_completed(self):
+        """Format task records 'completed'."""
+        engine = self._make_engine()
+        task = Task(task_id="FORMAT-003", task_type=TaskType.FORMAT,
+                    assigned_to="formatter")
+        engine._append_dispatch_record(task)
+
+        assert engine._state.dispatch_history[0].outcome == "completed"
+
+    def test_dispatch_history_before_violations(self):
+        """Dispatch history appears before violation banners."""
+        engine = self._make_engine()
+        engine._state.dispatch_history = [
+            DispatchRecord(iteration=1, task_type="compute", target="RQ-001", outcome="evidence (exact)"),
+        ]
+        engine._state.pending_violations = [
+            Violation(check="test", severity=ViolationSeverity.WARNING, message="oops"),
+        ]
+        suffix = engine._build_context_suffix()
+        history_pos = suffix.index("DISPATCH HISTORY")
+        violations_pos = suffix.index("POST-INTEGRATION VIOLATIONS")
+        assert history_pos < violations_pos
 
