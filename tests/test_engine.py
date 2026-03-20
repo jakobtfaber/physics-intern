@@ -288,6 +288,42 @@ class TestComputeVerdictTracking:
         suffix = engine._build_context_suffix()
         assert "[from TASK-002: research on RQ-001]" in suffix
 
+    def test_failed_evidence_no_consider_hint(self):
+        """Failed evidence shows NOTE instead of Consider hint."""
+        engine = self._make_engine()
+        engine._state.pending_explore_results = [{
+            "target_id": "RQ-001", "description": "unknown",
+            "result": "Agent produced no exit tool call.", "confidence": "partial",
+            "task_id": "TASK-001", "task_type": "compute",
+        }]
+        suffix = engine._build_context_suffix()
+        assert "do NOT treat it as usable evidence" in suffix
+        assert "Consider: formulate" not in suffix
+
+    def test_failed_research_parse_no_consider_hint(self):
+        """Failed research parse shows NOTE instead of Consider hint."""
+        engine = self._make_engine()
+        engine._state.pending_explore_results = [{
+            "target_id": "RQ-002", "description": "unknown",
+            "result": "Failed to parse structured research output.", "confidence": "partial",
+            "task_id": "TASK-002", "task_type": "research",
+        }]
+        suffix = engine._build_context_suffix()
+        assert "do NOT treat it as usable evidence" in suffix
+        assert "Consider: formulate" not in suffix
+
+    def test_successful_evidence_has_consider_hint(self):
+        """Successful evidence retains the Consider hint."""
+        engine = self._make_engine()
+        engine._state.pending_explore_results = [{
+            "target_id": "RQ-003", "description": "Computed value",
+            "result": "T = 1/(8*pi*M)", "confidence": "exact",
+            "task_id": "TASK-003", "task_type": "compute",
+        }]
+        suffix = engine._build_context_suffix()
+        assert "Consider: formulate" in suffix
+        assert "do NOT treat it as usable evidence" not in suffix
+
     def test_provenance_in_verified_banner(self):
         """Verified hypotheses banner includes task provenance."""
         engine = self._make_engine()

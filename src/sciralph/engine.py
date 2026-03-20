@@ -328,7 +328,11 @@ class SciRalph:
                 lines.append(f"- {r['target_id']}: {r['description']}  [{r['confidence']}]{provenance}")
                 if r.get("result"):
                     lines.append(f"  Result: {r['result'][:800]}")
-                lines.append("  Consider: formulate a concrete WH from this evidence (add_hypothesis with from_rq).")
+                _is_failure = r.get("result", "").startswith(("Agent produced no exit tool call", "Failed to parse structured"))
+                if _is_failure:
+                    lines.append("  NOTE: This evidence is from a failed agent run — do NOT treat it as usable evidence.")
+                else:
+                    lines.append("  Consider: formulate a concrete WH from this evidence (add_hypothesis with from_rq).")
             lines.append(">>> END EVIDENCE RESULTS <<<\n")
             self._state.pending_explore_results.clear()
         if self._state.pending_verified_results:
