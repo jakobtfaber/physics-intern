@@ -1,5 +1,6 @@
 """Configuration for SciRalph."""
 
+import json
 import warnings
 from argparse import Namespace
 from dataclasses import dataclass, field
@@ -64,6 +65,36 @@ class Config:
     output_cost: float = 0.0  # USD per million output tokens (from models.yaml)
     reasoning: dict = field(default_factory=dict)  # provider-specific reasoning params
 
+    def to_dict(self) -> dict:
+        """Serialize config fields for persistence (excludes sensitive/derived fields)."""
+        return {f: getattr(self, f) for f in _PERSIST_FIELDS}
+
+    def save(self, workspace_root: Path) -> None:
+        """Write config.json to the workspace root."""
+        (workspace_root / "config.json").write_text(
+            json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n"
+        )
+
+    @classmethod
+    def load(cls, workspace_root: Path, overrides: dict | None = None) -> "Config":
+        """Load config from workspace config.json, merging optional overrides."""
+        path = workspace_root / "config.json"
+        if not path.exists():
+            raise FileNotFoundError(f"No config.json found in {workspace_root}")
+        data = json.loads(path.read_text())
+        if overrides:
+            # If user switches model, clear provider/model_id so __post_init__ re-resolves
+            if "model" in overrides and overrides["model"] is not None:
+                data.pop("provider", None)
+                data.pop("model_id", None)
+                data.pop("input_cost", None)
+                data.pop("output_cost", None)
+                data.pop("reasoning", None)
+            for k, v in overrides.items():
+                if v is not None:
+                    data[k] = v
+        return cls(**data)
+
     def __post_init__(self):
         # Resolve provider from models.yaml if not explicitly set
         if not self.provider:
@@ -100,6 +131,12 @@ _YAML_CONFIG_FIELDS = frozenset({
     "prior_failure_excerpt_chars", "thinking_token_headroom",
     "provider",
 })
+
+# Fields persisted to config.json for resume (superset of _YAML_CONFIG_FIELDS)
+_PERSIST_FIELDS = _YAML_CONFIG_FIELDS | {
+    "model_id", "input_cost", "output_cost", "reasoning",
+    "max_termination_retries",
+}
 
 
 def _resolve_model(model_key: str) -> dict | None:

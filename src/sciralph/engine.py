@@ -1,6 +1,8 @@
 """SciRalph main loop engine."""
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -93,11 +95,83 @@ class SciRalph:
         self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
         self.surveyor = SurveyorAgent(self.config, self.workspace, self.metrics)
 
+    @classmethod
+    def resume(cls, workspace_path: Path | str,
+               config_overrides: dict | None = None,
+               answer_template: str = "") -> "SciRalph":
+        """Resume a previously interrupted run from its last committed state."""
+        import yaml as _yaml
+
+        workspace_path = Path(workspace_path)
+
+        # 1. Load config
+        config = Config.load(workspace_path, overrides=config_overrides)
+        config.workspace_dir = str(workspace_path)
+
+        # 2. Load problem.yaml from workspace
+        problem_yaml_path = workspace_path / "problem.yaml"
+        if not problem_yaml_path.exists():
+            raise FileNotFoundError(
+                f"No problem.yaml in {workspace_path} — cannot resume "
+                f"(workspace predates the resume feature?)"
+            )
+        with open(problem_yaml_path) as f:
+            problem_def = _yaml.safe_load(f)
+        problem_meta = {
+            "requires_numerical": problem_def.get("requires_numerical", False),
+            "steps": problem_def.get("steps", []),
+        }
+        if not answer_template:
+            answer_template = problem_def.get("answer_template", "")
+
+        # 3. Build engine without calling __init__
+        engine = cls.__new__(cls)
+        engine.config = config
+        engine.metrics = MetricsTracker()
+        engine.workspace = WorkspaceManager(config)
+        engine.workspace.attach()
+        engine.config.logs_dir = str(engine.workspace.logs_dir)
+        engine.problem_meta = problem_meta
+
+        # 4. Load research state
+        engine.research_state = ResearchState.load(workspace_path)
+        engine.iteration = engine.research_state.iteration
+
+        # 5. Reconstruct loop state
+        engine._state = _reconstruct_loop_state(engine.research_state)
+
+        # 6. Reconstruct last critic iteration
+        engine.metrics.last_critic_iteration = _find_last_critic_iteration(workspace_path)
+
+        # 7. Initialize agents (same as __init__)
+        engine.orchestrator = OrchestratorAgent(config, engine.workspace, engine.metrics)
+        engine.researcher = ResearcherAgent(config, engine.workspace, engine.metrics)
+        engine.computer = ComputerAgent(config, engine.workspace, engine.metrics)
+        engine.reviewer = ReviewerAgent(config, engine.workspace, engine.metrics)
+        engine.critic = CriticAgent(config, engine.workspace, engine.metrics)
+        engine.compressor = CompressorAgent(config, engine.workspace, engine.metrics)
+        engine.formatter = FormatterAgent(config, engine.workspace, engine.metrics, answer_template)
+        engine.surveyor = SurveyorAgent(config, engine.workspace, engine.metrics)
+
+        console.print(Panel(
+            f"Resuming from iteration {engine.iteration}",
+            style="bold blue",
+        ))
+        return engine
+
     def run(self):
         """Main loop: survey → orchestrate → validate → override → dispatch → compress → git."""
         console.print(Panel("SciRalph Research System", style="bold blue"))
 
-        self._run_surveyor()
+        # Skip surveyor if background survey already exists (e.g. on resume)
+        if self.research_state.background_survey is None:
+            self._run_surveyor()
+        else:
+            console.print("[dim]Surveyor skipped (background survey already exists)[/dim]")
+
+        if self.research_state.status == "completed":
+            console.print("[yellow]This workspace is already completed.[/yellow]")
+            return
 
         while self.iteration < self.config.max_iterations:
             self.iteration += 1
@@ -813,3 +887,58 @@ class SciRalph:
             console.print(f"\n[yellow]Alerts ({len(self.metrics.alerts)}):[/yellow]")
             for a in self.metrics.alerts[-5:]:
                 console.print(f"  [iter {a['iteration']}] {a['message']}")
+
+
+# ---------------------------------------------------------------------------
+# Resume helpers (module-level, pure functions)
+# ---------------------------------------------------------------------------
+
+def _reconstruct_loop_state(research_state: ResearchState) -> LoopState:
+    """Rebuild LoopState from a loaded ResearchState.
+
+    Only reconstructs durable fields — consumed-once banners are always
+    empty between iterations, so they default to empty.
+    """
+    state = LoopState()
+
+    # claim_failure_count: hypotheses with non-VERIFIED review that are still WORKING
+    for h in research_state.hypotheses.values():
+        if (h.review
+                and h.review.verdict in (Verdict.REFUTED, "INCONCLUSIVE")
+                and h.status == "working"):
+            state.claim_failure_count[h.id] = 1
+
+    # last_content_iteration: max iteration from evidence/review across entities
+    max_iter = 0
+    for h in research_state.hypotheses.values():
+        if h.evidence and h.evidence.iteration is not None:
+            max_iter = max(max_iter, h.evidence.iteration)
+        if h.review and h.review.iteration is not None:
+            max_iter = max(max_iter, h.review.iteration)
+    for rq in research_state.research_questions.values():
+        if rq.evidence and rq.evidence.iteration is not None:
+            max_iter = max(max_iter, rq.evidence.iteration)
+    state.last_content_iteration = max_iter
+
+    return state
+
+
+def _find_last_critic_iteration(workspace_path: Path | str) -> int:
+    """Parse EVENT_LOG.jsonl for the last deep_critic LLM call iteration."""
+    log_path = Path(workspace_path) / "EVENT_LOG.jsonl"
+    if not log_path.exists():
+        return 0
+    max_iter = 0
+    try:
+        for line in log_path.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("kind") == "llm_call" and entry.get("agent") == "deep_critic":
+                max_iter = max(max_iter, entry.get("iter", 0))
+    except OSError:
+        return 0
+    return max_iter

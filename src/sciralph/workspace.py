@@ -19,6 +19,16 @@ class WorkspaceManager:
         self.archive_dir = self.root / "archive"
         self.logs_dir = self.root / "logs"
 
+    def attach(self):
+        """Attach to an existing workspace for resume (no git init, no MD creation)."""
+        if not self.root.exists():
+            raise FileNotFoundError(f"Workspace not found: {self.root}")
+        if not (self.root / ".git").exists():
+            raise FileNotFoundError(f"Workspace has no .git directory: {self.root}")
+        self.computations_dir.mkdir(exist_ok=True)
+        self.archive_dir.mkdir(exist_ok=True)
+        self.logs_dir.mkdir(exist_ok=True)
+
     def init(self, problem: str):
         """Create workspace, initialize all .md files, git init."""
         self.problem_statement = problem.strip()
