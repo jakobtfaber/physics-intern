@@ -1560,10 +1560,10 @@ class TestDispatchHistory:
             DispatchRecord(iteration=2, task_type="review", target="WH-001", outcome="REFUTED"),
         ]
         suffix = engine._build_context_suffix()
-        assert ">>> DISPATCH HISTORY <<<" in suffix
+        assert "<tasks_dispatch_history>" in suffix
         assert "Iter 1: compute → RQ-001 | evidence (exact)" in suffix
         assert "Iter 2: review → WH-001 | REFUTED" in suffix
-        assert ">>> END DISPATCH HISTORY <<<" in suffix
+        assert "</tasks_dispatch_history>" in suffix
 
     def test_dispatch_history_persists_across_calls(self):
         """Dispatch history is NOT consumed — persists across _build_context_suffix calls."""
@@ -1573,15 +1573,15 @@ class TestDispatchHistory:
         ]
         suffix1 = engine._build_context_suffix()
         suffix2 = engine._build_context_suffix()
-        assert "DISPATCH HISTORY" in suffix1
-        assert "DISPATCH HISTORY" in suffix2
+        assert "tasks_dispatch_history" in suffix1
+        assert "tasks_dispatch_history" in suffix2
         assert len(engine._state.dispatch_history) == 1
 
     def test_dispatch_history_empty_no_section(self):
         """No dispatch history → no DISPATCH HISTORY section."""
         engine = self._make_engine()
         suffix = engine._build_context_suffix()
-        assert "DISPATCH HISTORY" not in suffix
+        assert "tasks_dispatch_history" not in suffix
 
     def test_dispatch_history_no_target_omits_arrow(self):
         """Records with no target omit the arrow."""
@@ -1721,7 +1721,7 @@ class TestDispatchHistory:
             Violation(check="test", severity=ViolationSeverity.WARNING, message="oops"),
         ]
         suffix = engine._build_context_suffix()
-        history_pos = suffix.index("DISPATCH HISTORY")
+        history_pos = suffix.index("tasks_dispatch_history")
         violations_pos = suffix.index("POST-INTEGRATION VIOLATIONS")
         assert history_pos < violations_pos
 

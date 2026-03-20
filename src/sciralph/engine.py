@@ -366,11 +366,11 @@ class SciRalph:
         """Build suffix for orchestrator context with violations, blockers, and agent failures."""
         lines = []
         if self._state.dispatch_history:
-            lines.append(">>> DISPATCH HISTORY <<<")
+            lines.append("<tasks_dispatch_history>")
             for rec in self._state.dispatch_history:
                 target_str = f" → {rec.target}" if rec.target else ""
                 lines.append(f"Iter {rec.iteration}: {rec.task_type}{target_str} | {rec.outcome}")
-            lines.append(">>> END DISPATCH HISTORY <<<\n")
+            lines.append("</tasks_dispatch_history>\n")
         if self._state.pending_violations:
             lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
             for v in self._state.pending_violations:
