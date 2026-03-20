@@ -22,7 +22,7 @@ A workspace contains these key files:
 | `EVENT_LOG.jsonl` | Structured scaffold events (4 categories) and LLM call metadata |
 | `METRICS.md` | Per-iteration token counts and alerts |
 | `ANSWER.md` | Final formatted answer (produced by formatter agent on successful termination) |
-| `logs/` | Per-iteration LLM call logs (system prompt, user content, response) |
+| `logs/` | Per-iteration LLM call logs (XML-tagged: SYSTEM_PROMPT, USER_MESSAGE, ROUND, LLM_RESPONSE, TOOL_CALL, TOOL_RESULT) |
 
 **Important:** `RESEARCH_GRAPH.json` is the authoritative source of truth. The `.md` files (RESEARCH_STATE, EVIDENCE_LOG, CRITIQUE_LOG) are rendered snapshots — useful for human reading but derived from the JSON.
 
@@ -234,7 +234,7 @@ Read `EVENT_LOG.jsonl`. Events fall into 4 categories: `call_reliability`, `stat
 
 For any issue from Steps 1-4 that lacks sufficient explanation:
 
-- Read the relevant LLM call logs in `logs/` (e.g., `iter003_orchestrator_1.md` for iteration 3)
+- Read the relevant LLM call logs in `logs/` (e.g., `iter003_orchestrator_1.md` for iteration 3) — logs use ALL_CAPS XML tags (`<SYSTEM_PROMPT>`, `<ROUND>`, `<LLM_RESPONSE>`, `<TOOL_CALL>`, `<TOOL_RESULT>`, `<USER_MESSAGE>`) to separate log structure from prompt content
 - Check `EVIDENCE_LOG.md` for evidence entries and review results
 - Check `CRITIQUE_LOG.md` for unresolved critiques and their severity
 - Look at `METRICS.md` for token usage anomalies (context bloat, max_tokens hits)

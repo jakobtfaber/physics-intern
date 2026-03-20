@@ -38,11 +38,11 @@ def test_file_contains_expected_sections(tmp_path):
                             "orchestrator", 5)
 
     content = (tmp_path / "iter005_orchestrator_1.md").read_text()
-    assert "## System Prompt" in content
+    assert "<SYSTEM_PROMPT>" in content
     assert "sys prompt here" in content
-    assert "## User Content" in content
+    assert "<USER_MESSAGE>" in content
     assert "user content here" in content
-    assert "## Response" in content
+    assert "<LLM_RESPONSE>" in content
     assert "the answer" in content
     assert "| Input tokens | 100 |" in content
 
@@ -148,7 +148,7 @@ def test_agent_log_contains_tool_call_code(tmp_path):
         config, "sys", "user", "computationalist", 1, round_log, result)
 
     content = (tmp_path / "iter001_computationalist_1.md").read_text()
-    assert "**Tool call: execute_python**" in content
+    assert '<TOOL_CALL name="execute_python">' in content
     assert "~~~python" in content
     assert "import numpy as np" in content
 
@@ -176,7 +176,7 @@ def test_agent_log_contains_tool_result(tmp_path):
         config, "sys", "user", "computationalist", 1, round_log, result)
 
     content = (tmp_path / "iter001_computationalist_1.md").read_text()
-    assert "### Tool Result — execute_python (0.3s, error)" in content
+    assert '<TOOL_RESULT name="execute_python" duration="0.3s" status="error">' in content
     assert "NameError: name 'x' is not defined" in content
 
 
@@ -201,12 +201,12 @@ def test_agent_log_contains_scaffold_labels(tmp_path):
         config, "sys", "user", "computationalist", 1, round_log, result)
 
     content = (tmp_path / "iter001_computationalist_1.md").read_text()
-    assert "### Scaffold — checkpoint_nudge" in content
+    assert '<USER_MESSAGE label="scaffold: checkpoint_nudge">' in content
     assert "CHECKPOINT: You are running low..." in content
 
 
-def test_agent_log_details_tags(tmp_path):
-    """<details> tags wrap system prompt and user content."""
+def test_agent_log_xml_tags(tmp_path):
+    """XML tags wrap system prompt and user content."""
     config = Config(logs_dir=str(tmp_path))
     llm_module._call_seq.clear()
 
@@ -224,12 +224,12 @@ def test_agent_log_details_tags(tmp_path):
         "computationalist", 1, round_log, result)
 
     content = (tmp_path / "iter001_computationalist_1.md").read_text()
-    assert "<details>" in content
-    assert "<summary>System prompt (" in content
+    assert "<SYSTEM_PROMPT" in content
     assert "system prompt text" in content
-    assert "<summary>User content (" in content
+    assert "</SYSTEM_PROMPT>" in content
+    assert "<USER_MESSAGE" in content
     assert "user content text" in content
-    assert "</details>" in content
+    assert "</USER_MESSAGE>" in content
 
 
 def test_agent_log_seq_increments_by_one(tmp_path):
@@ -307,5 +307,5 @@ def test_agent_log_forced_final_call(tmp_path):
         config, "sys", "user", "computationalist", 1, round_log, result)
 
     content = (tmp_path / "iter001_computationalist_1.md").read_text()
-    assert "## Forced Final Call (reason: zero_text)" in content
+    assert '<FORCED_FINAL_CALL reason="zero_text"' in content
     assert "*(no text output)*" in content

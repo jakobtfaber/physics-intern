@@ -777,17 +777,17 @@ def _write_conversation_log(config: Config, resp: LLMResponse,
 {reasoning_rows}| Duration | {resp.duration:.2f}s |
 | Stop reason | {resp.stop_reason} |
 
-## System Prompt
-
+<SYSTEM_PROMPT>
 {system}
+</SYSTEM_PROMPT>
 
-## User Content
-
+<USER_MESSAGE>
 {user_content}
+</USER_MESSAGE>
 
-## Response
-
+<LLM_RESPONSE>
 {resp.text}
+</LLM_RESPONSE>
 """
     try:
         Path(config.logs_dir, filename).write_text(content)
@@ -845,87 +845,90 @@ def _write_agent_conversation_log(
     lines.append(f"| Stop reason | {result.stop_reason} |")
     lines.append("")
 
-    # System prompt in collapsible section
-    lines.append("## System Prompt\n")
-    lines.append("<details>")
-    lines.append(f"<summary>System prompt ({len(system)} chars)</summary>\n")
+    # System prompt
+    lines.append(f"<SYSTEM_PROMPT chars=\"{len(system)}\">")
     lines.append(system)
-    lines.append("\n</details>\n")
+    lines.append("</SYSTEM_PROMPT>\n")
 
-    # User content in collapsible section
-    lines.append("## User Content\n")
-    lines.append("<details>")
-    lines.append(f"<summary>User content ({len(user_content)} chars)</summary>\n")
+    # User content
+    lines.append(f"<USER_MESSAGE chars=\"{len(user_content)}\">")
     lines.append(user_content)
-    lines.append("\n</details>\n")
+    lines.append("</USER_MESSAGE>\n")
 
     # Render chronological events
+    round_open = False
     for entry in round_log:
         kind = entry["kind"]
 
         if kind == "llm_response":
-            lines.append("---\n")
-            lines.append(f"## Round {entry['round']}\n")
-            lines.append("### LLM Response")
-            tok_str = f"{entry['input_tokens']} in / {entry['output_tokens']} out"
+            if round_open:
+                lines.append("</ROUND>\n")
+            lines.append(f"<ROUND n=\"{entry['round']}\">")
+            round_open = True
+            attrs = f"tokens_in=\"{entry['input_tokens']}\" tokens_out=\"{entry['output_tokens']}\""
             if entry.get("reasoning_tokens", 0) > 0:
-                tok_str += f" ({entry['reasoning_tokens']} reasoning, {entry['answer_tokens']} answer)"
-            lines.append(
-                f"**Tokens:** {tok_str} | **Duration:** {entry['duration']:.1f}s "
-                f"| **Stop:** {entry['stop_reason']}\n"
-            )
+                attrs += f" reasoning=\"{entry['reasoning_tokens']}\" answer=\"{entry['answer_tokens']}\""
+            attrs += f" duration=\"{entry['duration']:.1f}s\" stop=\"{entry['stop_reason']}\""
+            lines.append(f"\n<LLM_RESPONSE {attrs}>")
             text = entry.get("text", "")
             if text and text.strip():
                 lines.append(text.strip())
-                lines.append("")
             else:
-                lines.append("*(no text output)*\n")
+                lines.append("*(no text output)*")
+            lines.append("</LLM_RESPONSE>\n")
             if entry.get("tool_calls"):
                 for tc_info in entry["tool_calls"]:
                     tc_name = tc_info.get("name", "unknown")
                     tc_input = tc_info.get("input", {})
-                    lines.append(f"**Tool call: {tc_name}**")
+                    lines.append(f"<TOOL_CALL name=\"{tc_name}\">")
                     lines.append(_render_tool_input(tc_name, tc_input))
-                    lines.append("")
+                    lines.append("</TOOL_CALL>\n")
 
         elif kind == "tool_result":
             status = "error" if entry.get("is_error") else "success"
-            dur_str = f"{entry['duration']:.1f}s, " if entry.get("duration") else ""
-            lines.append(f"### Tool Result — {entry['tool_name']} ({dur_str}{status})")
-            lines.append(f"```\n{entry['output']}\n```\n")
+            dur_attr = f" duration=\"{entry['duration']:.1f}s\"" if entry.get("duration") else ""
+            lines.append(f"<TOOL_RESULT name=\"{entry['tool_name']}\"{dur_attr} status=\"{status}\">")
+            lines.append(f"```\n{entry['output']}\n```")
+            lines.append("</TOOL_RESULT>\n")
 
         elif kind == "scaffold_injection":
-            lines.append("---\n")
-            lines.append(f"### Scaffold — {entry['label']}\n")
+            if round_open:
+                lines.append("</ROUND>\n")
+                round_open = False
+            lines.append(f"<USER_MESSAGE label=\"scaffold: {entry['label']}\">")
             lines.append(entry.get("content", ""))
-            lines.append("")
+            lines.append("</USER_MESSAGE>\n")
 
         elif kind == "checkpoint_response":
-            lines.append("### Checkpoint Response")
-            lines.append(
-                f"**Tokens:** {entry['input_tokens']} in / {entry['output_tokens']} out\n"
-            )
+            attrs = f"tokens_in=\"{entry['input_tokens']}\" tokens_out=\"{entry['output_tokens']}\""
+            lines.append(f"\n<CHECKPOINT_RESPONSE {attrs}>")
             text = entry.get("text", "")
             if text and text.strip():
                 lines.append(text.strip())
             else:
                 lines.append("*(no text output)*")
-            lines.append("")
+            lines.append("</CHECKPOINT_RESPONSE>\n")
 
         elif kind == "forced_final_call":
-            lines.append("---\n")
-            lines.append(f"## Forced Final Call (reason: {entry.get('reason', 'unknown')})")
-            tok_str = f"{entry['input_tokens']} in / {entry['output_tokens']} out"
+            if round_open:
+                lines.append("</ROUND>\n")
+                round_open = False
+            reason = entry.get("reason", "unknown")
+            attrs = f"reason=\"{reason}\" tokens_in=\"{entry['input_tokens']}\" tokens_out=\"{entry['output_tokens']}\""
             if entry.get("reasoning_tokens", 0) > 0:
-                tok_str += f" ({entry['reasoning_tokens']} reasoning, {entry['answer_tokens']} answer)"
-            dur_str = f" | **Duration:** {entry['duration']:.1f}s" if entry.get("duration") else ""
-            lines.append(f"**Tokens:** {tok_str}{dur_str}\n")
+                attrs += f" reasoning=\"{entry['reasoning_tokens']}\" answer=\"{entry['answer_tokens']}\""
+            if entry.get("duration"):
+                attrs += f" duration=\"{entry['duration']:.1f}s\""
+            lines.append(f"<FORCED_FINAL_CALL {attrs}>")
             text = entry.get("text", "")
             if text and text.strip():
                 lines.append(text.strip())
             else:
                 lines.append("*(no text output)*")
-            lines.append("")
+            lines.append("</FORCED_FINAL_CALL>\n")
+
+    if round_open:
+        lines.append("</ROUND>\n")
 
     content = "\n".join(lines) + "\n"
     try:
