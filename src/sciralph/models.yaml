@@ -13,6 +13,7 @@ claude-opus-4.6:
   env_key: ANTHROPIC_API_KEY
   input_cost: 5.00
   output_cost: 25.00
+  max_output_tokens: 128000
   thinking: true
   effort: high
 
@@ -22,8 +23,9 @@ claude-sonnet-4.6:
   env_key: ANTHROPIC_API_KEY
   input_cost: 3.00
   output_cost: 15.00
+  max_output_tokens: 65536
   thinking: true
-  effort: high
+  effort: medium
 
 # ============================================================================
 # OpenAI

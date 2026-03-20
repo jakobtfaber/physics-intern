@@ -390,7 +390,6 @@ def main() -> None:
         config.provider,
         api_key=config.api_key,
         timeout=config.api_timeout,
-        thinking_token_headroom=config.thinking_token_headroom,
         **config.reasoning,
     )
 

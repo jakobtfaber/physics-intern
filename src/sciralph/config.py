@@ -55,7 +55,6 @@ class Config:
     budget_synthesis_margin: int = DEFAULTS["budget_synthesis_margin"]
     orchestrator_comp_log_tail: int = DEFAULTS["orchestrator_comp_log_tail"]
     prior_failure_excerpt_chars: int = DEFAULTS["prior_failure_excerpt_chars"]
-    thinking_token_headroom: int = DEFAULTS["thinking_token_headroom"]
     provider: str = ""
     workspace_dir: str = ""
     logs_dir: str = ""
@@ -105,6 +104,10 @@ class Config:
                 self.input_cost = resolved.get("input_cost", 0.0)
                 self.output_cost = resolved.get("output_cost", 0.0)
                 self.reasoning = resolved.get("reasoning", {})
+                # Use model-specific max output tokens when user hasn't overridden
+                model_max = resolved.get("max_output_tokens", 0)
+                if model_max and self.max_tokens == DEFAULTS["max_tokens"]:
+                    self.max_tokens = model_max
                 if not self.api_key:
                     self.api_key = os.environ.get(resolved["env_key"], "")
             else:
@@ -128,7 +131,7 @@ _YAML_CONFIG_FIELDS = frozenset({
     "compress_soft_multiplier",
     "budget_synthesis_margin",
     "orchestrator_comp_log_tail",
-    "prior_failure_excerpt_chars", "thinking_token_headroom",
+    "prior_failure_excerpt_chars",
     "provider",
 })
 
@@ -157,7 +160,7 @@ def _resolve_model(model_key: str) -> dict | None:
                      "thinking", "effort", "reasoning_format"):
             if key in entry:
                 reasoning[key] = entry[key]
-        return {
+        result = {
             "provider": entry["provider"],
             "model_id": entry.get("model_id", model_key),
             "env_key": entry.get("env_key", "ANTHROPIC_API_KEY"),
@@ -165,6 +168,9 @@ def _resolve_model(model_key: str) -> dict | None:
             "output_cost": float(entry.get("output_cost", 0)),
             "reasoning": reasoning,
         }
+        if "max_output_tokens" in entry:
+            result["max_output_tokens"] = int(entry["max_output_tokens"])
+        return result
     except (OSError, yaml.YAMLError):
         return None
 

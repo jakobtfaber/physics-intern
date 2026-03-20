@@ -4,65 +4,81 @@ import anthropic
 
 from .base import LLMProvider, ProviderResponse
 
+# Effort levels in descending order, used by _call_with_thinking_recovery
+# to step down when thinking exhausts the token budget.
+_EFFORT_FALLBACK = {"max": "high", "high": "medium", "medium": "low"}
+
 
 class AnthropicProvider(LLMProvider):
     """Anthropic Claude API provider."""
 
     def __init__(self, api_key: str = "", reasoning_budget: int = 0,
                  thinking: bool = False, effort: str = "",
-                 timeout: float = 600.0,
-                 thinking_token_headroom: int = 1024, **kwargs):
+                 timeout: float = 600.0, **kwargs):
         self._client = anthropic.Anthropic(api_key=api_key)
         self._thinking = thinking or reasoning_budget > 0  # backward compat
         self._reasoning_budget = reasoning_budget
         self._effort = effort
         self._timeout = timeout
-        self._thinking_token_headroom = thinking_token_headroom
 
     def call(self, model: str, max_tokens: int, system: str,
              messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
         if self._thinking:
-            # Explicit thinking budget prevents 0-answer-token exhaustion:
-            # the model can think up to budget_tokens, leaving headroom for
-            # the actual answer.  API requires: 1024 <= budget < max_tokens.
-            if self._reasoning_budget:
-                budget = min(self._reasoning_budget, max_tokens - self._thinking_token_headroom)
-            else:
-                budget = max_tokens - self._thinking_token_headroom
-
-            if budget >= 1024 and budget < max_tokens:
-                thinking_cfg = {"type": "enabled", "budget_tokens": budget}
-                kwargs = dict(
-                    model=model,
-                    max_tokens=max_tokens,
-                    system=system,
-                    messages=messages,
-                    thinking=thinking_cfg,
-                    temperature=1.0,  # Required by Anthropic when thinking is enabled
-                )
-                if self._effort:
-                    kwargs["output_config"] = {"effort": self._effort}
-            else:
-                # max_tokens too small for thinking — fall back to non-thinking
-                kwargs = dict(
-                    model=model,
-                    max_tokens=max_tokens,
-                    system=system,
-                    messages=messages,
-                )
-        else:
-            kwargs = dict(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=messages,
+            return self._call_with_thinking_recovery(
+                model, max_tokens, system, messages, tools,
+                effort=self._effort,
             )
+
+        kwargs = dict(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+        )
+        if tools:
+            kwargs["tools"] = self._transform_tools(tools)
+        return self._stream_call(kwargs)
+
+    def _call_with_thinking_recovery(
+        self, model: str, max_tokens: int, system: str,
+        messages: list[dict], tools: list[dict] | None,
+        effort: str,
+    ) -> ProviderResponse:
+        """Call with adaptive thinking; retry at lower effort on token exhaustion.
+
+        When the model spends all tokens on thinking (stop_reason=max_tokens,
+        no visible text, no tool calls), step effort down and retry once.
+        """
+        thinking_cfg = {"type": "adaptive"}
+        kwargs = dict(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+            thinking=thinking_cfg,
+            temperature=1.0,  # Required by Anthropic when thinking is enabled
+        )
+        if effort:
+            kwargs["output_config"] = {"effort": effort}
         if tools:
             kwargs["tools"] = self._transform_tools(tools)
 
-        # Use streaming to avoid network timeouts on long requests.
-        # Streaming keeps the connection alive via SSE; get_final_message()
-        # returns the same Message object as messages.create().
+        resp = self._stream_call(kwargs)
+
+        # Detect thinking exhaustion: all tokens went to thinking,
+        # nothing left for the answer or tool calls.
+        if (resp.stop_reason == "max_tokens"
+                and not resp.text.strip()
+                and not resp.tool_calls):
+            fallback_effort = _EFFORT_FALLBACK.get(effort or "high")
+            if fallback_effort:
+                kwargs["output_config"] = {"effort": fallback_effort}
+                resp = self._stream_call(kwargs)
+
+        return resp
+
+    def _stream_call(self, kwargs: dict) -> ProviderResponse:
+        """Execute a streaming API call and build a ProviderResponse."""
         with self._client.messages.stream(
             **kwargs,
             timeout=self._timeout,
