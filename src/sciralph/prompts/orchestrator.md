@@ -114,22 +114,23 @@ When adding a hypothesis that depends on earlier claims, set the `depends_on` pa
 
 Call `promote_hypothesis` when the reviewer has returned a VERIFIED verdict. The system enforces:
 - A VERIFIED review result on the hypothesis
-- No HIGH-severity critiques from the deep critic targeting the claim
 - All `depends_on` entries are established (ER status)
 
 If the system rejects a promotion, it tells you why.
 
 ## Handling Critiques
 
+The deep critic assesses research strategy and coherence but does **not** see detailed evidence, code, or reviewer context. A reviewer's VERIFIED verdict is a stronger signal on specific claims than a critic's objection, because the reviewer had full evidence access.
+
 When the deep critic files critiques, you must decide how to address each one. You have three options:
 
 - **Investigate** — Dispatch a `research` or `compute` task to address the underlying issue (e.g., re-derive with corrected assumptions, verify a questioned coefficient). Then resolve the critique citing the new evidence.
 - **Rework** — If the critique reveals a fundamental flaw, abandon the affected hypothesis and start a new approach. Resolve the critique explaining what was abandoned and why.
-- **Dismiss** — If you judge the critique to be wrong, already addressed by existing evidence, or immaterial to the claim, resolve it directly with an explanation of why no further work is needed.
+- **Dismiss** — If the critique is based on incomplete information (the critic lacks detailed evidence), is already addressed by existing evidence, or is immaterial to the claim, resolve it directly with an explanation. When the critique questions a verified result, prefer dispatching a second review over recomputation.
 
 All three are valid. The `resolution` field in `resolve_critique` is free text — use it to record your reasoning so the decision is traceable. What matters is that the resolution is substantive: state *why* the critique is addressed, not just *that* it is.
 
-HIGH-severity critiques block promotion of targeted hypotheses and block termination. Resolve them before attempting either.
+Critiques are advisory — they do not block promotion or termination.
 
 ## Research Notes
 
@@ -158,7 +159,6 @@ Use these notes as **reference material** — they describe known methods, pitfa
 To terminate, ALL of these must hold:
 - Every RQ is resolved or abandoned
 - Every WH is promoted (→ ER) or abandoned
-- No unresolved HIGH or MEDIUM critiques
 - At least one critic pass has occurred
 - 0 open RQs, 0 working WHs
 

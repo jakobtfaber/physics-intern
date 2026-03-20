@@ -90,10 +90,8 @@ def test_extract_section_by_id_not_found():
 
 def test_count_unresolved_critiques():
     text = (FIXTURES / "critique_log.md").read_text()
-    counts = count_unresolved_critiques(text)
-    assert counts["HIGH"] == 1
-    assert counts["MEDIUM"] == 1
-    assert counts["LOW"] == 0
+    count = count_unresolved_critiques(text)
+    assert count == 2  # 1 HIGH + 1 MEDIUM unresolved
 
 
 def test_count_unresolved_critiques_critique_prefix():
@@ -106,15 +104,13 @@ def test_count_unresolved_critiques_critique_prefix():
 ## CRITIQUE-002 [LOW] [UNRESOLVED]
 - **Target:** WH-2
 """
-    counts = count_unresolved_critiques(text)
-    assert counts["HIGH"] == 1
-    assert counts["LOW"] == 1
-    assert counts["MEDIUM"] == 0
+    count = count_unresolved_critiques(text)
+    assert count == 2  # 1 HIGH + 1 LOW
 
 
 def test_count_unresolved_critiques_empty():
-    counts = count_unresolved_critiques("No critiques here.")
-    assert counts == {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    count = count_unresolved_critiques("No critiques here.")
+    assert count == 0
 
 
 # --- Tests for insert_into_active_critiques ---
@@ -161,9 +157,8 @@ def test_resolve_critique():
     assert crit001_idx > resolved_idx
 
     # Unresolved count should drop
-    counts = count_unresolved_critiques(result)
-    assert counts["HIGH"] == 0
-    assert counts["MEDIUM"] == 1  # CRIT-002 still unresolved
+    count = count_unresolved_critiques(result)
+    assert count == 1  # CRIT-002 still unresolved
 
 
 def test_resolve_critique_already_resolved():
@@ -232,9 +227,8 @@ unresolved_medium: 1
 
     # CRIT-011 should still be in Active
     assert "CRIT-011" in active_section
-    counts = count_unresolved_critiques(result)
-    assert counts["HIGH"] == 0
-    assert counts["MEDIUM"] == 1
+    count = count_unresolved_critiques(result)
+    assert count == 1  # only CRIT-011 (MEDIUM) still unresolved
 
 
 # --- Tests for filter_self_retracted_critiques ---
@@ -384,9 +378,7 @@ def test_filter_critique_nnn_drift_tolerance():
 def test_recount_critique_metadata():
     text = (FIXTURES / "critique_log.md").read_text()
     meta = recount_critique_metadata(text)
-    assert meta["unresolved_high"] == 1
-    assert meta["unresolved_medium"] == 1
-    assert meta["unresolved_low"] == 0
+    assert meta["unresolved_critiques"] == 2  # 1 HIGH + 1 MEDIUM
     assert meta["total_critiques"] >= 3  # CRIT-001, CRIT-002, CRIT-003
     assert meta["withdrawn_critiques"] >= 0
 
@@ -394,9 +386,7 @@ def test_recount_critique_metadata():
 def test_recount_critique_metadata_empty():
     meta = recount_critique_metadata("No critiques.")
     assert meta == {
-        "unresolved_high": 0,
-        "unresolved_medium": 0,
-        "unresolved_low": 0,
+        "unresolved_critiques": 0,
         "total_critiques": 0,
         "withdrawn_critiques": 0,
     }
@@ -725,8 +715,8 @@ class TestWithdrawnStatus:
     def test_withdrawn_not_counted_unresolved(self):
         """WITHDRAWN critiques should not count as unresolved."""
         text = "## CRIT-020 [MEDIUM] [WITHDRAWN]\n- **Target:** WH-005\n"
-        counts = count_unresolved_critiques(text)
-        assert counts["MEDIUM"] == 0
+        count = count_unresolved_critiques(text)
+        assert count == 0
 
     def test_withdrawn_counted_in_total(self):
         """WITHDRAWN critiques should count in total_critiques."""
@@ -810,10 +800,8 @@ class TestWithdrawnStatus:
 - Another withdrawn critique.
 """
         assert count_withdrawn_critiques(text) == 2
-        counts = count_unresolved_critiques(text)
-        assert counts["HIGH"] == 1
-        assert counts["MEDIUM"] == 0
-        assert counts["LOW"] == 0
+        count = count_unresolved_critiques(text)
+        assert count == 1  # only CRIT-001 (HIGH) is unresolved
 
 
 # ---------------------------------------------------------------------------

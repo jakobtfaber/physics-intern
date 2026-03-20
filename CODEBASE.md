@@ -203,7 +203,7 @@ Non-VERIFIED review verdicts are no longer auto-recomputed. Instead they are sto
 | Max iterations | Loop condition | `self.iteration >= self.config.max_iterations` |
 | Budget-aware synthesis | Orchestrator | Orchestrator sees budget pressure via `_completion_analysis()` context banner and chooses to synthesize/terminate |
 
-The `can_terminate()` gate requires: at least one VERIFIED hypothesis triggers a mandatory critic pass, no unresolved HIGH critiques, computational evidence when `requires_numerical: true` in problem YAML, all RQs resolved or abandoned, and all WHs either verified and promoted or abandoned. If blocked, blockers are fed back to orchestrator.
+The `can_terminate()` gate requires: at least one VERIFIED hypothesis triggers a mandatory critic pass, computational evidence when `requires_numerical: true` in problem YAML, all RQs resolved or abandoned, and all WHs either verified and promoted or abandoned. If blocked, blockers are fed back to orchestrator.
 
 ### Dispatch routing
 
@@ -259,12 +259,12 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `ReviewResult` — `verdict` (VERIFIED/REFUTED/INCONCLUSIVE), `summary`, `details`, `iteration`. Inlined on `Hypothesis`.
 - `Hypothesis` — `id`, `statement`, `status` (`HypothesisStatus`: WORKING/ESTABLISHED/REFUTED/ABANDONED), `derivation`, `critiques` (list of CRIT IDs), `iteration_created`, `iteration_modified`, `depends_on` (list of hypothesis IDs), `promotion_justification`, `evidence: Evidence | None`, `review: ReviewResult | None`
 - `ResearchQuestion` — `id` (RQ-NNN), `question`, `context`, `resolved_to` (list of hypothesis IDs), `status` (`RQStatus`: OPEN/RESOLVED/ABANDONED), `iteration_created`, `iteration_resolved`, `resolution_reason`, `evidence: Evidence | None`
-- `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `iteration_filed`, `iteration_resolved`
+- `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW — kept for backward compat with existing JSON, no longer used for gating), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `iteration_filed`, `iteration_resolved`
 - `FailedApproach` — `description`, `reason`, `related_entities`, `iteration`, `derivation_excerpt`
 
 **ResearchState fields:** `hypotheses` (dict by ID), `research_questions` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `critic_clean_reviews` (list), `iteration`, `problem_statement`, `conventions`, `strategy`, `situation_assessment`, `research_notes` (list of dicts), `status`, `title`, `background_survey` (BackgroundSurvey | None)
 
-**Key query methods:** `has_verified_evidence()`, `hypotheses_with_evidence()`, `active_critiques_for()`, `unresolved_high_critiques()`, `established_hypotheses()`, `working_hypotheses()`, `abandoned_hypotheses()`, `failures_for_hypothesis()`, `open_research_questions()`
+**Key query methods:** `has_verified_evidence()`, `hypotheses_with_evidence()`, `active_critiques_for()`, `established_hypotheses()`, `working_hypotheses()`, `abandoned_hypotheses()`, `failures_for_hypothesis()`, `open_research_questions()`
 
 **Mutation methods:** `promote_hypothesis(wh_id)` → renames WH-NNN → ER-NNN, updates status, calls `normalize_references()`; `demote_hypothesis(er_id)` → reverse (used by validation demotion safety)
 
@@ -289,7 +289,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `add_hypothesis` — creates new WH-NNN in state, auto-assigns ID; optional `from_rq` param links to originating RQ (copies evidence from RQ)
 - `update_hypothesis` — updates statement/derivation for existing WH/ER
 - `abandon_hypothesis` — marks as ABANDONED, records in `failed_approaches`
-- `promote_hypothesis` — promotes WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, no unresolved HIGH deep critic critiques, blocks on unestablished `depends_on`)
+- `promote_hypothesis` — promotes WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, blocks on unestablished `depends_on`)
 - `resolve_critique` — marks critique as RESOLVED with resolution text
 - `update_section` — replaces content of Conventions, Strategy, or Situation Assessment
 - `append_note` — appends a research note to `research_notes` list
@@ -305,7 +305,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **Output processing:** Only processes if `_tool_executor.mutations_applied` is true. Writes `CURRENT_TASK.md` from `set_next_task` tool data. (MD files are rendered centrally by the engine's `_render_files_for_git()`, not by individual agents.)
 
-**Prompt rules (key):** COMPUTE-FIRST (new hypotheses get review before critique); converged derivation → move to review; stall loops → escalate or downgrade; LOW critiques don't block promotion.
+**Prompt rules (key):** COMPUTE-FIRST (new hypotheses get review before critique); converged derivation → move to review; stall loops → escalate or downgrade; critiques don't block promotion (severity is informational only).
 
 #### Researcher (`agents/researcher.py`)
 
@@ -360,14 +360,14 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **Context:** `render_critic_context(self.research_state, iteration)` from `renderers.py` — a high-level strategic view: strategy, conventions, situation assessment, research notes, RQ list, hypothesis summaries (evidence/review one-liners), dead ends, background survey, and previous critiques. No derivations, scripts, reasoning, or approach text.
 
-**Output processing:** Calls `_parse_critic_json(text)` to extract `{summary, details, critiques}` JSON from response text (tries fenced ```json blocks first, falls back to brace-counting for bare JSON with nested objects). Each critique entry has `severity`, `target_id`, and `argument` fields.
+**Output processing:** Calls `_parse_critic_json(text)` to extract `{summary, details, critiques}` JSON from response text (tries fenced ```json blocks first, falls back to brace-counting for bare JSON with nested objects). Each critique entry has `target_id` and `argument` fields (plus `severity` for backward compat, no longer used for gating).
 - CRIT-NNN numbering via `self.research_state.next_critique_num()`
 - Invalid severity defaults to MEDIUM
 - If critiques present: creates `Critique` objects with `CritiqueStatus.ACTIVE` in `research_state.critiques`, links to target hypotheses
 - If no critiques present: records clean review in `research_state.critic_clean_reviews`, sets `_no_critiques_filed` flag (clean review signal to orchestrator via engine)
 - Parse failure: treats as clean review, logs `critic_json_parse_failure` scaffold event
 
-**Severity rules:**
+**Severity rules (informational only, severity no longer gates promotion or termination):**
 - HIGH: only for specific wrong steps (sign error, dropped term)
 - MEDIUM: forced cap when objection rests on intuition, or when only INCONCLUSIVE evidence exists, or when a VERIFIED result exists
 - LOW: stylistic
@@ -451,7 +451,7 @@ For `COMPUTE`:
 1. **`add_hypothesis`** — creates new WH-NNN in `ResearchState`; optional `from_rq` links to originating RQ (copies evidence)
 2. **`update_hypothesis`** — updates statement/derivation
 3. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
-4. **`promote_hypothesis`** — WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, HIGH critique checks from deep critic, dependency checks)
+4. **`promote_hypothesis`** — WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, dependency checks)
 5. **`resolve_critique`** — marks CRIT-NNN as RESOLVED with resolution text
 6. **`update_section`** — replaces Conventions, Strategy, or Situation Assessment content
 7. **`append_note`** — appends to `research_notes` list
@@ -493,7 +493,7 @@ The richest infrastructure file. Handles:
 **Section utilities:** `tail_entries` (last N `## ` sections), `extract_section_by_id` (find section by ID pattern).
 
 **Critique lifecycle:**
-- `count_unresolved_critiques` — counts by severity via regex
+- `count_unresolved_critiques` — counts unresolved critiques via regex
 - `insert_into_active_critiques` — inserts between Active/Resolved headings
 - `resolve_critique` — moves a critique block from Active to Resolved, rewrites `[UNRESOLVED]` → `[RESOLVED]`, appends resolution note
 - `extract_resolved_critique_ids` — four-pattern extraction (YAML list, YAML mapping, forward prose, reverse prose)
@@ -559,7 +559,7 @@ A claim advances through this lifecycle:
 3. **Working Hypothesis (WH-NNN)** — orchestrator calls `add_hypothesis` (optionally with `from_rq` to link to originating RQ and copy evidence), creates `Hypothesis` with status WORKING. Direct WH creation (skipping RQ) is allowed when the claim is already concrete.
 4. **Review** — `reviewer` examines WH + evidence → one-shot structured JSON → `ReviewResult` stored on hypothesis (VERIFIED / REFUTED / INCONCLUSIVE)
 5. **Critique** — deep critic reviews strategy/direction via one-shot structured JSON, files objections
-6. **Established Result (ER-NNN)** — orchestrator calls `promote_hypothesis` tool with guardrails: (a) `h.review.verdict == "VERIFIED"`, (b) no unresolved HIGH deep critic critiques, (c) all `depends_on` entries are already established
+6. **Established Result (ER-NNN)** — orchestrator calls `promote_hypothesis` tool with guardrails: (a) `h.review.verdict == "VERIFIED"`, (b) all `depends_on` entries are already established
 7. **Termination** — orchestrator emits `terminate` task → `can_terminate()` gates → formatter produces `ANSWER.md`
 
 ---
@@ -695,7 +695,7 @@ All 4 checks run after every orchestrator pass via `validate_post_integration(re
 | **Phantom label stripping** | `check_phantom_labels()` | Builds verified set from `h.review.verdict == "VERIFIED"`; finds "VERIFIED" labels in derivations without backing → returns violation | LLM copying "VERIFIED" from existing text without evidence |
 | **Stale-unverified label promotion** | `check_stale_unverified_labels()` | Finds hypotheses with stale unverified labels that now have review → returns violation | Labels stuck as [unverified] after late review |
 | **Critique resolution consistency** | `check_critique_resolution_consistency()` | Checks that resolved critiques actually had their fixes applied: target hypothesis still exists, no inconsistencies | LLM marking critiques "resolved" without applying the fix |
-| **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when VERIFIED hypotheses exist, (2) zero unresolved HIGH critiques, (3) computational evidence exists when `requires_numerical`, (4) all RQs resolved/abandoned, (5) all WHs either verified+promoted or abandoned | LLM trying to terminate prematurely |
+| **Termination gate** | `can_terminate()` | Blocks termination unless: (1) critic pass occurred when VERIFIED hypotheses exist, (2) computational evidence exists when `requires_numerical`, (3) all RQs resolved/abandoned, (4) all WHs either verified+promoted or abandoned | LLM trying to terminate prematurely |
 
 ### loop_control — Pre-dispatch hooks and dispatch guards (`engine.py`)
 
@@ -731,7 +731,7 @@ Non-VERIFIED review verdicts go to `pending_compute_verdicts` in `LoopState` (wi
 |-----------|----------|--------------|---------------------|
 | Budget-aware completion analysis | `_completion_analysis()` | Injects "COMPLETION CHECK" or "BUDGET SYNTHESIS REQUIRED" banners based on ER/WH/critique counts and remaining budget | Orchestrator failing to terminate when done |
 | Phantom marker cleaning | `build_context()` | Flattens nested `[[[ID:unverified]...]]` brackets and replaces `[ID:unverified]` with `ID (unverified)` before the LLM sees the state | LLM copying bracket syntax into new outputs |
-| `promote_hypothesis` guardrails | `OrchestratorToolExecutor._promote_hypothesis()` | Rejects promotion if review verdict is not VERIFIED, or if unresolved HIGH critiques exist on target | LLM promoting unreviewed or contested hypotheses |
+| `promote_hypothesis` guardrails | `OrchestratorToolExecutor._promote_hypothesis()` | Rejects promotion if review verdict is not VERIFIED | LLM promoting unreviewed hypotheses |
 | Conventions section staleness reminder | `build_context()` | From iteration 3+, injects banner if Conventions still says "To be populated" | LLM skipping conventions population |
 
 #### Critic corrections (`agents/critic.py`)

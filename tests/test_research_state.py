@@ -132,10 +132,6 @@ class TestQueryMethods:
         assert len(state.active_critiques_for("WH-001")) == 1
         assert len(state.active_critiques_for("ER-002")) == 0
 
-    def test_unresolved_high_critiques(self):
-        state = self._make_state()
-        assert len(state.unresolved_high_critiques()) == 1
-
     def test_established_hypotheses(self):
         state = self._make_state()
         assert len(state.established_hypotheses()) == 1

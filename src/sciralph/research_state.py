@@ -186,13 +186,6 @@ class ResearchState:
             if target_id in c.targets and c.status == CritiqueStatus.ACTIVE
         ]
 
-    def unresolved_high_critiques(self) -> list[Critique]:
-        """All unresolved HIGH-severity critiques."""
-        return [
-            c for c in self.critiques.values()
-            if c.severity == Severity.HIGH and c.status == CritiqueStatus.ACTIVE
-        ]
-
     def established_hypotheses(self) -> list[Hypothesis]:
         return [h for h in self.hypotheses.values() if h.status == HypothesisStatus.ESTABLISHED]
 

@@ -84,15 +84,9 @@ def extract_section_by_id(text: str, section_id: str) -> str:
     return ""
 
 
-def count_unresolved_critiques(text: str) -> dict[str, int]:
-    """Count unresolved critiques by severity from CRITIQUE_LOG.md content."""
-    counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
-    # Match patterns like ## CRIT-010 [HIGH] [UNRESOLVED]
-    for match in CRIT_UNRESOLVED_RE.finditer(text):
-        severity = match.group(1).upper()
-        if severity in counts:
-            counts[severity] += 1
-    return counts
+def count_unresolved_critiques(text: str) -> int:
+    """Count unresolved critiques from CRITIQUE_LOG.md content."""
+    return len(CRIT_UNRESOLVED_RE.findall(text))
 
 
 def insert_into_active_critiques(text: str, new_content: str) -> str:
@@ -260,16 +254,14 @@ def count_withdrawn_critiques(text: str) -> int:
 def recount_critique_metadata(content: str) -> dict:
     """Recount unresolved and total critiques from CRITIQUE_LOG content.
 
-    Returns dict with keys: unresolved_high, unresolved_medium, unresolved_low,
-    total_critiques.
+    Returns dict with keys: unresolved_critiques, total_critiques,
+    withdrawn_critiques.
     """
-    counts = count_unresolved_critiques(content)
+    unresolved = count_unresolved_critiques(content)
     total = len(CRIT_HEADER_RE.findall(content))
     withdrawn = count_withdrawn_critiques(content)
     return {
-        "unresolved_high": counts["HIGH"],
-        "unresolved_medium": counts["MEDIUM"],
-        "unresolved_low": counts["LOW"],
+        "unresolved_critiques": unresolved,
         "total_critiques": total,
         "withdrawn_critiques": withdrawn,
     }

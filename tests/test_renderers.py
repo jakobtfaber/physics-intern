@@ -496,9 +496,7 @@ class TestRenderCritiqueLogMd:
         md = render_critique_log_md(populated_state)
         meta, _ = parse_frontmatter(md)
         assert meta["total_critiques"] == 2
-        assert meta["unresolved_high"] == 1
-        assert meta["unresolved_medium"] == 0
-        assert meta["unresolved_low"] == 0
+        assert meta["unresolved_critiques"] == 1
 
     def test_target_rendered(self, populated_state):
         md = render_critique_log_md(populated_state)
@@ -517,9 +515,7 @@ class TestRenderCritiqueLogMd:
         md = render_critique_log_md(empty_state)
         meta, body = parse_frontmatter(md)
         assert meta["total_critiques"] == 0
-        assert meta["unresolved_high"] == 0
-        assert meta["unresolved_medium"] == 0
-        assert meta["unresolved_low"] == 0
+        assert meta["unresolved_critiques"] == 0
         assert "# Active Critiques" in body
         assert "# Resolved Critiques" in body
 
@@ -682,7 +678,7 @@ class TestSnapshotRegression:
         md = render_critique_log_md(populated_state)
         meta, body = parse_frontmatter(md)
         assert meta["total_critiques"] == 2
-        assert meta["unresolved_high"] == 1
+        assert meta["unresolved_critiques"] == 1
         assert "# Active Critiques" in body
         assert "# Resolved Critiques" in body
 

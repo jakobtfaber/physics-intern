@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from .research_state import CritiqueStatus, HypothesisStatus, Severity, Verdict
+from .research_state import CritiqueStatus, HypothesisStatus, Verdict
 from .categories import CompensationCategory as CC
 from .workspace import log_scaffold_event
 
@@ -262,18 +262,7 @@ def can_terminate(
             "Emit task_type: critique to run a review before terminating."
         )
 
-    # Gate 2: No unresolved HIGH critiques
-    high_count = len([
-        c for c in research_state.critiques.values()
-        if c.status == CritiqueStatus.ACTIVE and c.severity == Severity.HIGH
-    ])
-    if high_count > 0:
-        blockers.append(
-            f"{high_count} unresolved HIGH critique(s). "
-            "Address them before terminating."
-        )
-
-    # Gate 3: Numerical evidence required when problem requires it
+    # Gate 2: Numerical evidence required when problem requires it
     meta = problem_meta or {}
     if meta.get("requires_numerical", False):
         has_compute_evidence = any(
@@ -286,7 +275,7 @@ def can_terminate(
                 "Emit task_type: compute to run at least one computation before terminating."
             )
 
-    # Gate 4: All RQs and WHs must be resolved before termination
+    # Gate 3: All RQs and WHs must be resolved before termination
     for rq in research_state.research_questions.values():
         if rq.status == RQStatus.OPEN:
             blockers.append(

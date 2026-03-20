@@ -15,7 +15,6 @@ from .research_state import (
     HypothesisStatus,
     ResearchState,
     RQStatus,
-    Severity,
 )
 
 if TYPE_CHECKING:
@@ -311,15 +310,9 @@ def render_critique_log_md(state: ResearchState) -> str:
     """Render CRITIQUE_LOG.md from ResearchState."""
     active = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
 
-    unresolved_high = sum(1 for c in active if c.severity == Severity.HIGH)
-    unresolved_medium = sum(1 for c in active if c.severity == Severity.MEDIUM)
-    unresolved_low = sum(1 for c in active if c.severity == Severity.LOW)
-
     meta = {
         "total_critiques": len(state.critiques),
-        "unresolved_high": unresolved_high,
-        "unresolved_medium": unresolved_medium,
-        "unresolved_low": unresolved_low,
+        "unresolved_critiques": len(active),
     }
 
     body = _critique_log_body(state)

@@ -604,7 +604,7 @@ class OrchestratorToolExecutor:
         return msg + _BATCH_NUDGE
 
     def _promote_hypothesis(self, args: dict) -> str:
-        from .research_state import HypothesisStatus, Severity, CritiqueStatus, Verdict
+        from .research_state import HypothesisStatus, CritiqueStatus, Verdict
 
         state = self.research_state
         if not state:
@@ -629,16 +629,6 @@ class OrchestratorToolExecutor:
                 f"Error: Cannot promote {wh_id} — no VERIFIED review "
                 "result. Schedule a review task first."
             )
-
-        # Guardrail: check for unresolved HIGH critiques from deep critic
-        for c in state.critiques.values():
-            if (c.severity == Severity.HIGH
-                    and c.status == CritiqueStatus.ACTIVE
-                    and (wh_id in c.targets or er_id in c.targets)):
-                return (
-                    f"Error: Cannot promote {wh_id} — unresolved HIGH "
-                    f"critique {c.id} targets this claim."
-                )
 
         # Guardrail: check for unestablished dependencies
         unestablished = state.unestablished_dependencies(wh_id)
@@ -667,10 +657,9 @@ class OrchestratorToolExecutor:
         self.mutations_applied = True
         msg = f"Promoted {wh_id} → {er_id}. If this is the final result asked by the problem statement, consider closing the remaining RQ and calling set_next_task with task_type 'terminate'."
         if (not state.working_hypotheses()
-                and not state.open_research_questions()
-                and not state.unresolved_high_critiques()):
+                and not state.open_research_questions()):
             msg += (
-                " No open RQs, working hypotheses, or unresolved HIGH critiques remain."
+                " No open RQs or working hypotheses remain."
                 " If this completes the research, consider set_next_task"
                 " with task_type 'terminate'."
             )

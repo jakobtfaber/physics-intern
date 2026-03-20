@@ -58,9 +58,7 @@ Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, p
         # CRITIQUE_LOG.md
         critique_meta = {
             "total_critiques": 0,
-            "unresolved_high": 0,
-            "unresolved_medium": 0,
-            "unresolved_low": 0,
+            "unresolved_critiques": 0,
             "last_critic_pass": "never",
         }
         self.write_file("CRITIQUE_LOG.md", render_frontmatter(

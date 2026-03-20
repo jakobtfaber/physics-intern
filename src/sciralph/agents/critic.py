@@ -152,13 +152,7 @@ class CriticAgent(BaseAgent):
             sev_label = sev.value
             target_str = target_id or "general"
             arg_short = argument[:80]
-            if sev == Severity.HIGH:
-                style = "bold red"
-            elif sev == Severity.MEDIUM:
-                style = "bold yellow"
-            else:
-                style = "dim"
-            console.print(f"  [{style}]{crit.id}[/] [{sev_label}] targeting {target_str}: {arg_short}")
+            console.print(f"  [yellow]{crit.id}[/] targeting {target_str}: {arg_short}")
             log_scaffold_event(
                 self.workspace.root, iteration, CC.STATE_INVARIANTS,
                 "file_critique",

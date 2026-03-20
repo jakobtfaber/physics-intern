@@ -370,13 +370,9 @@ class SciRalph:
             else:
                 lines.append(">>> DEEP CRITIC RESULT (previous iteration) <<<")
                 lines.append(
-                    f"The deep critic filed {cr['count']} critique(s): "
-                    f"{cr['high']} HIGH, {cr['medium']} MEDIUM, {cr['low']} LOW."
+                    f"The deep critic filed {cr['count']} critique(s). "
+                    "See the critique log in your context for details."
                 )
-                lines.append("New critiques (see critique log for full details):")
-                for s in cr.get("summaries", []):
-                    lines.append(f"  - {s}")
-                lines.append("Address HIGH-severity critiques before promoting hypotheses.")
                 lines.append(">>> END DEEP CRITIC RESULT <<<\n")
             self._state.pending_critic_result = None
         if self._state.agent_failures:
@@ -435,24 +431,12 @@ class SciRalph:
                 crits = list(self.research_state.critiques.values())
                 recent = [c for c in crits if c.iteration_filed == self.iteration]
                 if recent:
-                    from .research_state import Severity
-                    high = sum(1 for c in recent if c.severity == Severity.HIGH)
-                    med = sum(1 for c in recent if c.severity == Severity.MEDIUM)
-                    low = sum(1 for c in recent if c.severity == Severity.LOW)
                     console.print(
-                        f"[red]Critic filed {len(recent)} critique(s): "
-                        f"{high} HIGH, {med} MEDIUM, {low} LOW[/red]"
+                        f"[red]Critic filed {len(recent)} critique(s)[/red]"
                     )
-                    summaries = []
-                    for c in recent:
-                        summaries.append(f"{c.id} [{c.severity.value}] targets {', '.join(c.targets)}: {c.argument[:150]}")
                     self._state.pending_critic_result = {
                         "clean": False,
                         "count": len(recent),
-                        "high": high,
-                        "medium": med,
-                        "low": low,
-                        "summaries": summaries,
                     }
             return "deep_critic", response
 

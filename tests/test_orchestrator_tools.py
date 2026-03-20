@@ -288,18 +288,20 @@ class TestPromoteHypothesis:
         assert "ER-001" not in state.hypotheses
         assert not ex.mutations_applied
 
-    def test_blocked_by_high_critique(self):
+    def test_succeeds_despite_high_critique(self):
+        """HIGH critiques no longer block promotion."""
         ws = _make_workspace()
         state = _make_state_with_high_critique("WH-001")
         ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
         tc = ex.execute("promote_hypothesis", {
             "id": "WH-001",
-            "justification": "Should fail due to critique.",
+            "justification": "Promote despite HIGH critique.",
         })
-        assert "Error" in tc.output
-        assert "CRIT-001" in tc.output
-        assert "WH-001" in state.hypotheses
-        assert not ex.mutations_applied
+        assert not tc.is_error
+        assert "Promoted" in tc.output
+        assert "ER-001" in state.hypotheses
+        assert "WH-001" not in state.hypotheses
+        assert ex.mutations_applied
 
     def test_non_wh_returns_error(self):
         ws = _make_workspace()
@@ -359,7 +361,7 @@ class TestPromoteHypothesis:
         assert "terminate" in tc.output
 
     def test_promote_termination_nudge_suppressed(self):
-        """When open RQs or HIGH critiques remain, normal batch nudge is returned."""
+        """When open RQs remain, the specific termination nudge is suppressed."""
         from sciralph.research_state import ResearchQuestion, RQStatus
 
         ws = _make_workspace()
@@ -376,7 +378,9 @@ class TestPromoteHypothesis:
         })
         assert not tc.is_error
         assert "Promoted" in tc.output
-        assert "terminate" not in tc.output
+        # The specific "No open RQs or working hypotheses remain" nudge
+        # should NOT appear when there are still open RQs.
+        assert "No open RQs or working hypotheses remain" not in tc.output
 
 
 # ---------------------------------------------------------------------------

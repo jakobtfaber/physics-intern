@@ -269,9 +269,9 @@ class TestCritiqueResolutionConsistency:
 
 
 class TestStrategyTerminationBlocking:
-    """Active HIGH STRATEGY critique blocks termination like any other HIGH critique."""
+    """HIGH STRATEGY critiques no longer block termination (gate removed)."""
 
-    def test_high_strategy_critique_blocks_termination(self):
+    def test_high_strategy_critique_does_not_block_termination(self):
         state = ResearchState()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
@@ -289,8 +289,8 @@ class TestStrategyTerminationBlocking:
             MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
             research_state=state,
         )
-        assert not allowed
-        assert any("HIGH" in b for b in blockers)
+        assert allowed
+        assert blockers == []
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +356,8 @@ class TestCanTerminate:
         assert not allowed
         assert any("critic" in b.lower() for b in blockers)
 
-    def test_blocks_with_high_critiques(self):
+    def test_high_critiques_do_not_block_termination(self):
+        """HIGH critiques no longer block termination (gate removed)."""
         state = self._make_state()
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
@@ -369,8 +370,8 @@ class TestCanTerminate:
             MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
             research_state=state,
         )
-        assert not allowed
-        assert any("HIGH" in b for b in blockers)
+        assert allowed
+        assert blockers == []
 
     def test_blocks_with_open_rq(self):
         state = self._make_state()

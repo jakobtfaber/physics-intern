@@ -10,7 +10,7 @@ from ..renderers import (
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
 )
-from ..research_state import CritiqueStatus, Severity
+from ..research_state import CritiqueStatus
 from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from ..tools import ToolCall
 from .base import PROMPTS_DIR, BaseAgent
@@ -50,17 +50,15 @@ class OrchestratorAgent(BaseAgent):
 
         er_count = len(self.research_state.established_hypotheses())
         wh_count = len(self.research_state.working_hypotheses())
-        high = len([c for c in self.research_state.critiques.values()
-                     if c.status == CritiqueStatus.ACTIVE and c.severity == Severity.HIGH])
-        medium = len([c for c in self.research_state.critiques.values()
-                       if c.status == CritiqueStatus.ACTIVE and c.severity == Severity.MEDIUM])
+        active_critiques = len([c for c in self.research_state.critiques.values()
+                                if c.status == CritiqueStatus.ACTIVE])
 
-        if er_count >= self.config.min_er_for_completion and wh_count == 0 and high == 0 and medium == 0:
+        if er_count >= self.config.min_er_for_completion and wh_count == 0 and active_critiques == 0:
             return (
                 ">>> COMPLETION CHECK: "
                 f"{er_count} Established Results, "
                 f"{wh_count} Working Hypotheses remaining, "
-                f"{high} HIGH / {medium} MEDIUM unresolved critiques. "
+                f"{active_critiques} unresolved critiques. "
                 "ALL PROBLEM STEPS APPEAR TO BE ESTABLISHED. "
                 "Write a brief '## Synthesis' section using update_hypothesis or "
                 "add_hypothesis, then call set_next_task with task_type: terminate. <<<"
@@ -74,7 +72,7 @@ class OrchestratorAgent(BaseAgent):
                 f"{self.config.max_iterations}). "
                 f"{er_count} Established Results, "
                 f"{wh_count} Working Hypotheses still pending, "
-                f"{high} HIGH / {medium} MEDIUM unresolved critiques. "
+                f"{active_critiques} unresolved critiques. "
                 "You MUST call set_next_task with task_type: research to synthesize results NOW. "
                 "Unresolved items should be noted as limitations. <<<"
             )

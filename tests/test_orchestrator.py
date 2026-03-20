@@ -161,7 +161,7 @@ class TestBudgetAwareTermination:
         result = orch._completion_analysis(iteration=19)
         assert result is not None
         assert "BUDGET SYNTHESIS REQUIRED" in result
-        assert "1 HIGH" in result
+        assert "1 unresolved critiques" in result
 
     def test_completion_check_takes_priority_over_budget(self, workspace):
         """Normal completion check fires when all conditions met, not budget banner."""
