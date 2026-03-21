@@ -55,7 +55,7 @@ def _research_state_body(state: ResearchState) -> str:
 
     # Strategy
     parts.append("# Strategy\n")
-    parts.append(state.strategy or "(No strategy set. The orchestrator should formulate an initial research strategy based on the background survey.)")
+    parts.append(state.strategy or "(No strategy set.)")
     parts.append("")
 
     # Research Questions

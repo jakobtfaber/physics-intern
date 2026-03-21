@@ -18,6 +18,7 @@ class TaskType(StrEnum):
     TERMINATE = "terminate"
     FORMAT = "format"
     SURVEY = "survey"
+    PLAN = "plan"
 
 
 TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
@@ -28,6 +29,7 @@ TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
     TaskType.TERMINATE: "orchestrator",
     TaskType.FORMAT: "formatter",
     TaskType.SURVEY: "surveyor",
+    TaskType.PLAN: "planner",
 }
 
 

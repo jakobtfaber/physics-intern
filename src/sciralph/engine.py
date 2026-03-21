@@ -25,6 +25,7 @@ from .agents.critic import CriticAgent
 from .agents.compressor import CompressorAgent
 from .agents.formatter import FormatterAgent
 from .agents.surveyor import SurveyorAgent
+from .agents.planner import PlannerAgent
 
 console = Console()
 
@@ -94,6 +95,7 @@ class SciRalph:
         self.compressor = CompressorAgent(self.config, self.workspace, self.metrics)
         self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
         self.surveyor = SurveyorAgent(self.config, self.workspace, self.metrics)
+        self.planner = PlannerAgent(self.config, self.workspace, self.metrics)
 
     @classmethod
     def resume(cls, workspace_path: Path | str,
@@ -151,6 +153,7 @@ class SciRalph:
         engine.compressor = CompressorAgent(config, engine.workspace, engine.metrics)
         engine.formatter = FormatterAgent(config, engine.workspace, engine.metrics, answer_template)
         engine.surveyor = SurveyorAgent(config, engine.workspace, engine.metrics)
+        engine.planner = PlannerAgent(config, engine.workspace, engine.metrics)
 
         console.print(Panel(
             f"Resuming from iteration {engine.iteration}",
@@ -167,6 +170,12 @@ class SciRalph:
             self._run_surveyor()
         else:
             console.print("[dim]Surveyor skipped (background survey already exists)[/dim]")
+
+        # Run planner to produce initial strategy (skip if already set, e.g. on resume)
+        if not self.research_state.strategy:
+            self._run_planner()
+        else:
+            console.print("[dim]Planner skipped (strategy already exists)[/dim]")
 
         if self.research_state.status == "completed":
             console.print("[yellow]This workspace is already completed.[/yellow]")
@@ -351,6 +360,29 @@ class SciRalph:
             return
 
         self.research_state.background_survey = survey
+
+    def _run_planner(self):
+        """Run planner agent to produce an initial research strategy."""
+        console.print("[cyan]Planner[/cyan] formulating strategy...")
+        self.planner.research_state = self.research_state
+        task = Task(
+            task_id="PLAN-000", task_type=TaskType.PLAN,
+            assigned_to="planner", iteration=0,
+        )
+        result = self.planner.run(task, 0)
+        self._print_call_summary(result)
+        self._apply_strategy()
+        self._sync_research_state()
+        self._render_files_for_git()
+        self.workspace.git_commit("Iteration 0: planner — research strategy")
+
+    def _apply_strategy(self):
+        """Store the planner's parsed strategy in research state."""
+        strategy = self.planner.parsed_strategy
+        if strategy is None:
+            return
+
+        self.research_state.strategy = strategy
 
     def _record_agent_failures(self, task: Task, agent_name: str, result):
         """Inspect agent result for failure signals and record for orchestrator context."""

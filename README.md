@@ -6,7 +6,7 @@ Multi-agent scaffolding system for autonomous scientific research in mathematics
 
 SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
 
-**How it works.** Eight specialised LLM agent roles (surveyor, orchestrator, researcher, computer, reviewer, deep critic, compressor, formatter) take turns in a loop. A **surveyor** maps the research landscape before the main loop begins. The **orchestrator** dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), formulates working hypotheses from the evidence, then sends them to a **reviewer** for adversarial review. No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
+**How it works.** Nine specialised LLM agent roles (surveyor, planner, orchestrator, researcher, computer, reviewer, deep critic, compressor, formatter) take turns in a loop. A **surveyor** maps the research landscape before the main loop begins. A **planner** produces the initial research strategy. The **orchestrator** dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), formulates working hypotheses from the evidence, then sends them to a **reviewer** for adversarial review. No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
 
 **Current status.** Core functionality is complete (~910 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 4 categories) compensates for predictable LLM failures. Every mechanism is instrumented — `EVENT_LOG.jsonl` records each intervention. See `CODEBASE.md` §7 for the full catalog.
 
@@ -68,12 +68,17 @@ The verifier evaluates each Established Result for mathematical/physical validit
 
 ## Architecture
 
-Eight agent roles take turns in a main loop. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
+Nine agent roles take turns in a main loop. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
 
 ```
                  ┌────────────┐
                  │  Surveyor   │  (runs once before loop,
                  │ (one-shot)  │   can be re-invoked mid-loop)
+                 └──────┬─────┘
+                        ▼
+                 ┌────────────┐
+                 │  Planner    │  (runs once before loop,
+                 │ (one-shot)  │   produces research strategy)
                  └──────┬─────┘
                         ▼
 ┌─────────────────────────────────────────────────┐
@@ -100,6 +105,7 @@ Eight agent roles take turns in a main loop. Each agent gets a fresh context per
 | Agent | Role | Mode | Context source | Mutates |
 |-------|------|------|----------------|---------|
 | **Surveyor** | Maps the research landscape before the main loop | One-shot | Problem statement + ResearchState | `BackgroundSurvey` on ResearchState |
+| **Planner** | Research strategy planning | One-shot | Problem statement + background survey | Strategy section on ResearchState |
 | **Orchestrator** | Plans next task, mutates state via tools | Agentic (12 tools) | ResearchState via renderers | ResearchState, `CURRENT_TASK.md` |
 | **Researcher** | Analytical reasoning, derivation | One-shot (structured JSON) | Task + target entity + method hints + light state | Evidence on RQ/WH |
 | **Computer** | Computational work via code | Agentic (4 tools) | Task + target entity + method hints + light state | Evidence on RQ/WH |
@@ -177,8 +183,9 @@ src/sciralph/
     critic.py          — Strategic review (one-shot structured JSON); writes Critique objects
     compressor.py      — File size management
     formatter.py       — Produces ANSWER.md from final research state (one-shot)
+    planner.py         — Research strategy planner: produces initial strategy (one-shot)
     surveyor.py        — Background surveyor: maps the research landscape (one-shot)
-  prompts/             — Static .md system prompt files (one per agent): orchestrator.md, researcher.md, computer.md, reviewer.md, deep_critic.md, compressor.md, formatter.md, surveyor.md, verifier.md (independent verify script)
+  prompts/             — Static .md system prompt files (one per agent): orchestrator.md, researcher.md, computer.md, reviewer.md, deep_critic.md, compressor.md, formatter.md, planner.md, surveyor.md, verifier.md (independent verify script)
   providers/
     base.py            — LLMProvider ABC + ProviderResponse dataclass
     anthropic.py       — Anthropic Claude adapter

@@ -813,6 +813,8 @@ class TestDispatchFailureRecovery:
             engine.formatter = MagicMock()
             engine.surveyor = MagicMock()
             engine.surveyor.parsed_survey = None
+            engine.planner = MagicMock()
+            engine.planner.parsed_strategy = None
         return engine
 
     def test_transient_error_continues_loop(self):
@@ -1137,6 +1139,8 @@ class TestSyncOnTermination:
             engine.formatter = MagicMock()
             engine.surveyor = MagicMock()
             engine.surveyor.parsed_survey = None
+            engine.planner = MagicMock()
+            engine.planner.parsed_strategy = None
         return engine, ws
 
     def test_sync_called_on_termination(self):
@@ -1352,6 +1356,8 @@ class TestSurveyorEngine:
             # Create mock surveyor
             engine.surveyor = MagicMock()
             engine.surveyor.parsed_survey = None
+            engine.planner = MagicMock()
+            engine.planner.parsed_strategy = None
         return engine
 
     def test_apply_survey_stores_survey(self):

@@ -311,6 +311,8 @@ class TestRunSurveyorSkip:
         )
         engine.problem_meta = {}
         engine.surveyor = MagicMock()
+        engine.planner = MagicMock()
+        engine.planner.parsed_strategy = None
         engine.compressor = MagicMock()
 
         engine.run()
@@ -335,6 +337,8 @@ class TestRunSurveyorSkip:
         engine.problem_meta = {}
         engine.surveyor = MagicMock()
         engine.surveyor.parsed_survey = None
+        engine.planner = MagicMock()
+        engine.planner.parsed_strategy = None
         engine.compressor = MagicMock()
 
         engine.run()
@@ -362,6 +366,8 @@ class TestRunSurveyorSkip:
         )
         engine.problem_meta = {}
         engine.surveyor = MagicMock()
+        engine.planner = MagicMock()
+        engine.planner.parsed_strategy = None
         engine.orchestrator = MagicMock()
         engine.compressor = MagicMock()
 

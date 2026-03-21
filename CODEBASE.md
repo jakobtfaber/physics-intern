@@ -20,7 +20,7 @@
 
 ## 1. Architecture Overview
 
-SciRalph is a multi-agent scaffolding system for autonomous scientific research in theoretical physics. Seven agent roles take turns in a main loop: researcher (analytical reasoning), computer (code execution), reviewer (adversarial review), deep critic (strategy review), surveyor, compressor, and formatter. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. LLM calls go through a provider abstraction layer supporting Anthropic, OpenAI, Google Gemini, and HuggingFace.
+SciRalph is a multi-agent scaffolding system for autonomous scientific research in theoretical physics. Eight agent roles take turns in a main loop: researcher (analytical reasoning), computer (code execution), reviewer (adversarial review), deep critic (strategy review), surveyor, planner, compressor, and formatter. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. LLM calls go through a provider abstraction layer supporting Anthropic, OpenAI, Google Gemini, and HuggingFace.
 
 ```
                         ┌──────────────────┐
@@ -48,6 +48,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
      │  computer        reviewer                    │
      │  critic          compressor                  │
      │  formatter       surveyor                    │
+     │  planner                                     │
      └─────────────────────────────────────────────┘
 
      ┌─────────────────────────────────────────────┐
@@ -116,6 +117,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `agents/compressor.py` | 27 | One-shot: file size management |
 | `agents/formatter.py` | 43 | One-shot: produces `ANSWER.md` from final research state |
 | `agents/surveyor.py` | 45 | One-shot: produces background survey notes |
+| `agents/planner.py` | — | Planner agent: produces initial research strategy from problem + background survey (one-shot) |
 | `providers/__init__.py` | 24 | `create_provider()` factory + re-exports |
 | `providers/base.py` | 83 | `LLMProvider` ABC + `ProviderResponse` dataclass |
 | `providers/anthropic.py` | 159 | Anthropic Claude adapter |
@@ -131,7 +133,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 
 **File:** `engine.py` — `SciRalph.run()`
 
-The loop runs `while self.iteration < self.config.max_iterations`, incrementing `self.iteration` at the **top** of each pass (so iteration 1 is the first real turn). Each iteration follows this sequence:
+Before the main loop begins, two agents run at iteration 0: the **surveyor** produces background survey notes, and then the **planner** produces the initial research strategy from the problem statement and background survey. The loop then runs `while self.iteration < self.config.max_iterations`, incrementing `self.iteration` at the **top** of each pass (so iteration 1 is the first real turn). Each iteration follows this sequence:
 
 ```
 ┌─── Iteration N ──────────────────────────────────────────────────────┐
@@ -218,6 +220,7 @@ Dispatch follows `TASK_TYPE_AGENT_MAP` (in `task.py`):
 | `format` | `formatter` | Dispatched automatically on successful termination |
 | `terminate` | `orchestrator` | Handled by engine termination gate |
 | `survey` | `surveyor` | Background survey / mid-loop resurvey |
+| `plan` | `planner` | Initial research strategy; runs once at iteration 0 after surveyor |
 
 ---
 
@@ -244,7 +247,7 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Two agents are agentic: orchestrator (11 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching). Six agents are one-shot: researcher (structured JSON via `_parse_researcher_json()`), reviewer (structured JSON via `_parse_review_json()`), critic (structured JSON via `_parse_critic_json()`), surveyor, compressor, and formatter.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Two agents are agentic: orchestrator (11 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching). Seven agents are one-shot: researcher (structured JSON via `_parse_researcher_json()`), reviewer (structured JSON via `_parse_review_json()`), critic (structured JSON via `_parse_critic_json()`), surveyor, planner, compressor, and formatter.
 
 All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_result`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`. (Only the computer agent now uses `submit_result` via this mechanism; the researcher uses one-shot JSON output instead.)
 
@@ -291,7 +294,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `abandon_hypothesis` — marks as ABANDONED, records in `failed_approaches`
 - `promote_hypothesis` — promotes WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, blocks on unestablished `depends_on`)
 - `resolve_critique` — marks critique as RESOLVED with resolution text
-- `update_section` — replaces content of Conventions, Strategy, or Situation Assessment
+- `update_section` — replaces content of Conventions or Situation Assessment (Strategy is no longer a valid target)
 - `append_note` — appends a research note to `research_notes` list
 - `add_research_question` — creates new RQ-NNN for open-ended exploration targets
 - `resolve_research_question` — marks RQ as resolved, links to resulting hypothesis IDs
@@ -453,7 +456,7 @@ For `COMPUTE`:
 3. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
 4. **`promote_hypothesis`** — WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, dependency checks)
 5. **`resolve_critique`** — marks CRIT-NNN as RESOLVED with resolution text
-6. **`update_section`** — replaces Conventions, Strategy, or Situation Assessment content
+6. **`update_section`** — replaces Conventions or Situation Assessment content (Strategy is no longer a valid target)
 7. **`append_note`** — appends to `research_notes` list
 8. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
 9. **`resolve_research_question`** — marks RQ as resolved, links to resulting hypothesis IDs
