@@ -12,6 +12,7 @@ from sciralph.verify import (
     ProcessEvent,
     ProcessAuditResult,
     load_workspace,
+    load_reference_file,
     rerun_computations,
     run_formal_evaluation,
     build_verification_prompt,
@@ -850,3 +851,136 @@ def test_formal_eval_report_without_formal(tmp_path):
 
     report = (tmp_path / "VERIFICATION.md").read_text()
     assert "formal_answer" not in report
+
+
+# ---------------------------------------------------------------------------
+# Reference file loading
+# ---------------------------------------------------------------------------
+
+def test_load_reference_file_with_python_tag(tmp_path, monkeypatch):
+    """Reference file with ```python tag → extracts answer expression."""
+    monkeypatch.setattr("sciralph.verify.REFERENCES_DIR", tmp_path)
+    ref = tmp_path / "my_problem.md"
+    ref.write_text("```python\ndelta = 3 * x + y\n```\n\n# Typical Good Run\n...")
+
+    answer, content = load_reference_file(Path("problems/my_problem.yaml"))
+
+    assert answer == "delta = 3 * x + y"
+    assert "Typical Good Run" in content
+
+
+def test_load_reference_file_without_tag(tmp_path, monkeypatch):
+    """Reference file with bare ``` block → still extracts answer."""
+    monkeypatch.setattr("sciralph.verify.REFERENCES_DIR", tmp_path)
+    ref = tmp_path / "my_problem.md"
+    ref.write_text("```\nF = 1 - p**2\n```\n\n# Run description")
+
+    answer, content = load_reference_file(Path("problems/my_problem.yaml"))
+
+    assert answer == "F = 1 - p**2"
+
+
+def test_load_reference_file_not_found(tmp_path, monkeypatch):
+    """No matching reference file → (None, None)."""
+    monkeypatch.setattr("sciralph.verify.REFERENCES_DIR", tmp_path)
+
+    answer, content = load_reference_file(Path("problems/nonexistent.yaml"))
+
+    assert answer is None
+    assert content is None
+
+
+def test_load_reference_file_none_path():
+    """None problem path → (None, None)."""
+    answer, content = load_reference_file(None)
+
+    assert answer is None
+    assert content is None
+
+
+def test_load_reference_file_no_code_block(tmp_path, monkeypatch):
+    """Reference file without code block → answer is None, content is returned."""
+    monkeypatch.setattr("sciralph.verify.REFERENCES_DIR", tmp_path)
+    ref = tmp_path / "my_problem.md"
+    ref.write_text("# Just a description\nNo code block here.")
+
+    answer, content = load_reference_file(Path("problems/my_problem.yaml"))
+
+    assert answer is None
+    assert "Just a description" in content
+
+
+# ---------------------------------------------------------------------------
+# Formal eval fallback to reference file
+# ---------------------------------------------------------------------------
+
+def test_formal_eval_fallback_to_reference(tmp_path, monkeypatch):
+    """Empty answer in YAML + reference file with answer → formal eval proceeds."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "ANSWER.md").write_text(CORRECT_ANSWER_MD)
+
+    # Problem def with empty answer but valid template
+    problem_def = dict(HAWKING_PROBLEM_DEF)
+    problem_def["answer"] = ""
+
+    # Mock reference file to return the correct answer
+    ref_answer = HAWKING_PROBLEM_DEF["answer"]
+    monkeypatch.setattr(
+        "sciralph.verify.load_reference_file",
+        lambda path: (ref_answer, "# reference content"),
+    )
+
+    result = run_formal_evaluation(ws_dir, problem_def, problem_path=Path("test.yaml"))
+
+    assert not result.skipped
+    assert result.correct is True
+
+
+def test_formal_eval_no_fallback_when_answer_present(tmp_path, monkeypatch):
+    """YAML has answer → reference file is not consulted."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "ANSWER.md").write_text(CORRECT_ANSWER_MD)
+
+    # Track whether load_reference_file was called
+    called = []
+    monkeypatch.setattr(
+        "sciralph.verify.load_reference_file",
+        lambda path: (called.append(1), None) or (None, None),
+    )
+
+    result = run_formal_evaluation(ws_dir, HAWKING_PROBLEM_DEF, problem_path=Path("test.yaml"))
+
+    assert not result.skipped
+    assert result.correct is True
+    assert len(called) == 0  # reference file not consulted
+
+
+# ---------------------------------------------------------------------------
+# build_verification_prompt with reference content
+# ---------------------------------------------------------------------------
+
+def test_build_prompt_with_reference_content():
+    """Reference content is included in verification prompt."""
+    contents = WorkspaceContents(
+        workspace_dir="/tmp/test",
+        research_state="# State", evidence_log="# Evidence", critique_log="# Critiques",
+    )
+    ref_content = "# Typical Good Run\nExpected: 5 iterations, VALID verdict."
+
+    _, user_content = build_verification_prompt(contents, reference_content=ref_content)
+
+    assert "## Reference Document" in user_content
+    assert "Typical Good Run" in user_content
+    assert "Expected: 5 iterations" in user_content
+
+
+def test_build_prompt_without_reference_content():
+    """No reference content → no Reference Document section."""
+    contents = WorkspaceContents(
+        workspace_dir="/tmp/test",
+        research_state="# State", evidence_log="# Evidence", critique_log="# Critiques",
+    )
+
+    _, user_content = build_verification_prompt(contents, reference_content=None)
+
+    assert "Reference Document" not in user_content

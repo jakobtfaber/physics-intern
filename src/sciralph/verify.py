@@ -27,6 +27,7 @@ from .sandbox import ExecutionResult, execute_python
 console = Console()
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
+REFERENCES_DIR = Path(__file__).parent.parent.parent / "references"
 
 
 def _call_llm_streaming(system: str, user_content: str, config: Config) -> LLMResponse:
@@ -221,27 +222,69 @@ def load_workspace(workspace_dir: str, *, include_process_data: bool = False) ->
 
 
 # ---------------------------------------------------------------------------
+# Reference file loading
+# ---------------------------------------------------------------------------
+
+def load_reference_file(problem_path: Path | None) -> tuple[str | None, str | None]:
+    """Load reference file matching a problem YAML, if it exists.
+
+    Returns:
+        (answer_expr, full_content) where answer_expr is the content
+        of the first code block (a SymPy assignment string) and
+        full_content is the entire file text.  Both are None if no
+        reference file is found.
+    """
+    if problem_path is None:
+        return None, None
+
+    ref_path = REFERENCES_DIR / f"{problem_path.stem}.md"
+    if not ref_path.exists():
+        return None, None
+
+    content = ref_path.read_text()
+
+    # Extract first fenced code block
+    m = re.search(r"```(?:python)?\s*\n(.*?)```", content, re.DOTALL)
+    answer_expr = m.group(1).strip() if m else None
+
+    return answer_expr, content
+
+
+# ---------------------------------------------------------------------------
 # Formal answer evaluation
 # ---------------------------------------------------------------------------
 
-def run_formal_evaluation(workspace_dir: str, problem_def: dict | None) -> FormalEvalResult:
+def run_formal_evaluation(
+    workspace_dir: str,
+    problem_def: dict | None,
+    *,
+    problem_path: Path | None = None,
+) -> FormalEvalResult:
     """Run formal (symbolic/numerical) answer evaluation against ground truth.
 
     Preconditions (all must be met, otherwise skip gracefully):
-    1. problem_def is provided and has an 'answer' field
+    1. problem_def is provided and has an 'answer' field (or reference file fallback)
     2. problem_def has an 'answer_template' field
     3. ANSWER.md exists in the workspace
     """
     from .evaluate import evaluate_response
 
     # Precondition 1: problem_def with answer
-    if not problem_def or not problem_def.get("answer"):
+    if not problem_def:
         return FormalEvalResult(skipped=True, skip_reason="No problem definition or no answer field")
 
-    # Check for empty string answers
-    answer_val = problem_def["answer"]
-    if isinstance(answer_val, str) and not answer_val.strip():
-        return FormalEvalResult(skipped=True, skip_reason="No problem definition or no answer field")
+    answer_val = problem_def.get("answer")
+    answer_empty = answer_val is None or (isinstance(answer_val, str) and not answer_val.strip())
+
+    if answer_empty:
+        # Fallback: try reference file
+        ref_answer, _ = load_reference_file(problem_path)
+        if ref_answer:
+            problem_def = dict(problem_def)  # shallow copy to avoid mutating caller's dict
+            problem_def["answer"] = ref_answer
+            console.print("  [dim]Using answer from reference file[/]")
+        else:
+            return FormalEvalResult(skipped=True, skip_reason="No problem definition or no answer field")
 
     # Precondition 2: answer_template
     if not problem_def.get("answer_template"):
@@ -327,6 +370,7 @@ def build_verification_prompt(
     rerun_results: list[RerunResult] | None = None,
     known_answer: str | None = None,
     formal_eval: FormalEvalResult | None = None,
+    reference_content: str | None = None,
 ) -> tuple[str, str]:
     """Assemble the system prompt and user content for the verifier LLM call."""
     system = (PROMPTS_DIR / "verifier.md").read_text()
@@ -359,6 +403,17 @@ def build_verification_prompt(
         sections.append(f"## Known Answer\n\nThe expected answer for this problem is: **{known_answer}**\n\n"
                         "Use this to check whether the research arrived at the correct numerical value or expression. "
                         "A matching answer with a flawed derivation is still VALID but you can raise your concerns.\n")
+
+    # Reference document (ground truth + typical good run description)
+    if reference_content:
+        sections.append(
+            "## Reference Document\n\n"
+            "The following reference document contains the ground-truth answer "
+            "and a description of what a typical successful run looks like. "
+            "Use this to assess both the correctness of the final answer and "
+            "the quality of the research process.\n\n"
+            f"```markdown\n{reference_content}\n```\n"
+        )
 
     # Termination status
     if contents.terminated_cleanly:
@@ -1003,15 +1058,25 @@ def main():
     elif args.problem:
         console.print(f"[yellow]Warning: problem file not found: {args.problem}[/]")
 
+    # Load reference file (if available)
+    problem_path_for_ref = Path(args.problem) if args.problem else None
+    ref_answer_expr, reference_content = load_reference_file(problem_path_for_ref)
+    if reference_content:
+        console.print("[bold]Reference file:[/] loaded")
+    if not known_answer and ref_answer_expr:
+        known_answer = ref_answer_expr
+        console.print(f"[bold]Known answer (from reference):[/] {known_answer[:100]}...")
+
     # Phase 1: Formal answer evaluation (fast, deterministic)
     console.print(f"\n[bold]Phase 1: Formal answer evaluation...[/]")
-    formal_eval = run_formal_evaluation(workspace_dir, problem_def)
+    formal_eval = run_formal_evaluation(workspace_dir, problem_def, problem_path=problem_path_for_ref)
     render_formal_evaluation(formal_eval)
 
     # Build prompt and call LLM (science verification)
     config = Config(model=model, max_tokens=max_tokens, workspace_dir=workspace_dir)
     system, user_content = build_verification_prompt(
         contents, rerun_results, known_answer=known_answer, formal_eval=formal_eval,
+        reference_content=reference_content,
     )
 
     console.print(f"\n[bold]Phase 2a: Science verification ({model}, streaming)...[/]")
