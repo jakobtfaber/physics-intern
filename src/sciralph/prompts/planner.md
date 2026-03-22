@@ -12,7 +12,7 @@ Given the problem and background survey, produce a **numbered list of research s
 
 ## Constraints
 
-- **Size each step for one agent call** — roughly one page of reasoning or one focused computation. If a step would require both analytical derivation AND numerical computation, split it into two steps.
+- **Size each step for one agent call** — roughly one page of reasoning or one focused computation. If a step would require both analytical derivation AND numerical computation, split it into two steps. If a step bundles multiple independent sub-goals ("derive X, then compute Y, then verify Z"), split it. The orchestrator converts each step into one or more Research Questions — smaller steps give it more control.
 - **Order by logical dependency** — earlier steps should not depend on later ones. Note explicitly what each step depends on (e.g., "Depends on: step 2").
 - **Planning only** — Do NOT write code, formulas, derivations, or candidate answers. Do not attempt to solve the problem. Your job is to decompose it into manageable pieces.
 - **No agent-type mapping** — Do not specify whether a step should go to "researcher" or "computer". The orchestrator decides that.
