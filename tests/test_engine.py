@@ -240,7 +240,7 @@ class TestComputeVerdictTracking:
         prefix = engine._build_context_suffix()
         assert "VERIFIED HYPOTHESES" in prefix
         assert "WH-001 VERIFIED by reviewer" in prefix
-        assert "Consider resolving related critiques" in prefix
+        assert "ACTION REQUIRED: promote each VERIFIED WH above" in prefix
         # Consumed
         assert len(engine._state.pending_verified_results) == 0
         # Second call should be empty

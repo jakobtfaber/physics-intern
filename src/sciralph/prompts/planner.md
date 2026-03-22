@@ -8,7 +8,7 @@ Given the problem and background survey, produce a **numbered list of research s
 
 1. **Goal** — One sentence stating what this step aims to establish or compute.
 2. **Approach sketch** — A brief description of the method or reasoning approach (2-3 sentences).
-3. **Sanity check** — How to verify the step was done correctly (limiting case, dimensional analysis, known result, etc.).
+3. **Validation strategy** — How to test correctness *without predicting the answer* (e.g., dimensional analysis, symmetry properties, consistency with an adjacent step, independent recomputation via a different method).
 
 ## Constraints
 

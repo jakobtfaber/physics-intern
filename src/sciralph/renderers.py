@@ -411,6 +411,8 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
             if v.summary:
                 v_parts.append(f"Summary: {v.summary[:1500]}")
             h_parts.append(f'<review verdict="{v.verdict}">\n' + "\n".join(v_parts) + "\n</review>")
+        elif h.status == HypothesisStatus.WORKING and h.evidence:
+            h_parts.append('<review verdict="PENDING">Not yet reviewed.</review>')
         hyp_lines.append(f'<hypothesis id="{h.id}">\n' + "\n".join(h_parts) + "\n</hypothesis>")
     parts.append("<hypotheses>\n" + "\n".join(hyp_lines) + "\n</hypotheses>")
 

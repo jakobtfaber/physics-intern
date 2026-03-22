@@ -479,8 +479,8 @@ class TestUpdateSection:
         })
         assert "unknown" in tc.output.lower()
 
-    def test_strategy_rejected(self):
-        """Strategy is now owned by the planner — update_section should reject it."""
+    def test_strategy_accepted(self):
+        """Strategy can be updated by the orchestrator."""
         ws = _make_workspace()
         state = _make_state()
         state.strategy = "Original strategy."
@@ -489,8 +489,8 @@ class TestUpdateSection:
             "section": "Strategy",
             "content": "Focus on surface gravity approach first.",
         })
-        assert "unknown" in tc.output.lower()
-        assert state.strategy == "Original strategy."
+        assert "Updated" in tc.output
+        assert state.strategy == "Focus on surface gravity approach first."
 
     def test_updates_situation_assessment(self):
         ws = _make_workspace()

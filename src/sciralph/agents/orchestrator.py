@@ -10,7 +10,7 @@ from ..renderers import (
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
 )
-from ..research_state import CritiqueStatus
+from ..research_state import CritiqueStatus, HypothesisStatus
 from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from ..tools import ToolCall
 from .base import PROMPTS_DIR, BaseAgent
@@ -52,6 +52,19 @@ class OrchestratorAgent(BaseAgent):
         wh_count = len(self.research_state.working_hypotheses())
         active_critiques = len([c for c in self.research_state.critiques.values()
                                 if c.status == CritiqueStatus.ACTIVE])
+
+        # Check for review backlog before other banners
+        unreviewed = [
+            h for h in self.research_state.hypotheses.values()
+            if h.id.startswith("WH-") and h.evidence and not h.review
+            and h.status == HypothesisStatus.WORKING
+        ]
+        if len(unreviewed) >= 2:
+            ids = ", ".join(h.id for h in unreviewed[:5])
+            return (
+                f">>> REVIEW BACKLOG: {len(unreviewed)} WHs have evidence but no review "
+                f"({ids}). Prioritize reviewing or abandoning before creating new entities. <<<"
+            )
 
         if er_count >= self.config.min_er_for_completion and wh_count == 0 and active_critiques == 0:
             return (

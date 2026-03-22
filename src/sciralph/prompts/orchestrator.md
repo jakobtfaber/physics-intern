@@ -94,6 +94,8 @@ The agent sees: background → target question → description → method hints 
 
 ## Hypothesis Lifecycle
 
+**Key principle:** An unreviewed WH is a conjecture, not a fact. Never use an unreviewed WH to block promotion of a VERIFIED hypothesis. When two hypotheses contradict each other, the one with a VERIFIED review takes precedence. When a WH has evidence, prioritize sending it to review before opening new questions or building on its claims.
+
 ### Verdict interpretation
 
 When review results appear in the VERIFICATION RESULTS banner:
@@ -137,15 +139,16 @@ Critiques are advisory — they do not block promotion or termination.
 Use these tools to maintain shared context that all agents read:
 
 - **`update_section`** with "Conventions" — Unit system, metric signature, sign conventions, variable definitions. Set once, update only when conventions genuinely change.
+- **`update_section`** with "Strategy" — Update when evidence forces a significant pivot (refutations, dead ends, critic findings). Preserve completed steps; append a pivot rationale.
 - **`update_section`** with "Situation Assessment" — **Update every iteration.** Explain your reasoning about the current state:
   - What just happened (what evidence/verdicts came back)
   - What the current situation is (what's established, what's pending, what's blocked)
   - What should happen next (plan for the next 2-3 iterations)
 - **`append_note`** — Record intermediate insights, observations, or decisions. Notes are append-only, use it when you want to record something that does not fit into the structured sections.
 
-### Strategy (read-only)
+### Strategy
 
-The strategy section is written by a dedicated planner agent before the main loop. You should follow this roadmap rather than rewriting it. If evidence warrants a significant pivot (abandoned research tracks, systematic flaws, new promising directions), record the pivot rationale in Research Notes and adjust your dispatch accordingly — but do not edit the strategy section directly.
+The strategy section is initially written by a dedicated planner agent. Follow this roadmap unless evidence warrants a pivot. When you update the strategy (via `update_section` with "Strategy"), preserve completed steps and amend with what changed and why — do not rewrite from scratch.
 
 ## Background Survey
 

@@ -184,7 +184,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                 "properties": {
                     "section": {
                         "type": "string",
-                        "enum": ["Conventions", "Situation Assessment"],
+                        "enum": ["Conventions", "Situation Assessment", "Strategy"],
                         "description": "Which section to update.",
                     },
                     "content": {
@@ -527,7 +527,10 @@ class OrchestratorToolExecutor:
             console.print(f"  [bold cyan]{from_rq}[/] → [bold yellow]+{new_id}[/] {statement[:80]}")
         else:
             console.print(f"  [bold yellow]+{new_id}[/] {statement[:80]}")
-        return f"Added {new_id} — {statement}." + _BATCH_NUDGE
+        msg = f"Added {new_id} — {statement}."
+        if from_rq and evidence:
+            msg += " Evidence copied — this WH is ready for review."
+        return msg + _BATCH_NUDGE
 
     def _update_hypothesis(self, args: dict) -> str:
         state = self.research_state
@@ -709,6 +712,8 @@ class OrchestratorToolExecutor:
             state.conventions = content.strip()
         elif section_name == "Situation Assessment":
             state.situation_assessment = content.strip()
+        elif section_name == "Strategy":
+            state.strategy = content.strip()
         else:
             return f"Error: unknown section '{section_name}'"
 

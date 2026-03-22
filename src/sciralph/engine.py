@@ -514,7 +514,7 @@ class SciRalph:
                 lines.append(f"- {v['claim']} VERIFIED by reviewer{provenance}")
                 if v.get("reasoning"):
                     lines.append(f"  Reasoning: {v['reasoning']}")
-            lines.append("  Consider resolving related critiques and proceeding to promotion.")
+            lines.append("  ACTION REQUIRED: promote each VERIFIED WH above (promote_hypothesis), then resolve related critiques.")
             lines.append(">>> END VERIFIED HYPOTHESES <<<\n")
             self._state.pending_verified_results.clear()
         if self._state.pending_compute_verdicts:
