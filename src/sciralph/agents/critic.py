@@ -27,6 +27,18 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 _JSON_FENCE_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
+_INVALID_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
+
+
+def _try_json_loads(s: str):
+    """Parse JSON, retrying with escape fixes for LaTeX-contaminated strings."""
+    try:
+        return json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        fixed = _INVALID_ESCAPE_RE.sub(r'\\\\', s)
+        if fixed != s:
+            return json.loads(fixed)
+        raise
 
 
 def _parse_critic_json(text: str) -> dict | None:
@@ -39,7 +51,7 @@ def _parse_critic_json(text: str) -> dict | None:
     fenced = list(_JSON_FENCE_RE.finditer(text))
     if fenced:
         try:
-            parsed = json.loads(fenced[-1].group(1).strip())
+            parsed = _try_json_loads(fenced[-1].group(1).strip())
             if isinstance(parsed, dict) and "critiques" in parsed:
                 return parsed
         except (json.JSONDecodeError, ValueError):
@@ -60,7 +72,7 @@ def _parse_critic_json(text: str) -> dict | None:
                 candidate = text[start : i + 1]
                 if '"critiques"' in candidate:
                     try:
-                        parsed = json.loads(candidate)
+                        parsed = _try_json_loads(candidate)
                         if isinstance(parsed, dict):
                             return parsed
                     except (json.JSONDecodeError, ValueError):

@@ -18,8 +18,25 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 _JSON_FENCE_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
+_INVALID_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
 
 _VALID_CONFIDENCE = {"exact", "approximate", "partial"}
+
+
+def _try_json_loads(s: str):
+    """Parse JSON, retrying with escape fixes for LaTeX-contaminated strings.
+
+    LLMs often emit LaTeX like ``\\{`` or ``\\langle`` inside JSON strings,
+    which are invalid JSON escape sequences. On failure we replace unrecognised
+    ``\\X`` sequences with ``\\\\X`` and retry.
+    """
+    try:
+        return json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        fixed = _INVALID_ESCAPE_RE.sub(r'\\\\', s)
+        if fixed != s:
+            return json.loads(fixed)  # let caller handle if still bad
+        raise
 
 
 def _parse_researcher_json(text: str) -> dict | None:
@@ -33,7 +50,7 @@ def _parse_researcher_json(text: str) -> dict | None:
     fenced = list(_JSON_FENCE_RE.finditer(text))
     if fenced:
         try:
-            parsed = json.loads(fenced[-1].group(1).strip())
+            parsed = _try_json_loads(fenced[-1].group(1).strip())
             if isinstance(parsed, dict) and "result" in parsed:
                 return parsed
         except (json.JSONDecodeError, ValueError):
@@ -53,7 +70,7 @@ def _parse_researcher_json(text: str) -> dict | None:
                 candidate = text[start : i + 1]
                 if '"result"' in candidate:
                     try:
-                        parsed = json.loads(candidate)
+                        parsed = _try_json_loads(candidate)
                         if isinstance(parsed, dict):
                             return parsed
                     except (json.JSONDecodeError, ValueError):

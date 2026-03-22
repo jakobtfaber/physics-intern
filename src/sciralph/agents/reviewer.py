@@ -19,6 +19,18 @@ if TYPE_CHECKING:
 # Match a fenced ```json ... ``` block or a bare top-level { ... } object
 _JSON_FENCE_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
 _BARE_JSON_RE = re.compile(r"\{[^{}]*\"verdict\"[^{}]*\}", re.DOTALL)
+_INVALID_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
+
+
+def _try_json_loads(s: str):
+    """Parse JSON, retrying with escape fixes for LaTeX-contaminated strings."""
+    try:
+        return json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        fixed = _INVALID_ESCAPE_RE.sub(r'\\\\', s)
+        if fixed != s:
+            return json.loads(fixed)
+        raise
 
 
 def _parse_review_json(text: str) -> dict | None:
@@ -27,14 +39,14 @@ def _parse_review_json(text: str) -> dict | None:
     fenced = list(_JSON_FENCE_RE.finditer(text))
     if fenced:
         try:
-            return json.loads(fenced[-1].group(1).strip())
+            return _try_json_loads(fenced[-1].group(1).strip())
         except (json.JSONDecodeError, ValueError):
             pass
     # Fall back to bare JSON objects containing "verdict"
     bare = list(_BARE_JSON_RE.finditer(text))
     if bare:
         try:
-            return json.loads(bare[-1].group(0))
+            return _try_json_loads(bare[-1].group(0))
         except (json.JSONDecodeError, ValueError):
             pass
     return None
