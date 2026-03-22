@@ -783,7 +783,7 @@ def _write_conversation_log(config: Config, resp: LLMResponse,
     _call_seq[iteration] = seq
 
     agent = agent_name or "unknown"
-    filename = f"iter{iteration:03d}_{agent}_{seq}.md"
+    filename = f"iter{iteration:03d}_{seq:02d}_{agent}.md"
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     reasoning_rows = ""
@@ -855,7 +855,7 @@ def _write_agent_conversation_log(
     _call_seq[iteration] = seq
 
     agent = agent_name or "unknown"
-    filename = f"iter{iteration:03d}_{agent}_{seq}.md"
+    filename = f"iter{iteration:03d}_{seq:02d}_{agent}.md"
 
     lines: list[str] = []
     lines.append(f"# Agent Conversation — iter {iteration}, {agent}\n")

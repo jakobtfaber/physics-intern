@@ -26,7 +26,7 @@ def test_creates_correctly_named_file(tmp_path):
 
     files = list(tmp_path.iterdir())
     assert len(files) == 1
-    assert files[0].name == "iter003_researcher_1.md"
+    assert files[0].name == "iter003_01_researcher.md"
 
 
 def test_file_contains_expected_sections(tmp_path):
@@ -37,7 +37,7 @@ def test_file_contains_expected_sections(tmp_path):
                             "sys prompt here", "user content here",
                             "orchestrator", 5)
 
-    content = (tmp_path / "iter005_orchestrator_1.md").read_text()
+    content = (tmp_path / "iter005_01_orchestrator.md").read_text()
     assert "<SYSTEM_PROMPT>" in content
     assert "sys prompt here" in content
     assert "<USER_MESSAGE>" in content
@@ -57,9 +57,9 @@ def test_seq_increments_for_same_iteration(tmp_path):
 
     names = sorted(f.name for f in tmp_path.iterdir())
     assert names == [
-        "iter007_critic_3.md",
-        "iter007_researcher_1.md",
-        "iter007_researcher_2.md",
+        "iter007_01_researcher.md",
+        "iter007_02_researcher.md",
+        "iter007_03_critic.md",
     ]
 
 
@@ -126,7 +126,7 @@ def test_agent_log_single_file_multi_round(tmp_path):
 
     files = list(tmp_path.iterdir())
     assert len(files) == 1
-    assert files[0].name == "iter001_computationalist_1.md"
+    assert files[0].name == "iter001_01_computationalist.md"
 
 
 def test_agent_log_contains_tool_call_code(tmp_path):
@@ -147,7 +147,7 @@ def test_agent_log_contains_tool_call_code(tmp_path):
     _write_agent_conversation_log(
         config, "sys", "user", "computationalist", 1, round_log, result)
 
-    content = (tmp_path / "iter001_computationalist_1.md").read_text()
+    content = (tmp_path / "iter001_01_computationalist.md").read_text()
     assert '<TOOL_CALL name="execute_python">' in content
     assert "~~~python" in content
     assert "import numpy as np" in content
@@ -175,7 +175,7 @@ def test_agent_log_contains_tool_result(tmp_path):
     _write_agent_conversation_log(
         config, "sys", "user", "computationalist", 1, round_log, result)
 
-    content = (tmp_path / "iter001_computationalist_1.md").read_text()
+    content = (tmp_path / "iter001_01_computationalist.md").read_text()
     assert '<TOOL_RESULT name="execute_python" duration="0.3s" status="error">' in content
     assert "NameError: name 'x' is not defined" in content
 
@@ -200,7 +200,7 @@ def test_agent_log_contains_scaffold_labels(tmp_path):
     _write_agent_conversation_log(
         config, "sys", "user", "computationalist", 1, round_log, result)
 
-    content = (tmp_path / "iter001_computationalist_1.md").read_text()
+    content = (tmp_path / "iter001_01_computationalist.md").read_text()
     assert '<USER_MESSAGE label="scaffold: checkpoint_nudge">' in content
     assert "CHECKPOINT: You are running low..." in content
 
@@ -223,7 +223,7 @@ def test_agent_log_xml_tags(tmp_path):
         config, "system prompt text", "user content text",
         "computationalist", 1, round_log, result)
 
-    content = (tmp_path / "iter001_computationalist_1.md").read_text()
+    content = (tmp_path / "iter001_01_computationalist.md").read_text()
     assert "<SYSTEM_PROMPT" in content
     assert "system prompt text" in content
     assert "</SYSTEM_PROMPT>" in content
@@ -258,8 +258,8 @@ def test_agent_log_seq_increments_by_one(tmp_path):
 
     files = sorted(f.name for f in tmp_path.iterdir())
     assert files == [
-        "iter001_computationalist_1.md",
-        "iter001_computationalist_2.md",
+        "iter001_01_computationalist.md",
+        "iter001_02_computationalist.md",
     ]
     # seq should be 2 (not 4 which would happen if per-round logging incremented)
     assert llm_module._call_seq[1] == 2
@@ -306,6 +306,6 @@ def test_agent_log_forced_final_call(tmp_path):
     _write_agent_conversation_log(
         config, "sys", "user", "computationalist", 1, round_log, result)
 
-    content = (tmp_path / "iter001_computationalist_1.md").read_text()
+    content = (tmp_path / "iter001_01_computationalist.md").read_text()
     assert '<FORCED_FINAL_CALL reason="zero_text"' in content
     assert "*(no text output)*" in content
