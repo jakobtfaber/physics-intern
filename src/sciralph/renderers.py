@@ -440,14 +440,17 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
 def render_critic_context(state: ResearchState, iteration: int) -> str:
     """Render strategic context for the deep critic using XML tags.
 
-    Provides a high-level view: strategy, conventions, situation assessment,
-    research notes, RQ list, hypothesis summaries (evidence/review one-liners),
-    dead ends, background survey, and previous critiques.  No derivations,
-    scripts, reasoning, or approach text.
+    Provides: problem statement, strategy, conventions, research notes,
+    RQ list, hypothesis summaries (evidence/review one-liners), dead ends,
+    background survey, and previous critiques.  No derivations, scripts,
+    reasoning, or approach text.
     """
     parts: list[str] = []
 
     parts.append(f"<iteration>{iteration}</iteration>")
+
+    # Problem Statement
+    parts.append(f"<problem-statement>\n{state.problem_statement or '(No problem statement.)'}\n</problem-statement>")
 
     # Strategy
     strat = state.strategy or "(No strategy set.)"
@@ -456,10 +459,6 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
     # Conventions
     conv = state.conventions or "(No conventions set.)"
     parts.append(f"<conventions>\n{conv}\n</conventions>")
-
-    # Situation Assessment
-    if state.situation_assessment:
-        parts.append(f"<situation-assessment>\n{state.situation_assessment}\n</situation-assessment>")
 
     # Research Notes (last 10)
     if state.research_notes:
