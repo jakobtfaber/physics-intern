@@ -83,7 +83,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 - **Three specialized work agents.** Researcher (analytical, no code), Computer (code execution), and Reviewer (adversarial review, no code). Each has a focused prompt, tool set, and context view.
 - **Evidence inlined on entities.** Rather than a separate `Computation` entity, evidence is inlined as `Evidence` on `Hypothesis` and `ResearchQuestion`, and review is inlined as `ReviewResult` on `Hypothesis`.
 - **Mandatory critic passes.** The scaffold forces critic reviews every N iterations, regardless of agent judgment.
-- **Tool-based state mutation.** Two agents are agentic — orchestrator (11 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with dynamic tool switching via `active_tools`). Three agents use one-shot structured JSON output — researcher (`_parse_researcher_json()` in `agents/researcher.py`), reviewer (`_parse_review_json()` in `agents/reviewer.py`), and critic (`_parse_critic_json()` in `agents/critic.py`). Tool calls use the `stop_after_round` mechanism to signal completion.
+- **Tool-based state mutation.** Two agents are agentic — orchestrator (10 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with dynamic tool switching via `active_tools`). Three agents use one-shot structured JSON output — researcher (`_parse_researcher_json()` in `agents/researcher.py`), reviewer (`_parse_review_json()` in `agents/reviewer.py`), and critic (`_parse_critic_json()` in `agents/critic.py`). Tool calls use the `stop_after_round` mechanism to signal completion.
 - **Provider-agnostic.** LLM calls go through a `providers/` abstraction layer. Model selection is resolved via `models.yaml` registry (friendly key → provider + model_id + env_key + cost). The `verify.py` script is Anthropic-only.
 
 ### Source file map
@@ -247,7 +247,7 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Two agents are agentic: orchestrator (11 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching). Seven agents are one-shot: researcher (structured JSON via `_parse_researcher_json()`), reviewer (structured JSON via `_parse_review_json()`), critic (structured JSON via `_parse_critic_json()`), surveyor, planner, compressor, and formatter.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Two agents are agentic: orchestrator (10 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching). Seven agents are one-shot: researcher (structured JSON via `_parse_researcher_json()`), reviewer (structured JSON via `_parse_review_json()`), critic (structured JSON via `_parse_critic_json()`), surveyor, planner, compressor, and formatter.
 
 All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_result`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`. (Only the computer agent now uses `submit_result` via this mechanism; the researcher uses one-shot JSON output instead.)
 
@@ -294,11 +294,10 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `abandon_hypothesis` — marks as ABANDONED, records in `failed_approaches`
 - `promote_hypothesis` — promotes WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, blocks on unestablished `depends_on`)
 - `resolve_critique` — marks critique as RESOLVED with resolution text
-- `update_section` — replaces content of Conventions or Situation Assessment (Strategy is no longer a valid target)
+- `update_section` — replaces content of Conventions, Situation Assessment, or Strategy
 - `append_note` — appends a research note to `research_notes` list
 - `add_research_question` — creates new RQ-NNN for open-ended exploration targets
 - `resolve_research_question` — marks RQ as resolved, links to resulting hypothesis IDs
-- `record_dead_end` — records a dead-end approach directly without creating a hypothesis
 - `set_next_task` — emits next task with structured dispatch params (background, method_hints, assumptions, relevant_results); triggers `stop_after_round` to end agent loop
 
 **Context (largest in the system):**
@@ -450,18 +449,17 @@ For `COMPUTE`:
 3. **`submit_result`** — structured exit. Params: `target_id`, `description`, `method`, `result`, `confidence` (exact/approximate/partial), `notes`. Sets `stop_after_round = True`.
 4. **`report_progress`** — progress check. Params: `findings_so_far`, `remaining_questions`, `ready_to_conclude`. Does NOT stop.
 
-**`OrchestratorToolExecutor`** (orchestrator) — 11 state-mutation tools:
+**`OrchestratorToolExecutor`** (orchestrator) — 10 state-mutation tools:
 1. **`add_hypothesis`** — creates new WH-NNN in `ResearchState`; optional `from_rq` links to originating RQ (copies evidence)
 2. **`update_hypothesis`** — updates statement/derivation
 3. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
 4. **`promote_hypothesis`** — WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, dependency checks)
 5. **`resolve_critique`** — marks CRIT-NNN as RESOLVED with resolution text
-6. **`update_section`** — replaces Conventions or Situation Assessment content (Strategy is no longer a valid target)
+6. **`update_section`** — replaces Conventions, Situation Assessment, or Strategy content
 7. **`append_note`** — appends to `research_notes` list
 8. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
 9. **`resolve_research_question`** — marks RQ as resolved, links to resulting hypothesis IDs
-10. **`record_dead_end`** — records dead-end approach directly
-11. **`set_next_task`** — emits task with structured dispatch params (background, method_hints, assumptions, relevant_results); sets `stop_after_round = True`
+10. **`set_next_task`** — emits task with structured dispatch params (background, method_hints, assumptions, relevant_results); sets `stop_after_round = True`
 
 Tracks `mutations_applied` (bool) and `resolved_critique_ids` (set) for `process_response` to use.
 
@@ -863,7 +861,7 @@ The `messages` list grows unboundedly across rounds. Large tool outputs can push
 All documentation was synced with the codebase on 2026-03-19.
 
 - **ResearchState as source of truth** — `research_state.py` (480 lines) provides authoritative structured state; agents mutate via tools, Markdown rendered from state for git snapshots only
-- **Two agentic agents** — orchestrator (11 tools via `OrchestratorToolExecutor`), computer (4 tools via `ToolExecutor` with `active_tools` dynamic switching); both use `stop_after_round` mechanism. **Three one-shot structured JSON agents** — researcher (`_parse_researcher_json()`), reviewer (`_parse_review_json()`), and critic (`_parse_critic_json()` + `render_critic_context()`)
+- **Two agentic agents** — orchestrator (10 tools via `OrchestratorToolExecutor`), computer (4 tools via `ToolExecutor` with `active_tools` dynamic switching); both use `stop_after_round` mechanism. **Three one-shot structured JSON agents** — researcher (`_parse_researcher_json()`), reviewer (`_parse_review_json()`), and critic (`_parse_critic_json()` + `render_critic_context()`)
 - **Three specialized work agents** — researcher (analytical), computer (code), reviewer (adversarial review); each has focused prompt, tool set, and context view; evidence inlined on entities as `Evidence` and `ReviewResult`
 - **Renderers** — `renderers.py` produces Markdown snapshot files from ResearchState; agents render context from `self.research_state` via renderers; MD files rendered centrally by engine's `_render_files_for_git()`
 - **Formatter agent** — `agents/formatter.py` produces `ANSWER.md` on successful termination

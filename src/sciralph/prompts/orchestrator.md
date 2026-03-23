@@ -45,7 +45,7 @@ You are expected to do two things, one after the other.
 - After each round of mutations, you will receive an updated state summary showing what changed and what remains to be done. Use it to decide whether more mutations are needed or whether you are ready to dispatch.
 - When you are done mutating state, call `set_next_task` **alone** — it must be the only tool call in that response.
 
-Note: `add_hypothesis` and `add_research_question` auto-assign entity IDs (WH-NNN, RQ-NNN). You will see the assigned ID in the tool result. If you need to reference a newly created entity in `set_next_task`, call `set_next_task` in your next response after seeing the ID.
+Note: `add_hypothesis` and `add_research_question` auto-assign entity IDs (WH-NNN, RQ-NNN). You will see the assigned ID in the tool result.
 
 
 ## 3. Managing the Research State
@@ -119,24 +119,14 @@ Use these tools to maintain shared context that all agents read:
 
 ### Agent types
 
-Three agents advance the research:
+| Agent     | When to use                           | Notes                        |
+|-----------|---------------------------------------|------------------------------|
+| research  | Pure reasoning, derivation, analysis  | No code, produces evidence   |
+| compute   | Numerical, symbolic, or simulation    | Python/SymPy/NumPy/SciPy     |
+| review    | Check evidence on a WH                | No code, submits verdict     |
+| critique  | Strategic/coherence assessment        | High-level, not per-claim    |
 
-- **research** — Analytical exploration WITHOUT code. Reasons through derivations, limiting cases, cross-references. Use when the question can be answered by pure reasoning, derivation, or analysis. The researcher produces analytical evidence (derivations, proofs, arguments).
-
-- **compute** — Computational work WITH code (Python/SymPy/NumPy/SciPy). Use when the question requires numerical computation, symbolic calculation, or simulation. The computer documents its approach, executes code, and submits results as evidence.
-
-- **review** — Adversarial review WITHOUT code. Reviews a WH along with its evidence (reasoning or code+output) and assesses whether the evidence supports the claim. The reviewer submits a verdict (VERIFIED/REFUTED/INCONCLUSIVE). Use after evidence has been gathered for a WH.
-  - The reviewer examines evidence, code, output and reasoning — it does NOT execute code or recompute results.
-  - Task descriptions for `review` should focus on what to *check* (methodology soundness, boundary cases, coefficient consistency, assumption validity), not what to *compute*.
-  - If you want an independent recomputation via a different method, dispatch a separate `compute` task, then review the WH once both pieces of evidence are available.
-
-**How to choose:** Can it be answered by pure reasoning or derivation? → `research`. Needs numerical computation, symbolic algebra, or simulation? → `compute`. Have evidence on a WH that needs independent checking? → `review`.
-
-### Critique agent
-
-**critique** — Strategic review of the research direction. The critic examines the overall research strategy, coherence between results, and systematic issues. The system forces a critic pass periodically, but you can also dispatch one explicitly when you want a high-level strategic assessment.
-
-Do NOT include per-claim verification instructions in critique tasks (e.g., "check whether coefficient X is correct" or "verify the sign in equation Y"). Per-claim verification is the reviewer's job. The critic will ignore per-claim instructions.
+The reviewer examines evidence, code, output and reasoning — it does NOT execute code or recompute results. Task descriptions for `review` should focus on what to *check*, not what to *compute*. For independent recomputation, dispatch a separate `compute` task first, then review.
 
 ### Dispatch rules
 
@@ -146,28 +136,12 @@ Each task targets EXACTLY ONE entity (RQ, WH, or ER). Always include `target_cla
 
 **IMPORTANT — `background` is critical for research and compute tasks.** The researcher and computer agents have NO access to the background survey, research notes, or strategy — they see only what you put in the dispatch fields plus conventions and established results. Always provide `background` summarizing the problem setup, key definitions, and any prior context the agent needs. Do not assume the agent can infer context from entity labels alone.
 
-When dispatching tasks, provide rich context through the structured parameters of `set_next_task`:
-
-- **description** — The deliverable: a clear statement of what the agent must produce and at what scope.
-- **background** — Relevant prior results, established conventions, domain knowledge. This appears first in the agent's context, so use it to set the stage.
-- **method_hints** — Suggested approaches or methods for the agent to consider. This is where procedural suggestions belong.
-- **assumptions** — Key assumptions the agent should work under.
-- **relevant_results** — Entity IDs of established results or prior evidence relevant to this task (e.g. `ER-001`, `WH-003`). The agent will see each entity's statement and evidence summary.
-
-The agent sees: background → target question → description → method hints → assumptions → relevant results → conventions + established results.
-
 ### Writing effective task descriptions
 
-- **Lead with the deliverable.** The first sentence of `description` states what the agent must produce: "Compute the exact expression for X as a function of Y" or "Derive the relationship between A and B under assumption C."
-- **One deliverable per task.** Each task has a single clear objective. If you need a sanity check and a main computation, make one subordinate to the other ("As a sanity check, also verify that X holds under Y") or dispatch separate tasks.
-- **State scope explicitly.** Be precise about what "done" looks like.
-- **Separate WHAT from HOW.** The `description` says what to produce and at what scope. The `method_hints` suggest how to approach it.
-- **Include critical constraints.** Mention pitfalls that would invalidate the result.
-- **Keep tasks atomic.** One page of reasoning or one focused computation. If a task requires multiple independent conceptual steps, split it into separate tasks. If your task description exceeds 4–5 sentences, the task is probably too big — split it.
-- **Anti-patterns to avoid:**
-  - "Derive X, then use it to compute Y, then check Z" → three separate tasks.
-  - "Solve the full problem using method M" → break into sub-derivations per strategy step.
-  - Task descriptions that embed an entire solution outline — the agent should focus on one step.
+- Lead with a single sentence stating the deliverable and scope.
+- One deliverable per task. Keep tasks atomic — one page of reasoning or one focused computation.
+- If your task description exceeds 4-5 sentences, split it.
+- Separate WHAT (`description`) from HOW (`method_hints`).
 
 ### Termination
 

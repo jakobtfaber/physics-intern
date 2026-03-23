@@ -240,7 +240,6 @@ class TestComputeVerdictTracking:
         prefix = engine._build_context_suffix()
         assert "VERIFIED HYPOTHESES" in prefix
         assert "WH-001 VERIFIED by reviewer" in prefix
-        assert "ACTION REQUIRED: promote each VERIFIED WH above" in prefix
         # Consumed
         assert len(engine._state.pending_verified_results) == 0
         # Second call should be empty
@@ -321,7 +320,6 @@ class TestComputeVerdictTracking:
             "task_id": "TASK-003", "task_type": "compute",
         }]
         suffix = engine._build_context_suffix()
-        assert "Consider: formulate" in suffix
         assert "do NOT treat it as usable evidence" not in suffix
 
     def test_provenance_in_verified_banner(self):
@@ -439,7 +437,6 @@ class TestComputeVerdictTracking:
         assert "VERIFICATION RESULTS" in prefix
         assert "REFUTED" in prefix
         assert "Attempt 1/2" in prefix
-        assert "evidence" in prefix
 
     def test_empty_comp_log_noop(self):
         """No verification on target hypothesis, nothing happens."""

@@ -32,7 +32,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
         "function": {
             "name": "add_hypothesis",
             "description": (
-                "Add a new Working Hypothesis to RESEARCH_STATE.md. "
+                "Add a new Working Hypothesis. "
                 "Returns the auto-assigned ID (e.g., WH-003)."
             ),
             "parameters": {
@@ -263,31 +263,6 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     },
                 },
                 "required": ["id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "record_dead_end",
-            "description": (
-                "Record a dead-end approach directly, without creating and "
-                "abandoning a hypothesis. Use when you know an approach won't "
-                "work but never formulated it as a WH."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "description": {
-                        "type": "string",
-                        "description": "Description of the approach that failed or is known to fail.",
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Why this approach is a dead end.",
-                    },
-                },
-                "required": ["description", "reason"],
             },
         },
     },
@@ -542,7 +517,6 @@ class OrchestratorToolExecutor:
             "append_note": self._append_note,
             "add_research_question": self._add_research_question,
             "resolve_research_question": self._resolve_research_question,
-            "record_dead_end": self._record_dead_end,
             "set_next_task": self._set_next_task,
         }
         handler = handlers.get(tool_name)
@@ -848,30 +822,6 @@ class OrchestratorToolExecutor:
             "append_note", text[:120],
         )
         return "Note appended."
-
-    def _record_dead_end(self, args: dict) -> str:
-        from .research_state import FailedApproach
-
-        state = self.research_state
-        if not state:
-            return "Error: no research state available"
-
-        description = args.get("description", "")
-        reason = args.get("reason", "")
-
-        state.failed_approaches.append(FailedApproach(
-            description=description,
-            reason=reason,
-            iteration=self.iteration,
-        ))
-        self.mutations_applied = True
-        self._round_mutations.append(f"Recorded dead end")
-        log_scaffold_event(
-            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
-            "record_dead_end", f"{description[:120]}: {reason[:120]}",
-        )
-        console.print(f"  [bold red]Dead end:[/] {description[:80]}")
-        return f"Recorded dead end: {description}."
 
     def _add_research_question(self, args: dict) -> str:
         from .research_state import ResearchQuestion

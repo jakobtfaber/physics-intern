@@ -526,47 +526,6 @@ class TestAppendNote:
 
 
 # ---------------------------------------------------------------------------
-# record_dead_end
-# ---------------------------------------------------------------------------
-
-class TestRecordDeadEnd:
-    def test_record_dead_end_creates_failed_approach(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("record_dead_end", {
-            "description": "Perturbation theory approach",
-            "reason": "Divergent series at all orders.",
-        })
-        assert not tc.is_error
-        assert len(state.failed_approaches) == 1
-        fa = state.failed_approaches[0]
-        assert fa.description == "Perturbation theory approach"
-        assert fa.reason == "Divergent series at all orders."
-        assert fa.iteration == 3
-
-    def test_record_dead_end_no_state_returns_error(self):
-        ws = _make_workspace()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
-        tc = ex.execute("record_dead_end", {
-            "description": "test",
-            "reason": "test",
-        })
-        assert "no research state" in tc.output
-
-    def test_record_dead_end_sets_mutations_applied(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        assert not ex.mutations_applied
-        ex.execute("record_dead_end", {
-            "description": "test",
-            "reason": "test",
-        })
-        assert ex.mutations_applied
-
-
-# ---------------------------------------------------------------------------
 # set_next_task
 # ---------------------------------------------------------------------------
 
@@ -625,7 +584,6 @@ class TestNoResearchState:
             ("promote_hypothesis", {"id": "WH-001", "justification": "test"}),
             ("resolve_critique", {"critique_id": "CRIT-001", "resolution": "test"}),
             ("update_section", {"section": "Conventions", "content": "test"}),
-            ("record_dead_end", {"description": "test", "reason": "test"}),
         ]
         for tool_name, tool_input in mutation_calls:
             tc = ex.execute(tool_name, tool_input)
