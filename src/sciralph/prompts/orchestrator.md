@@ -97,7 +97,7 @@ Critiques are advisory — they do not block promotion or termination.
 
 The planner has decomposed the problem into steps, each approximately sized for a single agent call. Your job is to convert these steps into RQs and execute them, and adapt as evidence comes in.
 
-- **Typically one RQ per strategy step.** You may split a step into multiple RQs if it's too large, or occasionally fold two tightly coupled steps into one.
+- **Each step in the strategy should typically be one RQ** You may split a step into multiple RQs if it's too large, or occasionally fold two tightly coupled steps into one. But as a rule of thumb, aim for one RQ per step to maintain clarity and traceability.
 - **Follow dependency order.** Execute steps in the planner's suggested order unless evidence forces a detour.
 - **Record pivots.** If evidence invalidates a strategy step, note the pivot in Research Notes and adjust the Strategy section.
 
