@@ -44,7 +44,8 @@ def test_file_contains_expected_sections(tmp_path):
     assert "user content here" in content
     assert "<LLM_RESPONSE>" in content
     assert "the answer" in content
-    assert "| Input tokens | 100 |" in content
+    # Header table was removed; log starts directly with system prompt
+    assert content.startswith("<SYSTEM_PROMPT>")
 
 
 def test_seq_increments_for_same_iteration(tmp_path):

@@ -424,7 +424,7 @@ def run_agent_loop(
             )
             _write_agent_conversation_log(
                 config, system, user_content, agent_name,
-                iteration, round_log, result)
+                iteration, round_log, result, tools=tools)
             return result
 
         # max_tokens: truncated
@@ -444,7 +444,7 @@ def run_agent_loop(
             )
             _write_agent_conversation_log(
                 config, system, user_content, agent_name,
-                iteration, round_log, result)
+                iteration, round_log, result, tools=tools)
             return result
 
         # tool_use: execute tools and continue
@@ -508,7 +508,7 @@ def run_agent_loop(
                 )
                 _write_agent_conversation_log(
                     config, system, user_content, agent_name,
-                    iteration, round_log, result)
+                    iteration, round_log, result, tools=tools)
                 return result
 
             # Track consecutive execute_python for progress check
@@ -729,7 +729,7 @@ def run_agent_loop(
         )
         _write_agent_conversation_log(
             config, system, user_content, agent_name,
-            iteration, round_log, result)
+            iteration, round_log, result, tools=tools)
         return result
 
     if on_round:
@@ -769,7 +769,7 @@ def run_agent_loop(
     )
     _write_agent_conversation_log(
         config, system, user_content, agent_name,
-        iteration, round_log, result)
+        iteration, round_log, result, tools=tools)
     return result
 
 
@@ -787,25 +787,7 @@ def _write_conversation_log(config: Config, resp: LLMResponse,
     filename = f"iter{iteration:03d}_{seq:02d}_{agent}.md"
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    reasoning_rows = ""
-    if resp.reasoning_tokens > 0:
-        reasoning_rows = (
-            f"| Reasoning tokens | {resp.reasoning_tokens} |\n"
-            f"| Answer tokens | {resp.answer_tokens} |\n"
-        )
-
-    content = f"""# LLM Call — iter {iteration}, {agent}, seq {seq}
-
-| Field | Value |
-|-------|-------|
-| Timestamp | {timestamp} |
-| Model | {config.model} |
-| Input tokens | {resp.input_tokens} |
-| Output tokens | {resp.output_tokens} |
-{reasoning_rows}| Duration | {resp.duration:.2f}s |
-| Stop reason | {resp.stop_reason} |
-
-<SYSTEM_PROMPT>
+    content = f"""<SYSTEM_PROMPT>
 {system}
 </SYSTEM_PROMPT>
 
@@ -843,10 +825,27 @@ def _render_tool_input(name: str, input_data) -> str:
         return f"```\n{input_data}\n```"
 
 
+def _render_tools_block(tools: list[dict]) -> str:
+    """Render a compact TOOLS block listing tool names and descriptions."""
+    if not tools:
+        return ""
+    lines = ["<TOOLS>"]
+    for tool in tools:
+        func = tool.get("function", {})
+        name = func.get("name", "?")
+        desc = func.get("description", "")
+        # First line of description only, truncated
+        first_line = desc.split("\n")[0].strip()[:120]
+        lines.append(f"- {name}: {first_line}")
+    lines.append("</TOOLS>\n")
+    return "\n".join(lines)
+
+
 def _write_agent_conversation_log(
     config: Config, system: str, user_content: str,
     agent_name: str, iteration: int,
     round_log: list[dict], result: AgentResult,
+    tools: list[dict] | None = None,
 ):
     """Write a single comprehensive Markdown log for a tool-use agent invocation."""
     if not config.logs_dir:
@@ -859,24 +858,15 @@ def _write_agent_conversation_log(
     filename = f"iter{iteration:03d}_{seq:02d}_{agent}.md"
 
     lines: list[str] = []
-    lines.append(f"# Agent Conversation — iter {iteration}, {agent}\n")
-    lines.append("| Field | Value |")
-    lines.append("|-------|-------|")
-    lines.append(f"| Model | {config.model} |")
-    lines.append(f"| Total rounds | {result.rounds} |")
-    lines.append(f"| Total input tokens | {result.total_input_tokens} |")
-    lines.append(f"| Total output tokens | {result.total_output_tokens} |")
-    if result.total_reasoning_tokens > 0:
-        lines.append(f"| Total reasoning tokens | {result.total_reasoning_tokens} |")
-        lines.append(f"| Total answer tokens | {result.total_answer_tokens} |")
-    lines.append(f"| Total duration | {result.duration:.1f}s |")
-    lines.append(f"| Stop reason | {result.stop_reason} |")
-    lines.append("")
 
     # System prompt
     lines.append(f"<SYSTEM_PROMPT chars=\"{len(system)}\">")
     lines.append(system)
     lines.append("</SYSTEM_PROMPT>\n")
+
+    # Tools
+    if tools:
+        lines.append(_render_tools_block(tools))
 
     # User content
     lines.append(f"<USER_MESSAGE chars=\"{len(user_content)}\">")
