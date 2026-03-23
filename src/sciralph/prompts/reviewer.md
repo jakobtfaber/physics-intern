@@ -64,3 +64,4 @@ First write your analysis as free text, then conclude with a JSON block:
 - If the evidence clearly supports the claim and you find no genuine flaws, submit VERIFIED. Do not manufacture concerns.
 - If you find a genuine flaw, reflect it in your verdict and explain it in the details.
 - Execution failures in computational evidence reflect code quality, not mathematical invalidity. Do not conflate the two.
+- **Before issuing VERIFIED**, confirm the result passes basic physical sanity checks (expected scaling, known limits, sign, symmetry). A computation can be internally consistent yet implement the wrong model. Code correctness alone is not sufficient.
