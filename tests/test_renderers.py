@@ -715,14 +715,8 @@ class TestRenderBackgroundSurvey:
         text = render_background_survey(state)
         assert text == "(No background survey.)"
 
-    def test_background_survey_rendered_in_orchestrator_context(self):
+    def test_background_survey_not_in_orchestrator_research_state(self):
+        """Background survey is now rendered in build_context, not render_orchestrator_research_state."""
         state = self._make_survey_state()
-        text = render_orchestrator_research_state(state)
-        assert "<background-survey>" in text
-        assert "Killing vector method" in text
-
-    def test_background_survey_none_renders_nothing_in_orchestrator(self):
-        """When survey is None, no background survey section in orchestrator context."""
-        state = ResearchState(problem_statement="Test")
         text = render_orchestrator_research_state(state)
         assert "<background-survey>" not in text

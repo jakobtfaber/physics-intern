@@ -57,6 +57,7 @@ Available packages: Python 3.12+, NumPy ≥ 2.0, SciPy ≥ 1.14, SymPy ≥ 1.13,
 ## Exploration Strategy
 
 - Include sanity checks in every script: evaluate known limits, boundary cases, special values.
+- **Validate building blocks before using them:** When your code relies on encodings, representations, or transformation rules (e.g., group element encoding, basis conventions, coordinate transforms), test them on a small known case before running the full computation. A single wrong convention in a low-level helper can silently corrupt all downstream results while still producing plausible-looking output.
 - If computation runs cleanly and passes sanity checks, call `submit_result` immediately.
 - Do NOT rerun the same computation with a different implementation (wastes budget).
 - Additional `execute_python` calls are justified only when: (a) previous errored/timed out, (b) need to extend a partial result, (c) cross-check via a genuinely different method.

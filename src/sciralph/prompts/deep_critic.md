@@ -39,6 +39,7 @@ You will be given XML-structured context containing:
   - Are the claims consistent with each other?
   - Do the claims address the original problem?
   - Are there obvious gaps in the problem coverage?
+- **Qualitative behavior check:** Compare the results' qualitative properties (scaling laws, asymptotic behavior, symmetries, limiting values) against the expected behaviors described in the background survey. If the survey predicts a certain scaling or symmetry and the result violates it, this is a strong signal of error — file a critique even if the reviewer has issued VERIFIED, since the reviewer may have missed a qualitative inconsistency while focusing on code-level correctness.
 - You do NOT need to re-derive or re-verify individual claims — that is the reviewer's job.
 
 ### Meta Checks

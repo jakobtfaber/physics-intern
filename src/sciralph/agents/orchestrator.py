@@ -29,20 +29,6 @@ class OrchestratorAgent(BaseAgent):
         self._tool_executor: OrchestratorToolExecutor | None = None
         self.research_state: ResearchState | None = None
 
-    @property
-    def system_prompt(self) -> str:
-        if self._system_prompt is None:
-            base = (PROMPTS_DIR / self.prompt_file).read_text()
-            if self.research_state and self.research_state.problem_statement:
-                base = base.replace(
-                    "## Problem Statement",
-                    "## Problem Statement\n\n<problem-statement>\n"
-                    + self.research_state.problem_statement
-                    + "\n</problem-statement>",
-                )
-            self._system_prompt = base
-        return self._system_prompt
-
     def _completion_analysis(self, iteration: int = 0) -> str | None:
         """Check if research appears complete; return banner if so."""
         if not self.research_state:
@@ -93,6 +79,12 @@ class OrchestratorAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         parts = []
+        # Problem statement and background survey at the top of user message
+        if self.research_state:
+            if self.research_state.problem_statement:
+                parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>\n")
+            if self.research_state.background_survey and self.research_state.background_survey.survey_notes:
+                parts.append(f"<background-survey>\n{self.research_state.background_survey.survey_notes}\n</background-survey>\n")
         banner = self._completion_analysis(iteration)
         if banner:
             parts.append(f"{banner}\n")

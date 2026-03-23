@@ -32,6 +32,7 @@ Your job is to determine whether the evidence actually supports the claim.
 - **Result interpretation:** Do the numerical results actually support the claim? Are there edge cases or parameter values where the result might break down?
 - **Error analysis:** Are numerical tolerances appropriate? Are error bounds meaningful?
 - **Sanity checks:** Did the computation include appropriate validation (known limits, boundary conditions, special values)?
+- **Physical consistency:** Does the result's qualitative behavior (scaling, symmetry, asymptotic regime, sign, monotonicity) match what the physics of the problem demands? Check this against the background survey's expected qualitative behaviors if available. A result that passes all code-level checks but violates a physical expectation is more likely to contain a subtle bug than to reveal new physics.
 
 ### For Both Types
 - **Consistency with established context:** Does the result align with or contradict established results?

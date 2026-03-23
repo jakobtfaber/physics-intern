@@ -332,10 +332,6 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
     """Render research state for orchestrator context using XML tags."""
     parts: list[str] = []
 
-    # Background Survey
-    if state.background_survey and state.background_survey.survey_notes:
-        parts.append(f"<background-survey>\n{state.background_survey.survey_notes}\n</background-survey>")
-
     # Conventions
     conv = state.conventions or "(To be populated by the orchestrator as conventions become clear.)"
     parts.append(f"<conventions>\n{conv}\n</conventions>")

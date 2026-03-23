@@ -227,29 +227,38 @@ class TestConventionReminder:
         assert "REMINDER" not in context
 
 
-class TestSystemPrompt:
-    """Test that system_prompt includes the problem statement."""
+class TestProblemStatementInContext:
+    """Test that problem statement appears in user message (build_context), not system prompt."""
 
-    def test_system_prompt_includes_problem_statement(self, orchestrator):
+    def test_problem_statement_in_context(self, orchestrator):
+        orchestrator.research_state = ResearchState(
+            problem_statement="Derive the Hawking temperature for a Schwarzschild black hole.",
+        )
+        context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
+        assert "<problem-statement>" in context
+        assert "Derive the Hawking temperature" in context
+
+    def test_problem_statement_not_in_system_prompt(self, orchestrator):
         orchestrator.research_state = ResearchState(
             problem_statement="Derive the Hawking temperature for a Schwarzschild black hole.",
         )
         prompt = orchestrator.system_prompt
-        assert "<problem-statement>" in prompt
-        assert "Derive the Hawking temperature" in prompt
-
-    def test_system_prompt_without_research_state(self, orchestrator):
-        # No research_state set — should still return the base prompt
-        prompt = orchestrator.system_prompt
         assert "<problem-statement>" not in prompt
 
-    def test_system_prompt_cached(self, orchestrator):
+    def test_no_problem_statement_without_research_state(self, orchestrator):
+        context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
+        assert "<problem-statement>" not in context
+
+    def test_problem_statement_before_background_survey(self, orchestrator):
+        from sciralph.research_state import BackgroundSurvey
         orchestrator.research_state = ResearchState(
             problem_statement="Test problem.",
+            background_survey=BackgroundSurvey(survey_notes="Some survey notes."),
         )
-        first = orchestrator.system_prompt
-        second = orchestrator.system_prompt
-        assert first is second  # same object, not recomputed
+        context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
+        ps_pos = context.index("<problem-statement>")
+        bg_pos = context.index("<background-survey>")
+        assert ps_pos < bg_pos
 
 
 class TestNoMetricsInContext:
