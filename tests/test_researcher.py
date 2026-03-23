@@ -5,7 +5,11 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from sciralph.agents.evidence_base import render_relevant_results
-from sciralph.agents.researcher import ResearcherAgent, _parse_researcher_json
+from sciralph.agents.researcher import (
+    ResearcherAgent,
+    _extract_derivation_text,
+    _parse_researcher_json,
+)
 from sciralph.llm import LLMResponse
 from sciralph.research_state import (
     Evidence,
@@ -97,8 +101,16 @@ class TestParseResearcherJson:
 
 def _make_researcher() -> ResearcherAgent:
     config = MagicMock()
+    root = Path(tempfile.mkdtemp())
     workspace = MagicMock()
-    workspace.root = Path(tempfile.mkdtemp())
+    workspace.root = root
+    # Delegate write_file/read_file to actual filesystem
+    def _write_file(relpath, content):
+        path = root / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    workspace.write_file = _write_file
+    workspace.read_file = lambda relpath: (root / relpath).read_text() if (root / relpath).exists() else ""
     metrics = MagicMock()
     agent = ResearcherAgent(config, workspace, metrics)
     state = ResearchState(problem_statement="test")
@@ -403,6 +415,148 @@ class TestRenderRelevantResults:
 # ---------------------------------------------------------------------------
 # Agent configuration
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _extract_derivation_text
+# ---------------------------------------------------------------------------
+
+
+class TestExtractDerivationText:
+    def test_extracts_text_before_json_fence(self):
+        text = (
+            "Starting from the metric...\n\n"
+            "We derive T_H = 1/(8*pi*M).\n\n"
+            '```json\n{"result": "T_H = 1/(8*pi*M)"}\n```'
+        )
+        result = _extract_derivation_text(text)
+        assert "Starting from the metric" in result
+        assert "We derive T_H" in result
+        assert "```json" not in result
+
+    def test_no_json_fence_returns_full_text(self):
+        text = "Just a derivation with no JSON."
+        assert _extract_derivation_text(text) == text
+
+    def test_multiple_fences_uses_last(self):
+        text = (
+            "Part 1\n"
+            '```json\n{"wrong": true}\n```\n'
+            "Part 2\n"
+            '```json\n{"result": "ok"}\n```'
+        )
+        result = _extract_derivation_text(text)
+        assert "Part 1" in result
+        assert "Part 2" in result
+
+
+# ---------------------------------------------------------------------------
+# Derivation file tests (process_response)
+# ---------------------------------------------------------------------------
+
+
+class TestResearcherDerivationFile:
+    def test_derivation_file_written(self):
+        agent = _make_researcher()
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body="Derive T_H", target_claim="WH-002")
+        text = (
+            "Starting from Schwarzschild metric...\n\n"
+            "We find T_H = 1/(8*pi*M).\n\n"
+            '```json\n'
+            '{"result": "T_H = 1/(8*pi*M)", "method": "Euclidean", '
+            '"confidence": "exact", "summary": "Hawking temperature"}\n'
+            '```'
+        )
+        response = LLMResponse(text=text, input_tokens=500, output_tokens=200,
+                               stop_reason="end_turn", duration=1.0)
+        agent.process_response(response, task, iteration=3)
+        # Check evidence has derivation_file set
+        ev = agent.research_state.hypotheses["WH-002"].evidence
+        assert ev.derivation_file == "WH-002_003.md"
+        # Check file was written with derivation content (no JSON block)
+        content = agent.workspace.read_file("derivations/WH-002_003.md")
+        assert "Schwarzschild metric" in content
+        assert "```json" not in content
+
+    def test_derivation_file_on_parse_failure(self):
+        agent = _make_researcher()
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body="Derive", target_claim="RQ-001")
+        response = LLMResponse(text="Long derivation without JSON.",
+                               input_tokens=100, output_tokens=50,
+                               stop_reason="end_turn", duration=0.1)
+        agent.process_response(response, task, iteration=2)
+        ev = agent.research_state.research_questions["RQ-001"].evidence
+        assert ev.derivation_file == "RQ-001_002.md"
+        content = agent.workspace.read_file("derivations/RQ-001_002.md")
+        assert "Long derivation" in content
+
+    def test_empty_response_no_derivation_file(self):
+        agent = _make_researcher()
+        task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
+                    body="Derive", target_claim="RQ-001")
+        response = LLMResponse(text="", input_tokens=100, output_tokens=0,
+                               stop_reason="end_turn", duration=0.1)
+        agent.process_response(response, task, iteration=1)
+        ev = agent.research_state.research_questions["RQ-001"].evidence
+        assert ev.derivation_file == ""
+
+    def test_derivation_file_serialization_roundtrip(self):
+        """derivation_file survives JSON serialization roundtrip."""
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            statement="test",
+            evidence=Evidence(
+                type="research",
+                method="analytical",
+                result="ok",
+                confidence="exact",
+                derivation_file="WH-001_001.md",
+            ),
+        )
+        json_str = state.to_json()
+        restored = ResearchState.from_json(json_str)
+        ev = restored.hypotheses["WH-001"].evidence
+        assert ev.derivation_file == "WH-001_001.md"
+
+    def test_derivation_file_serialization_rq(self):
+        """derivation_file survives JSON roundtrip on RQ evidence."""
+        state = ResearchState()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001",
+            question="test",
+            evidence=Evidence(
+                type="research",
+                derivation_file="RQ-001_005.md",
+            ),
+        )
+        json_str = state.to_json()
+        restored = ResearchState.from_json(json_str)
+        ev = restored.research_questions["RQ-001"].evidence
+        assert ev.derivation_file == "RQ-001_005.md"
+
+    def test_legacy_json_missing_derivation_file(self):
+        """Legacy JSON without derivation_file deserializes to empty string."""
+        import json
+        data = {
+            "hypotheses": {
+                "WH-001": {
+                    "id": "WH-001",
+                    "evidence": {
+                        "type": "research",
+                        "reasoning": "some text",
+                        "method": "analytical",
+                        "result": "ok",
+                        "confidence": "exact",
+                    },
+                }
+            }
+        }
+        state = ResearchState.from_json(json.dumps(data))
+        ev = state.hypotheses["WH-001"].evidence
+        assert ev.derivation_file == ""
 
 
 class TestResearcherConfig:

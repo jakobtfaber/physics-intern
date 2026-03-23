@@ -236,6 +236,8 @@ def _evidence_log_body(state: ResearchState) -> str:
                 parts.append(f"**Confidence:** {ev.confidence}")
             if ev.scripts:
                 parts.append(f"**Scripts:** {', '.join(ev.scripts)}")
+            if ev.derivation_file:
+                parts.append(f"**Derivation file:** `derivations/{ev.derivation_file}`")
             if ev.reasoning:
                 parts.append(f"**Reasoning:** {ev.reasoning[:2000]}")
             parts.append(f"**Iteration:** {iteration}\n")

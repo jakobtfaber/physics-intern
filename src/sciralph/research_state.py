@@ -70,6 +70,7 @@ class Evidence:
     confidence: str = ""     # exact/approximate/partial
     summary: str = ""        # One-sentence summary for banners
     iteration: int | None = None
+    derivation_file: str = ""  # Filename in derivations/ (researcher only)
 
 
 @dataclass
@@ -345,6 +346,7 @@ class ResearchState:
                     confidence=edata.get("confidence", ""),
                     summary=edata.get("summary", ""),
                     iteration=edata.get("iteration"),
+                    derivation_file=edata.get("derivation_file", ""),
                 )
             review = None
             # Read "review" key, with backward-compat for legacy "verification"
@@ -396,6 +398,7 @@ class ResearchState:
                     confidence=edata.get("confidence", ""),
                     summary=edata.get("summary", ""),
                     iteration=edata.get("iteration"),
+                    derivation_file=edata.get("derivation_file", ""),
                 )
             state.research_questions[rqid] = ResearchQuestion(
                 id=rqdata["id"],

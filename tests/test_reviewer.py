@@ -196,6 +196,62 @@ class TestReviewerBuildContext:
         assert "<purpose>Setup data</purpose>" in ctx
         assert "<purpose>Verify result</purpose>" in ctx
 
+    def test_derivation_file_rendered(self):
+        root = Path(tempfile.mkdtemp())
+        agent = _make_reviewer(root)
+        # Write derivation file
+        deriv_dir = root / "derivations"
+        deriv_dir.mkdir()
+        (deriv_dir / "WH-001_001.md").write_text("Starting from the Schwarzschild metric...")
+        agent.research_state.hypotheses["WH-001"].evidence = Evidence(
+            type="research",
+            reasoning="full text including JSON block",
+            derivation_file="WH-001_001.md",
+            method="analytical",
+            result="T_H = 1/(8*pi*M)",
+            confidence="exact",
+        )
+        task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
+                    body="Review WH-001", target_claim="WH-001")
+        ctx = agent.build_context(task, iteration=1)
+        assert '<derivation file="WH-001_001.md">' in ctx
+        assert "Starting from the Schwarzschild metric" in ctx
+        assert "<reasoning>" not in ctx
+
+    def test_derivation_file_fallback_to_reasoning(self):
+        root = Path(tempfile.mkdtemp())
+        agent = _make_reviewer(root)
+        # No derivation file on disk — should fall back to ev.reasoning
+        agent.research_state.hypotheses["WH-001"].evidence = Evidence(
+            type="research",
+            reasoning="Fallback reasoning text",
+            derivation_file="WH-001_001.md",
+            method="analytical",
+            result="T_H = 1/(8*pi*M)",
+            confidence="exact",
+        )
+        task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
+                    body="Review WH-001", target_claim="WH-001")
+        ctx = agent.build_context(task, iteration=1)
+        assert '<derivation file="WH-001_001.md">' in ctx
+        assert "Fallback reasoning text" in ctx
+
+    def test_no_derivation_file_uses_reasoning(self):
+        root = Path(tempfile.mkdtemp())
+        agent = _make_reviewer(root)
+        agent.research_state.hypotheses["WH-001"].evidence = Evidence(
+            type="research",
+            reasoning="By direct derivation from the metric...",
+            method="analytical",
+            result="T_H = 1/(8*pi*M)",
+            confidence="exact",
+        )
+        task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
+                    body="Review WH-001", target_claim="WH-001")
+        ctx = agent.build_context(task, iteration=1)
+        assert "<reasoning>" in ctx
+        assert "By direct derivation from the metric" in ctx
+
     def test_research_evidence_has_reasoning(self):
         root = Path(tempfile.mkdtemp())
         agent = _make_reviewer(root)

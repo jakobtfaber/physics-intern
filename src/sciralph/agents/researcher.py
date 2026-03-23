@@ -9,34 +9,31 @@ from typing import TYPE_CHECKING
 from ..llm import LLMResponse
 from ..research_state import Evidence
 from .evidence_base import ENTITY_ID_RE, EvidenceAgent
+from .parsing import JSON_FENCE_RE, try_json_loads
 
 if TYPE_CHECKING:
     from ..task import Task
 
 # ---------------------------------------------------------------------------
-# JSON parsing (mirrors reviewer/critic pattern)
+# JSON parsing
 # ---------------------------------------------------------------------------
-
-_JSON_FENCE_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
-_INVALID_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
 
 _VALID_CONFIDENCE = {"exact", "approximate", "partial"}
 
+# Regex to find the start of the last ```json fence (used to split derivation from JSON)
+_LAST_JSON_FENCE_RE = re.compile(r"```json\s*\n", re.DOTALL)
 
-def _try_json_loads(s: str):
-    """Parse JSON, retrying with escape fixes for LaTeX-contaminated strings.
 
-    LLMs often emit LaTeX like ``\\{`` or ``\\langle`` inside JSON strings,
-    which are invalid JSON escape sequences. On failure we replace unrecognised
-    ``\\X`` sequences with ``\\\\X`` and retry.
+def _extract_derivation_text(text: str) -> str:
+    """Extract derivation text: everything before the last ```json fence.
+
+    If no fence is found, returns the full text (useful on parse failure).
+    The JSON block itself is excluded from the derivation file.
     """
-    try:
-        return json.loads(s)
-    except (json.JSONDecodeError, ValueError):
-        fixed = _INVALID_ESCAPE_RE.sub(r'\\\\', s)
-        if fixed != s:
-            return json.loads(fixed)  # let caller handle if still bad
-        raise
+    matches = list(_LAST_JSON_FENCE_RE.finditer(text))
+    if matches:
+        return text[: matches[-1].start()].rstrip()
+    return text
 
 
 def _parse_researcher_json(text: str) -> dict | None:
@@ -47,10 +44,10 @@ def _parse_researcher_json(text: str) -> dict | None:
     contain braces).
     """
     # Prefer fenced ```json blocks — take the last one
-    fenced = list(_JSON_FENCE_RE.finditer(text))
+    fenced = list(JSON_FENCE_RE.finditer(text))
     if fenced:
         try:
-            parsed = _try_json_loads(fenced[-1].group(1).strip())
+            parsed = try_json_loads(fenced[-1].group(1).strip())
             if isinstance(parsed, dict) and "result" in parsed:
                 return parsed
         except (json.JSONDecodeError, ValueError):
@@ -70,7 +67,7 @@ def _parse_researcher_json(text: str) -> dict | None:
                 candidate = text[start : i + 1]
                 if '"result"' in candidate:
                     try:
-                        parsed = _try_json_loads(candidate)
+                        parsed = try_json_loads(candidate)
                         if isinstance(parsed, dict):
                             return parsed
                     except (json.JSONDecodeError, ValueError):
@@ -90,18 +87,37 @@ class ResearcherAgent(EvidenceAgent):
         text = response.text or ""
         parsed = _parse_researcher_json(text)
 
+        # Resolve target ID early (needed for derivation filename)
+        target_id = task.target_claim or ""
+        if not target_id and self.research_state:
+            ids = ENTITY_ID_RE.findall(task.body or "")
+            target_id = ids[0] if ids else ""
+
+        # Save derivation file (everything before the last ```json fence)
+        derivation_file = ""
+        workspace = getattr(self, "workspace", None)
+        if text and workspace:
+            derivation_text = _extract_derivation_text(text)
+            if derivation_text.strip():
+                safe_target = target_id or "unknown"
+                derivation_file = f"{safe_target}_{iteration:03d}.md"
+                workspace.write_file(
+                    f"derivations/{derivation_file}", derivation_text
+                )
+
         if parsed and "result" in parsed:
             confidence = parsed.get("confidence", "partial")
             if confidence not in _VALID_CONFIDENCE:
                 confidence = "partial"
             evidence = Evidence(
                 type="research",
-                reasoning=text,  # full derivation text
+                reasoning=text,  # full derivation text (backward compat)
                 result=parsed.get("result", ""),
                 method=parsed.get("method", ""),
                 confidence=confidence,
                 summary=parsed.get("summary", ""),
                 iteration=iteration,
+                derivation_file=derivation_file,
             )
         else:
             # Parse failure — build minimal evidence from text
@@ -111,13 +127,9 @@ class ResearcherAgent(EvidenceAgent):
                 result="Failed to parse structured research output.",
                 confidence="partial",
                 iteration=iteration,
+                derivation_file=derivation_file,
             )
 
         # Store on target entity — use task.target_claim, not tool params
         if self.research_state:
-            target_id = task.target_claim
-            if not target_id:
-                ids = ENTITY_ID_RE.findall(task.body or "")
-                target_id = ids[0] if ids else ""
-
             self._store_evidence(target_id, evidence)

@@ -59,6 +59,10 @@ If the task references blocking critiques, read them carefully and either:
 2. **Refute** — Explain why the critique is invalid with a counter-argument.
 3. **Acknowledge** — Accept the limitation and propose an alternative approach.
 
+## JSON Fields: Plain Text Only
+
+**JSON fields must be plain text only.** No LaTeX delimiters (`\(`, `\)`, `$$`) or commands (`\frac`, `\delta`). Use ASCII math: `T_H = 1/(8*pi*M)` not `$T_H = \frac{1}{8\pi M}$`. All LaTeX belongs in your derivation text above the JSON block. Your derivation will be saved as a separate file for the reviewer.
+
 ## Rules
 
 - Output exactly ONE JSON block at the end of your response.

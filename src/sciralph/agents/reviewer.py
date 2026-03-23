@@ -10,43 +10,31 @@ from typing import TYPE_CHECKING
 from ..llm import LLMResponse
 from ..research_state import ReviewResult
 from .base import BaseAgent
+from .parsing import JSON_FENCE_RE, try_json_loads
 
 if TYPE_CHECKING:
     from ..research_state import ResearchState
     from ..task import Task
 
 
-# Match a fenced ```json ... ``` block or a bare top-level { ... } object
-_JSON_FENCE_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
+# Match a bare top-level { ... } object containing "verdict"
 _BARE_JSON_RE = re.compile(r"\{[^{}]*\"verdict\"[^{}]*\}", re.DOTALL)
-_INVALID_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
-
-
-def _try_json_loads(s: str):
-    """Parse JSON, retrying with escape fixes for LaTeX-contaminated strings."""
-    try:
-        return json.loads(s)
-    except (json.JSONDecodeError, ValueError):
-        fixed = _INVALID_ESCAPE_RE.sub(r'\\\\', s)
-        if fixed != s:
-            return json.loads(fixed)
-        raise
 
 
 def _parse_review_json(text: str) -> dict | None:
     """Extract the last JSON block containing a verdict from model output."""
     # Prefer fenced ```json blocks — take the last one
-    fenced = list(_JSON_FENCE_RE.finditer(text))
+    fenced = list(JSON_FENCE_RE.finditer(text))
     if fenced:
         try:
-            return _try_json_loads(fenced[-1].group(1).strip())
+            return try_json_loads(fenced[-1].group(1).strip())
         except (json.JSONDecodeError, ValueError):
             pass
     # Fall back to bare JSON objects containing "verdict"
     bare = list(_BARE_JSON_RE.finditer(text))
     if bare:
         try:
-            return _try_json_loads(bare[-1].group(0))
+            return try_json_loads(bare[-1].group(0))
         except (json.JSONDecodeError, ValueError):
             pass
     return None
@@ -113,7 +101,16 @@ class ReviewerAgent(BaseAgent):
                                 + "\n".join(comp_parts)
                                 + "\n</computation>"
                             )
-                    if ev.reasoning:
+                    if ev.derivation_file:
+                        try:
+                            content = self.workspace.read_file(f"derivations/{ev.derivation_file}")
+                        except Exception:
+                            content = ""
+                        ev_parts.append(
+                            f'<derivation file="{ev.derivation_file}">\n'
+                            f"{content or ev.reasoning}\n</derivation>"
+                        )
+                    elif ev.reasoning:
                         ev_parts.append(f"<reasoning>\n{ev.reasoning}\n</reasoning>")
                     if ev.confidence:
                         ev_parts.append(f"<confidence>{ev.confidence}</confidence>")

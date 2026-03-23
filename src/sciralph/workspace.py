@@ -16,6 +16,7 @@ class WorkspaceManager:
     def __init__(self, config: Config):
         self.root = Path(config.workspace_dir)
         self.computations_dir = self.root / "computations"
+        self.derivations_dir = self.root / "derivations"
         self.archive_dir = self.root / "archive"
         self.logs_dir = self.root / "logs"
 
@@ -26,6 +27,7 @@ class WorkspaceManager:
         if not (self.root / ".git").exists():
             raise FileNotFoundError(f"Workspace has no .git directory: {self.root}")
         self.computations_dir.mkdir(exist_ok=True)
+        self.derivations_dir.mkdir(exist_ok=True)
         self.archive_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
 
@@ -34,6 +36,7 @@ class WorkspaceManager:
         self.problem_statement = problem.strip()
         self.root.mkdir(parents=True, exist_ok=True)
         self.computations_dir.mkdir(exist_ok=True)
+        self.derivations_dir.mkdir(exist_ok=True)
         self.archive_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
 

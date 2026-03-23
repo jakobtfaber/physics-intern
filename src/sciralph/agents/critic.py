@@ -14,6 +14,7 @@ from ..research_state import Critique, CritiqueStatus, Severity
 from .base import BaseAgent
 from ..categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event
+from .parsing import JSON_FENCE_RE, try_json_loads
 
 console = Console()
 
@@ -23,22 +24,8 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# JSON parsing (mirrors reviewer pattern, but handles nested critiques array)
+# JSON parsing (handles nested critiques array)
 # ---------------------------------------------------------------------------
-
-_JSON_FENCE_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
-_INVALID_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
-
-
-def _try_json_loads(s: str):
-    """Parse JSON, retrying with escape fixes for LaTeX-contaminated strings."""
-    try:
-        return json.loads(s)
-    except (json.JSONDecodeError, ValueError):
-        fixed = _INVALID_ESCAPE_RE.sub(r'\\\\', s)
-        if fixed != s:
-            return json.loads(fixed)
-        raise
 
 
 def _parse_critic_json(text: str) -> dict | None:
@@ -48,10 +35,10 @@ def _parse_critic_json(text: str) -> dict | None:
     brace-counting for bare JSON with nested objects.
     """
     # Prefer fenced ```json blocks — take the last one
-    fenced = list(_JSON_FENCE_RE.finditer(text))
+    fenced = list(JSON_FENCE_RE.finditer(text))
     if fenced:
         try:
-            parsed = _try_json_loads(fenced[-1].group(1).strip())
+            parsed = try_json_loads(fenced[-1].group(1).strip())
             if isinstance(parsed, dict) and "critiques" in parsed:
                 return parsed
         except (json.JSONDecodeError, ValueError):
@@ -72,7 +59,7 @@ def _parse_critic_json(text: str) -> dict | None:
                 candidate = text[start : i + 1]
                 if '"critiques"' in candidate:
                     try:
-                        parsed = _try_json_loads(candidate)
+                        parsed = try_json_loads(candidate)
                         if isinstance(parsed, dict):
                             return parsed
                     except (json.JSONDecodeError, ValueError):
