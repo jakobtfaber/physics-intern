@@ -452,9 +452,7 @@ def run_agent_loop(
             messages.append(provider.format_assistant_message(resp.raw_content))
 
             if hasattr(tool_executor, "begin_round"):
-                injection = tool_executor.begin_round()
-                if injection:
-                    messages.append({"role": "user", "content": injection})
+                tool_executor.begin_round()
 
             tool_results = []
             for tc_info in resp.tool_calls:
@@ -474,6 +472,16 @@ def run_agent_loop(
                 })
 
             messages.extend(provider.build_tool_result_messages(tool_results))
+
+            # State injection AFTER tool results so the model sees it
+            if hasattr(tool_executor, "end_round"):
+                injection = tool_executor.end_round()
+                if injection:
+                    messages.append({"role": "user", "content": injection})
+                    round_log.append({
+                        "kind": "scaffold_injection", "round": round_num,
+                        "label": "state_injection", "content": injection,
+                    })
 
             if config.workspace_dir:
                 for tc in all_tool_calls[-len(tool_results):]:

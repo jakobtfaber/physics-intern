@@ -272,10 +272,10 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
             "name": "set_next_task",
             "description": (
                 "Set the next task for the research loop. "
-                "Call this ALONE — not in the same response as any mutation "
-                "tools. First emit all mutations, then in your NEXT response "
-                "call set_next_task with the actual entity IDs from the "
-                "mutation results."
+                "Call this ALONE — it must be the ONLY tool call in its "
+                "response. First emit all mutations, then in your NEXT "
+                "response call set_next_task with the actual entity IDs "
+                "from the mutation results."
             ),
             "parameters": {
                 "type": "object",
@@ -369,7 +369,7 @@ class OrchestratorToolExecutor:
         self.iteration = iteration
         self.research_state = research_state
         self.mutations_applied: bool = False
-        self.mutations_this_round: list[str] = []
+        self._calls_this_round: int = 0
         self._round_mutations: list[str] = []
         self.task_data: dict | None = None
         self.resolved_critique_ids: set[str] = set()
@@ -378,16 +378,25 @@ class OrchestratorToolExecutor:
         self._max_iterations = max_iterations
         self._budget_synthesis_margin = budget_synthesis_margin
 
-    def begin_round(self) -> str | None:
-        """Called by the agent loop at the start of each response's tool batch.
+    def begin_round(self) -> None:
+        """Called at the start of each response's tool batch.
 
-        Returns a state injection string if mutations occurred in the previous
-        round, or None otherwise.
+        Clears per-round tracking so the dispatch gate only sees
+        tool calls from the current response.
         """
-        injection = self._render_state_injection() if self._round_mutations else None
-        self.mutations_this_round.clear()
+        self._calls_this_round = 0
         self._round_mutations.clear()
-        return injection
+
+    def end_round(self) -> str | None:
+        """Called after tool results are appended.
+
+        Returns a state injection string if mutations occurred this round,
+        or None otherwise.  The injection is placed after tool results so
+        the model sees it at the top of the next generation window.
+        """
+        if not self._round_mutations:
+            return None
+        return self._render_state_injection()
 
     def _render_state_injection(self) -> str:
         """Produce a compact state summary after mutations."""
@@ -506,6 +515,7 @@ class OrchestratorToolExecutor:
 
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
         start = time.time()
+        self._calls_this_round += 1
 
         handlers = {
             "add_hypothesis": self._add_hypothesis,
@@ -599,7 +609,6 @@ class OrchestratorToolExecutor:
             evidence=evidence,
         )
         self.mutations_applied = True
-        self.mutations_this_round.append(f"Added {new_id}")
         self._round_mutations.append(f"Added {new_id}")
         detail = f"{new_id}: {statement[:120]}"
         if from_rq:
@@ -842,7 +851,6 @@ class OrchestratorToolExecutor:
             iteration_created=self.iteration,
         )
         self.mutations_applied = True
-        self.mutations_this_round.append(f"Added {rq_id}")
         self._round_mutations.append(f"Added {rq_id}")
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
@@ -881,18 +889,20 @@ class OrchestratorToolExecutor:
         return f"Closed {rq_id}."
 
     def _set_next_task(self, args: dict) -> str:
-        # Dispatch gate: reject if entity-creating mutations occurred in this response
-        if self.mutations_this_round:
-            mutations_list = "; ".join(self.mutations_this_round)
+        # Dispatch gate: set_next_task must be the only tool call in its round
+        if self._calls_this_round > 1:
+            applied = "; ".join(self._round_mutations) if self._round_mutations else "none"
             log_scaffold_event(
                 self.workspace.root, self.iteration, CC.LOOP_CONTROL,
                 "dispatch_gate_reject",
-                f"Rejected set_next_task — mutations this response: {mutations_list}",
+                f"Rejected set_next_task — {self._calls_this_round - 1} other tool(s) "
+                f"this round: {applied}",
             )
             return (
-                f"Error: set_next_task must be called alone, without other tool calls in the "
-                f"same response. Mutations this response: {mutations_list}. "
-                "Call set_next_task in your next response."
+                f"DISPATCH REJECTED: set_next_task must be the ONLY tool call in "
+                f"its response. Other tools this round already succeeded: {applied}. "
+                "Do NOT repeat them — they are applied to the research state. "
+                "In your next response, call ONLY set_next_task (no other tools)."
             )
 
         # Validate target_claim when present

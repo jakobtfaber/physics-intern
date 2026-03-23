@@ -130,6 +130,8 @@ The reviewer examines evidence, code, output and reasoning — it does NOT execu
 
 ### Dispatch rules
 
+`set_next_task` must be the **only** tool call in its response — no mutations alongside it. If you still have mutations to make, do them first and call `set_next_task` in a separate follow-up response.
+
 Each task targets EXACTLY ONE entity (RQ, WH, or ER). Always include `target_claim` in `set_next_task`. Task type must be one of: `research`, `compute`, `review`, `critique`, or `terminate`.
 
 ### Structured dispatch

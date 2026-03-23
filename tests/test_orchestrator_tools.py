@@ -804,8 +804,8 @@ class TestResearchQuestionTools:
 class TestDispatchGate:
     """Tests for the dispatch gate in set_next_task."""
 
-    def test_gate_rejects_when_mutations_occurred(self):
-        """set_next_task is rejected when entity-creating mutations happened in the same round."""
+    def test_gate_rejects_when_other_tools_called(self):
+        """set_next_task is rejected when other tools were called in the same round."""
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
@@ -821,8 +821,7 @@ class TestDispatchGate:
             "target_claim": "WH-003",
             "description": "Verify new claim.",
         })
-        assert "Error" in tc2.output
-        assert "mutation" in tc2.output.lower()
+        assert "DISPATCH REJECTED" in tc2.output
         assert ex.task_data is None
         assert not ex.stop_after_round
 
@@ -868,7 +867,7 @@ class TestDispatchGate:
             "target_claim": "WH-003",
             "description": "Verify.",
         })
-        assert "Error" in tc_reject.output
+        assert "DISPATCH REJECTED" in tc_reject.output
         assert not ex.stop_after_round
 
         # Round 2: new response (begin_round clears mutations_this_round)
@@ -897,12 +896,12 @@ class TestDispatchGate:
             "task_type": "review",
             "description": "Second try.",
         })
-        assert "Error" in tc1.output
-        assert "Error" in tc2.output
+        assert "DISPATCH REJECTED" in tc1.output
+        assert "DISPATCH REJECTED" in tc2.output
         assert not ex.stop_after_round
 
-    def test_multiple_entity_creating_mutations_listed(self):
-        """Error message lists all entity-creating mutations."""
+    def test_multiple_tools_listed_in_rejection(self):
+        """Error message lists applied mutations from this round."""
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
@@ -916,23 +915,23 @@ class TestDispatchGate:
             "task_type": "review",
             "description": "Verify.",
         })
-        assert "Error" in tc.output
+        assert "DISPATCH REJECTED" in tc.output
         assert "Added WH-003" in tc.output
         assert "Added RQ-004" in tc.output
 
-    def test_mutations_in_prior_round_dont_block_dispatch(self):
-        """Mutations in an earlier response don't block set_next_task in a later one."""
+    def test_tools_in_prior_round_dont_block_dispatch(self):
+        """Tool calls in an earlier response don't block set_next_task in a later one."""
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         # Round 1: mutations only
         ex.execute("add_hypothesis", {"statement": "Claim"})
-        assert len(ex.mutations_this_round) == 1
+        assert ex._calls_this_round == 1
 
         # Round 2: new response, dispatch only
         ex.begin_round()
-        assert len(ex.mutations_this_round) == 0
+        assert ex._calls_this_round == 0
         tc = ex.execute("set_next_task", {
             "task_type": "review",
             "target_claim": "WH-003",
@@ -941,8 +940,8 @@ class TestDispatchGate:
         assert "Task set" in tc.output
         assert ex.stop_after_round
 
-    def test_non_entity_mutations_dont_trigger_gate(self):
-        """update_hypothesis, resolve_critique, update_section don't trigger the gate."""
+    def test_non_entity_mutations_also_trigger_gate(self):
+        """Any tool call alongside set_next_task triggers the gate."""
         ws = _make_workspace()
         state = _make_state()
         state.critiques["CRIT-001"] = Critique(
@@ -965,11 +964,11 @@ class TestDispatchGate:
             "target_claim": "WH-001",
             "description": "Verify.",
         })
-        assert "Task set" in tc.output
-        assert ex.stop_after_round
+        assert "DISPATCH REJECTED" in tc.output
+        assert not ex.stop_after_round
 
-    def test_non_entity_mutations_allow_set_next_task(self):
-        """promote + resolve_critique + set_next_task in same round works."""
+    def test_promote_plus_set_next_task_rejected(self):
+        """promote + resolve_critique + set_next_task in same round is rejected."""
         ws = _make_workspace()
         state = _make_state_with_verified("WH-001")
         state.critiques["CRIT-001"] = Critique(
@@ -989,8 +988,8 @@ class TestDispatchGate:
             "target_claim": "WH-002",
             "description": "Verify WH-002.",
         })
-        assert "Task set" in tc.output
-        assert ex.stop_after_round
+        assert "DISPATCH REJECTED" in tc.output
+        assert not ex.stop_after_round
 
 
 # ---------------------------------------------------------------------------
@@ -998,7 +997,7 @@ class TestDispatchGate:
 # ---------------------------------------------------------------------------
 
 class TestStateInjection:
-    """Tests for the state injection rendered by begin_round()."""
+    """Tests for the state injection rendered by end_round()."""
 
     def test_render_state_injection_after_mutations(self):
         """Injection includes applied mutations and state snapshot."""
@@ -1011,8 +1010,8 @@ class TestStateInjection:
             "id": "WH-001", "justification": "Reviewer verified.",
         })
 
-        # Round 2: begin_round returns injection
-        injection = ex.begin_round()
+        # end_round returns injection for THIS round's mutations
+        injection = ex.end_round()
         assert injection is not None
         assert "Promoted WH-001 → ER-001" in injection
         assert "State snapshot" in injection
@@ -1024,7 +1023,7 @@ class TestStateInjection:
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        injection = ex.begin_round()
+        injection = ex.end_round()
         assert injection is None
 
     def test_injection_shows_unreviewed_wh(self):
@@ -1038,7 +1037,7 @@ class TestStateInjection:
 
         # Trigger a mutation so injection fires
         ex.execute("append_note", {"text": "Test note"})
-        injection = ex.begin_round()
+        injection = ex.end_round()
         assert injection is not None
         assert "WH-001 has evidence but no review" in injection
 
@@ -1049,7 +1048,7 @@ class TestStateInjection:
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         ex.execute("append_note", {"text": "Test note"})
-        injection = ex.begin_round()
+        injection = ex.end_round()
         assert injection is not None
         assert "WH-001 is VERIFIED — promote it" in injection
 
@@ -1069,7 +1068,7 @@ class TestStateInjection:
         ex.execute("promote_hypothesis", {
             "id": "WH-001", "justification": "Verified.",
         })
-        injection = ex.begin_round()
+        injection = ex.end_round()
         assert injection is not None
         assert "BUDGET" in injection
         assert "2 iteration(s) remaining" in injection
@@ -1088,7 +1087,7 @@ class TestStateInjection:
         )
 
         ex.execute("append_note", {"text": "Final check"})
-        injection = ex.begin_round()
+        injection = ex.end_round()
         assert injection is not None
         assert "All entities resolved" in injection
         assert "terminate" in injection.lower()
