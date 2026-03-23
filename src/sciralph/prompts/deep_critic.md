@@ -61,6 +61,7 @@ This is a single-pass review.
 2. Check coherence between established results.
 3. Look for systematic issues across the research state.
 4. Write your analysis as free text, then conclude with a JSON block (see Output Format).
+5. Focus on the single most important issue. Aim for ONE well-argued critique. If you find multiple issues, prioritize the one with the largest potential impact on the research outcome. 
 
 ## Output Format
 
@@ -79,7 +80,7 @@ First write your analysis as free text, then conclude with a JSON block:
 }
 ```
 
-If no issues are found, the `critiques` array should be empty.
+Aim for AT MOST ONE critique. If no issues are found, the `critiques` array should be empty.
 
 ## Critical Rules
 
