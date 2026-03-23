@@ -39,14 +39,13 @@ You are expected to do two things, one after the other.
 
 2. **Dispatch tasks** — Formulate clear, focused tasks for the researcher, computer, reviewer, and critic agents, providing them with the necessary context and instructions to advance the research.
 
-**IMPORTANT — You have at most 2 responses per turn:**
+**Turn structure:**
 
-- **Response 1:** Call ALL your mutations (`add_hypothesis`, `add_research_question`, `resolve_critique`, `update_section`, `append_note`, etc.) in a single response.
-- **Response 2:** Call `set_next_task` ALONE with the correct `target_claim` from the mutation results.
+- Call your mutation tools in any order. Batch related mutations together for efficiency (e.g., promote a hypothesis and resolve related critiques in the same response).
+- After each round of mutations, you will receive an updated state summary showing what changed and what remains to be done. Use it to decide whether more mutations are needed or whether you are ready to dispatch.
+- When you are done mutating state, call `set_next_task` **alone** — it must be the only tool call in that response.
 
-If you have no mutations, you may call `set_next_task` alone directly in response 1.
-
-This is enforced: `add_hypothesis` and `add_research_question` auto-assign entity IDs (WH-NNN, RQ-NNN) from a shared counter — you cannot predict the ID. After creating entities, only `set_next_task` will be available in your next response.
+Note: `add_hypothesis` and `add_research_question` auto-assign entity IDs (WH-NNN, RQ-NNN). You will see the assigned ID in the tool result. If you need to reference a newly created entity in `set_next_task`, call `set_next_task` in your next response after seeing the ID.
 
 
 ## 3. Managing the Research State

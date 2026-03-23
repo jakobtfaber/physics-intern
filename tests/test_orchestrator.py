@@ -1,24 +1,11 @@
 """Tests for orchestrator agent response parsing and integration."""
 
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock
 
 from sciralph.agents.orchestrator import OrchestratorAgent
 from sciralph.config import Config
-from sciralph.llm import LLMResponse
 from sciralph.metrics import MetricsTracker
-from sciralph.research_state import (
-    Critique,
-    CritiqueStatus,
-    Evidence,
-    Hypothesis,
-    HypothesisStatus,
-    ResearchState,
-    Severity,
-    Verdict,
-    ReviewResult,
-)
+from sciralph.research_state import ResearchState
 from sciralph.task import Task, TaskType
 from sciralph.workspace import WorkspaceManager
 
@@ -74,126 +61,7 @@ class TestParseTask:
         assert task.iteration == 42
 
 
-class TestCompletionAnalysis:
-    def test_triggers(self, orchestrator, workspace):
-        rs = ResearchState()
-        for i in range(1, 6):
-            rs.hypotheses[f"ER-{i:03d}"] = Hypothesis(
-                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
-            )
-        orchestrator.research_state = rs
-        result = orchestrator._completion_analysis()
-        assert result is not None
-        assert "COMPLETION CHECK" in result
-        assert "terminate" in result
-        assert "synthesize" not in result
-
-    def test_not_triggered_with_wh(self, orchestrator, workspace):
-        rs = ResearchState()
-        for i in range(1, 4):
-            rs.hypotheses[f"ER-{i:03d}"] = Hypothesis(
-                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
-            )
-        rs.hypotheses["WH-001"] = Hypothesis(id="WH-001", status=HypothesisStatus.WORKING)
-        orchestrator.research_state = rs
-        assert orchestrator._completion_analysis() is None
-
-    def test_blocked_by_critiques(self, orchestrator, workspace):
-        rs = ResearchState()
-        for i in range(1, 4):
-            rs.hypotheses[f"ER-{i:03d}"] = Hypothesis(
-                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
-            )
-        rs.critiques["CRIT-001"] = Critique(
-            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
-        )
-        orchestrator.research_state = rs
-        assert orchestrator._completion_analysis() is None
-
-
-class TestBudgetAwareTermination:
-    """Test budget-aware synthesis triggers when iterations are running low."""
-
-    def _make_state_with_wh(self):
-        """State with 3 ERs and 1 WH (blocks normal completion)."""
-        rs = ResearchState()
-        for i in range(1, 4):
-            rs.hypotheses[f"ER-{i:03d}"] = Hypothesis(
-                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
-            )
-        rs.hypotheses["WH-001"] = Hypothesis(id="WH-001", status=HypothesisStatus.WORKING)
-        return rs
-
-    def test_budget_banner_when_low(self, workspace):
-        """Budget synthesis banner fires when <=3 iterations remain, even with WHs."""
-        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
-        metrics = MetricsTracker()
-        orch = OrchestratorAgent(config, workspace, metrics)
-        orch.research_state = self._make_state_with_wh()
-
-        # iteration 18 of 20 -> 2 remaining -> should fire
-        result = orch._completion_analysis(iteration=18)
-        assert result is not None
-        assert "BUDGET SYNTHESIS REQUIRED" in result
-        assert "2 iteration(s) remaining" in result
-
-    def test_no_budget_banner_when_plenty_remaining(self, workspace):
-        """No budget banner when >3 iterations remain."""
-        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
-        metrics = MetricsTracker()
-        orch = OrchestratorAgent(config, workspace, metrics)
-        orch.research_state = self._make_state_with_wh()
-
-        # iteration 10 of 20 -> 10 remaining -> should NOT fire
-        assert orch._completion_analysis(iteration=10) is None
-
-    def test_budget_banner_with_unresolved_critiques(self, workspace):
-        """Budget synthesis fires even with unresolved HIGH critiques."""
-        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
-        metrics = MetricsTracker()
-        orch = OrchestratorAgent(config, workspace, metrics)
-        rs = self._make_state_with_wh()
-        rs.critiques["CRIT-001"] = Critique(
-            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
-        )
-        orch.research_state = rs
-
-        result = orch._completion_analysis(iteration=19)
-        assert result is not None
-        assert "BUDGET SYNTHESIS REQUIRED" in result
-        assert "1 unresolved critiques" in result
-
-    def test_completion_check_takes_priority_over_budget(self, workspace):
-        """Normal completion check fires when all conditions met, not budget banner."""
-        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
-        metrics = MetricsTracker()
-        orch = OrchestratorAgent(config, workspace, metrics)
-        rs = ResearchState()
-        for i in range(1, 4):
-            rs.hypotheses[f"ER-{i:03d}"] = Hypothesis(
-                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
-            )
-        orch.research_state = rs
-
-        # No WHs, no critiques, <=3 remaining -> normal completion check wins
-        result = orch._completion_analysis(iteration=18)
-        assert result is not None
-        assert "COMPLETION CHECK" in result
-        assert "BUDGET" not in result
-        assert "terminate" in result
-        assert "synthesize" not in result
-
-    def test_no_budget_banner_without_established_results(self, workspace):
-        """Budget banner requires at least 1 ER (nothing to synthesize otherwise)."""
-        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
-        metrics = MetricsTracker()
-        orch = OrchestratorAgent(config, workspace, metrics)
-        rs = ResearchState()
-        rs.hypotheses["WH-001"] = Hypothesis(id="WH-001", status=HypothesisStatus.WORKING)
-        orch.research_state = rs
-
-        assert orch._completion_analysis(iteration=19) is None
-
+class TestContextIteration:
     def test_context_includes_iteration(self, workspace):
         """build_context shows current iteration number."""
         config = Config(workspace_dir=str(workspace.root), max_iterations=20)

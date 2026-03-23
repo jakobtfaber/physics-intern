@@ -503,8 +503,6 @@ class SciRalph:
                 _is_failure = r.get("result", "").startswith(("Agent produced no exit tool call", "Failed to parse structured"))
                 if _is_failure:
                     lines.append("  NOTE: This evidence is from a failed agent run — do NOT treat it as usable evidence.")
-                else:
-                    lines.append("  Consider: formulate a concrete WH from this evidence (add_hypothesis with from_rq).")
             lines.append(">>> END EVIDENCE RESULTS <<<\n")
             self._state.pending_explore_results.clear()
         if self._state.pending_verified_results:
@@ -514,7 +512,6 @@ class SciRalph:
                 lines.append(f"- {v['claim']} VERIFIED by reviewer{provenance}")
                 if v.get("reasoning"):
                     lines.append(f"  Reasoning: {v['reasoning']}")
-            lines.append("  ACTION REQUIRED: promote each VERIFIED WH above (promote_hypothesis), then resolve related critiques.")
             lines.append(">>> END VERIFIED HYPOTHESES <<<\n")
             self._state.pending_verified_results.clear()
         if self._state.pending_compute_verdicts:
@@ -527,8 +524,6 @@ class SciRalph:
                     lines.append(f"  Notes: {v['notes']}")
                 if v['attempt'] >= self.config.stall_recompute_limit:
                     lines.append("  STALLED — do NOT schedule another review. Try alternative evidence.")
-                else:
-                    lines.append("  You must address this: gather new evidence or try a different approach.")
             lines.append(">>> END VERIFICATION RESULTS <<<\n")
             self._state.pending_compute_verdicts.clear()
         if self._state.pending_critic_result is not None:
@@ -536,7 +531,6 @@ class SciRalph:
             if cr.get("clean"):
                 lines.append(">>> DEEP CRITIC RESULT (previous iteration) <<<")
                 lines.append("The deep critic reviewed the research and found NO issues.")
-                lines.append("Do NOT emit another critique task immediately.")
                 if cr.get("can_terminate"):
                     lines.append(
                         "You previously attempted to terminate — you may now retry "

@@ -10,7 +10,6 @@ from ..renderers import (
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
 )
-from ..research_state import CritiqueStatus, HypothesisStatus
 from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from ..tools import ToolCall
 from .base import PROMPTS_DIR, BaseAgent
@@ -29,54 +28,6 @@ class OrchestratorAgent(BaseAgent):
         self._tool_executor: OrchestratorToolExecutor | None = None
         self.research_state: ResearchState | None = None
 
-    def _completion_analysis(self, iteration: int = 0) -> str | None:
-        """Check if research appears complete; return banner if so."""
-        if not self.research_state:
-            return None
-
-        er_count = len(self.research_state.established_hypotheses())
-        wh_count = len(self.research_state.working_hypotheses())
-        active_critiques = len([c for c in self.research_state.critiques.values()
-                                if c.status == CritiqueStatus.ACTIVE])
-
-        # Check for review backlog before other banners
-        unreviewed = [
-            h for h in self.research_state.hypotheses.values()
-            if h.id.startswith("WH-") and h.evidence and not h.review
-            and h.status == HypothesisStatus.WORKING
-        ]
-        if len(unreviewed) >= 2:
-            ids = ", ".join(h.id for h in unreviewed[:5])
-            return (
-                f">>> REVIEW BACKLOG: {len(unreviewed)} WHs have evidence but no review "
-                f"({ids}). Prioritize reviewing or abandoning before creating new entities. <<<"
-            )
-
-        if er_count >= self.config.min_er_for_completion and wh_count == 0 and active_critiques == 0:
-            return (
-                ">>> COMPLETION CHECK: "
-                f"{er_count} Established Results, "
-                f"{wh_count} Working Hypotheses remaining, "
-                f"{active_critiques} unresolved critiques. "
-                "ALL PROBLEM STEPS APPEAR TO BE ESTABLISHED. "
-                "Write a brief '## Synthesis' section using update_hypothesis or "
-                "add_hypothesis, then call set_next_task with task_type: terminate. <<<"
-            )
-
-        budget_remaining = self.config.max_iterations - iteration
-        if budget_remaining <= self.config.budget_synthesis_margin and er_count >= 1:
-            return (
-                f">>> BUDGET SYNTHESIS REQUIRED: Only {budget_remaining} "
-                f"iteration(s) remaining (iteration {iteration} of "
-                f"{self.config.max_iterations}). "
-                f"{er_count} Established Results, "
-                f"{wh_count} Working Hypotheses still pending, "
-                f"{active_critiques} unresolved critiques. "
-                "You MUST call set_next_task with task_type: research to synthesize results NOW. "
-                "Unresolved items should be noted as limitations. <<<"
-            )
-        return None
-
     def build_context(self, task: Task, iteration: int) -> str:
         parts = []
         # Problem statement and background survey at the top of user message
@@ -85,9 +36,6 @@ class OrchestratorAgent(BaseAgent):
                 parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>\n")
             if self.research_state.background_survey and self.research_state.background_survey.survey_notes:
                 parts.append(f"<background-survey>\n{self.research_state.background_survey.survey_notes}\n</background-survey>\n")
-        banner = self._completion_analysis(iteration)
-        if banner:
-            parts.append(f"{banner}\n")
         state_text = render_orchestrator_research_state(self.research_state) if self.research_state else ""
         if iteration >= 3 and self.research_state and not self.research_state.conventions:
             parts.append(
@@ -127,6 +75,9 @@ class OrchestratorAgent(BaseAgent):
         self._tool_executor = OrchestratorToolExecutor(
             workspace=self.workspace, iteration=iteration,
             research_state=self.research_state,
+            min_er_for_completion=self.config.min_er_for_completion,
+            max_iterations=self.config.max_iterations,
+            budget_synthesis_margin=self.config.budget_synthesis_margin,
         )
         result = run_agent_loop(
             system=self.system_prompt,

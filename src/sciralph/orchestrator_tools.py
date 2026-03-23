@@ -375,9 +375,6 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
 # Tool executor
 # ---------------------------------------------------------------------------
 
-_BATCH_NUDGE = " Call set_next_task ALONE in your next response to dispatch."
-
-
 class OrchestratorToolExecutor:
     """Dispatches state-mutation tool calls for the orchestrator."""
 
@@ -385,39 +382,155 @@ class OrchestratorToolExecutor:
 
     exit_tool_name: str = "set_next_task"
 
-    def __init__(self, workspace: WorkspaceManager, iteration: int, research_state: ResearchState | None = None):
+    def __init__(
+        self, workspace: WorkspaceManager, iteration: int,
+        research_state: ResearchState | None = None,
+        *,
+        min_er_for_completion: int = 3,
+        max_iterations: int = 20,
+        budget_synthesis_margin: int = 3,
+    ):
         self.workspace = workspace
         self.iteration = iteration
         self.research_state = research_state
         self.mutations_applied: bool = False
         self.mutations_this_round: list[str] = []
-        self.dispatch_only: bool = False
-        self._reject_mutations: bool = False
+        self._round_mutations: list[str] = []
         self.task_data: dict | None = None
         self.resolved_critique_ids: set[str] = set()
         self.stop_after_round: bool = False
+        self._min_er_for_completion = min_er_for_completion
+        self._max_iterations = max_iterations
+        self._budget_synthesis_margin = budget_synthesis_margin
 
-    def begin_round(self) -> None:
-        """Called by the agent loop at the start of each response's tool batch."""
-        # Activate mutation rejection if dispatch_only was set in a prior round
-        self._reject_mutations = self.dispatch_only
+    def begin_round(self) -> str | None:
+        """Called by the agent loop at the start of each response's tool batch.
+
+        Returns a state injection string if mutations occurred in the previous
+        round, or None otherwise.
+        """
+        injection = self._render_state_injection() if self._round_mutations else None
         self.mutations_this_round.clear()
+        self._round_mutations.clear()
+        return injection
+
+    def _render_state_injection(self) -> str:
+        """Produce a compact state summary after mutations."""
+        state = self.research_state
+        lines: list[str] = ["── State after your mutations ──"]
+
+        # Applied mutations
+        applied = ", ".join(f"✓ {m}" for m in self._round_mutations)
+        lines.append(f"Applied: {applied}")
+
+        if state:
+            # State snapshot
+            lines.append("")
+            lines.append("State snapshot:")
+            ers = state.established_hypotheses()
+            if ers:
+                er_items = ", ".join(f"{h.id} ({h.statement[:50]})" for h in ers)
+                lines.append(f"  ER: {er_items}")
+            whs = state.working_hypotheses()
+            if whs:
+                wh_items = []
+                for h in whs:
+                    parts = [h.id]
+                    if h.evidence:
+                        if h.review:
+                            parts.append(h.review.verdict.upper())
+                        else:
+                            parts.append("has evidence, PENDING REVIEW")
+                    else:
+                        parts.append("no evidence")
+                    wh_items.append(f"{parts[0]} ({', '.join(parts[1:])})")
+                lines.append(f"  WH: {', '.join(wh_items)}")
+            open_rqs = state.open_research_questions()
+            if open_rqs:
+                rq_items = []
+                for rq in open_rqs:
+                    rq_items.append(f"{rq.id} ({'has evidence' if rq.evidence else 'no evidence'})")
+                lines.append(f"  Open RQs: {', '.join(rq_items)}")
+            from .research_state import CritiqueStatus
+            unresolved = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
+            if unresolved:
+                crit_ids = ", ".join(c.id for c in unresolved)
+                lines.append(f"  Unresolved critiques: {crit_ids}")
+
+            # Conditional guidance
+            lines.append("")
+            lines.append("Pending:")
+            guidance = self._build_guidance(state, ers, whs, open_rqs, unresolved)
+            for g in guidance:
+                lines.append(f"- {g}")
+
+        lines.append("──")
+        return "\n".join(lines)
+
+    def _build_guidance(
+        self, state, ers: list, whs: list, open_rqs: list, unresolved_critiques: list,
+    ) -> list[str]:
+        """Build conditional guidance lines for the state injection."""
+        from .research_state import CritiqueStatus, HypothesisStatus, Verdict
+        guidance: list[str] = []
+
+        er_count = len(ers)
+        wh_count = len(whs)
+        active_critiques = len(unresolved_critiques)
+
+        # Budget pressure
+        budget_remaining = self._max_iterations - self.iteration
+        if budget_remaining <= self._budget_synthesis_margin and er_count >= 1:
+            guidance.append(
+                f"BUDGET: Only {budget_remaining} iteration(s) remaining "
+                f"(iteration {self.iteration} of {self._max_iterations}). "
+                "Synthesize results now; note unresolved items as limitations."
+            )
+
+        # All resolved → may terminate
+        if er_count >= self._min_er_for_completion and wh_count == 0 and active_critiques == 0:
+            open_rq_count = len(open_rqs)
+            if open_rq_count == 0:
+                guidance.append("All entities resolved. You may terminate.")
+            else:
+                guidance.append(
+                    f"All WHs promoted and critiques resolved. {open_rq_count} open RQ(s) remain — "
+                    "resolve or abandon them before terminating."
+                )
+
+        # Review backlog
+        unreviewed_whs = [h for h in whs if h.evidence and not h.review]
+        if len(unreviewed_whs) >= 2:
+            ids = ", ".join(h.id for h in unreviewed_whs[:5])
+            guidance.append(
+                f"Review backlog: {len(unreviewed_whs)} WHs have evidence but no review "
+                f"({ids}). Prioritize reviews."
+            )
+
+        # Per-WH guidance
+        for h in whs:
+            if h.review and h.review.verdict == Verdict.VERIFIED:
+                guidance.append(f"{h.id} is VERIFIED — promote it.")
+            elif h.review and h.review.verdict == Verdict.REFUTED:
+                guidance.append(f"{h.id} was REFUTED — rework or abandon.")
+            elif h.evidence and not h.review:
+                guidance.append(f"{h.id} has evidence but no review — consider dispatching a review.")
+
+        # Per-RQ with evidence
+        for rq in open_rqs:
+            if rq.evidence:
+                guidance.append(f"{rq.id} has evidence — formulate a WH (add_hypothesis with from_rq).")
+
+        # Unresolved critiques
+        if active_critiques:
+            guidance.append(f"{active_critiques} unresolved critique(s) to address.")
+
+        # Default closing
+        guidance.append("When done mutating, call set_next_task alone.")
+        return guidance
 
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
         start = time.time()
-
-        # Enforce dispatch-only mode: after entity-creating mutations in a
-        # prior round, only set_next_task is allowed (activated by begin_round)
-        if self._reject_mutations and tool_name != "set_next_task":
-            return ToolCall(
-                tool_name=tool_name, tool_input=tool_input,
-                output=(
-                    "Error: only set_next_task is available after creating entities. "
-                    "Call set_next_task now with the entity IDs from earlier results."
-                ),
-                is_error=True,
-                duration=time.time() - start,
-            )
 
         handlers = {
             "add_hypothesis": self._add_hypothesis,
@@ -513,7 +626,7 @@ class OrchestratorToolExecutor:
         )
         self.mutations_applied = True
         self.mutations_this_round.append(f"Added {new_id}")
-        self.dispatch_only = True
+        self._round_mutations.append(f"Added {new_id}")
         detail = f"{new_id}: {statement[:120]}"
         if from_rq:
             detail += f" (from {from_rq})"
@@ -530,7 +643,7 @@ class OrchestratorToolExecutor:
         msg = f"Added {new_id} — {statement}."
         if from_rq and evidence:
             msg += " Evidence copied — this WH is ready for review."
-        return msg + _BATCH_NUDGE
+        return msg
 
     def _update_hypothesis(self, args: dict) -> str:
         state = self.research_state
@@ -548,7 +661,8 @@ class OrchestratorToolExecutor:
             h.derivation = args["derivation"]
         h.iteration_modified = self.iteration
         self.mutations_applied = True
-        return f"Updated {hid}." + _BATCH_NUDGE
+        self._round_mutations.append(f"Updated {hid}")
+        return f"Updated {hid}."
 
     def _abandon_hypothesis(self, args: dict) -> str:
         from .research_state import FailedApproach, HypothesisStatus
@@ -596,6 +710,7 @@ class OrchestratorToolExecutor:
         )
         console.print(f"  [bold red]✗ {hid}[/] abandoned: {reason[:80]}")
 
+        self._round_mutations.append(f"Abandoned {hid}")
         msg = f"Abandoned {hid}: {reason}"
         if dependents:
             dep_list = ", ".join(dependents)
@@ -604,7 +719,7 @@ class OrchestratorToolExecutor:
                 "Their promotion will be blocked until you remove this "
                 "dependency (update or abandon them too)."
             )
-        return msg + _BATCH_NUDGE
+        return msg
 
     def _promote_hypothesis(self, args: dict) -> str:
         from .research_state import HypothesisStatus, CritiqueStatus, Verdict
@@ -658,17 +773,8 @@ class OrchestratorToolExecutor:
         console.print(f"  [bold green]{wh_id} → {er_id}[/] promoted")
 
         self.mutations_applied = True
-        msg = f"Promoted {wh_id} → {er_id}. If this is the final result asked by the problem statement, consider closing the remaining RQ and calling set_next_task with task_type 'terminate'."
-        if (not state.working_hypotheses()
-                and not state.open_research_questions()):
-            msg += (
-                " No open RQs or working hypotheses remain."
-                " If this completes the research, consider set_next_task"
-                " with task_type 'terminate'."
-            )
-        else:
-            msg += _BATCH_NUDGE
-        return msg
+        self._round_mutations.append(f"Promoted {wh_id} → {er_id}")
+        return f"Promoted {wh_id} → {er_id}."
 
     def _resolve_critique(self, args: dict) -> str:
         from .research_state import CritiqueStatus
@@ -685,7 +791,7 @@ class OrchestratorToolExecutor:
 
         c = state.critiques[crit_id]
         if c.status == CritiqueStatus.RESOLVED:
-            return f"{crit_id} is already resolved. Call set_next_task now."
+            return f"{crit_id} is already resolved."
 
         c.status = CritiqueStatus.RESOLVED
         c.resolution = resolution
@@ -697,8 +803,9 @@ class OrchestratorToolExecutor:
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
             "resolve_critique", f"{crit_id}: {resolution[:120]}",
         )
+        self._round_mutations.append(f"Resolved {crit_id}")
         console.print(f"  [dim]{crit_id}[/] resolved")
-        return f"Resolved {crit_id}." + _BATCH_NUDGE
+        return f"Resolved {crit_id}."
 
     def _update_section(self, args: dict) -> str:
         state = self.research_state
@@ -718,7 +825,8 @@ class OrchestratorToolExecutor:
             return f"Error: unknown section '{section_name}'"
 
         self.mutations_applied = True
-        return f"Updated # {section_name}." + _BATCH_NUDGE
+        self._round_mutations.append(f"Updated {section_name}")
+        return f"Updated {section_name}."
 
     def _append_note(self, args: dict) -> str:
         state = self.research_state
@@ -734,11 +842,12 @@ class OrchestratorToolExecutor:
             "iteration": self.iteration,
         })
         self.mutations_applied = True
+        self._round_mutations.append("Appended research note")
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
             "append_note", text[:120],
         )
-        return "Note appended." + _BATCH_NUDGE
+        return "Note appended."
 
     def _record_dead_end(self, args: dict) -> str:
         from .research_state import FailedApproach
@@ -756,12 +865,13 @@ class OrchestratorToolExecutor:
             iteration=self.iteration,
         ))
         self.mutations_applied = True
+        self._round_mutations.append(f"Recorded dead end")
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
             "record_dead_end", f"{description[:120]}: {reason[:120]}",
         )
         console.print(f"  [bold red]Dead end:[/] {description[:80]}")
-        return f"Recorded dead end: {description}." + _BATCH_NUDGE
+        return f"Recorded dead end: {description}."
 
     def _add_research_question(self, args: dict) -> str:
         from .research_state import ResearchQuestion
@@ -783,13 +893,13 @@ class OrchestratorToolExecutor:
         )
         self.mutations_applied = True
         self.mutations_this_round.append(f"Added {rq_id}")
-        self.dispatch_only = True
+        self._round_mutations.append(f"Added {rq_id}")
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
             "add_research_question", f"{rq_id}: {question[:120]}",
         )
         console.print(f"  [bold cyan]+{rq_id}[/] {question[:80]}")
-        return f"Added {rq_id} — {question}." + _BATCH_NUDGE
+        return f"Added {rq_id} — {question}."
 
     def _resolve_research_question(self, args: dict) -> str:
         from .research_state import RQStatus
@@ -806,36 +916,33 @@ class OrchestratorToolExecutor:
 
         rq = state.research_questions[rq_id]
         if rq.status == RQStatus.RESOLVED:
-            return (
-                f"{rq_id} is already resolved (iteration {rq.iteration_resolved})."
-                " No action needed — call set_next_task now."
-            )
+            return f"{rq_id} is already resolved (iteration {rq.iteration_resolved})."
         rq.status = RQStatus.RESOLVED
         rq.iteration_resolved = self.iteration
         rq.resolution_reason = reason
         self.mutations_applied = True
+        self._round_mutations.append(f"Closed {rq_id}")
         detail = f"{rq_id}: {reason}" if reason else f"{rq_id} (closed)"
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
             "resolve_research_question", detail,
         )
         console.print(f"  [dim]{rq_id}[/] closed" + (f" — {reason[:60]}" if reason else ""))
-        return f"Closed {rq_id}." + _BATCH_NUDGE
+        return f"Closed {rq_id}."
 
     def _set_next_task(self, args: dict) -> str:
-        # Two-phase gate: reject if mutations occurred in this response batch
+        # Dispatch gate: reject if entity-creating mutations occurred in this response
         if self.mutations_this_round:
             mutations_list = "; ".join(self.mutations_this_round)
             log_scaffold_event(
                 self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                "two_phase_gate_reject",
+                "dispatch_gate_reject",
                 f"Rejected set_next_task — mutations this response: {mutations_list}",
             )
             return (
-                f"Error: set_next_task cannot be called in the same response "
-                f"as mutation tools. Mutations this response: {mutations_list}. "
-                "Call set_next_task ALONE in your next response, using the "
-                "actual entity IDs from the mutation results above."
+                f"Error: set_next_task must be called alone, without other tool calls in the "
+                f"same response. Mutations this response: {mutations_list}. "
+                "Call set_next_task in your next response."
             )
 
         # Validate target_claim when present

@@ -452,7 +452,9 @@ def run_agent_loop(
             messages.append(provider.format_assistant_message(resp.raw_content))
 
             if hasattr(tool_executor, "begin_round"):
-                tool_executor.begin_round()
+                injection = tool_executor.begin_round()
+                if injection:
+                    messages.append({"role": "user", "content": injection})
 
             tool_results = []
             for tc_info in resp.tool_calls:
@@ -508,11 +510,6 @@ def run_agent_loop(
                     config, system, user_content, agent_name,
                     iteration, round_log, result)
                 return result
-
-            # Restrict to dispatch-only tools if executor signals it
-            # (e.g., after entity-creating mutations that need two-phase dispatch)
-            if getattr(tool_executor, "dispatch_only", False):
-                tools = [t for t in tools if t["function"]["name"] == _exit_tool]
 
             # Track consecutive execute_python for progress check
             round_has_exec = any(tc.tool_name == "execute_python"
@@ -615,6 +612,10 @@ def run_agent_loop(
     # Log the injection in conversation log
     round_log.append({"kind": "scaffold_injection", "round": round_num + 1,
                        "label": "forced_final_message", "content": forced_msg})
+
+    # Clear executor state so forced set_next_task isn't rejected by the dispatch gate
+    if hasattr(tool_executor, "begin_round"):
+        tool_executor.begin_round()
 
     # Retry forced final call if model doesn't call exit tool
     _forced_max_retries = 2 if _forced_with_exit_tool else 0

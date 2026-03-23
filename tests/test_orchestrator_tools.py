@@ -339,8 +339,8 @@ class TestPromoteHypothesis:
         assert "ER-001" in state.hypotheses
         assert "WH-001" not in state.hypotheses
 
-    def test_promote_termination_nudge_fires(self):
-        """When no open RQs, working hypotheses, or HIGH critiques remain, nudge terminate."""
+    def test_promote_result_is_simple(self):
+        """Promote tool result is a short confirmation (guidance moves to injection)."""
         ws = _make_workspace()
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
@@ -357,30 +357,7 @@ class TestPromoteHypothesis:
             "justification": "All checks pass.",
         })
         assert not tc.is_error
-        assert "Promoted" in tc.output
-        assert "terminate" in tc.output
-
-    def test_promote_termination_nudge_suppressed(self):
-        """When open RQs remain, the specific termination nudge is suppressed."""
-        from sciralph.research_state import ResearchQuestion, RQStatus
-
-        ws = _make_workspace()
-        state = _make_state_with_verified("WH-001")
-        # Add an open research question so termination nudge should NOT fire
-        state.research_questions["RQ-010"] = ResearchQuestion(
-            id="RQ-010", question="Open question",
-            status=RQStatus.OPEN, iteration_created=1,
-        )
-        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-001",
-            "justification": "Verified.",
-        })
-        assert not tc.is_error
-        assert "Promoted" in tc.output
-        # The specific "No open RQs or working hypotheses remain" nudge
-        # should NOT appear when there are still open RQs.
-        assert "No open RQs or working hypotheses remain" not in tc.output
+        assert tc.output == "Promoted WH-001 → ER-001."
 
 
 # ---------------------------------------------------------------------------
@@ -863,14 +840,14 @@ class TestResearchQuestionTools:
 
 
 # ---------------------------------------------------------------------------
-# Two-phase gate
+# Dispatch gate
 # ---------------------------------------------------------------------------
 
-class TestTwoPhaseGate:
-    """Tests for the two-phase dispatch gate in set_next_task."""
+class TestDispatchGate:
+    """Tests for the dispatch gate in set_next_task."""
 
     def test_gate_rejects_when_mutations_occurred(self):
-        """set_next_task is rejected when mutations happened in the same round."""
+        """set_next_task is rejected when entity-creating mutations happened in the same round."""
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
@@ -890,62 +867,8 @@ class TestTwoPhaseGate:
         assert "mutation" in tc2.output.lower()
         assert ex.task_data is None
         assert not ex.stop_after_round
-        assert ex.dispatch_only  # signals loop to restrict tools
 
-    def test_dispatch_only_set_by_entity_creating_mutation(self):
-        """Entity-creating mutations set dispatch_only for tool restriction."""
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        assert not ex.dispatch_only
-
-        ex.execute("add_hypothesis", {"statement": "Claim"})
-        assert ex.dispatch_only
-
-    def test_dispatch_only_not_set_by_non_entity_mutation(self):
-        """Non-entity mutations don't set dispatch_only."""
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-
-        ex.execute("update_hypothesis", {
-            "id": "WH-001", "statement": "Updated",
-        })
-        assert not ex.dispatch_only
-
-    def test_dispatch_only_rejects_non_dispatch_tools_in_next_round(self):
-        """After begin_round, non-set_next_task tools are rejected."""
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-
-        # Round 1: create entity → dispatch_only becomes True
-        ex.execute("add_hypothesis", {"statement": "Claim"})
-        assert ex.dispatch_only
-
-        # Round 2: begin_round activates rejection
-        ex.begin_round()
-        assert ex._reject_mutations
-
-        # Non-dispatch tools rejected
-        tc = ex.execute("add_research_question", {"question": "Duplicate?"})
-        assert tc.is_error
-        assert "only set_next_task" in tc.output
-
-        tc2 = ex.execute("update_section", {
-            "section": "Conventions", "content": "test",
-        })
-        assert tc2.is_error
-
-        # set_next_task still works
-        tc3 = ex.execute("set_next_task", {
-            "task_type": "review",
-            "target_claim": "WH-003",
-            "description": "Verify.",
-        })
-        assert "Task set" in tc3.output
-
-    def test_dispatch_only_allows_mutations_within_same_round(self):
+    def test_multiple_entity_mutations_in_same_round(self):
         """Multiple entity-creating mutations in the same response all execute."""
         ws = _make_workspace()
         state = _make_state()
@@ -974,12 +897,12 @@ class TestTwoPhaseGate:
         assert ex.stop_after_round
 
     def test_gate_allows_after_new_round(self):
-        """Simulates two-phase: mutation round → begin_round → dispatch succeeds."""
+        """Mutation round → begin_round → dispatch succeeds."""
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        # Phase 1: mutation response
+        # Round 1: mutation response
         ex.execute("add_hypothesis", {"statement": "Claim"})
         # set_next_task in same response → rejected
         tc_reject = ex.execute("set_next_task", {
@@ -990,7 +913,7 @@ class TestTwoPhaseGate:
         assert "Error" in tc_reject.output
         assert not ex.stop_after_round
 
-        # Phase 2: new response (begin_round clears mutations_this_round)
+        # Round 2: new response (begin_round clears mutations_this_round)
         ex.begin_round()
         tc_ok = ex.execute("set_next_task", {
             "task_type": "review",
@@ -1022,7 +945,6 @@ class TestTwoPhaseGate:
 
     def test_multiple_entity_creating_mutations_listed(self):
         """Error message lists all entity-creating mutations."""
-        from sciralph.research_state import ResearchQuestion
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
@@ -1087,6 +1009,155 @@ class TestTwoPhaseGate:
         })
         assert "Task set" in tc.output
         assert ex.stop_after_round
+
+    def test_non_entity_mutations_allow_set_next_task(self):
+        """promote + resolve_critique + set_next_task in same round works."""
+        ws = _make_workspace()
+        state = _make_state_with_verified("WH-001")
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
+            targets=["WH-001"], argument="Issue.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        ex.execute("promote_hypothesis", {
+            "id": "WH-001", "justification": "Verified by reviewer.",
+        })
+        ex.execute("resolve_critique", {
+            "critique_id": "CRIT-001", "resolution": "Promoted WH-001.",
+        })
+        tc = ex.execute("set_next_task", {
+            "task_type": "review",
+            "target_claim": "WH-002",
+            "description": "Verify WH-002.",
+        })
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
+
+
+# ---------------------------------------------------------------------------
+# State injection
+# ---------------------------------------------------------------------------
+
+class TestStateInjection:
+    """Tests for the state injection rendered by begin_round()."""
+
+    def test_render_state_injection_after_mutations(self):
+        """Injection includes applied mutations and state snapshot."""
+        ws = _make_workspace()
+        state = _make_state_with_verified("WH-001")
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        # Round 1: mutations
+        ex.execute("promote_hypothesis", {
+            "id": "WH-001", "justification": "Reviewer verified.",
+        })
+
+        # Round 2: begin_round returns injection
+        injection = ex.begin_round()
+        assert injection is not None
+        assert "Promoted WH-001 → ER-001" in injection
+        assert "State snapshot" in injection
+        assert "ER-001" in injection
+
+    def test_render_state_injection_none_without_mutations(self):
+        """No injection when no mutations occurred."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        injection = ex.begin_round()
+        assert injection is None
+
+    def test_injection_shows_unreviewed_wh(self):
+        """WH with evidence + no review → guidance line in injection."""
+        ws = _make_workspace()
+        state = _make_state()
+        state.hypotheses["WH-001"].evidence = Evidence(
+            type="research", summary="Some evidence", iteration=2,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        # Trigger a mutation so injection fires
+        ex.execute("append_note", {"text": "Test note"})
+        injection = ex.begin_round()
+        assert injection is not None
+        assert "WH-001 has evidence but no review" in injection
+
+    def test_injection_shows_verified_promote_guidance(self):
+        """WH with VERIFIED review → promote guidance in injection."""
+        ws = _make_workspace()
+        state = _make_state_with_verified("WH-001")
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        ex.execute("append_note", {"text": "Test note"})
+        injection = ex.begin_round()
+        assert injection is not None
+        assert "WH-001 is VERIFIED — promote it" in injection
+
+    def test_injection_shows_budget_pressure(self):
+        """Low iterations remaining → budget message in injection."""
+        ws = _make_workspace()
+        state = _make_state()
+        # Promote WH-001 to ER so we have an established result
+        state.hypotheses["WH-001"].review = ReviewResult(
+            verdict=Verdict.VERIFIED, summary="Verified", iteration=2,
+        )
+        ex = OrchestratorToolExecutor(
+            ws, iteration=18, research_state=state,
+            max_iterations=20, budget_synthesis_margin=3,
+        )
+
+        ex.execute("promote_hypothesis", {
+            "id": "WH-001", "justification": "Verified.",
+        })
+        injection = ex.begin_round()
+        assert injection is not None
+        assert "BUDGET" in injection
+        assert "2 iteration(s) remaining" in injection
+
+    def test_injection_shows_completion_ready(self):
+        """All resolved → terminate guidance in injection."""
+        ws = _make_workspace()
+        state = ResearchState()
+        for i in range(1, 4):
+            state.hypotheses[f"ER-{i:03d}"] = Hypothesis(
+                id=f"ER-{i:03d}", status=HypothesisStatus.ESTABLISHED,
+            )
+        ex = OrchestratorToolExecutor(
+            ws, iteration=5, research_state=state,
+            min_er_for_completion=3,
+        )
+
+        ex.execute("append_note", {"text": "Final check"})
+        injection = ex.begin_round()
+        assert injection is not None
+        assert "All entities resolved" in injection
+        assert "terminate" in injection.lower()
+
+    def test_simplified_tool_results_no_nudge(self):
+        """Tool results don't contain old _BATCH_NUDGE text."""
+        ws = _make_workspace()
+        state = _make_state()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
+            targets=["WH-001"], argument="Issue.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+
+        nudge = "Call set_next_task ALONE in your next response to dispatch"
+        tc1 = ex.execute("add_hypothesis", {"statement": "Test"})
+        assert nudge not in tc1.output
+        tc2 = ex.execute("resolve_critique", {
+            "critique_id": "CRIT-001", "resolution": "Fixed.",
+        })
+        assert nudge not in tc2.output
+        tc3 = ex.execute("update_section", {
+            "section": "Conventions", "content": "Natural units.",
+        })
+        assert nudge not in tc3.output
+        tc4 = ex.execute("append_note", {"text": "Note"})
+        assert nudge not in tc4.output
 
 
 # ---------------------------------------------------------------------------
