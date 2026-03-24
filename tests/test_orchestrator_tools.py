@@ -80,12 +80,18 @@ def _make_state_with_high_critique(target: str = "WH-001") -> ResearchState:
 
 class TestAddHypothesis:
     def test_creates_wh003_in_state(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
+        state.research_questions["RQ-003"] = ResearchQuestion(
+            id="RQ-003", question="What is the third result?",
+            iteration_created=2,
+        )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("add_hypothesis", {
             "statement": "Third hypothesis",
             "derivation": "Some derivation.",
+            "from_rq": "RQ-003",
         })
         assert not tc.is_error
         assert "WH-003" in tc.output
@@ -97,6 +103,18 @@ class TestAddHypothesis:
         assert h.iteration_created == 3
         assert h.iteration_modified == 3
         assert ex.mutations_applied
+        # RQ should be auto-resolved
+        assert state.research_questions["RQ-003"].status == RQStatus.RESOLVED
+
+    def test_rejects_without_from_rq(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("add_hypothesis", {
+            "statement": "Third hypothesis",
+            "derivation": "Some derivation.",
+        })
+        assert "from_rq is required" in tc.output
 
 
 # ---------------------------------------------------------------------------
@@ -607,12 +625,18 @@ class TestDependencyGraph:
     """Tests for depends_on in add_hypothesis and promotion dependency guardrail (B4)."""
 
     def test_add_hypothesis_with_depends_on(self):
+        from sciralph.research_state import ResearchQuestion
         ws = _make_workspace()
         state = _make_state()
+        state.research_questions["RQ-003"] = ResearchQuestion(
+            id="RQ-003", question="Derived from WH-001?",
+            iteration_created=2,
+        )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("add_hypothesis", {
             "statement": "Depends on WH-001",
             "depends_on": ["WH-001"],
+            "from_rq": "RQ-003",
         })
         assert not tc.is_error
         new_id = "WH-003"
@@ -804,14 +828,25 @@ class TestResearchQuestionTools:
 class TestDispatchGate:
     """Tests for the dispatch gate in set_next_task."""
 
+    @staticmethod
+    def _state_with_open_rq():
+        """State with WH-001, WH-002, and an open RQ-003 for add_hypothesis calls."""
+        from sciralph.research_state import ResearchQuestion
+        state = _make_state()
+        state.research_questions["RQ-003"] = ResearchQuestion(
+            id="RQ-003", question="Placeholder for gate test",
+            iteration_created=2,
+        )
+        return state
+
     def test_gate_rejects_when_other_tools_called(self):
         """set_next_task is rejected when other tools were called in the same round."""
         ws = _make_workspace()
-        state = _make_state()
+        state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         # Phase 1: mutation
-        tc1 = ex.execute("add_hypothesis", {"statement": "New claim"})
+        tc1 = ex.execute("add_hypothesis", {"statement": "New claim", "from_rq": "RQ-003"})
         assert not tc1.is_error
         assert "WH-003" in state.hypotheses  # mutation applied
 
@@ -828,10 +863,10 @@ class TestDispatchGate:
     def test_multiple_entity_mutations_in_same_round(self):
         """Multiple entity-creating mutations in the same response all execute."""
         ws = _make_workspace()
-        state = _make_state()
+        state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        tc1 = ex.execute("add_hypothesis", {"statement": "First"})
+        tc1 = ex.execute("add_hypothesis", {"statement": "First", "from_rq": "RQ-003"})
         assert not tc1.is_error
         tc2 = ex.execute("add_research_question", {"question": "Question?"})
         assert not tc2.is_error
@@ -856,11 +891,11 @@ class TestDispatchGate:
     def test_gate_allows_after_new_round(self):
         """Mutation round → begin_round → dispatch succeeds."""
         ws = _make_workspace()
-        state = _make_state()
+        state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         # Round 1: mutation response
-        ex.execute("add_hypothesis", {"statement": "Claim"})
+        ex.execute("add_hypothesis", {"statement": "Claim", "from_rq": "RQ-003"})
         # set_next_task in same response → rejected
         tc_reject = ex.execute("set_next_task", {
             "task_type": "review",
@@ -884,10 +919,10 @@ class TestDispatchGate:
     def test_gate_still_rejects_within_same_round_after_rejection(self):
         """Two set_next_task calls in same response: both rejected if mutations present."""
         ws = _make_workspace()
-        state = _make_state()
+        state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        ex.execute("add_hypothesis", {"statement": "Claim"})
+        ex.execute("add_hypothesis", {"statement": "Claim", "from_rq": "RQ-003"})
         tc1 = ex.execute("set_next_task", {
             "task_type": "review",
             "description": "First try.",
@@ -903,10 +938,10 @@ class TestDispatchGate:
     def test_multiple_tools_listed_in_rejection(self):
         """Error message lists applied mutations from this round."""
         ws = _make_workspace()
-        state = _make_state()
+        state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        ex.execute("add_hypothesis", {"statement": "First"})
+        ex.execute("add_hypothesis", {"statement": "First", "from_rq": "RQ-003"})
         ex.execute("add_research_question", {
             "question": "Some question?",
         })
@@ -922,11 +957,11 @@ class TestDispatchGate:
     def test_tools_in_prior_round_dont_block_dispatch(self):
         """Tool calls in an earlier response don't block set_next_task in a later one."""
         ws = _make_workspace()
-        state = _make_state()
+        state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         # Round 1: mutations only
-        ex.execute("add_hypothesis", {"statement": "Claim"})
+        ex.execute("add_hypothesis", {"statement": "Claim", "from_rq": "RQ-003"})
         assert ex._calls_this_round == 1
 
         # Round 2: new response, dispatch only

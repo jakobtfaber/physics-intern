@@ -32,7 +32,9 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
         "function": {
             "name": "add_hypothesis",
             "description": (
-                "Add a new Working Hypothesis. "
+                "Add a new Working Hypothesis from a Research Question. "
+                "Requires from_rq: every WH must originate from an RQ "
+                "that has gathered evidence. "
                 "Returns the auto-assigned ID (e.g., WH-003)."
             ),
             "parameters": {
@@ -64,7 +66,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         ),
                     },
                 },
-                "required": ["statement"],
+                "required": ["statement", "from_rq"],
             },
         },
     },
@@ -562,41 +564,45 @@ class OrchestratorToolExecutor:
         depends_on = args.get("depends_on", [])
         from_rq = args.get("from_rq")
 
-        if from_rq:
-            # Inherit RQ's number and auto-resolve it
-            if from_rq not in state.research_questions:
-                return f"Error: {from_rq} not found in research questions"
-            rq = state.research_questions[from_rq]
-            if rq.status == RQStatus.RESOLVED:
-                return (
-                    f"Error: {from_rq} is already resolved"
-                    f" (iteration {rq.iteration_resolved})."
-                    " Do not create a WH from an already-closed RQ."
-                    " Call set_next_task to proceed."
-                )
-            rq_num = int(from_rq.split("-")[1])
-            new_id = f"WH-{rq_num:03d}"
-            if new_id in state.hypotheses:
-                # Collision: another WH already has this number; use next available
-                num = state.next_entity_num()
-                new_id = f"WH-{num:03d}"
-            else:
-                # Auto-resolve the RQ
-                rq.status = RQStatus.RESOLVED
-                rq.resolved_to.append(new_id)
-                rq.iteration_resolved = self.iteration
-                rq.resolution_reason = f"Promoted to {new_id}"
-        else:
+        if not from_rq:
+            return (
+                "Error: from_rq is required. Every Working Hypothesis must "
+                "originate from a Research Question with gathered evidence. "
+                "Create an RQ first with add_research_question, dispatch a "
+                "research or compute task to gather evidence on it, then "
+                "call add_hypothesis with from_rq set to that RQ ID."
+            )
+
+        # Inherit RQ's number and auto-resolve it
+        if from_rq not in state.research_questions:
+            return f"Error: {from_rq} not found in research questions"
+        rq = state.research_questions[from_rq]
+        if rq.status == RQStatus.RESOLVED:
+            return (
+                f"Error: {from_rq} is already resolved"
+                f" (iteration {rq.iteration_resolved})."
+                " Do not create a WH from an already-closed RQ."
+                " Call set_next_task to proceed."
+            )
+        rq_num = int(from_rq.split("-")[1])
+        new_id = f"WH-{rq_num:03d}"
+        if new_id in state.hypotheses:
+            # Collision: another WH already has this number; use next available
             num = state.next_entity_num()
             new_id = f"WH-{num:03d}"
+        else:
+            # Auto-resolve the RQ
+            rq.status = RQStatus.RESOLVED
+            rq.resolved_to.append(new_id)
+            rq.iteration_resolved = self.iteration
+            rq.resolution_reason = f"Promoted to {new_id}"
 
-        # Copy evidence from RQ if available
+        # Copy evidence from RQ
         evidence = None
-        if from_rq:
-            rq = state.research_questions[from_rq]
-            if rq.evidence is not None:
-                from copy import deepcopy
-                evidence = deepcopy(rq.evidence)
+        rq = state.research_questions[from_rq]
+        if rq.evidence is not None:
+            from copy import deepcopy
+            evidence = deepcopy(rq.evidence)
 
         state.hypotheses[new_id] = Hypothesis(
             id=new_id,
@@ -610,21 +616,16 @@ class OrchestratorToolExecutor:
         )
         self.mutations_applied = True
         self._round_mutations.append(f"Added {new_id}")
-        detail = f"{new_id}: {statement[:120]}"
-        if from_rq:
-            detail += f" (from {from_rq})"
+        detail = f"{new_id}: {statement[:120]} (from {from_rq})"
         if depends_on:
             detail += f" (depends_on: {', '.join(depends_on)})"
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
             "add_hypothesis", detail,
         )
-        if from_rq:
-            console.print(f"  [bold cyan]{from_rq}[/] → [bold yellow]+{new_id}[/] {statement[:80]}")
-        else:
-            console.print(f"  [bold yellow]+{new_id}[/] {statement[:80]}")
+        console.print(f"  [bold cyan]{from_rq}[/] → [bold yellow]+{new_id}[/] {statement[:80]}")
         msg = f"Added {new_id} — {statement}."
-        if from_rq and evidence:
+        if evidence:
             msg += " Evidence copied — this WH is ready for review."
         return msg
 
