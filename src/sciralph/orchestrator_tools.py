@@ -645,6 +645,7 @@ class OrchestratorToolExecutor:
         h.iteration_modified = self.iteration
         self.mutations_applied = True
         self._round_mutations.append(f"Updated {hid}")
+        console.print(f"  [dim]Updated {hid}[/]")
         return f"Updated {hid}."
 
     def _abandon_hypothesis(self, args: dict) -> str:
@@ -787,7 +788,7 @@ class OrchestratorToolExecutor:
             "resolve_critique", f"{crit_id}: {resolution[:120]}",
         )
         self._round_mutations.append(f"Resolved {crit_id}")
-        console.print(f"  [dim]{crit_id}[/] resolved")
+        console.print(f"  [dim]{crit_id}[/] resolved — {resolution[:60]}")
         return f"Resolved {crit_id}."
 
     def _update_section(self, args: dict) -> str:
@@ -809,6 +810,7 @@ class OrchestratorToolExecutor:
 
         self.mutations_applied = True
         self._round_mutations.append(f"Updated {section_name}")
+        console.print(f"  [dim]Updated {section_name}[/]")
         return f"Updated {section_name}."
 
     def _append_note(self, args: dict) -> str:
@@ -830,6 +832,7 @@ class OrchestratorToolExecutor:
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
             "append_note", text[:120],
         )
+        console.print(f"  [dim]Note:[/] {text[:80]}")
         return "Note appended."
 
     def _add_research_question(self, args: dict) -> str:
