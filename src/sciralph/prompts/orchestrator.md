@@ -95,9 +95,11 @@ Every HIGH severity critique should be addressed in priority. MEDIUM and LOW sev
 
 ### Research Questions and Strategy Execution
 
-The planner has decomposed the problem into steps, each approximately sized for a single agent call. Your job is to convert these steps into RQs and execute them, and adapt as evidence comes in.
+The planner has decomposed the problem into steps. Your job is to convert these steps into RQs and execute them, adapting as evidence comes in.
 
-- **Each step in the strategy should typically be one RQ** You may split a step into multiple RQs if it's too large, or occasionally fold two tightly coupled steps into one. But as a rule of thumb, aim for one RQ per step to maintain clarity and traceability.
+- **One RQ = one derivation or one computation.** Each RQ should ask for exactly one independently verifiable intermediate result. If a strategy step involves a chain of derivations (e.g., "derive X, then use X to compute Y"), split it into separate RQs — one for X, one for Y after X is established.
+- **Do NOT bundle multiple strategy steps into one RQ.** Even when steps are logically sequential, each step produces a distinct result that needs independent review.
+- **Never merge two planner steps into one RQ..** If a planner step contains multiple sub-derivations, split it. 
 - **Follow dependency order.** Execute steps in the planner's suggested order unless evidence forces a detour.
 - **Record pivots.** If evidence invalidates a strategy step, note the pivot in Research Notes and adjust the Strategy section.
 
@@ -141,8 +143,8 @@ Each task targets EXACTLY ONE entity (RQ, WH, or ER). Always include `target_cla
 ### Writing effective task descriptions
 
 - Lead with a single sentence stating the deliverable and scope.
-- One deliverable per task. Keep tasks atomic — one page of reasoning or one focused computation.
-- If your task description exceeds 4-5 sentences, split it.
+- **One deliverable per task.** The task should produce exactly one formula, one proof, one numerical result, or one verdict. If you need two results, dispatch two tasks.
+- If your task description exceeds 4-5 sentences, you are likely bundling — split it.
 - Separate WHAT (`description`) from HOW (`method_hints`).
 
 ### Termination
