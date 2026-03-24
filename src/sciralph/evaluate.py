@@ -132,26 +132,23 @@ def _compare_numerical(candidate: Any, truth: float, rtol: float = 0.01) -> dict
 # Symbolic comparison
 # ---------------------------------------------------------------------------
 
-def _compare_symbolic(
-    candidate: Any,
-    answer_str: str,
-    namespace: dict[str, Any],
-) -> dict:
-    """Compare symbolic answers using cascading simplification methods."""
-    import sympy as sp
+def _compare_single_symbolic(candidate: Any, truth: Any) -> dict:
+    """Compare a single candidate value against a single truth value.
 
-    # Evaluate truth expression in the shared namespace
-    truth_ns = dict(namespace)
-    rhs = answer_str.split("=", 1)[1].strip() if "=" in answer_str else answer_str.strip()
-    try:
-        truth = eval(rhs, truth_ns)  # noqa: S307
-    except Exception as exc:
+    Handles string equality for discrete answers (e.g. multiple-choice)
+    and the cascading SymPy simplification chain for symbolic expressions.
+    """
+    # String comparison (e.g. multiple-choice answers like 'C')
+    if isinstance(truth, str):
+        correct = str(candidate).strip() == truth.strip()
         return {
-            "correct": None,
-            "method": "truth_eval_error",
-            "error": f"Truth expression eval failed: {exc}",
-            "details": traceback.format_exc(),
+            "correct": correct,
+            "method": "string_equality",
+            "error": None,
+            "details": f"candidate={candidate!r}, truth={truth!r}",
         }
+
+    import sympy as sp
 
     # --- Cascading comparison chain ---
 
@@ -208,12 +205,152 @@ def _compare_symbolic(
     }
 
 
+def _eval_truth(answer_str: str, namespace: dict[str, Any]) -> tuple[Any, str | None]:
+    """Evaluate a truth answer string into a value.
+
+    Returns (truth_value, error_string).  *error_string* is None on success.
+    For multi-line answer blocks (reference files with intermediate variable
+    definitions), ``exec()`` the block and collect assigned variables.  If the
+    candidate is a tuple, the last N assigned variables form the truth tuple.
+    """
+    truth_ns = dict(namespace)
+
+    if "\n" not in answer_str:
+        # Single-line: eval the RHS
+        rhs = answer_str.split("=", 1)[1].strip() if "=" in answer_str else answer_str.strip()
+        try:
+            return eval(rhs, truth_ns), None  # noqa: S307
+        except Exception as exc:
+            return None, f"Truth expression eval failed: {exc}"
+
+    # Multi-line block: exec all lines and collect assigned variable names
+    try:
+        exec(answer_str, truth_ns)  # noqa: S102
+    except Exception as exc:
+        return None, f"Truth expression eval failed: {exc}"
+
+    var_names: list[str] = []
+    for line in answer_str.strip().splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            lhs = stripped.split("=", 1)[0].strip()
+            if lhs.isidentifier() and lhs in truth_ns:
+                var_names.append(lhs)
+    if not var_names:
+        return None, "No assignments found in multi-line answer"
+    return {name: truth_ns[name] for name in var_names}, None
+
+
+def _compare_symbolic(
+    candidate: Any,
+    answer_str: str,
+    namespace: dict[str, Any],
+) -> dict:
+    """Compare symbolic answers using cascading simplification methods."""
+    truth_val, err = _eval_truth(answer_str, namespace)
+    if err is not None:
+        return {
+            "correct": None,
+            "method": "truth_eval_error",
+            "error": err,
+            "details": traceback.format_exc(),
+        }
+
+    # Multi-line block returns a dict of assigned variables
+    if isinstance(truth_val, dict):
+        truth_vars = truth_val  # {name: value, ...}
+        if isinstance(candidate, (tuple, list)):
+            # Take the last N variables to skip intermediates
+            names = list(truth_vars.keys())
+            if len(candidate) <= len(names):
+                names = names[-len(candidate):]
+            truth_values = [truth_vars[n] for n in names]
+        else:
+            # Single candidate: use the last variable
+            truth_values = [list(truth_vars.values())[-1]]
+            candidate = [candidate]
+
+        # Element-by-element comparison
+        element_results = []
+        all_correct = True
+        for cand_elem, truth_elem in zip(candidate, truth_values):
+            r = _compare_single_symbolic(cand_elem, truth_elem)
+            element_results.append(r)
+            if not r["correct"]:
+                all_correct = False
+
+        methods = [r["method"] for r in element_results]
+        details = "; ".join(
+            f"[{i}] {r['method']}: {r['details']}"
+            for i, r in enumerate(element_results)
+        )
+        return {
+            "correct": all_correct,
+            "method": f"multiline({','.join(methods)})",
+            "error": None,
+            "details": details,
+        }
+
+    # Single truth value — standard cascading comparison
+    return _compare_single_symbolic(candidate, truth_val)
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def evaluate_response(response_text: str, problem_def: dict) -> dict:
+def _compare_tuple(candidate: Any, truth: Any) -> dict:
+    """Compare candidate and truth values element-by-element.
+
+    Both *candidate* and *truth* may be scalars or tuples/lists.  Each element
+    pair is compared via ``_compare_single_symbolic``.
+    """
+    cand_list = list(candidate) if isinstance(candidate, (tuple, list)) else [candidate]
+    truth_list = list(truth) if isinstance(truth, (tuple, list)) else [truth]
+
+    if len(cand_list) != len(truth_list):
+        return {
+            "correct": False,
+            "method": "shape_mismatch",
+            "error": f"Candidate returns {len(cand_list)} values, truth returns {len(truth_list)}",
+            "details": "",
+        }
+
+    element_results = []
+    all_correct = True
+    for cand_elem, truth_elem in zip(cand_list, truth_list):
+        r = _compare_single_symbolic(cand_elem, truth_elem)
+        element_results.append(r)
+        if not r["correct"]:
+            all_correct = False
+
+    if len(element_results) == 1:
+        return element_results[0]
+
+    methods = [r["method"] for r in element_results]
+    details = "; ".join(
+        f"[{i}] {r['method']}: {r['details']}"
+        for i, r in enumerate(element_results)
+    )
+    return {
+        "correct": all_correct,
+        "method": f"reference_fn({','.join(methods)})",
+        "error": None,
+        "details": details,
+    }
+
+
+def evaluate_response(
+    response_text: str,
+    problem_def: dict,
+    *,
+    reference_code: str | None = None,
+) -> dict:
     """Evaluate an LLM response against the known answer from *problem_def*.
+
+    If *reference_code* is provided (a string containing a ``def answer(...)``
+    function), the truth value is obtained by executing that function in the
+    template preamble namespace — bypassing string-based answer parsing.
 
     Returns a dict with keys:
         correct  — True / False / None (if evaluation errored)
@@ -224,11 +361,13 @@ def evaluate_response(response_text: str, problem_def: dict) -> dict:
     answer_value = problem_def.get("answer")
     answer_template = problem_def.get("answer_template", "")
 
-    if answer_value is None or (isinstance(answer_value, str) and not answer_value.strip()):
-        return {"correct": None, "method": "no_answer", "error": "No answer in problem definition", "details": ""}
+    has_reference_fn = reference_code is not None
+    if not has_reference_fn:
+        if answer_value is None or (isinstance(answer_value, str) and not answer_value.strip()):
+            return {"correct": None, "method": "no_answer", "error": "No answer in problem definition", "details": ""}
 
-    answer_type = _classify_answer_type(answer_value)
-    answer_str = str(answer_value).strip()
+    answer_type = _classify_answer_type(answer_value) if not has_reference_fn else "symbolic"
+    answer_str = str(answer_value).strip() if not has_reference_fn else ""
 
     # Extract candidate code from LLM response
     candidate_code = extract_answer_code(response_text)
@@ -299,7 +438,41 @@ def evaluate_response(response_text: str, problem_def: dict) -> dict:
             "details": traceback.format_exc(),
         }
 
-    # Compare
+    # --- Reference function path: exec + call + direct comparison ---
+    if has_reference_fn:
+        ref_ns = dict(namespace)
+        try:
+            exec(reference_code, ref_ns)  # noqa: S102
+        except Exception as exc:
+            return {
+                "correct": None,
+                "method": "reference_exec_error",
+                "error": f"Reference code exec failed: {exc}",
+                "details": traceback.format_exc(),
+            }
+        if "answer" not in ref_ns or not callable(ref_ns["answer"]):
+            return {
+                "correct": None,
+                "method": "reference_error",
+                "error": "Reference code has no callable answer()",
+                "details": "",
+            }
+        try:
+            if param_names:
+                ref_args = [ref_ns[name] for name in param_names]
+                truth_result = ref_ns["answer"](*ref_args)
+            else:
+                truth_result = ref_ns["answer"]()
+        except Exception as exc:
+            return {
+                "correct": None,
+                "method": "reference_call_error",
+                "error": f"Reference answer() call failed: {exc}",
+                "details": traceback.format_exc(),
+            }
+        return _compare_tuple(candidate_result, truth_result)
+
+    # --- String-based comparison (original path) ---
     if answer_type == "numerical":
         return _compare_numerical(candidate_result, float(answer_str))
     else:

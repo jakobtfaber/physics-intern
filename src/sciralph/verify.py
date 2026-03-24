@@ -291,13 +291,20 @@ def run_formal_evaluation(
     answer_val = problem_def.get("answer")
     answer_empty = answer_val is None or (isinstance(answer_val, str) and not answer_val.strip())
 
+    reference_code: str | None = None
     if answer_empty:
         # Fallback: try reference file
         ref_answer, _ = load_reference_file(problem_path)
         if ref_answer:
-            problem_def = dict(problem_def)  # shallow copy to avoid mutating caller's dict
-            problem_def["answer"] = ref_answer
-            console.print("  [dim]Using answer from reference file[/]")
+            if "def answer" in ref_answer:
+                # Function-style reference: direct exec+call comparison
+                reference_code = ref_answer
+                console.print("  [dim]Using answer function from reference file[/]")
+            else:
+                # Legacy expression-style reference
+                problem_def = dict(problem_def)  # shallow copy to avoid mutating caller's dict
+                problem_def["answer"] = ref_answer
+                console.print("  [dim]Using answer from reference file[/]")
         else:
             return FormalEvalResult(skipped=True, skip_reason="No problem definition or no answer field")
 
@@ -322,7 +329,9 @@ def run_formal_evaluation(
 
     # Call evaluate_response
     try:
-        eval_result = evaluate_response(fenced_content, problem_def)
+        eval_result = evaluate_response(
+            fenced_content, problem_def, reference_code=reference_code,
+        )
     except Exception as exc:
         return FormalEvalResult(
             correct=None,
