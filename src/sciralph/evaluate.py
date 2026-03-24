@@ -13,18 +13,40 @@ Symbolic comparison uses a cascading chain:
 from __future__ import annotations
 
 import re
+import signal
 import traceback
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any
 
 _SYMPY_TIMEOUT = 30  # seconds per comparison step
 
 
+class _SympyTimeout(Exception):
+    """Raised when a SymPy computation exceeds the time limit."""
+
+
 def _with_timeout(fn, timeout=_SYMPY_TIMEOUT):
-    """Run *fn*() with a timeout. Returns result or raises on timeout/error."""
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(fn)
-        return future.result(timeout=timeout)
+    """Run *fn*() with a hard timeout using SIGALRM.
+
+    Thread-based timeouts (ThreadPoolExecutor) cannot reliably interrupt
+    CPU-bound SymPy computations because the GIL prevents the main thread
+    from checking the timeout while SymPy runs tight Python loops (e.g.
+    ``.equals()`` on Quantity expressions with symbolic exponents).
+
+    SIGALRM is delivered asynchronously by the OS and interrupts the
+    computation regardless of GIL state.
+    """
+    def _alarm_handler(signum, frame):
+        raise _SympyTimeout(f"Computation exceeded {timeout}s timeout")
+
+    old_handler = signal.signal(signal.SIGALRM, _alarm_handler)
+    signal.alarm(timeout)
+    try:
+        return fn()
+    except _SympyTimeout:
+        raise
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +160,7 @@ def _compare_symbolic(
         diff = _with_timeout(lambda: sp.simplify(candidate - truth))
         if diff == 0:
             return {"correct": True, "method": "simplify", "error": None, "details": str(diff)}
-    except (FuturesTimeoutError, Exception):
+    except (_SympyTimeout, Exception):
         pass
 
     # 2. simplify(expand(candidate - truth)) == 0
@@ -146,7 +168,7 @@ def _compare_symbolic(
         diff = _with_timeout(lambda: sp.simplify(sp.expand(candidate - truth)))
         if diff == 0:
             return {"correct": True, "method": "expand_simplify", "error": None, "details": str(diff)}
-    except (FuturesTimeoutError, Exception):
+    except (_SympyTimeout, Exception):
         pass
 
     # 3. Ratio test: simplify(candidate / truth) == 1
@@ -154,14 +176,14 @@ def _compare_symbolic(
         ratio = _with_timeout(lambda: sp.simplify(candidate / truth))
         if ratio == 1:
             return {"correct": True, "method": "ratio", "error": None, "details": str(ratio)}
-    except (FuturesTimeoutError, Exception):
+    except (_SympyTimeout, Exception):
         pass
 
     # 4. .equals() — random numerical substitution (most robust)
     try:
         if _with_timeout(lambda: candidate.equals(truth)):
             return {"correct": True, "method": "equals", "error": None, "details": "candidate.equals(truth)"}
-    except (FuturesTimeoutError, Exception):
+    except (_SympyTimeout, Exception):
         pass
 
     # 5. Numerical fallback for constant expressions (no free symbols)
