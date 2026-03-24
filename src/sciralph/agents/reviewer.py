@@ -87,17 +87,12 @@ class ReviewerAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build focused verification context: WH + evidence + light state."""
-        # Auto-generate review description; use orchestrator's text as supplementary notes
         if self.research_state and task.target_claim:
             auto_desc = self._auto_review_description(task.target_claim)
         else:
             auto_desc = task.render_agent_context(include_structured=False)
 
-        parts = [f"<task>\n{auto_desc}"]
-        # Include orchestrator's background as optional supplementary notes
-        if task.background:
-            parts.append(f"\n\n<orchestrator-notes>\n{task.background}\n</orchestrator-notes>")
-        parts.append("\n</task>")
+        parts = [f"<task>\n{auto_desc}\n</task>"]
 
         # Problem statement — authoritative symbol definitions and physical setup
         if self.research_state and self.research_state.problem_statement:
@@ -166,8 +161,6 @@ class ReviewerAgent(BaseAgent):
                 for rq in self.research_state.research_questions.values():
                     if target_id in rq.resolved_to:
                         rq_content = f"{rq.id}: {rq.question}"
-                        if rq.context:
-                            rq_content += f"\nContext: {rq.context}"
                         parts.append(f'\n<original-question id="{rq.id}">\n{rq_content}\n</original-question>')
                         break
 
