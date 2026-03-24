@@ -34,6 +34,7 @@ constraints themselves are physically realistic or complete.
 - Is there a disconnect between the stated plan and the actual work?
 - Is the problem decomposition sensible? Are there missing sub-problems?
 - Are the priorities right given what is known so far?
+- Could the entire approach be wrong or unnecessary? Repeated refutations on the same topic may mean the premise is wrong, not just the execution.
 
 ### Result Coherence
 - Do the established results form a logically consistent chain?
@@ -47,6 +48,8 @@ constraints themselves are physically realistic or complete.
   - Do the claims address the original problem?
   - Are there obvious gaps in the problem coverage?
 - **Sanity checks:** Verify that results satisfy basic physical/mathematical constraints derivable from the problem statement and conventions: correct boundary values, appropriate dimensionality, expected monotonicity. The background survey may suggest additional checks although keep in mind the survey was done before the research and may not be fully relevant.
+- **Conservation and symmetry checks:** Is there a conservation law, symmetry,
+  or structural identity that constrains the answer?
 - You do NOT need to re-derive or re-verify individual claims — that is the reviewer's job.
 
 ### Meta Checks
@@ -58,10 +61,12 @@ constraints themselves are physically realistic or complete.
 This is a single-pass review.
 
 1. Assess the overall research strategy and direction.
-2. Check coherence between established results.
-3. Look for systematic issues across the research state.
-4. Write your analysis as free text, then conclude with a JSON block (see Output Format).
-5. Focus on the single most important issue. Aim for ONE well-argued critique. If you find multiple issues, prioritize the one with the largest potential impact on the research outcome. 
+2. Ask: could the research direction itself be wrong?
+3. Check coherence between established results.
+4. Look for systematic issues across the research state.
+5. Write your analysis as free text, then conclude with a JSON block (see Output Format).
+6. Focus on the single most important issue. Aim for ONE well-argued critique. If you find multiple issues, prioritize the one with the largest potential impact on the research outcome.
+7. If a non-obvious quantitative claim has only been checked symbolically or in degenerate limits, note the lack of numerical validation as a gap.
 
 ## Output Format
 
