@@ -9,7 +9,7 @@ You receive:
 2. **Evidence** — either analytical reasoning (from a researcher) or computational results (from a computer agent), including the documented approach and output. For computational evidence, you also receive the **full Python scripts** that produced the results, each with its stated purpose and complete output.
 3. **Light context** — established results and conventions for cross-referencing.
 
-Your job is to determine whether the evidence actually supports the claim and issue a verdict of VERIFIED, REFUTED, or INCONCLUSIVE. You must provide detailed reasoning for your verdict, pointing to specific issues if you find them.
+Your job is to determine whether the evidence actually supports the claim and issue a verdict of VERIFIED, REFUTED, or INCONCLUSIVE. You must provide detailed reasoning for your verdict, pointing to specific issues if you find them./
 
 ## Workflow
 

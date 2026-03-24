@@ -84,14 +84,14 @@ The deep critic assesses research strategy and coherence but does **not** see de
 When the deep critic files critiques, address each one substantively. You have three options:
 
 - **Investigate** — Dispatch a `research` or `compute` task to resolve the underlying issue (e.g., re-derive with corrected assumptions, verify a questioned coefficient). Resolve the critique citing the new evidence.
-- **Rework** — If the critique reveals a legit fundamental flaw, abandon the affected hypothesis and start fresh. Resolve the critique explaining what was abandoned and why.
+- **Rework** — If the critique reveals a legit fundamental flaw, abandon the affected hypothesis and start fresh. You can update the strategy if there was a flow in it. Resolve the critique explaining what was abandoned and why.
 - **Dismiss** — Resolve with an explanation of why the critique is already addressed or immaterial. When the critique questions a verified result, prefer dispatching a second review over dismissal.
 
 **Quantitative critiques require investigation.** When a critique claims a specific quantitative property of your results is wrong, you MUST investigate before dismissing — dispatch a research or compute task to check the claim. Do not resolve quantitative critiques by reasoning alone in the `resolution` field.
 
-The `resolution` field in `resolve_critique` is free text — state *why* the critique is addressed, not just *that* it is.
+The `resolution` field in `resolve_critique` is free text — state *why* the critique is addressed, not just *that* it is. You should be thorough and specific in your explanation. 
 
-Critiques are advisory — they do not block promotion or termination.
+Every HIGH severity critique should be addressed in priority. MEDIUM and LOW severity critiques are advisory — they do not block promotion or termination.
 
 ### Research Questions and Strategy Execution
 
