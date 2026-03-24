@@ -85,6 +85,7 @@ class WorkspaceContents:
     metrics_md: str = ""
     git_log: str = ""
     event_log: str = ""
+    background_survey: str = ""
 
 
 @dataclass
@@ -203,6 +204,20 @@ def load_workspace(workspace_dir: str, *, include_process_data: bool = False) ->
         event_log_path = ws / "EVENT_LOG.jsonl"
         if event_log_path.exists():
             contents.event_log = event_log_path.read_text()
+
+        # Background survey from JSON state (not in markdown snapshots)
+        from .research_state import STATE_FILENAME
+        from .renderers import render_background_survey
+
+        state_path = ws / STATE_FILENAME
+        if state_path.exists():
+            try:
+                from .research_state import ResearchState
+                state = ResearchState.from_json(state_path.read_text())
+                if state.background_survey and state.background_survey.raw_notes:
+                    contents.background_survey = render_background_survey(state)
+            except Exception:
+                pass  # Non-critical — proceed without survey
 
         # Git log from workspace (may not be a git repo)
         try:
@@ -766,6 +781,12 @@ def build_process_audit_prompt(contents: WorkspaceContents) -> tuple[str, str]:
             sections.append(f"## {label}\n\n```markdown\n{text}\n```\n")
         else:
             sections.append(f"## {label}\n\n(File not found or empty.)\n")
+
+    # Background survey (surveyor output — not in RESEARCH_STATE.md)
+    if contents.background_survey:
+        sections.append(f"## Background Survey (Surveyor Output)\n\n```markdown\n{contents.background_survey}\n```\n")
+    else:
+        sections.append("## Background Survey (Surveyor Output)\n\n(Not available.)\n")
 
     # Process-specific data
     if contents.metrics_md:
