@@ -1220,6 +1220,45 @@ class TestExploreResultSuppression:
         assert len(engine._state.pending_explore_results) == 1
         assert engine._state.pending_explore_results[0]["target_id"] == "WH-001"
 
+    def test_critique_evidence_appended(self):
+        """Evidence on a critique target IS appended to pending_explore_results."""
+        from sciralph.research_state import Critique, Evidence, Severity, CritiqueStatus
+        engine = self._make_engine()
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
+            argument="Spin prediction may be wrong.",
+            status=CritiqueStatus.ACTIVE, iteration_filed=2,
+            evidence=Evidence(
+                type="research", method="re-derivation",
+                result="Spin is indeed 1", confidence="exact",
+            ),
+        )
+        task = Task(task_id="TASK-006", task_type=TaskType.RESEARCH,
+                    assigned_to="researcher", target_claim="CRIT-001",
+                    body="Investigate CRIT-001")
+        engine._track_agent_result(task)
+
+        assert len(engine._state.pending_explore_results) == 1
+        r = engine._state.pending_explore_results[0]
+        assert r["target_id"] == "CRIT-001"
+        assert r["task_type"] == "research"
+
+    def test_critique_no_evidence_not_appended(self):
+        """Critique with no evidence NOT appended to pending_explore_results."""
+        from sciralph.research_state import Critique, Severity, CritiqueStatus
+        engine = self._make_engine()
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
+            argument="Spin prediction may be wrong.",
+            status=CritiqueStatus.ACTIVE, iteration_filed=2,
+        )
+        task = Task(task_id="TASK-006", task_type=TaskType.RESEARCH,
+                    assigned_to="researcher", target_claim="CRIT-001",
+                    body="Investigate CRIT-001")
+        engine._track_agent_result(task)
+
+        assert len(engine._state.pending_explore_results) == 0
+
 
 def unittest_any_string_containing(substring):
     """Helper matcher: matches any string containing the given substring."""

@@ -296,8 +296,8 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "target_claim": {
                         "type": "string",
                         "description": (
-                            "The RQ/WH/ER ID this task targets. "
-                            "For research/compute: the RQ or WH being investigated. "
+                            "The RQ/WH/ER/CRIT ID this task targets. "
+                            "For research/compute: the RQ, WH, or CRIT being investigated. "
                             "For review: the WH being reviewed."
                         ),
                     },
@@ -928,7 +928,7 @@ class OrchestratorToolExecutor:
         state = self.research_state
         assert state is not None
 
-        match = re.match(r"^(RQ|WH|ER)-(\d+)$", target_claim)
+        match = re.match(r"^(RQ|WH|ER|CRIT)-(\d+)$", target_claim)
         if not match:
             # Unknown prefix — allow through
             return None
@@ -937,32 +937,29 @@ class OrchestratorToolExecutor:
         if prefix == "RQ":
             if target_claim in state.research_questions:
                 return None
-            valid_rqs = sorted(state.research_questions.keys())
-            valid_whs = sorted(h for h in state.hypotheses if h.startswith("WH-"))
-            valid_ers = sorted(h for h in state.hypotheses if h.startswith("ER-"))
-            entity_list = []
-            if valid_rqs:
-                entity_list.append(f"RQs: {', '.join(valid_rqs)}")
-            if valid_whs:
-                entity_list.append(f"WHs: {', '.join(valid_whs)}")
-            if valid_ers:
-                entity_list.append(f"ERs: {', '.join(valid_ers)}")
-            listing = "; ".join(entity_list) if entity_list else "none"
+        elif prefix == "CRIT":
+            if target_claim in state.critiques:
+                return None
         else:
             # WH or ER
             if target_claim in state.hypotheses:
                 return None
-            valid_rqs = sorted(state.research_questions.keys())
-            valid_whs = sorted(h for h in state.hypotheses if h.startswith("WH-"))
-            valid_ers = sorted(h for h in state.hypotheses if h.startswith("ER-"))
-            entity_list = []
-            if valid_rqs:
-                entity_list.append(f"RQs: {', '.join(valid_rqs)}")
-            if valid_whs:
-                entity_list.append(f"WHs: {', '.join(valid_whs)}")
-            if valid_ers:
-                entity_list.append(f"ERs: {', '.join(valid_ers)}")
-            listing = "; ".join(entity_list) if entity_list else "none"
+
+        # Build entity listing for error message
+        valid_rqs = sorted(state.research_questions.keys())
+        valid_whs = sorted(h for h in state.hypotheses if h.startswith("WH-"))
+        valid_ers = sorted(h for h in state.hypotheses if h.startswith("ER-"))
+        valid_crits = sorted(state.critiques.keys())
+        entity_list = []
+        if valid_rqs:
+            entity_list.append(f"RQs: {', '.join(valid_rqs)}")
+        if valid_whs:
+            entity_list.append(f"WHs: {', '.join(valid_whs)}")
+        if valid_ers:
+            entity_list.append(f"ERs: {', '.join(valid_ers)}")
+        if valid_crits:
+            entity_list.append(f"CRITs: {', '.join(valid_crits)}")
+        listing = "; ".join(entity_list) if entity_list else "none"
 
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.LOOP_CONTROL,

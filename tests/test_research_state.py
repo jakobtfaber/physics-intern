@@ -979,3 +979,49 @@ class TestResearchQuestionEvidence:
         from sciralph.research_state import ResearchQuestion
         rq = ResearchQuestion(id="RQ-001", question="Test")
         assert rq.evidence is None
+
+
+# ---------------------------------------------------------------------------
+# Evidence on Critique
+# ---------------------------------------------------------------------------
+
+class TestCritiqueEvidence:
+    """Evidence can be attached to critiques."""
+
+    def test_critique_evidence_round_trip(self):
+        from sciralph.research_state import Critique, Severity, CritiqueStatus
+        state = ResearchState()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
+            argument="Spin prediction may be wrong.",
+            status=CritiqueStatus.ACTIVE, iteration_filed=3,
+            evidence=Evidence(
+                type="research", method="re-derivation",
+                result="Spin is indeed 1", confidence="exact", iteration=4,
+            ),
+        )
+        restored = ResearchState.from_json(state.to_json())
+        crit = restored.critiques["CRIT-001"]
+        assert crit.evidence is not None
+        assert crit.evidence.result == "Spin is indeed 1"
+        assert crit.evidence.type == "research"
+        assert crit.evidence.iteration == 4
+
+    def test_critique_no_evidence_default(self):
+        from sciralph.research_state import Critique
+        crit = Critique(id="CRIT-001")
+        assert crit.evidence is None
+
+    def test_critique_no_evidence_round_trip(self):
+        """Critique without evidence survives round-trip (backward compat)."""
+        from sciralph.research_state import Critique, Severity, CritiqueStatus
+        state = ResearchState()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["STRATEGY"], severity=Severity.MEDIUM,
+            argument="Strategy is vague.", status=CritiqueStatus.ACTIVE,
+            iteration_filed=2,
+        )
+        restored = ResearchState.from_json(state.to_json())
+        crit = restored.critiques["CRIT-001"]
+        assert crit.evidence is None
+        assert crit.argument == "Strategy is vague."

@@ -683,6 +683,8 @@ class SciRalph:
                 ev = self.research_state.research_questions[target_id].evidence
             elif target_id in self.research_state.hypotheses:
                 ev = self.research_state.hypotheses[target_id].evidence
+            elif target_id in self.research_state.critiques:
+                ev = self.research_state.critiques[target_id].evidence
 
             if ev and ev.result:
                 description = ev.summary or (ev.method[:500] if ev.method else "unknown")

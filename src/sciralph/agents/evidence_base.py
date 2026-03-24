@@ -137,10 +137,16 @@ class EvidenceAgent(BaseAgent):
             return rq.question
         if target_claim in self.research_state.hypotheses:
             return self.research_state.hypotheses[target_claim].statement
+        if target_claim in self.research_state.critiques:
+            c = self.research_state.critiques[target_claim]
+            text = f"[{c.severity.value}] {c.argument}"
+            if c.targets:
+                text += f"\nTargets: {', '.join(c.targets)}"
+            return text
         return None
 
     def _store_evidence(self, target_id: str, evidence: Evidence):
-        """Store evidence on the target entity (RQ or WH)."""
+        """Store evidence on the target entity (RQ, WH, or critique)."""
         state = self.research_state
         if not state:
             return
@@ -148,6 +154,8 @@ class EvidenceAgent(BaseAgent):
             state.research_questions[target_id].evidence = evidence
         elif target_id in state.hypotheses:
             state.hypotheses[target_id].evidence = evidence
+        elif target_id in state.critiques:
+            state.critiques[target_id].evidence = evidence
 
     @abstractmethod
     def process_response(self, response: "LLMResponse | AgentResult", task: "Task", iteration: int):

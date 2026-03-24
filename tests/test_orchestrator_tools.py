@@ -1236,6 +1236,40 @@ class TestTargetClaimValidation:
         assert "Task set" in tc.output
         assert ex.stop_after_round
 
+    def test_valid_crit_target_passes(self):
+        ws = _make_workspace()
+        state = _make_state()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
+            status=CritiqueStatus.ACTIVE, argument="Spin prediction may be wrong.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("set_next_task", {
+            "task_type": "research",
+            "target_claim": "CRIT-001",
+            "description": "Investigate critique.",
+        })
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
+
+    def test_invalid_crit_target_rejected(self):
+        ws = _make_workspace()
+        state = _make_state()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
+            status=CritiqueStatus.ACTIVE, argument="Spin prediction may be wrong.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("set_next_task", {
+            "task_type": "research",
+            "target_claim": "CRIT-099",
+            "description": "Investigate critique.",
+        })
+        assert "Error" in tc.output
+        assert "CRIT-099" in tc.output
+        assert "CRIT-001" in tc.output  # listed as valid
+        assert not ex.stop_after_round
+
     def test_skipped_when_research_state_is_none(self):
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)

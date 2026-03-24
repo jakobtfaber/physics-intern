@@ -107,6 +107,7 @@ class Critique:
     resolution: str = ""
     iteration_filed: int = 0
     iteration_resolved: int | None = None
+    evidence: Evidence | None = None
 
 
 @dataclass
@@ -393,6 +394,23 @@ class ResearchState:
                 review=review,
             )
         for crid, crdata in data.get("critiques", {}).items():
+            crit_evidence = None
+            if crdata.get("evidence"):
+                edata = crdata["evidence"]
+                crit_evidence = Evidence(
+                    type=edata.get("type", ""),
+                    reasoning=edata.get("reasoning", ""),
+                    approach=edata.get("approach", ""),
+                    scripts=edata.get("scripts", []),
+                    script_purposes=edata.get("script_purposes", {}),
+                    output=edata.get("output", ""),
+                    method=edata.get("method", ""),
+                    result=edata.get("result", ""),
+                    confidence=edata.get("confidence", ""),
+                    summary=edata.get("summary", ""),
+                    iteration=edata.get("iteration"),
+                    derivation_file=edata.get("derivation_file", ""),
+                )
             state.critiques[crid] = Critique(
                 id=crdata["id"],
                 targets=crdata.get("targets", []),
@@ -402,6 +420,7 @@ class ResearchState:
                 resolution=crdata.get("resolution", ""),
                 iteration_filed=crdata.get("iteration_filed", 0),
                 iteration_resolved=crdata.get("iteration_resolved"),
+                evidence=crit_evidence,
             )
         for rqid, rqdata in data.get("research_questions", {}).items():
             rq_evidence = None

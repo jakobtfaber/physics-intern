@@ -83,7 +83,7 @@ The deep critic assesses research strategy and coherence but does **not** see de
 
 When the deep critic files critiques, address each one substantively. You have three options:
 
-- **Investigate** — Dispatch a `research` or `compute` task to resolve the underlying issue (e.g., re-derive with corrected assumptions, verify a questioned coefficient). Resolve the critique citing the new evidence.
+- **Investigate (preferred)** — Dispatch a `research` or `compute` task with `target_claim` set to the critique ID (e.g., `CRIT-001`). The dispatched agent will see the critique's argument and produce evidence stored on the critique. After evidence comes back in the EVIDENCE RESULTS banner, resolve the critique citing the new evidence. This is almost always better than trying to address a critique by reasoning alone in the resolution field.
 - **Rework** — If the critique reveals a legit fundamental flaw, abandon the affected hypothesis and start fresh. You can update the strategy if there was a flow in it. Resolve the critique explaining what was abandoned and why.
 - **Dismiss** — Resolve with an explanation of why the critique is already addressed or immaterial. When the critique questions a verified result, prefer dispatching a second review over dismissal.
 
@@ -134,7 +134,7 @@ The reviewer examines evidence, code, output and reasoning — it does NOT execu
 
 `set_next_task` must be the **only** tool call in its response — no mutations alongside it. If you still have mutations to make, do them first and call `set_next_task` in a separate follow-up response.
 
-Each task targets EXACTLY ONE entity (RQ, WH, or ER). Always include `target_claim` in `set_next_task`. Task type must be one of: `research`, `compute`, `review`, `critique`, or `terminate`.
+Each task targets EXACTLY ONE entity (RQ, WH, ER, or CRIT). Always include `target_claim` in `set_next_task`. Task type must be one of: `research`, `compute`, `review`, `critique`, or `terminate`.
 
 ### Structured dispatch
 
