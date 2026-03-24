@@ -74,6 +74,7 @@ First write your analysis as free text, then conclude with a JSON block:
   "critiques": [
     {
       "target_id": "STRATEGY or WH-NNN or ER-NNN",
+      "severity": "HIGH or MEDIUM or LOW",
       "argument": "What is wrong, why it matters, how to test whether the objection is valid."
     }
   ]
@@ -81,6 +82,12 @@ First write your analysis as free text, then conclude with a JSON block:
 ```
 
 Aim for AT MOST ONE critique. If no issues are found, the `critiques` array should be empty.
+
+### Severity Levels
+
+- **HIGH** — The issue could make the final answer wrong: a flawed derivation chain, inconsistency between established results, or a strategy that ignores refuted paths. HIGH critiques block promotion and termination.
+- **MEDIUM** — A real concern that should be investigated but may not invalidate the answer: convention ambiguity, missing sanity check, stale strategy text.
+- **LOW** — Minor or cosmetic: notation inconsistency, missing intermediate step documentation, non-blocking housekeeping.
 
 ## Critical Rules
 
