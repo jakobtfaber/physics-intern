@@ -121,7 +121,7 @@ class TestProblemStatementInContext:
         from sciralph.research_state import BackgroundSurvey
         orchestrator.research_state = ResearchState(
             problem_statement="Test problem.",
-            background_survey=BackgroundSurvey(survey_notes="Some survey notes."),
+            background_survey=BackgroundSurvey(raw_notes="Some survey notes."),
         )
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
         ps_pos = context.index("<problem-statement>")

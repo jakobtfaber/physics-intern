@@ -75,7 +75,7 @@ def test_process_response_stores_survey():
 
     assert agent.parsed_survey is not None
     assert isinstance(agent.parsed_survey, BackgroundSurvey)
-    assert "Euclidean" in agent.parsed_survey.survey_notes
+    assert "Euclidean" in agent.parsed_survey.raw_notes
     assert agent.parsed_survey.iteration_created == 0
 
 
@@ -102,7 +102,7 @@ def test_process_response_empty_text():
     agent.process_response(response, _make_task(), iteration=0)
 
     assert agent.parsed_survey is not None
-    assert agent.parsed_survey.survey_notes == ""
+    assert agent.parsed_survey.raw_notes == ""
 
 
 def test_process_response_strips_whitespace():
@@ -114,4 +114,74 @@ def test_process_response_strips_whitespace():
     )
     agent.process_response(response, _make_task(), iteration=0)
 
-    assert agent.parsed_survey.survey_notes == "Some notes here."
+    assert agent.parsed_survey.raw_notes == "Some notes here."
+
+
+# ---------- JSON parsing tests ----------
+
+def test_surveyor_parses_json_sections():
+    """Surveyor extracts structured sections from JSON block."""
+    from sciralph.agents.surveyor import SurveyorAgent
+    from sciralph.research_state import BackgroundSurvey
+    from unittest.mock import MagicMock
+    from sciralph.llm import LLMResponse
+
+    agent = SurveyorAgent.__new__(SurveyorAgent)
+    agent.research_state = None
+
+    response = LLMResponse(
+        text='Some prose analysis.\n\n```json\n{"background": "Physical context here", "known_pitfalls": "Watch for sign errors", "sanity_checks": "Result must be positive"}\n```',
+        stop_reason="end_turn", input_tokens=100, output_tokens=200, duration=0.5,
+    )
+    task = MagicMock()
+    agent.process_response(response, task, iteration=0)
+
+    survey = agent.parsed_survey
+    assert survey.raw_notes.startswith("Some prose")
+    assert survey.background == "Physical context here"
+    assert survey.known_pitfalls == "Watch for sign errors"
+    assert survey.sanity_checks == "Result must be positive"
+    assert survey.key_insights == ""  # not provided
+    assert survey.has_structured_sections is True
+
+
+def test_surveyor_fallback_on_no_json():
+    """Surveyor falls back gracefully when no JSON block present."""
+    from sciralph.agents.surveyor import SurveyorAgent
+    from sciralph.llm import LLMResponse
+    from unittest.mock import MagicMock
+
+    agent = SurveyorAgent.__new__(SurveyorAgent)
+    agent.research_state = None
+
+    response = LLMResponse(
+        text="Just plain prose analysis with no JSON.",
+        stop_reason="end_turn", input_tokens=100, output_tokens=50, duration=0.1,
+    )
+    task = MagicMock()
+    agent.process_response(response, task, iteration=0)
+
+    survey = agent.parsed_survey
+    assert survey.raw_notes == "Just plain prose analysis with no JSON."
+    assert survey.has_structured_sections is False
+
+
+def test_surveyor_fallback_on_malformed_json():
+    """Surveyor falls back when JSON is malformed."""
+    from sciralph.agents.surveyor import SurveyorAgent
+    from sciralph.llm import LLMResponse
+    from unittest.mock import MagicMock
+
+    agent = SurveyorAgent.__new__(SurveyorAgent)
+    agent.research_state = None
+
+    response = LLMResponse(
+        text='Analysis.\n\n```json\n{broken json\n```',
+        stop_reason="end_turn", input_tokens=100, output_tokens=50, duration=0.1,
+    )
+    task = MagicMock()
+    agent.process_response(response, task, iteration=0)
+
+    survey = agent.parsed_survey
+    assert survey.raw_notes.startswith("Analysis.")
+    assert survey.has_structured_sections is False

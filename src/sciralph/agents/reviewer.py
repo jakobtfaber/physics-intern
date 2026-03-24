@@ -49,13 +49,59 @@ class ReviewerAgent(BaseAgent):
         super().__init__(config, workspace, metrics)
         self.research_state: ResearchState | None = None
 
+    def _auto_review_description(self, target_id: str) -> str:
+        """Generate a review task description from the WH and its evidence."""
+        h = self.research_state.hypotheses.get(target_id) if self.research_state else None
+        if not h:
+            return f"Review {target_id}."
+
+        ev_type = h.evidence.type if h.evidence else "research"
+
+        # Find originating RQ
+        rq_context = ""
+        if self.research_state:
+            for rq in self.research_state.research_questions.values():
+                if target_id in rq.resolved_to:
+                    rq_context = f"\nOriginating question ({rq.id}): {rq.question}"
+                    if rq.context:
+                        rq_context += f"\nContext: {rq.context}"
+                    break
+
+        if ev_type == "compute":
+            desc = (
+                f"Review {target_id}: audit the computational approach and code, checking "
+                "implementation correctness, result interpretation, and physical consistency "
+                "with expected qualitative behavior."
+            )
+        else:
+            desc = (
+                f"Review {target_id}: verify the analytical derivation, checking mathematical "
+                "correctness, convention consistency with the problem's symbol definitions, "
+                "and physical sanity (expected scaling, limiting cases, dimensional analysis)."
+            )
+
+        if rq_context:
+            desc += rq_context
+
+        return desc
+
     def build_context(self, task: Task, iteration: int) -> str:
         """Build focused verification context: WH + evidence + light state."""
-        parts = [
-            "<task>\n",
-            task.render_agent_context(include_structured=False),
-            "\n</task>",
-        ]
+        # Auto-generate review description; use orchestrator's text as supplementary notes
+        if self.research_state and task.target_claim:
+            auto_desc = self._auto_review_description(task.target_claim)
+        else:
+            auto_desc = task.render_agent_context(include_structured=False)
+
+        parts = [f"<task>\n{auto_desc}"]
+        # Include orchestrator's background as optional supplementary notes
+        if task.background:
+            parts.append(f"\n\n<orchestrator-notes>\n{task.background}\n</orchestrator-notes>")
+        parts.append("\n</task>")
+
+        # Problem statement — authoritative symbol definitions and physical setup
+        if self.research_state and self.research_state.problem_statement:
+            parts.append(f"\n<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>")
 
         if self.research_state and task.target_claim:
             target_id = task.target_claim
@@ -132,6 +178,16 @@ class ReviewerAgent(BaseAgent):
                 parts.append("\n<established-context>\n" + "\n".join(er_lines) + "\n</established-context>")
             if self.research_state.conventions:
                 parts.append(f"\n<conventions>\n{self.research_state.conventions}\n</conventions>")
+
+            # Surveyor-provided adversarial context
+            survey = self.research_state.background_survey
+            if survey and survey.has_structured_sections:
+                if survey.conventions_and_definitions:
+                    parts.append(f"\n<problem-conventions>\n{survey.conventions_and_definitions}\n</problem-conventions>")
+                if survey.known_pitfalls:
+                    parts.append(f"\n<known-pitfalls>\n{survey.known_pitfalls}\n</known-pitfalls>")
+                if survey.sanity_checks:
+                    parts.append(f"\n<sanity-checks>\n{survey.sanity_checks}\n</sanity-checks>")
 
         return "\n".join(parts)
 

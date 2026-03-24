@@ -1362,7 +1362,7 @@ class TestSurveyorEngine:
         engine = self._make_engine()
 
         survey = BackgroundSurvey(
-            survey_notes="Derive kappa via Killing vectors first.",
+            raw_notes="Derive kappa via Killing vectors first.",
             iteration_created=0,
             iteration_updated=0,
         )
@@ -1370,7 +1370,7 @@ class TestSurveyorEngine:
         engine._apply_survey()
 
         assert engine.research_state.background_survey is not None
-        assert "Killing vectors" in engine.research_state.background_survey.survey_notes
+        assert "Killing vectors" in engine.research_state.background_survey.raw_notes
 
     def test_apply_survey_none_does_nothing(self):
         engine = self._make_engine()

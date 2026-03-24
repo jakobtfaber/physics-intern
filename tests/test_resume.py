@@ -233,7 +233,7 @@ class TestEngineResume:
             status="in_progress",
             title="test-run",
             problem_statement="Derive the Hawking temperature.",
-            background_survey=BackgroundSurvey(survey_notes="Survey done."),
+            background_survey=BackgroundSurvey(raw_notes="Survey done."),
         )
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", statement="T_H = 1/(8*pi*M)",
@@ -307,7 +307,7 @@ class TestRunSurveyorSkip:
         engine._state = LoopState()
         engine.research_state = ResearchState(
             problem_statement="test",
-            background_survey=BackgroundSurvey(survey_notes="Already surveyed."),
+            background_survey=BackgroundSurvey(raw_notes="Already surveyed."),
         )
         engine.problem_meta = {}
         engine.surveyor = MagicMock()
@@ -362,7 +362,7 @@ class TestRunSurveyorSkip:
         engine.research_state = ResearchState(
             problem_statement="test",
             status="completed",
-            background_survey=BackgroundSurvey(survey_notes="Done."),
+            background_survey=BackgroundSurvey(raw_notes="Done."),
         )
         engine.problem_meta = {}
         engine.surveyor = MagicMock()

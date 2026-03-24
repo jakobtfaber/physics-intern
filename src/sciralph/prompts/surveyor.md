@@ -14,7 +14,7 @@ Analyze the given problem and write free-form prose covering:
 
 4. **Known pitfalls** — What approaches are known to fail or lead to dead ends? What common mistakes should be avoided?
 
-5. **Important considerations** — Sign conventions, coordinate choices, approximation regimes, dimensional analysis checks, or other technical details that matter for correctness.
+5. **Conventions and Definitions** — Symbol definitions and their precise meanings, sign conventions, coordinate/frame choices, approximation regimes, dimensional analysis checks, and other technical details that matter for correctness. Be explicit about what each symbol represents and flag any symbols whose usage could be ambiguous.
 
 6. **Sanity checks** — What properties must the answer satisfy, based on the physics alone (not on solving the problem)? Think: symmetries the answer must respect, expected scaling or asymptotic behavior in limiting regimes, dimensional constraints, monotonicity, positivity, known inequalities, or values at special points. These are sanity checks that any candidate answer can be tested against, and they will be used by downstream agents to catch errors.
 
@@ -31,3 +31,20 @@ Analyze the given problem and write free-form prose covering:
 - Highlight non-obvious connections between different parts of the problem.
 - Flag subtleties that are easy to miss.
 - Keep it concise but dense with insight — aim for quality over quantity.
+
+## Output Format
+
+After writing your analysis, conclude with a single fenced JSON block containing each section's content as a string field. The field names must match exactly:
+
+```json
+{
+  "background": "...",
+  "key_insights": "...",
+  "known_methods": "...",
+  "known_pitfalls": "...",
+  "conventions_and_definitions": "...",
+  "sanity_checks": "..."
+}
+```
+
+Each field should contain the full prose text for that section. Use plain text only in JSON fields — no LaTeX delimiters (`\(`, `\)`, `$$`) or markdown formatting. All LaTeX and formatted text belongs in your analysis above the JSON block.

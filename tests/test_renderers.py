@@ -697,7 +697,7 @@ class TestRenderBackgroundSurvey:
     def _make_survey_state(self):
         state = ResearchState(problem_statement="Test problem")
         state.background_survey = BackgroundSurvey(
-            survey_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method first.",
+            raw_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method first.",
             iteration_created=0,
             iteration_updated=0,
         )

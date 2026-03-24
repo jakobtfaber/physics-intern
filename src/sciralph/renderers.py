@@ -32,8 +32,20 @@ def render_background_survey(state: ResearchState) -> str:
         return "(No background survey.)"
 
     parts: list[str] = ["# Background Survey\n"]
-    if survey.survey_notes:
-        parts.append(survey.survey_notes)
+    if survey.has_structured_sections:
+        for label, field_name in [
+            ("Background", "background"),
+            ("Key Insights", "key_insights"),
+            ("Known Methods and Techniques", "known_methods"),
+            ("Known Pitfalls", "known_pitfalls"),
+            ("Conventions and Definitions", "conventions_and_definitions"),
+            ("Sanity Checks", "sanity_checks"),
+        ]:
+            content = getattr(survey, field_name, "")
+            if content:
+                parts.append(f"### {label}\n\n{content}\n")
+    elif survey.raw_notes:
+        parts.append(survey.raw_notes)
         parts.append("")
 
     return "\n".join(parts)
@@ -555,8 +567,8 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
         parts.append("<dead-ends>\n" + "\n".join(de_parts) + "\n</dead-ends>")
 
     # Background Survey
-    if state.background_survey and state.background_survey.survey_notes:
-        parts.append(f"<background-survey>\n{state.background_survey.survey_notes}\n</background-survey>")
+    if state.background_survey and state.background_survey.raw_notes:
+        parts.append(f"<background-survey>\n{state.background_survey.raw_notes}\n</background-survey>")
 
     # Previous Critiques (reuse existing XML renderer)
     critique_xml = render_orchestrator_critique_log(state)

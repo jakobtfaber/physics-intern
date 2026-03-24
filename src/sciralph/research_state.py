@@ -11,7 +11,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from .workspace import WorkspaceManager
@@ -134,10 +134,31 @@ class ResearchQuestion:
 
 @dataclass
 class BackgroundSurvey:
-    """Background notes produced by the surveyor agent."""
-    survey_notes: str = ""
+    """Background notes produced by the surveyor agent.
+
+    ``raw_notes`` always holds the full surveyor output.  The six section
+    fields are populated when the surveyor outputs structured JSON; they
+    remain empty otherwise (graceful fallback).
+    """
+    raw_notes: str = ""                      # Full text (always populated)
+    background: str = ""                     # §1: Physical context
+    key_insights: str = ""                   # §2: Core principles
+    known_methods: str = ""                  # §3: Methods and techniques
+    known_pitfalls: str = ""                 # §4: Common errors, convention traps
+    conventions_and_definitions: str = ""    # §5: Symbol meanings, sign conventions
+    sanity_checks: str = ""                  # §6: Expected scaling, limiting behavior
     iteration_created: int = 0
     iteration_updated: int = 0
+
+    SECTION_FIELDS: ClassVar[tuple[str, ...]] = (
+        "background", "key_insights", "known_methods",
+        "known_pitfalls", "conventions_and_definitions", "sanity_checks",
+    )
+
+    @property
+    def has_structured_sections(self) -> bool:
+        """True if any structured section field is non-empty."""
+        return any(getattr(self, f) for f in self.SECTION_FIELDS)
 
 
 # ---------------------------------------------------------------------------
@@ -422,8 +443,16 @@ class ResearchState:
         state.critic_clean_reviews = data.get("critic_clean_reviews", [])
         survey_data = data.get("background_survey")
         if survey_data and isinstance(survey_data, dict):
+            # Backward compat: old files have "survey_notes", new have "raw_notes"
+            raw = survey_data.get("raw_notes") or survey_data.get("survey_notes", "")
             state.background_survey = BackgroundSurvey(
-                survey_notes=survey_data.get("survey_notes", ""),
+                raw_notes=raw,
+                background=survey_data.get("background", ""),
+                key_insights=survey_data.get("key_insights", ""),
+                known_methods=survey_data.get("known_methods", ""),
+                known_pitfalls=survey_data.get("known_pitfalls", ""),
+                conventions_and_definitions=survey_data.get("conventions_and_definitions", ""),
+                sanity_checks=survey_data.get("sanity_checks", ""),
                 iteration_created=survey_data.get("iteration_created", 0),
                 iteration_updated=survey_data.get("iteration_updated", 0),
             )

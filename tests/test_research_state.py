@@ -392,7 +392,7 @@ class TestBackgroundSurveySerialization:
     def test_background_survey_json_round_trip(self):
         state = ResearchState(iteration=1)
         state.background_survey = BackgroundSurvey(
-            survey_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method.",
+            raw_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method.",
             iteration_created=0,
             iteration_updated=0,
         )
@@ -400,8 +400,8 @@ class TestBackgroundSurveySerialization:
         restored = ResearchState.from_json(json_str)
         assert restored.background_survey is not None
         survey = restored.background_survey
-        assert "Hawking temperature" in survey.survey_notes
-        assert "Killing vector" in survey.survey_notes
+        assert "Hawking temperature" in survey.raw_notes
+        assert "Killing vector" in survey.raw_notes
         assert survey.iteration_created == 0
 
     def test_missing_background_survey_loads_as_none(self):
@@ -419,6 +419,24 @@ class TestBackgroundSurveySerialization:
         state = ResearchState()
         data = json.loads(state.to_json())
         assert data["background_survey"] is None
+
+    def test_background_survey_from_json_backward_compat(self):
+        """Old RESEARCH_GRAPH.json with survey_notes loads into raw_notes."""
+        old_data = {
+            "hypotheses": {},
+            "critiques": {},
+            "research_questions": {},
+            "failed_approaches": [],
+            "background_survey": {
+                "survey_notes": "Old format survey text",
+                "iteration_created": 0,
+                "iteration_updated": 0,
+            }
+        }
+        state = ResearchState.from_json(json.dumps(old_data))
+        assert state.background_survey is not None
+        assert state.background_survey.raw_notes == "Old format survey text"
+        assert state.background_survey.has_structured_sections is False
 
 
 # ---------------------------------------------------------------------------

@@ -32,9 +32,9 @@ class PlannerAgent(BaseAgent):
         ]
         if self.research_state and self.research_state.background_survey:
             survey = self.research_state.background_survey
-            if survey.survey_notes:
+            if survey.raw_notes:
                 parts.append("\n<background-survey>\n")
-                parts.append(survey.survey_notes)
+                parts.append(survey.raw_notes)
                 parts.append("\n</background-survey>")
         return "\n".join(parts)
 

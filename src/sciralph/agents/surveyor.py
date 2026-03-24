@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from ..llm import LLMResponse
 from ..renderers import render_orchestrator_research_state
 from ..research_state import BackgroundSurvey
 from .base import BaseAgent
+from .parsing import JSON_FENCE_RE, try_json_loads
+
+SECTION_FIELDS = (
+    "background", "key_insights", "known_methods",
+    "known_pitfalls", "conventions_and_definitions", "sanity_checks",
+)
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -41,8 +48,25 @@ class SurveyorAgent(BaseAgent):
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
         text = response.text.strip()
+        sections: dict[str, str] = {}
+
+        # Try to extract structured JSON block
+        fenced = list(JSON_FENCE_RE.finditer(text))
+        if fenced:
+            try:
+                parsed = try_json_loads(fenced[-1].group(1).strip())
+                if isinstance(parsed, dict):
+                    sections = {
+                        k: parsed[k].strip()
+                        for k in SECTION_FIELDS
+                        if k in parsed and isinstance(parsed[k], str) and parsed[k].strip()
+                    }
+            except (json.JSONDecodeError, ValueError, AttributeError):
+                pass
+
         self.parsed_survey = BackgroundSurvey(
-            survey_notes=text,
+            raw_notes=text,
+            **sections,
             iteration_created=iteration,
             iteration_updated=iteration,
         )

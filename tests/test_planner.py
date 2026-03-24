@@ -35,7 +35,7 @@ class TestPlannerBuildContext:
     def test_includes_background_survey(self):
         agent = self._make_agent()
         agent.research_state.background_survey = BackgroundSurvey(
-            survey_notes="Surface gravity via Killing vectors.",
+            raw_notes="Surface gravity via Killing vectors.",
             iteration_created=0,
             iteration_updated=0,
         )
