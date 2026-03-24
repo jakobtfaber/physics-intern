@@ -36,3 +36,18 @@ If NO Answer Template is provided:
   the simplification was itself established
 - Output ONLY the content that will become ANSWER.md — no preamble, no
   commentary outside the answer
+
+## Rejection protocol
+
+Before outputting the completed template, verify every placeholder:
+
+- Each `FILL IN` placeholder must be replaced with a **concrete** value from an ER
+- SymPy expressions must contain ONLY the declared symbols — no `sp.Function('...')`, no `...` (Ellipsis), no undefined names
+- MCQ answers must be a single letter from the specified set (e.g., one of `'A'`, `'B'`, `'C'`, `'D'`)
+- The `def answer(...)` function must be syntactically valid Python that returns the declared types
+
+If you CANNOT fill every placeholder with a concrete, verified value from the Established Results, output EXACTLY this on the first line:
+
+    FORMATTER_REJECTION: <one-line reason explaining which placeholders lack concrete values>
+
+followed by a brief explanation of what is missing. Do NOT output a partially completed template — output the rejection marker instead.

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from sciralph.agents.formatter import FormatterAgent
+from sciralph.llm import LLMResponse
 from sciralph.renderers import render_formatter_context
 from sciralph.research_state import (
     Evidence,
@@ -241,3 +242,98 @@ class TestFormatterBuildContext:
                     priority="normal", iteration=5, body="Format.")
         ctx = agent.build_context(task, iteration=5)
         assert "<answer-template>" not in ctx
+
+
+# ===========================================================================
+# FormatterAgent.process_response — rejection detection
+# ===========================================================================
+
+SYMPY_TEMPLATE = """\
+import sympy as sp
+
+x, y = sp.symbols('x y')
+
+def answer(x, y):
+    # ------------------ FILL IN YOUR RESULTS BELOW ------------------
+    result = ...  # a SymPy expression of inputs
+    choice = ...  # one of {'A', 'B', 'C', 'D'}
+    # ---------------------------------------------------------------
+    return result, choice
+"""
+
+class TestProcessResponseRejection:
+
+    def _make_agent(self, answer_template=""):
+        config = MagicMock()
+        workspace = MagicMock()
+        metrics = MagicMock()
+        return FormatterAgent(config, workspace, metrics, answer_template=answer_template)
+
+    def _make_response(self, text):
+        return LLMResponse(
+            text=text,
+            input_tokens=100,
+            output_tokens=50,
+            stop_reason="end_turn",
+            duration=1.0,
+        )
+
+    def _make_task(self):
+        return Task(
+            task_id="FORMAT-001", task_type=TaskType.FORMAT,
+            assigned_to="formatter", iteration=1,
+        )
+
+    def test_llm_rejection_marker_sets_reason(self):
+        agent = self._make_agent(answer_template=SYMPY_TEMPLATE)
+        resp = self._make_response(
+            "FORMATTER_REJECTION: Cannot fill Lambda placeholder\nDetails here."
+        )
+        agent.process_response(resp, self._make_task(), iteration=1)
+        assert agent.rejection_reason == "Cannot fill Lambda placeholder"
+        # Should still write the file (for circuit-breaker fallback)
+        agent.workspace.write_file.assert_called_once()
+
+    def test_good_output_no_rejection(self):
+        agent = self._make_agent(answer_template=SYMPY_TEMPLATE)
+        good_code = """\
+import sympy as sp
+
+x, y = sp.symbols('x y')
+
+def answer(x, y):
+    result = x**2 + y
+    choice = 'A'
+    return result, choice
+"""
+        resp = self._make_response(good_code)
+        agent.process_response(resp, self._make_task(), iteration=1)
+        assert agent.rejection_reason is None
+        agent.workspace.write_file.assert_called_once()
+
+    def test_no_template_always_passes(self):
+        agent = self._make_agent(answer_template="")
+        resp = self._make_response("anything goes")
+        agent.process_response(resp, self._make_task(), iteration=1)
+        assert agent.rejection_reason is None
+
+    def test_rejection_reason_resets_between_calls(self):
+        agent = self._make_agent(answer_template=SYMPY_TEMPLATE)
+        task = self._make_task()
+        # First call: rejected
+        bad_resp = self._make_response("FORMATTER_REJECTION: missing data")
+        agent.process_response(bad_resp, task, iteration=1)
+        assert agent.rejection_reason is not None
+        # Second call: accepted
+        good_resp = self._make_response("""\
+import sympy as sp
+
+x, y = sp.symbols('x y')
+
+def answer(x, y):
+    result = x**2 + y
+    choice = 'A'
+    return result, choice
+""")
+        agent.process_response(good_resp, task, iteration=2)
+        assert agent.rejection_reason is None

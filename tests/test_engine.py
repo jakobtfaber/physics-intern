@@ -715,7 +715,7 @@ class TestDispatchNewAgents:
             engine.computer = MagicMock()
             engine.reviewer = MagicMock()
             engine.critic = MagicMock()
-            engine.formatter = MagicMock()
+            engine.formatter = MagicMock(rejection_reason=None)
         return engine
 
     def test_research_dispatch(self):
@@ -807,7 +807,7 @@ class TestDispatchFailureRecovery:
             engine.reviewer = MagicMock()
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
-            engine.formatter = MagicMock()
+            engine.formatter = MagicMock(rejection_reason=None)
             engine.surveyor = MagicMock()
             engine.surveyor.parsed_survey = None
             engine.planner = MagicMock()
@@ -1133,7 +1133,7 @@ class TestSyncOnTermination:
             engine.reviewer = MagicMock()
             engine.critic = MagicMock()
             engine.compressor = MagicMock()
-            engine.formatter = MagicMock()
+            engine.formatter = MagicMock(rejection_reason=None)
             engine.surveyor = MagicMock()
             engine.surveyor.parsed_survey = None
             engine.planner = MagicMock()

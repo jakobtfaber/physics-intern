@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from ..task import Task
     from ..workspace import WorkspaceManager
 
+_REJECTION_PREFIX = "FORMATTER_REJECTION:"
+
 
 class FormatterAgent(BaseAgent):
     name = "formatter"
@@ -25,6 +27,7 @@ class FormatterAgent(BaseAgent):
         super().__init__(config, workspace, metrics)
         self.answer_template = answer_template
         self.research_state: ResearchState | None = None
+        self.rejection_reason: str | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [render_formatter_context(self.research_state)]
@@ -33,5 +36,16 @@ class FormatterAgent(BaseAgent):
         return "\n\n".join(parts)
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
-        """Write ANSWER.md from formatter output."""
-        self.workspace.write_file("ANSWER.md", response.text)
+        """Write ANSWER.md, checking for LLM-emitted rejection marker."""
+        self.rejection_reason = None
+        text = response.text or ""
+
+        # Check for LLM-emitted rejection marker
+        if text.lstrip().startswith(_REJECTION_PREFIX):
+            self.rejection_reason = (
+                text.lstrip().split("\n", 1)[0]
+                .removeprefix(_REJECTION_PREFIX).strip()
+            )
+
+        # Always write — circuit breaker may accept best-effort
+        self.workspace.write_file("ANSWER.md", text)

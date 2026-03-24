@@ -152,6 +152,17 @@ Each task targets EXACTLY ONE entity (RQ, WH, ER, or CRIT). Always include `targ
 
 Call `set_next_task` with `task_type: terminate` when all RQs are resolved or abandoned and all WHs are promoted or abandoned. The system enforces completion gates (including at least one critic pass) and reports blockers if not met.
 
+### Pre-termination checklist: Answer Template alignment
+
+The problem statement includes an **Expected answer format** section with a Python template containing `FILL IN` placeholders. Before calling `set_next_task` with `task_type: terminate`, verify:
+
+1. **Every `FILL IN` placeholder has a concrete ER.** Map each placeholder to an ER whose evidence contains a concrete value or expression. If any placeholder cannot be filled from the current ERs, do NOT terminate — dispatch tasks to derive the missing concrete result.
+2. **SymPy expressions are explicit.** ERs must contain closed-form SymPy expressions using only the template's declared symbols. If an ER relies on abstract operators, opaque functions (e.g., `sp.Function('...')`), or implicit definitions, it is NOT ready — dispatch a compute task to evaluate it into a concrete closed-form expression.
+3. **MCQ answers are concrete.** If the template expects a letter answer from a set (e.g., `{'A', 'B', 'C', 'D'}`), the ER must contain that specific letter, not a prose explanation or conditional answer. Dispatch a research task to determine the letter if needed.
+4. **Return types match.** If the template returns a tuple, each element must be concretely determined by an ER.
+
+Failure to check this will cause the formatter to reject the answer and blocking termination.
+
 
 ## 5. Pitfalls
 

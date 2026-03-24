@@ -250,12 +250,44 @@ class SciRalph:
                     research_state=self.research_state)
                 if allowed:
                     console.print("[green]Orchestrator signaled completion.[/green]")
-                    self._run_formatter()
-                    self._set_research_status("completed")
-                    self._render_files_for_git()
-                    self._sync_research_state()
-                    break
-                self._state.consecutive_termination_blocks += 1
+                    rejection = self._run_formatter()
+                    if rejection is None:
+                        self._set_research_status("completed")
+                        self._render_files_for_git()
+                        self._sync_research_state()
+                        break
+                    # Formatter rejected — loop back to orchestrator
+                    self._state.consecutive_termination_blocks += 1
+                    blockers = [
+                        f"FORMATTER REJECTED the answer: {rejection}. "
+                        "The established results do not contain concrete "
+                        "values matching the answer template. Dispatch "
+                        "research or compute tasks to derive the missing "
+                        "concrete results before terminating again."
+                    ]
+                    log_scaffold_event(
+                        self.workspace.root, self.iteration,
+                        CC.LOOP_CONTROL, "formatter_rejection_loopback",
+                        f"consecutive={self._state.consecutive_termination_blocks}, "
+                        f"reason={rejection[:200]}",
+                    )
+                    if self._state.consecutive_termination_blocks >= self.config.max_termination_retries:
+                        console.print(
+                            "[yellow]Circuit breaker: accepting best-effort "
+                            "formatter output despite rejection[/yellow]"
+                        )
+                        self._render_files_for_git()
+                        self.workspace.git_commit(
+                            f"Iteration {self.iteration}: formatter - "
+                            "ANSWER.md (best-effort, rejected)"
+                        )
+                        self._set_research_status("partially_complete")
+                        self._render_files_for_git()
+                        self._sync_research_state()
+                        break
+                else:
+                    self._state.consecutive_termination_blocks += 1
+                    blockers = list(blockers)
                 self._state.pending_termination_blockers = blockers
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "termination_blocked",
                                    f"blockers: {'; '.join(b[:60] for b in blockers)}, "
@@ -786,8 +818,12 @@ class SciRalph:
         self.workspace.write_file("EVIDENCE_LOG.md", render_evidence_log_md(self.research_state))
         self.workspace.write_file("CRITIQUE_LOG.md", render_critique_log_md(self.research_state))
 
-    def _run_formatter(self):
-        """Run the formatter agent to produce ANSWER.md."""
+    def _run_formatter(self) -> str | None:
+        """Run the formatter agent to produce ANSWER.md.
+
+        Returns ``None`` on success, or a rejection reason string if the
+        formatter could not produce a valid answer matching the template.
+        """
         console.print("[cyan]Formatter[/cyan] producing ANSWER.md...")
         fmt_task = Task(
             task_id=f"FORMAT-{self.iteration:03d}",
@@ -798,10 +834,21 @@ class SciRalph:
         self.formatter.research_state = self.research_state
         result = self.formatter.run(fmt_task, self.iteration)
         self._print_call_summary(result)
+
+        rejection = self.formatter.rejection_reason
+        if rejection:
+            console.print(f"[yellow]Formatter rejected: {rejection}[/yellow]")
+            log_scaffold_event(
+                self.workspace.root, self.iteration,
+                CC.LOOP_CONTROL, "formatter_rejection", rejection[:200],
+            )
+            return rejection
+
         self._render_files_for_git()
         self.workspace.git_commit(
             f"Iteration {self.iteration}: formatter - ANSWER.md"
         )
+        return None
 
     def _force_abandon_working_hypotheses(self):
         """Circuit breaker: auto-abandon all remaining WHs after repeated termination blocks."""
