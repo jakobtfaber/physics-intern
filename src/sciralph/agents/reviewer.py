@@ -55,7 +55,8 @@ class ReviewerAgent(BaseAgent):
         if not h:
             return f"Review {target_id}."
 
-        ev_type = h.evidence.type if h.evidence else "research"
+        ev_types = sorted(set(ev.type for ev in h.evidence)) if h.evidence else ["research"]
+        ev_type = "+".join(ev_types) if len(ev_types) > 1 else ev_types[0]
 
         # Find originating RQ
         rq_context = ""
@@ -107,55 +108,57 @@ class ReviewerAgent(BaseAgent):
                     claim_parts.append(f"<derivation>\n{h.derivation}\n</derivation>")
                 parts.append(f'\n<claim id="{target_id}">\n' + "\n".join(claim_parts) + "\n</claim>")
 
-                # Evidence
+                # Evidence (iterate over all items)
                 if h.evidence:
-                    ev = h.evidence
-                    ev_parts: list[str] = []
-                    if ev.approach:
-                        ev_parts.append(f"<approach>\n{ev.approach}\n</approach>")
-                    if ev.method:
-                        ev_parts.append(f"<method>{ev.method}</method>")
-                    if ev.result:
-                        ev_parts.append(f"<result>{ev.result}</result>")
-                    # Per-script computation blocks (evidence scripts only)
-                    if ev.scripts:
-                        for script_name in ev.scripts:
-                            purpose = ev.script_purposes.get(script_name, "")
-                            # Read full script code
+                    multi = len(h.evidence) > 1
+                    for ev_idx, ev in enumerate(h.evidence, 1):
+                        ev_parts: list[str] = []
+                        if ev.approach:
+                            ev_parts.append(f"<approach>\n{ev.approach}\n</approach>")
+                        if ev.method:
+                            ev_parts.append(f"<method>{ev.method}</method>")
+                        if ev.result:
+                            ev_parts.append(f"<result>{ev.result}</result>")
+                        # Per-script computation blocks (evidence scripts only)
+                        if ev.scripts:
+                            for script_name in ev.scripts:
+                                purpose = ev.script_purposes.get(script_name, "")
+                                # Read full script code
+                                try:
+                                    code = self.workspace.read_file(f"computations/{script_name}")
+                                except Exception:
+                                    code = "[not found]"
+                                # Read full output from companion .output file
+                                stem = Path(script_name).stem
+                                try:
+                                    output = self.workspace.read_file(f"computations/{stem}.output")
+                                except Exception:
+                                    output = "[not found]"
+                                comp_parts = []
+                                if purpose:
+                                    comp_parts.append(f"  <purpose>{purpose}</purpose>")
+                                comp_parts.append(f'  <code language="python">\n{code}\n  </code>')
+                                comp_parts.append(f"  <output>\n{output}\n  </output>")
+                                ev_parts.append(
+                                    f'<computation name="{script_name}">\n'
+                                    + "\n".join(comp_parts)
+                                    + "\n</computation>"
+                                )
+                        if ev.derivation_file:
                             try:
-                                code = self.workspace.read_file(f"computations/{script_name}")
+                                content = self.workspace.read_file(f"derivations/{ev.derivation_file}")
                             except Exception:
-                                code = "[not found]"
-                            # Read full output from companion .output file
-                            stem = Path(script_name).stem
-                            try:
-                                output = self.workspace.read_file(f"computations/{stem}.output")
-                            except Exception:
-                                output = "[not found]"
-                            comp_parts = []
-                            if purpose:
-                                comp_parts.append(f"  <purpose>{purpose}</purpose>")
-                            comp_parts.append(f'  <code language="python">\n{code}\n  </code>')
-                            comp_parts.append(f"  <output>\n{output}\n  </output>")
+                                content = ""
                             ev_parts.append(
-                                f'<computation name="{script_name}">\n'
-                                + "\n".join(comp_parts)
-                                + "\n</computation>"
+                                f'<derivation file="{ev.derivation_file}">\n'
+                                f"{content or ev.reasoning}\n</derivation>"
                             )
-                    if ev.derivation_file:
-                        try:
-                            content = self.workspace.read_file(f"derivations/{ev.derivation_file}")
-                        except Exception:
-                            content = ""
-                        ev_parts.append(
-                            f'<derivation file="{ev.derivation_file}">\n'
-                            f"{content or ev.reasoning}\n</derivation>"
-                        )
-                    elif ev.reasoning:
-                        ev_parts.append(f"<reasoning>\n{ev.reasoning}\n</reasoning>")
-                    if ev.confidence:
-                        ev_parts.append(f"<confidence>{ev.confidence}</confidence>")
-                    parts.append(f'\n<evidence type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
+                        elif ev.reasoning:
+                            ev_parts.append(f"<reasoning>\n{ev.reasoning}\n</reasoning>")
+                        if ev.confidence:
+                            ev_parts.append(f"<confidence>{ev.confidence}</confidence>")
+                        label = f' n="{ev_idx}/{len(h.evidence)}"' if multi else ""
+                        parts.append(f'\n<evidence type="{ev.type}"{label}>\n' + "\n".join(ev_parts) + "\n</evidence>")
 
                 # Find originating RQ
                 for rq in self.research_state.research_questions.values():

@@ -427,9 +427,11 @@ class SciRalph:
         if tt in (TaskType.RESEARCH, TaskType.COMPUTE):
             ev = None
             if target and target in self.research_state.research_questions:
-                ev = self.research_state.research_questions[target].evidence
+                evs = self.research_state.research_questions[target].evidence
+                ev = evs[-1] if evs else None
             elif target and target in self.research_state.hypotheses:
-                ev = self.research_state.hypotheses[target].evidence
+                evs = self.research_state.hypotheses[target].evidence
+                ev = evs[-1] if evs else None
             if ev and ev.result:
                 outcome = f"evidence ({ev.confidence})" if ev.confidence else "evidence"
             else:
@@ -680,11 +682,14 @@ class SciRalph:
             # Find evidence on the target entity
             ev = None
             if target_id in self.research_state.research_questions:
-                ev = self.research_state.research_questions[target_id].evidence
+                evs = self.research_state.research_questions[target_id].evidence
+                ev = evs[-1] if evs else None
             elif target_id in self.research_state.hypotheses:
-                ev = self.research_state.hypotheses[target_id].evidence
+                evs = self.research_state.hypotheses[target_id].evidence
+                ev = evs[-1] if evs else None
             elif target_id in self.research_state.critiques:
-                ev = self.research_state.critiques[target_id].evidence
+                evs = self.research_state.critiques[target_id].evidence
+                ev = evs[-1] if evs else None
 
             if ev and ev.result:
                 description = ev.summary or (ev.method[:500] if ev.method else "unknown")
@@ -942,13 +947,15 @@ def _reconstruct_loop_state(research_state: ResearchState) -> LoopState:
     # last_content_iteration: max iteration from evidence/review across entities
     max_iter = 0
     for h in research_state.hypotheses.values():
-        if h.evidence and h.evidence.iteration is not None:
-            max_iter = max(max_iter, h.evidence.iteration)
+        for ev in h.evidence:
+            if ev.iteration is not None:
+                max_iter = max(max_iter, ev.iteration)
         if h.review and h.review.iteration is not None:
             max_iter = max(max_iter, h.review.iteration)
     for rq in research_state.research_questions.values():
-        if rq.evidence and rq.evidence.iteration is not None:
-            max_iter = max(max_iter, rq.evidence.iteration)
+        for ev in rq.evidence:
+            if ev.iteration is not None:
+                max_iter = max(max_iter, ev.iteration)
     state.last_content_iteration = max_iter
 
     return state

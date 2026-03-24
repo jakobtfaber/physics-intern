@@ -352,10 +352,10 @@ class TestComputeVerdictTracking:
             engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
                 id="RQ-001", question="What is T?",
             )
-        engine.research_state.research_questions["RQ-001"].evidence = Evidence(
+        engine.research_state.research_questions["RQ-001"].evidence = [Evidence(
             type="research", reasoning="Derived", method="algebra",
             result="T = 1/(8*pi*M)", confidence="exact", iteration=1,
-        )
+        )]
         task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH,
                     assigned_to="researcher", target_claim="RQ-001",
                     body="Derive temperature")
@@ -1195,7 +1195,7 @@ class TestExploreResultSuppression:
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
-            evidence=Evidence(result="", method="test"),
+            evidence=[Evidence(result="", method="test")],
         )
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computer", target_claim="WH-001",
@@ -1210,7 +1210,7 @@ class TestExploreResultSuppression:
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
-            evidence=Evidence(result="x = 42", method="Compute x", confidence="exact"),
+            evidence=[Evidence(result="x = 42", method="Compute x", confidence="exact")],
         )
         task = Task(task_id="TASK-003", task_type=TaskType.COMPUTE,
                     assigned_to="computer", target_claim="WH-001",
@@ -1228,10 +1228,10 @@ class TestExploreResultSuppression:
             id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
             argument="Spin prediction may be wrong.",
             status=CritiqueStatus.ACTIVE, iteration_filed=2,
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="research", method="re-derivation",
                 result="Spin is indeed 1", confidence="exact",
-            ),
+            )],
         )
         task = Task(task_id="TASK-006", task_type=TaskType.RESEARCH,
                     assigned_to="researcher", target_claim="CRIT-001",
@@ -1642,9 +1642,9 @@ class TestDispatchHistory:
         engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is T?",
         )
-        engine.research_state.research_questions["RQ-001"].evidence = Evidence(
+        engine.research_state.research_questions["RQ-001"].evidence = [Evidence(
             type="compute", result="T = 1/(8*pi*M)", confidence="exact", iteration=1,
-        )
+        )]
         task = Task(task_id="TASK-001", task_type=TaskType.COMPUTE,
                     assigned_to="computer", target_claim="RQ-001")
         engine._append_dispatch_record(task)
@@ -1674,7 +1674,7 @@ class TestDispatchHistory:
         from sciralph.research_state import Hypothesis, Evidence
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
-            evidence=Evidence(type="research", result="derived", confidence="approximate", iteration=2),
+            evidence=[Evidence(type="research", result="derived", confidence="approximate", iteration=2)],
         )
         task = Task(task_id="TASK-002", task_type=TaskType.RESEARCH,
                     assigned_to="researcher", target_claim="WH-001")

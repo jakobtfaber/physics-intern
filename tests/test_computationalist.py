@@ -139,7 +139,7 @@ class TestComputerProcessResponse:
         ]
         result = self._make_result(tool_calls)
         agent.process_response(result, task, iteration=1)
-        evidence = agent.research_state.research_questions[rq_id].evidence
+        evidence = agent.research_state.research_questions[rq_id].evidence[-1]
         assert evidence is not None
         assert "Compute via SymPy" in evidence.approach
         assert "Assumptions: T > 0. Natural units" in evidence.approach
@@ -156,7 +156,7 @@ class TestComputerProcessResponse:
         ]
         result = self._make_result(tool_calls)
         agent.process_response(result, task, iteration=1)
-        evidence = agent.research_state.research_questions[rq_id].evidence
+        evidence = agent.research_state.research_questions[rq_id].evidence[-1]
         assert evidence is not None
         assert evidence.approach == "Compute via SymPy"
         assert "Assumptions:" not in evidence.approach
@@ -194,7 +194,7 @@ class TestResearcherProcessResponse:
         )
         response = self._make_response(text=text)
         agent.process_response(response, task, iteration=1)
-        evidence = agent.research_state.research_questions[rq_id].evidence
+        evidence = agent.research_state.research_questions[rq_id].evidence[-1]
         assert evidence is not None
         assert evidence.type == "research"
         assert evidence.method == "Euclidean path integral"
@@ -217,7 +217,7 @@ class TestResearcherProcessResponse:
         )
         response = self._make_response(text=derivation_text)
         agent.process_response(response, task, iteration=1)
-        evidence = agent.research_state.research_questions[rq_id].evidence
+        evidence = agent.research_state.research_questions[rq_id].evidence[-1]
         assert "Starting from the metric" in evidence.reasoning
 
     def test_target_from_task_target_claim(self):
@@ -229,7 +229,7 @@ class TestResearcherProcessResponse:
         text = '```json\n{"result": "42", "method": "m", "confidence": "exact", "summary": "s"}\n```'
         response = self._make_response(text=text)
         agent.process_response(response, task, iteration=1)
-        assert agent.research_state.research_questions[rq_id].evidence is not None
+        assert len(agent.research_state.research_questions[rq_id].evidence) > 0
 
     def test_fallback_no_json(self):
         """When no JSON block, build minimal evidence from response text."""
@@ -239,7 +239,7 @@ class TestResearcherProcessResponse:
                     body=f"Derive for {rq_id}", target_claim=rq_id)
         response = self._make_response(text="Partial derivation that got cut off...")
         agent.process_response(response, task, iteration=1)
-        evidence = agent.research_state.research_questions[rq_id].evidence
+        evidence = agent.research_state.research_questions[rq_id].evidence[-1]
         assert evidence is not None
         assert evidence.confidence == "partial"
         assert "Partial derivation" in evidence.reasoning

@@ -1065,9 +1065,9 @@ class TestStateInjection:
         """WH with evidence + no review → guidance line in injection."""
         ws = _make_workspace()
         state = _make_state()
-        state.hypotheses["WH-001"].evidence = Evidence(
+        state.hypotheses["WH-001"].evidence = [Evidence(
             type="research", summary="Some evidence", iteration=2,
-        )
+        )]
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         # Trigger a mutation so injection fires

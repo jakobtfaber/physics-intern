@@ -93,7 +93,7 @@ class Hypothesis:
     iteration_modified: int = 0
     depends_on: list[str] = field(default_factory=list)
     promotion_justification: str = ""
-    evidence: Evidence | None = None
+    evidence: list[Evidence] = field(default_factory=list)
     review: ReviewResult | None = None
 
 
@@ -107,7 +107,7 @@ class Critique:
     resolution: str = ""
     iteration_filed: int = 0
     iteration_resolved: int | None = None
-    evidence: Evidence | None = None
+    evidence: list[Evidence] = field(default_factory=list)
 
 
 @dataclass
@@ -130,7 +130,7 @@ class ResearchQuestion:
     iteration_created: int = 0
     iteration_resolved: int | None = None
     resolution_reason: str = ""                     # why / how it was resolved
-    evidence: Evidence | None = None                # evidence from researcher/computer
+    evidence: list[Evidence] = field(default_factory=list)  # evidence from researcher/computer
 
 
 @dataclass
@@ -200,7 +200,7 @@ class ResearchState:
 
     def hypotheses_with_evidence(self) -> list[Hypothesis]:
         """Hypotheses that have evidence attached."""
-        return [h for h in self.hypotheses.values() if h.evidence is not None]
+        return [h for h in self.hypotheses.values() if h.evidence]
 
     def active_critiques_for(self, target_id: str) -> list[Critique]:
         """Active critiques mentioning *target_id*."""
@@ -352,11 +352,14 @@ class ResearchState:
             status=data.get("status", "in_progress"),
             title=data.get("title", ""),
         )
-        for hid, hdata in data.get("hypotheses", {}).items():
-            evidence = None
-            if hdata.get("evidence"):
-                edata = hdata["evidence"]
-                evidence = Evidence(
+        def _parse_evidence_list(raw) -> list[Evidence]:
+            """Deserialize evidence — handles both legacy single-object and list."""
+            if not raw:
+                return []
+            items = raw if isinstance(raw, list) else [raw]
+            result: list[Evidence] = []
+            for edata in items:
+                result.append(Evidence(
                     type=edata.get("type", ""),
                     reasoning=edata.get("reasoning", ""),
                     approach=edata.get("approach", ""),
@@ -369,7 +372,11 @@ class ResearchState:
                     summary=edata.get("summary", ""),
                     iteration=edata.get("iteration"),
                     derivation_file=edata.get("derivation_file", ""),
-                )
+                ))
+            return result
+
+        for hid, hdata in data.get("hypotheses", {}).items():
+            evidence = _parse_evidence_list(hdata.get("evidence"))
             review = None
             # Read "review" key, with backward-compat for legacy "verification"
             vdata = hdata.get("review") or hdata.get("verification")
@@ -394,23 +401,7 @@ class ResearchState:
                 review=review,
             )
         for crid, crdata in data.get("critiques", {}).items():
-            crit_evidence = None
-            if crdata.get("evidence"):
-                edata = crdata["evidence"]
-                crit_evidence = Evidence(
-                    type=edata.get("type", ""),
-                    reasoning=edata.get("reasoning", ""),
-                    approach=edata.get("approach", ""),
-                    scripts=edata.get("scripts", []),
-                    script_purposes=edata.get("script_purposes", {}),
-                    output=edata.get("output", ""),
-                    method=edata.get("method", ""),
-                    result=edata.get("result", ""),
-                    confidence=edata.get("confidence", ""),
-                    summary=edata.get("summary", ""),
-                    iteration=edata.get("iteration"),
-                    derivation_file=edata.get("derivation_file", ""),
-                )
+            crit_evidence = _parse_evidence_list(crdata.get("evidence"))
             state.critiques[crid] = Critique(
                 id=crdata["id"],
                 targets=crdata.get("targets", []),
@@ -423,23 +414,7 @@ class ResearchState:
                 evidence=crit_evidence,
             )
         for rqid, rqdata in data.get("research_questions", {}).items():
-            rq_evidence = None
-            if rqdata.get("evidence"):
-                edata = rqdata["evidence"]
-                rq_evidence = Evidence(
-                    type=edata.get("type", ""),
-                    reasoning=edata.get("reasoning", ""),
-                    approach=edata.get("approach", ""),
-                    scripts=edata.get("scripts", []),
-                    script_purposes=edata.get("script_purposes", {}),
-                    output=edata.get("output", ""),
-                    method=edata.get("method", ""),
-                    result=edata.get("result", ""),
-                    confidence=edata.get("confidence", ""),
-                    summary=edata.get("summary", ""),
-                    iteration=edata.get("iteration"),
-                    derivation_file=edata.get("derivation_file", ""),
-                )
+            rq_evidence = _parse_evidence_list(rqdata.get("evidence"))
             state.research_questions[rqid] = ResearchQuestion(
                 id=rqdata["id"],
                 question=rqdata.get("question", ""),

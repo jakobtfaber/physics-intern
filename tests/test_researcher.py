@@ -142,8 +142,8 @@ class TestResearcherProcessResponse:
         response = LLMResponse(text=text, input_tokens=500, output_tokens=200,
                                stop_reason="end_turn", duration=1.0)
         agent.process_response(response, task, iteration=1)
-        ev = agent.research_state.research_questions["RQ-001"].evidence
-        assert ev is not None
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
+        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
         assert ev.type == "research"
         assert ev.result == "T_H = 1/(8*pi*M)"
         assert ev.method == "Euclidean path integral"
@@ -161,8 +161,8 @@ class TestResearcherProcessResponse:
         response = LLMResponse(text=text, input_tokens=100, output_tokens=50,
                                stop_reason="end_turn", duration=0.1)
         agent.process_response(response, task, iteration=2)
-        ev = agent.research_state.hypotheses["WH-002"].evidence
-        assert ev is not None
+        assert len(agent.research_state.hypotheses["WH-002"].evidence) == 1
+        ev = agent.research_state.hypotheses["WH-002"].evidence[0]
         assert ev.result == "confirmed"
         assert ev.iteration == 2
 
@@ -174,8 +174,8 @@ class TestResearcherProcessResponse:
                                input_tokens=100, output_tokens=50,
                                stop_reason="end_turn", duration=0.1)
         agent.process_response(response, task, iteration=3)
-        ev = agent.research_state.research_questions["RQ-001"].evidence
-        assert ev is not None
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
+        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
         assert ev.confidence == "partial"
         assert "Failed to parse" in ev.result
         assert "Long derivation" in ev.reasoning
@@ -188,7 +188,8 @@ class TestResearcherProcessResponse:
         response = LLMResponse(text=long_text, input_tokens=100, output_tokens=50,
                                stop_reason="end_turn", duration=0.1)
         agent.process_response(response, task, iteration=1)
-        ev = agent.research_state.research_questions["RQ-001"].evidence
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
+        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
         assert len(ev.reasoning) == 2000
 
     def test_invalid_confidence_normalized(self):
@@ -199,7 +200,8 @@ class TestResearcherProcessResponse:
         response = LLMResponse(text=text, input_tokens=100, output_tokens=50,
                                stop_reason="end_turn", duration=0.1)
         agent.process_response(response, task, iteration=1)
-        ev = agent.research_state.research_questions["RQ-001"].evidence
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
+        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
         assert ev.confidence == "partial"
 
     def test_target_extracted_from_body_when_no_target_claim(self):
@@ -210,8 +212,8 @@ class TestResearcherProcessResponse:
         response = LLMResponse(text=text, input_tokens=100, output_tokens=50,
                                stop_reason="end_turn", duration=0.1)
         agent.process_response(response, task, iteration=1)
-        ev = agent.research_state.research_questions["RQ-001"].evidence
-        assert ev is not None
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
+        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
         assert ev.result == "done"
 
     def test_empty_response_text(self):
@@ -221,8 +223,8 @@ class TestResearcherProcessResponse:
         response = LLMResponse(text="", input_tokens=100, output_tokens=0,
                                stop_reason="end_turn", duration=0.1)
         agent.process_response(response, task, iteration=1)
-        ev = agent.research_state.research_questions["RQ-001"].evidence
-        assert ev is not None
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
+        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
         assert ev.confidence == "partial"
 
 
@@ -290,13 +292,13 @@ class TestResearcherBuildContext:
     def test_relevant_results_resolved_wh(self):
         """relevant_results WH IDs are resolved to statement + evidence summary."""
         agent = _make_researcher()
-        agent.research_state.hypotheses["WH-002"].evidence = Evidence(
+        agent.research_state.hypotheses["WH-002"].evidence = [Evidence(
             type="research",
             result="T_H = 1/(8*pi*M)",
             method="Euclidean",
             confidence="exact",
             summary="Hawking temperature via Euclidean method",
-        )
+        )]
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body="Derive", target_claim="RQ-001",
                     relevant_results=["WH-002"])
@@ -309,12 +311,12 @@ class TestResearcherBuildContext:
     def test_relevant_results_resolved_rq(self):
         """relevant_results RQ IDs are resolved to question + evidence."""
         agent = _make_researcher()
-        agent.research_state.research_questions["RQ-001"].evidence = Evidence(
+        agent.research_state.research_questions["RQ-001"].evidence = [Evidence(
             type="compute",
             result="F(p) = 1 - 16/25 p^2",
             confidence="approximate",
             summary="Leading-order fidelity term",
-        )
+        )]
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body="Derive", target_claim="WH-002",
                     relevant_results=["RQ-001"])
@@ -363,10 +365,10 @@ class TestRenderRelevantResults:
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
             statement="T_H = 1/(8*pi*M)",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="research", result="T_H derived",
                 confidence="exact", summary="Hawking temperature",
-            ),
+            )],
         )
         result = render_relevant_results(["WH-001"], state)
         assert "**WH-001**" in result
@@ -387,10 +389,10 @@ class TestRenderRelevantResults:
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is X?",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="compute", result="X = 42",
                 confidence="exact", summary="Computed X",
-            ),
+            )],
         )
         result = render_relevant_results(["RQ-001"], state)
         assert "**RQ-001**: What is X?" in result
@@ -472,7 +474,8 @@ class TestResearcherDerivationFile:
                                stop_reason="end_turn", duration=1.0)
         agent.process_response(response, task, iteration=3)
         # Check evidence has derivation_file set
-        ev = agent.research_state.hypotheses["WH-002"].evidence
+        assert len(agent.research_state.hypotheses["WH-002"].evidence) == 1
+        ev = agent.research_state.hypotheses["WH-002"].evidence[0]
         assert ev.derivation_file == "WH-002_003.md"
         # Check file was written with derivation content (no JSON block)
         content = agent.workspace.read_file("derivations/WH-002_003.md")
@@ -487,7 +490,8 @@ class TestResearcherDerivationFile:
                                input_tokens=100, output_tokens=50,
                                stop_reason="end_turn", duration=0.1)
         agent.process_response(response, task, iteration=2)
-        ev = agent.research_state.research_questions["RQ-001"].evidence
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
+        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
         assert ev.derivation_file == "RQ-001_002.md"
         content = agent.workspace.read_file("derivations/RQ-001_002.md")
         assert "Long derivation" in content
@@ -499,7 +503,8 @@ class TestResearcherDerivationFile:
         response = LLMResponse(text="", input_tokens=100, output_tokens=0,
                                stop_reason="end_turn", duration=0.1)
         agent.process_response(response, task, iteration=1)
-        ev = agent.research_state.research_questions["RQ-001"].evidence
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
+        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
         assert ev.derivation_file == ""
 
     def test_derivation_file_serialization_roundtrip(self):
@@ -508,17 +513,18 @@ class TestResearcherDerivationFile:
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
             statement="test",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="research",
                 method="analytical",
                 result="ok",
                 confidence="exact",
                 derivation_file="WH-001_001.md",
-            ),
+            )],
         )
         json_str = state.to_json()
         restored = ResearchState.from_json(json_str)
-        ev = restored.hypotheses["WH-001"].evidence
+        assert len(restored.hypotheses["WH-001"].evidence) == 1
+        ev = restored.hypotheses["WH-001"].evidence[0]
         assert ev.derivation_file == "WH-001_001.md"
 
     def test_derivation_file_serialization_rq(self):
@@ -527,14 +533,15 @@ class TestResearcherDerivationFile:
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001",
             question="test",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="research",
                 derivation_file="RQ-001_005.md",
-            ),
+            )],
         )
         json_str = state.to_json()
         restored = ResearchState.from_json(json_str)
-        ev = restored.research_questions["RQ-001"].evidence
+        assert len(restored.research_questions["RQ-001"].evidence) == 1
+        ev = restored.research_questions["RQ-001"].evidence[0]
         assert ev.derivation_file == "RQ-001_005.md"
 
     def test_legacy_json_missing_derivation_file(self):
@@ -555,7 +562,8 @@ class TestResearcherDerivationFile:
             }
         }
         state = ResearchState.from_json(json.dumps(data))
-        ev = state.hypotheses["WH-001"].evidence
+        assert len(state.hypotheses["WH-001"].evidence) == 1
+        ev = state.hypotheses["WH-001"].evidence[0]
         assert ev.derivation_file == ""
 
 

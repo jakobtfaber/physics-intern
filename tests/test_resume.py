@@ -130,13 +130,13 @@ class TestReconstructLoopState:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", statement="A", status=HypothesisStatus.WORKING,
-            evidence=Evidence(type="research", result="x", iteration=5),
+            evidence=[Evidence(type="research", result="x", iteration=5)],
             review=ReviewResult(verdict=Verdict.VERIFIED, summary="ok", iteration=7),
             iteration_created=1, iteration_modified=7,
         )
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="Q?",
-            evidence=Evidence(type="compute", result="y", iteration=6),
+            evidence=[Evidence(type="compute", result="y", iteration=6)],
             iteration_created=2,
         )
         ls = _reconstruct_loop_state(state)
@@ -238,7 +238,7 @@ class TestEngineResume:
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", statement="T_H = 1/(8*pi*M)",
             status=HypothesisStatus.WORKING,
-            evidence=Evidence(type="research", result="derived", iteration=2),
+            evidence=[Evidence(type="research", result="derived", iteration=2)],
             iteration_created=1, iteration_modified=2,
         )
         state.save(ws_dir)

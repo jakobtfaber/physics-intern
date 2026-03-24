@@ -424,7 +424,7 @@ class TestCanTerminate:
         state = self._make_state()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
-            evidence=Evidence(type="research", reasoning="Some analysis", iteration=1),
+            evidence=[Evidence(type="research", reasoning="Some analysis", iteration=1)],
         )
         allowed, blockers = can_terminate(
             MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),

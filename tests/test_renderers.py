@@ -59,13 +59,13 @@ def populated_state():
         derivation="Surface gravity kappa = 1/(4M), then T = kappa/(2 pi).",
         iteration_created=1,
         iteration_modified=3,
-        evidence=Evidence(
+        evidence=[Evidence(
             type="compute",
             method="Symbolic computation with sympy",
             result="T = 1/(8*pi*M)",
             confidence="exact",
             iteration=3,
-        ),
+        )],
         review=ReviewResult(
             verdict=Verdict.VERIFIED,
             summary="Symbolic computation confirms the formula.",
@@ -79,13 +79,13 @@ def populated_state():
         derivation="From integration of dS = dM/T.",
         iteration_created=2,
         iteration_modified=4,
-        evidence=Evidence(
+        evidence=[Evidence(
             type="compute",
             method="Numerical integration",
             result="S ~ 4*pi*M**2 to 1e-10",
             confidence="approximate",
             iteration=4,
-        ),
+        )],
     )
     state.hypotheses["WH-003"] = Hypothesis(
         id="WH-003",
@@ -375,10 +375,10 @@ class TestRenderEvidenceLogMd:
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is F?",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="research", method="analysis",
                 result="F = pi/4", iteration=2,
-            ),
+            )],
         )
         md = render_evidence_log_md(state)
         assert "RQ-001: Evidence (research)" in md
@@ -391,10 +391,10 @@ class TestRenderEvidenceLogMd:
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", statement="Test",
             status=HypothesisStatus.WORKING,
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="compute", method="test",
                 result="ok", approach=long_approach, iteration=1,
-            ),
+            )],
         )
         md = render_evidence_log_md(state)
         assert long_approach in md
@@ -406,10 +406,10 @@ class TestRenderEvidenceLogMd:
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", statement="Test",
             status=HypothesisStatus.WORKING,
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="research", method="test",
                 result="ok", reasoning=long_reasoning, iteration=1,
-            ),
+            )],
         )
         md = render_evidence_log_md(state)
         assert long_reasoning in md
@@ -440,12 +440,12 @@ class TestRenderEvidenceLogMd:
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is T?",
             resolved_to=["WH-001"], status=RQStatus.RESOLVED,
-            evidence=ev,
+            evidence=[ev],
         )
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", statement="T = 1/(8*pi*M)",
             status=HypothesisStatus.WORKING,
-            evidence=ev,  # same evidence, deep-copied in real code
+            evidence=[ev],  # same evidence, deep-copied in real code
         )
         md = render_evidence_log_md(state)
         # WH-001 should have full evidence

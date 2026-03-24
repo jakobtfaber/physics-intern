@@ -76,6 +76,7 @@ If the system rejects a promotion, it tells you why.
 - An unreviewed WH is a conjecture. When two hypotheses contradict each other, the one with a VERIFIED review takes precedence.
 - When a WH has evidence, prioritize sending it to review before opening new questions or building on its claims.
 - When adding a hypothesis that depends on earlier claims, set the `depends_on` parameter. The system blocks promotion of a WH whose dependencies are not yet established.
+- **Cross-validate disputed claims.** For critical results, you can seek evidence from different sources : the researcher agent (reasoning and analytical derivation) and the computer agent (symbolic computation and numerical spot-check).
 
 ### Handling Critiques
 

@@ -41,26 +41,28 @@ def render_relevant_results(
             h = research_state.hypotheses[ref]
             entity_line += f": {h.statement}" if h.statement else ""
             if h.evidence:
+                ev = h.evidence[-1]  # most recent
                 parts = []
-                if h.evidence.summary:
-                    parts.append(h.evidence.summary)
-                elif h.evidence.result:
-                    parts.append(h.evidence.result[:200])
-                if h.evidence.confidence:
-                    parts.append(h.evidence.confidence)
+                if ev.summary:
+                    parts.append(ev.summary)
+                elif ev.result:
+                    parts.append(ev.result[:200])
+                if ev.confidence:
+                    parts.append(ev.confidence)
                 if parts:
                     ev_summary = f"  Evidence: {' — '.join(parts)}"
         elif ref in research_state.research_questions:
             rq = research_state.research_questions[ref]
             entity_line += f": {rq.question}" if rq.question else ""
             if rq.evidence:
+                ev = rq.evidence[-1]  # most recent
                 parts = []
-                if rq.evidence.summary:
-                    parts.append(rq.evidence.summary)
-                elif rq.evidence.result:
-                    parts.append(rq.evidence.result[:200])
-                if rq.evidence.confidence:
-                    parts.append(rq.evidence.confidence)
+                if ev.summary:
+                    parts.append(ev.summary)
+                elif ev.result:
+                    parts.append(ev.result[:200])
+                if ev.confidence:
+                    parts.append(ev.confidence)
                 if parts:
                     ev_summary = f"  Evidence: {' — '.join(parts)}"
         else:
@@ -151,11 +153,11 @@ class EvidenceAgent(BaseAgent):
         if not state:
             return
         if target_id in state.research_questions:
-            state.research_questions[target_id].evidence = evidence
+            state.research_questions[target_id].evidence.append(evidence)
         elif target_id in state.hypotheses:
-            state.hypotheses[target_id].evidence = evidence
+            state.hypotheses[target_id].evidence.append(evidence)
         elif target_id in state.critiques:
-            state.critiques[target_id].evidence = evidence
+            state.critiques[target_id].evidence.append(evidence)
 
     @abstractmethod
     def process_response(self, response: "LLMResponse | AgentResult", task: "Task", iteration: int):

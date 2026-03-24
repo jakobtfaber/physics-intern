@@ -102,12 +102,12 @@ class TestQueryMethods:
             id="WH-001", statement="Test",
             status=HypothesisStatus.WORKING,
             critiques=["CRIT-001"],
-            evidence=Evidence(type="compute", method="numerical", result="42"),
+            evidence=[Evidence(type="compute", method="numerical", result="42")],
         )
         state.hypotheses["ER-002"] = Hypothesis(
             id="ER-002", statement="Verified",
             status=HypothesisStatus.ESTABLISHED,
-            evidence=Evidence(type="compute", method="symbolic", result="ok"),
+            evidence=[Evidence(type="compute", method="symbolic", result="ok")],
             review=ReviewResult(verdict=Verdict.VERIFIED, summary="Confirmed."),
         )
         state.critiques["CRIT-001"] = Critique(id="CRIT-001", targets=["WH-001"],
@@ -153,10 +153,10 @@ class TestSerialization:
         state = ResearchState(iteration=3)
         state.hypotheses["WH-001"] = Hypothesis(id="WH-001", statement="Test",
                                                   status=HypothesisStatus.WORKING)
-        state.hypotheses["WH-001"].evidence = Evidence(
+        state.hypotheses["WH-001"].evidence = [Evidence(
             type="compute", method="numerical", result="42",
             confidence="exact", iteration=2,
-        )
+        )]
         state.critiques["CRIT-001"] = Critique(id="CRIT-001", targets=["WH-001"],
                                                 severity=Severity.HIGH)
         state.failed_approaches.append(FailedApproach(
@@ -172,8 +172,8 @@ class TestSerialization:
         assert restored.iteration == 3
         assert "WH-001" in restored.hypotheses
         assert restored.hypotheses["WH-001"].statement == "Test"
-        assert restored.hypotheses["WH-001"].evidence is not None
-        assert restored.hypotheses["WH-001"].evidence.result == "42"
+        assert len(restored.hypotheses["WH-001"].evidence) > 0
+        assert restored.hypotheses["WH-001"].evidence[0].result == "42"
         assert restored.critiques["CRIT-001"].severity == Severity.HIGH
         assert len(restored.failed_approaches) == 1
         assert restored.failed_approaches[0].description == "Tried perturbation theory"
@@ -462,7 +462,7 @@ class TestEvidenceOnHypothesis:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="compute",
                 approach="Direct numerical computation",
                 scripts=["001_verify.py"],
@@ -471,11 +471,12 @@ class TestEvidenceOnHypothesis:
                 result="pi/4 ~ 0.785",
                 confidence="approximate",
                 iteration=3,
-            ),
+            )],
         )
         restored = ResearchState.from_json(state.to_json())
-        ev = restored.hypotheses["WH-001"].evidence
-        assert ev is not None
+        ev_list = restored.hypotheses["WH-001"].evidence
+        assert len(ev_list) > 0
+        ev = ev_list[0]
         assert ev.type == "compute"
         assert ev.approach == "Direct numerical computation"
         assert ev.scripts == ["001_verify.py"]
@@ -489,7 +490,7 @@ class TestEvidenceOnHypothesis:
         state = ResearchState()
         state.hypotheses["WH-002"] = Hypothesis(
             id="WH-002",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="research",
                 reasoning="Full derivation...",
                 method="contour integration",
@@ -497,11 +498,12 @@ class TestEvidenceOnHypothesis:
                 confidence="exact",
                 summary="Residue theorem gives I = 2*pi*i",
                 iteration=2,
-            ),
+            )],
         )
         restored = ResearchState.from_json(state.to_json())
-        ev = restored.hypotheses["WH-002"].evidence
-        assert ev is not None
+        ev_list = restored.hypotheses["WH-002"].evidence
+        assert len(ev_list) > 0
+        ev = ev_list[0]
         assert ev.summary == "Residue theorem gives I = 2*pi*i"
         assert ev.reasoning == "Full derivation..."
 
@@ -511,16 +513,17 @@ class TestEvidenceOnHypothesis:
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is X?",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="research", method="analysis",
                 result="X = 42", confidence="exact",
                 summary="Found X by direct calculation",
                 iteration=1,
-            ),
+            )],
         )
         restored = ResearchState.from_json(state.to_json())
-        ev = restored.research_questions["RQ-001"].evidence
-        assert ev is not None
+        ev_list = restored.research_questions["RQ-001"].evidence
+        assert len(ev_list) > 0
+        ev = ev_list[0]
         assert ev.summary == "Found X by direct calculation"
 
     def test_review_result_defaults(self):
@@ -552,11 +555,11 @@ class TestEvidenceOnHypothesis:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
         restored = ResearchState.from_json(state.to_json())
-        assert restored.hypotheses["WH-001"].evidence is None
+        assert not restored.hypotheses["WH-001"].evidence
         assert restored.hypotheses["WH-001"].review is None
 
     def test_backward_compat_missing_evidence_fields(self):
-        """Old JSON without evidence/review on hypotheses uses None."""
+        """Old JSON without evidence/review on hypotheses uses empty list / None."""
         old_json = json.dumps({
             "iteration": 1,
             "hypotheses": {
@@ -571,7 +574,7 @@ class TestEvidenceOnHypothesis:
         })
         state = ResearchState.from_json(old_json)
         h = state.hypotheses["WH-001"]
-        assert h.evidence is None
+        assert not h.evidence
         assert h.review is None
 
 
@@ -610,12 +613,12 @@ class TestNewQueryMethods:
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
-            evidence=Evidence(type="compute", result="42"),
+            evidence=[Evidence(type="compute", result="42")],
         )
         state.hypotheses["WH-002"] = Hypothesis(id="WH-002")
         state.hypotheses["WH-003"] = Hypothesis(
             id="WH-003",
-            evidence=Evidence(type="research", result="derivation ok"),
+            evidence=[Evidence(type="research", result="derivation ok")],
         )
         result = state.hypotheses_with_evidence()
         assert len(result) == 2
@@ -964,21 +967,21 @@ class TestResearchQuestionEvidence:
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is F?",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="research", method="analysis",
                 result="F = pi/4", confidence="exact", iteration=2,
-            ),
+            )],
         )
         restored = ResearchState.from_json(state.to_json())
         rq = restored.research_questions["RQ-001"]
-        assert rq.evidence is not None
-        assert rq.evidence.result == "F = pi/4"
-        assert rq.evidence.type == "research"
+        assert len(rq.evidence) > 0
+        assert rq.evidence[0].result == "F = pi/4"
+        assert rq.evidence[0].type == "research"
 
     def test_rq_no_evidence_default(self):
         from sciralph.research_state import ResearchQuestion
         rq = ResearchQuestion(id="RQ-001", question="Test")
-        assert rq.evidence is None
+        assert not rq.evidence
 
 
 # ---------------------------------------------------------------------------
@@ -995,22 +998,22 @@ class TestCritiqueEvidence:
             id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
             argument="Spin prediction may be wrong.",
             status=CritiqueStatus.ACTIVE, iteration_filed=3,
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="research", method="re-derivation",
                 result="Spin is indeed 1", confidence="exact", iteration=4,
-            ),
+            )],
         )
         restored = ResearchState.from_json(state.to_json())
         crit = restored.critiques["CRIT-001"]
-        assert crit.evidence is not None
-        assert crit.evidence.result == "Spin is indeed 1"
-        assert crit.evidence.type == "research"
-        assert crit.evidence.iteration == 4
+        assert len(crit.evidence) > 0
+        assert crit.evidence[0].result == "Spin is indeed 1"
+        assert crit.evidence[0].type == "research"
+        assert crit.evidence[0].iteration == 4
 
     def test_critique_no_evidence_default(self):
         from sciralph.research_state import Critique
         crit = Critique(id="CRIT-001")
-        assert crit.evidence is None
+        assert not crit.evidence
 
     def test_critique_no_evidence_round_trip(self):
         """Critique without evidence survives round-trip (backward compat)."""
@@ -1023,5 +1026,5 @@ class TestCritiqueEvidence:
         )
         restored = ResearchState.from_json(state.to_json())
         crit = restored.critiques["CRIT-001"]
-        assert crit.evidence is None
+        assert not crit.evidence
         assert crit.argument == "Strategy is vague."

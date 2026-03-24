@@ -39,13 +39,13 @@ def state_with_er_and_wh():
         statement="T_H = 1/(8 pi M)",
         status=HypothesisStatus.ESTABLISHED,
         derivation="Surface gravity kappa = 1/(4M), then T = kappa/(2 pi).",
-        evidence=Evidence(
+        evidence=[Evidence(
             type="compute",
             method="Symbolic computation",
             result="T = 1/(8*pi*M)",
             confidence="exact",
             iteration=3,
-        ),
+        )],
         review=ReviewResult(
             verdict=Verdict.VERIFIED,
             summary="Confirmed.",
@@ -57,12 +57,12 @@ def state_with_er_and_wh():
         statement="Entropy S = 4 pi M^2",
         status=HypothesisStatus.WORKING,
         derivation="Integration of dS = dM/T.",
-        evidence=Evidence(
+        evidence=[Evidence(
             type="research",
             method="Analytical",
             result="S ~ 4*pi*M**2",
             confidence="approximate",
-        ),
+        )],
     )
     state.hypotheses["WH-003"] = Hypothesis(
         id="WH-003",

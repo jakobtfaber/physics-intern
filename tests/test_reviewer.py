@@ -153,7 +153,7 @@ class TestReviewerBuildContext:
         comp_dir.mkdir()
         (comp_dir / "001_calc.py").write_text("import numpy as np\nprint(42)")
         (comp_dir / "001_calc.output").write_text("42")
-        agent.research_state.hypotheses["WH-001"].evidence = Evidence(
+        agent.research_state.hypotheses["WH-001"].evidence = [Evidence(
             type="compute",
             approach="Direct calculation",
             scripts=["001_calc.py"],
@@ -162,7 +162,7 @@ class TestReviewerBuildContext:
             method="numerical",
             result="42",
             confidence="exact",
-        )
+        )]
         task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
                     body="Review WH-001", target_claim="WH-001")
         ctx = agent.build_context(task, iteration=1)
@@ -180,14 +180,14 @@ class TestReviewerBuildContext:
         (comp_dir / "001_setup.output").write_text("ok")
         (comp_dir / "002_verify.py").write_text("# verify")
         (comp_dir / "002_verify.output").write_text("pass")
-        agent.research_state.hypotheses["WH-001"].evidence = Evidence(
+        agent.research_state.hypotheses["WH-001"].evidence = [Evidence(
             type="compute",
             scripts=["001_setup.py", "002_verify.py"],
             script_purposes={"001_setup.py": "Setup data", "002_verify.py": "Verify result"},
             method="numerical",
             result="ok",
             confidence="exact",
-        )
+        )]
         task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
                     body="Review WH-001", target_claim="WH-001")
         ctx = agent.build_context(task, iteration=1)
@@ -203,14 +203,14 @@ class TestReviewerBuildContext:
         deriv_dir = root / "derivations"
         deriv_dir.mkdir()
         (deriv_dir / "WH-001_001.md").write_text("Starting from the Schwarzschild metric...")
-        agent.research_state.hypotheses["WH-001"].evidence = Evidence(
+        agent.research_state.hypotheses["WH-001"].evidence = [Evidence(
             type="research",
             reasoning="full text including JSON block",
             derivation_file="WH-001_001.md",
             method="analytical",
             result="T_H = 1/(8*pi*M)",
             confidence="exact",
-        )
+        )]
         task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
                     body="Review WH-001", target_claim="WH-001")
         ctx = agent.build_context(task, iteration=1)
@@ -222,14 +222,14 @@ class TestReviewerBuildContext:
         root = Path(tempfile.mkdtemp())
         agent = _make_reviewer(root)
         # No derivation file on disk — should fall back to ev.reasoning
-        agent.research_state.hypotheses["WH-001"].evidence = Evidence(
+        agent.research_state.hypotheses["WH-001"].evidence = [Evidence(
             type="research",
             reasoning="Fallback reasoning text",
             derivation_file="WH-001_001.md",
             method="analytical",
             result="T_H = 1/(8*pi*M)",
             confidence="exact",
-        )
+        )]
         task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
                     body="Review WH-001", target_claim="WH-001")
         ctx = agent.build_context(task, iteration=1)
@@ -239,13 +239,13 @@ class TestReviewerBuildContext:
     def test_no_derivation_file_uses_reasoning(self):
         root = Path(tempfile.mkdtemp())
         agent = _make_reviewer(root)
-        agent.research_state.hypotheses["WH-001"].evidence = Evidence(
+        agent.research_state.hypotheses["WH-001"].evidence = [Evidence(
             type="research",
             reasoning="By direct derivation from the metric...",
             method="analytical",
             result="T_H = 1/(8*pi*M)",
             confidence="exact",
-        )
+        )]
         task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
                     body="Review WH-001", target_claim="WH-001")
         ctx = agent.build_context(task, iteration=1)
@@ -255,13 +255,13 @@ class TestReviewerBuildContext:
     def test_research_evidence_has_reasoning(self):
         root = Path(tempfile.mkdtemp())
         agent = _make_reviewer(root)
-        agent.research_state.hypotheses["WH-001"].evidence = Evidence(
+        agent.research_state.hypotheses["WH-001"].evidence = [Evidence(
             type="research",
             reasoning="By direct derivation from the metric...",
             method="analytical",
             result="T_H = 1/(8*pi*M)",
             confidence="exact",
-        )
+        )]
         task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
                     body="Review WH-001", target_claim="WH-001")
         ctx = agent.build_context(task, iteration=1)
@@ -274,13 +274,13 @@ class TestReviewerBuildContext:
         root = Path(tempfile.mkdtemp())
         agent = _make_reviewer(root)
         (root / "computations").mkdir()
-        agent.research_state.hypotheses["WH-001"].evidence = Evidence(
+        agent.research_state.hypotheses["WH-001"].evidence = [Evidence(
             type="compute",
             scripts=["missing_script.py"],
             method="numerical",
             result="42",
             confidence="exact",
-        )
+        )]
         task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
                     body="Review WH-001", target_claim="WH-001")
         ctx = agent.build_context(task, iteration=1)
@@ -333,8 +333,8 @@ class TestComputerEvidenceFiltering:
         ]
         result = self._make_result(tool_calls)
         agent.process_response(result, task, iteration=1)
-        ev = agent.research_state.research_questions[rq_id].evidence
-        assert ev is not None
+        assert len(agent.research_state.research_questions[rq_id].evidence) == 1
+        ev = agent.research_state.research_questions[rq_id].evidence[0]
         assert ev.scripts == ["002_main.py", "003_verify.py"]
 
     def test_no_evidence_scripts_uses_all(self):
@@ -353,7 +353,7 @@ class TestComputerEvidenceFiltering:
         ]
         result = self._make_result(tool_calls)
         agent.process_response(result, task, iteration=1)
-        ev = agent.research_state.research_questions[rq_id].evidence
+        ev = agent.research_state.research_questions[rq_id].evidence[-1]
         assert ev.scripts == ["001_setup.py", "002_main.py", "003_verify.py"]
 
     def test_invalid_evidence_scripts_falls_back(self):
@@ -371,7 +371,7 @@ class TestComputerEvidenceFiltering:
         ]
         result = self._make_result(tool_calls)
         agent.process_response(result, task, iteration=1)
-        ev = agent.research_state.research_questions[rq_id].evidence
+        ev = agent.research_state.research_questions[rq_id].evidence[-1]
         # Falls back to all scripts
         assert ev.scripts == ["001_setup.py", "002_main.py", "003_verify.py"]
 
@@ -391,7 +391,7 @@ class TestComputerEvidenceFiltering:
         ]
         result = self._make_result(tool_calls)
         agent.process_response(result, task, iteration=1)
-        ev = agent.research_state.research_questions[rq_id].evidence
+        ev = agent.research_state.research_questions[rq_id].evidence[-1]
         assert ev.script_purposes == {
             "001_setup.py": "Initialize grid",
             "002_main.py": "Main calculation",
@@ -410,18 +410,18 @@ class TestEvidenceScriptPurposesSerialization:
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
             statement="test",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="compute",
                 scripts=["001_calc.py"],
                 script_purposes={"001_calc.py": "Compute partition function"},
                 method="numerical",
                 result="42",
                 confidence="exact",
-            ),
+            )],
         )
         json_str = state.to_json()
         restored = ResearchState.from_json(json_str)
-        ev = restored.hypotheses["WH-001"].evidence
+        ev = restored.hypotheses["WH-001"].evidence[0]
         assert ev.script_purposes == {"001_calc.py": "Compute partition function"}
 
     def test_roundtrip_rq_evidence(self):
@@ -429,18 +429,18 @@ class TestEvidenceScriptPurposesSerialization:
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001",
             question="What is X?",
-            evidence=Evidence(
+            evidence=[Evidence(
                 type="compute",
                 scripts=["001_calc.py"],
                 script_purposes={"001_calc.py": "Compute X"},
                 method="numerical",
                 result="42",
                 confidence="exact",
-            ),
+            )],
         )
         json_str = state.to_json()
         restored = ResearchState.from_json(json_str)
-        ev = restored.research_questions["RQ-001"].evidence
+        ev = restored.research_questions["RQ-001"].evidence[0]
         assert ev.script_purposes == {"001_calc.py": "Compute X"}
 
     def test_missing_script_purposes_defaults_empty(self):
@@ -450,16 +450,16 @@ class TestEvidenceScriptPurposesSerialization:
             "hypotheses": {
                 "WH-001": {
                     "id": "WH-001",
-                    "evidence": {
+                    "evidence": [{
                         "type": "compute",
                         "scripts": ["001_calc.py"],
                         "method": "numerical",
                         "result": "42",
                         "confidence": "exact",
-                    },
+                    }],
                 }
             }
         }
         state = ResearchState.from_json(json.dumps(data))
-        ev = state.hypotheses["WH-001"].evidence
+        ev = state.hypotheses["WH-001"].evidence[0]
         assert ev.script_purposes == {}

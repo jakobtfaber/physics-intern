@@ -426,7 +426,7 @@ class OrchestratorToolExecutor:
                         if h.review:
                             parts.append(h.review.verdict.upper())
                         else:
-                            parts.append("has evidence, PENDING REVIEW")
+                            parts.append(f"has {len(h.evidence)} evidence, PENDING REVIEW")
                     else:
                         parts.append("no evidence")
                     wh_items.append(f"{parts[0]} ({', '.join(parts[1:])})")
@@ -435,7 +435,7 @@ class OrchestratorToolExecutor:
             if open_rqs:
                 rq_items = []
                 for rq in open_rqs:
-                    rq_items.append(f"{rq.id} ({'has evidence' if rq.evidence else 'no evidence'})")
+                    rq_items.append(f"{rq.id} ({f'{len(rq.evidence)} evidence' if rq.evidence else 'no evidence'})")
                 lines.append(f"  Open RQs: {', '.join(rq_items)}")
             from .research_state import CritiqueStatus
             unresolved = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
@@ -598,11 +598,9 @@ class OrchestratorToolExecutor:
             rq.resolution_reason = f"Promoted to {new_id}"
 
         # Copy evidence from RQ
-        evidence = None
+        from copy import deepcopy
         rq = state.research_questions[from_rq]
-        if rq.evidence is not None:
-            from copy import deepcopy
-            evidence = deepcopy(rq.evidence)
+        evidence = deepcopy(rq.evidence) if rq.evidence else []
 
         state.hypotheses[new_id] = Hypothesis(
             id=new_id,
@@ -626,7 +624,7 @@ class OrchestratorToolExecutor:
         console.print(f"  [bold cyan]{from_rq}[/] → [bold yellow]+{new_id}[/] {statement[:80]}")
         msg = f"Added {new_id} — {statement}."
         if evidence:
-            msg += " Evidence copied — this WH is ready for review."
+            msg += f" {len(evidence)} evidence item(s) copied — this WH is ready for review."
         return msg
 
     def _update_hypothesis(self, args: dict) -> str:
