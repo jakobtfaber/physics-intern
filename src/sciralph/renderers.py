@@ -124,7 +124,9 @@ def _research_state_body(state: ResearchState) -> str:
             v = h.review
             parts.append(f"**Review:** {v.verdict}")
             if v.summary:
-                parts.append(f"  Summary: {v.summary[:1500]}")
+                parts.append(f"  Summary: {v.summary}")
+            if v.details:
+                parts.append(f"  Details: {v.details}")
             parts.append("")
 
     # Dead Ends
@@ -246,7 +248,9 @@ def _evidence_log_body(state: ResearchState) -> str:
             parts.append(f"## {entity.id}: Review — {v.verdict}\n")
             parts.append(f"**Statement:** {entity.statement}")
             if v.summary:
-                parts.append(f"**Summary:** {v.summary[:2000]}")
+                parts.append(f"**Summary:** {v.summary}")
+            if v.details:
+                parts.append(f"**Details:** {v.details}")
             parts.append(f"**Iteration:** {iteration}\n")
 
     if not entries:
@@ -479,11 +483,27 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
             rq_lines.append(f'<rq id="{rq.id}" status="{rq.status.upper()}">{rq.question}</rq>')
         parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
 
-    # Hypotheses (one-liner summaries)
+    # Hypotheses (one-liner summaries, with conditional review details)
     sorted_hyps = sorted(
         state.hypotheses.values(),
         key=lambda h: (0 if h.id.startswith("ER-") else 1, h.id),
     )
+
+    # Compute last critic iteration from clean reviews and filed critiques
+    last_critic_iter = 0
+    if state.critic_clean_reviews:
+        last_critic_iter = max(r.get("iteration", 0) for r in state.critic_clean_reviews)
+    for c in state.critiques.values():
+        if c.iteration_filed > last_critic_iter:
+            last_critic_iter = c.iteration_filed
+
+    # Collect hypothesis IDs targeted by critiques (used for survived-critic check)
+    critic_targets_since: dict[str, int] = {}  # hid -> latest critique iteration targeting it
+    for c in state.critiques.values():
+        for t in c.targets:
+            if c.iteration_filed > critic_targets_since.get(t, 0):
+                critic_targets_since[t] = c.iteration_filed
+
     hyp_lines: list[str] = []
     for h in sorted_hyps:
         if h.status == HypothesisStatus.ABANDONED:
@@ -501,8 +521,16 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
             h_parts.append(f"Evidence ({ev.type}): {ev.method or 'not specified'}, confidence={ev.confidence or '?'}, Result: {result_short}")
         if h.review:
             v = h.review
-            summary_short = (v.summary[:300] + "...") if v.summary and len(v.summary) > 300 else (v.summary or "")
-            h_parts.append(f"Review: {v.verdict} — {summary_short}")
+            h_parts.append(f"Review: {v.verdict} — {v.summary}")
+            # Show review details if critic hasn't yet seen this hypothesis
+            # without filing a critique against it
+            survived_critic = (
+                h.iteration_modified <= last_critic_iter
+                and critic_targets_since.get(h.id, 0) < h.iteration_modified
+            )
+            if not survived_critic and v.details:
+                details_truncated = (v.details[:1000] + "...") if len(v.details) > 1000 else v.details
+                h_parts.append(f"Review details: {details_truncated}")
         hyp_lines.append(f'<hypothesis id="{h.id}">\n' + "\n".join(h_parts) + "\n</hypothesis>")
     if hyp_lines:
         parts.append("<hypotheses>\n" + "\n".join(hyp_lines) + "\n</hypotheses>")

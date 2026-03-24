@@ -522,6 +522,8 @@ class SciRalph:
                 lines.append(f"  Attempt {v['attempt']}/{self.config.stall_recompute_limit}")
                 if v.get('notes'):
                     lines.append(f"  Notes: {v['notes']}")
+                if v.get('details'):
+                    lines.append(f"  Details: {v['details']}")
                 if v['attempt'] >= self.config.stall_recompute_limit:
                     lines.append("  STALLED — do NOT schedule another review. Try alternative evidence.")
             lines.append(">>> END VERIFICATION RESULTS <<<\n")
@@ -712,7 +714,7 @@ class SciRalph:
                     "claim": target_id,
                     "verdict": verdict,
                     "task_id": task.task_id,
-                    "reasoning": h.review.summary[:800] if h.review.summary else "",
+                    "reasoning": h.review.summary or "",
                 })
                 self._state.claim_failure_count.pop(target_id, None)
                 console.print(f"  [green]{target_id} VERIFIED[/green]")
@@ -723,7 +725,8 @@ class SciRalph:
                     "verdict": verdict,
                     "claim": target_id,
                     "attempt": count,
-                    "notes": h.review.summary[:800] if h.review.summary else "",
+                    "notes": h.review.summary or "",
+                    "details": h.review.details or "",
                     "task_id": task.task_id,
                 })
                 detail = h.review.summary[:120].replace("\n", " ") if h.review.summary else ""
@@ -735,7 +738,8 @@ class SciRalph:
                     "verdict": verdict,
                     "claim": target_id,
                     "attempt": count,
-                    "notes": h.review.summary[:800] if h.review.summary else "",
+                    "notes": h.review.summary or "",
+                    "details": h.review.details or "",
                     "task_id": task.task_id,
                 })
                 detail = h.review.summary[:120].replace("\n", " ") if h.review.summary else ""

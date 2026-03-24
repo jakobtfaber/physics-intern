@@ -1,4 +1,4 @@
-workspaces/
+workspaces/_old/
 __pycache__/
 *.pyc
 .env
