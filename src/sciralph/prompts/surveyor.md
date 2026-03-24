@@ -16,7 +16,7 @@ Analyze the given problem and write free-form prose covering:
 
 5. **Conventions and Definitions** — Symbol definitions and their precise meanings, sign conventions, coordinate/frame choices, approximation regimes, dimensional analysis checks, and other technical details that matter for correctness. Be explicit about what each symbol represents and flag any symbols whose usage could be ambiguous.
 
-6. **Sanity checks** — What properties must the answer satisfy, based on the physics alone (not on solving the problem)? Think: symmetries the answer must respect, expected scaling or asymptotic behavior in limiting regimes, dimensional constraints, monotonicity, positivity, known inequalities, or values at special points. These are sanity checks that any candidate answer can be tested against, and they will be used by downstream agents to catch errors.
+6. **Sanity checks** — What properties must the answer satisfy, based on the physics alone (not on solving the problem)? Think: symmetries the answer must respect, expected scaling or asymptotic behavior in limiting regimes, dimensional constraints, monotonicity, positivity, known inequalities, or values at special points. These are sanity checks that any candidate answer can be tested against, and they will be used by downstream agents to catch errors. Make each check as concrete and actionable as possible.
 
 ## Boundaries
 

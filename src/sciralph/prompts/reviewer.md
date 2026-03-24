@@ -71,5 +71,6 @@ First write your analysis as free text, then conclude with a JSON block:
 - If the evidence clearly supports the claim and you find no genuine flaws, submit VERIFIED. Do not manufacture concerns.
 - If you find a genuine flaw, reflect it in your verdict and explain it in the details.
 - Execution failures in computational evidence reflect code quality, not mathematical invalidity. Do not conflate the two.
-- **Before issuing VERIFIED**, confirm the result passes the sanity checks in `<sanity-checks>` (expected scaling, known limits, sign, symmetry). Cross-check symbol usage against `<problem-statement>` and `<problem-conventions>`. A derivation can be internally consistent yet misuse a symbol's definition. Code correctness alone is not sufficient.
+- go through the `<sanity-checks>` section and for each check that is relevant to the claim under review, explicitly test the result against it 
+- cross-check symbol usage against `<problem-statement>` and `<problem-conventions>`. A derivation can be internally consistent yet misuse a symbol's definition. Code correctness alone is not sufficient.
 - The problem statement is the authoritative reference — not only for symbol definitions, but for the stated goal and expected form of the answer.

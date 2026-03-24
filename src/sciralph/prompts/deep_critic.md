@@ -65,7 +65,7 @@ This is a single-pass review.
 3. Check coherence between established results.
 4. Look for systematic issues across the research state.
 5. Write your analysis as free text, then conclude with a JSON block (see Output Format).
-6. Focus on the single most important issue. Aim for ONE well-argued critique. If you find multiple issues, prioritize the one with the largest potential impact on the research outcome.
+6. Prioritize by impact. If you find multiple independent issues, file them all (up to 3), with the highest-impact one first. Each critique must be well-argued on its own. Do not file a critique for a minor issue just to have output — only file critiques for real, significant concerns.
 7. If a non-obvious quantitative claim has only been checked symbolically or in degenerate limits, note the lack of numerical validation as a gap.
 
 ## Output Format
@@ -86,7 +86,7 @@ First write your analysis as free text, then conclude with a JSON block:
 }
 ```
 
-Aim for AT MOST ONE critique. If no issues are found, the `critiques` array should be empty.
+File up to 3 critiques if warranted, prioritized by severity. If no issues are found, the `critiques` array should be empty.
 
 ### Severity Levels
 
