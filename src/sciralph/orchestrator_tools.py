@@ -274,10 +274,8 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
             "name": "set_next_task",
             "description": (
                 "Set the next task for the research loop. "
-                "Call this ALONE — it must be the ONLY tool call in its "
-                "response. First emit all mutations, then in your NEXT "
-                "response call set_next_task with the actual entity IDs "
-                "from the mutation results."
+                "Can be called alongside mutation tools — all mutations "
+                "are applied before the dispatch is processed."
             ),
             "parameters": {
                 "type": "object",
@@ -512,7 +510,7 @@ class OrchestratorToolExecutor:
             guidance.append(f"{active_critiques} unresolved critique(s) to address.")
 
         # Default closing
-        guidance.append("When done mutating, call set_next_task alone.")
+        guidance.append("When ready to dispatch, include set_next_task in your response.")
         return guidance
 
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
@@ -890,22 +888,6 @@ class OrchestratorToolExecutor:
         return f"Closed {rq_id}."
 
     def _set_next_task(self, args: dict) -> str:
-        # Dispatch gate: set_next_task must be the only tool call in its round
-        if self._calls_this_round > 1:
-            applied = "; ".join(self._round_mutations) if self._round_mutations else "none"
-            log_scaffold_event(
-                self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                "dispatch_gate_reject",
-                f"Rejected set_next_task — {self._calls_this_round - 1} other tool(s) "
-                f"this round: {applied}",
-            )
-            return (
-                f"DISPATCH REJECTED: set_next_task must be the ONLY tool call in "
-                f"its response. Other tools this round already succeeded: {applied}. "
-                "Do NOT repeat them — they are applied to the research state. "
-                "In your next response, call ONLY set_next_task (no other tools)."
-            )
-
         # Validate target_claim when present
         task_type = args.get("task_type", "")
         target_claim = args.get("target_claim")

@@ -41,9 +41,9 @@ You are expected to do two things, one after the other.
 
 **Turn structure:**
 
-- Call your mutation tools in any order. Batch related mutations together for efficiency (e.g., promote a hypothesis and resolve related critiques in the same response).
-- After each round of mutations, you will receive an updated state summary showing what changed and what remains to be done. Use it to decide whether more mutations are needed or whether you are ready to dispatch.
-- When you are done mutating state, call `set_next_task` **alone** — it must be the only tool call in that response.
+- Call mutation tools and `set_next_task` in any order within a single response. All mutations are applied before the dispatch is processed.
+- After each round of mutations (without `set_next_task`), you will receive an updated state summary showing what changed. Use it to decide whether more mutations are needed.
+- When `set_next_task` is called, the orchestrator turn ends.
 
 Note: `add_hypothesis` and `add_research_question` auto-assign entity IDs (WH-NNN, RQ-NNN). You will see the assigned ID in the tool result.
 
@@ -129,7 +129,7 @@ The reviewer examines evidence, code, output and reasoning — it does NOT execu
 
 ### Dispatch rules
 
-`set_next_task` must be the **only** tool call in its response — no mutations alongside it. If you still have mutations to make, do them first and call `set_next_task` in a separate follow-up response.
+You can call `set_next_task` in the same response as mutation tools. All mutations are applied before the dispatch is processed.
 
 Each task targets EXACTLY ONE entity (RQ, WH, ER, or CRIT). Always include `target_claim` in `set_next_task`. Task type must be one of: `research`, `compute`, `review`, `critique`, or `terminate`.
 

@@ -827,8 +827,8 @@ class TestResearchQuestionTools:
 # Dispatch gate
 # ---------------------------------------------------------------------------
 
-class TestDispatchGate:
-    """Tests for the dispatch gate in set_next_task."""
+class TestSetNextTask:
+    """Tests for set_next_task dispatch behavior."""
 
     @staticmethod
     def _state_with_open_rq():
@@ -836,31 +836,29 @@ class TestDispatchGate:
         from sciralph.research_state import ResearchQuestion
         state = _make_state()
         state.research_questions["RQ-003"] = ResearchQuestion(
-            id="RQ-003", question="Placeholder for gate test",
+            id="RQ-003", question="Placeholder for dispatch test",
             iteration_created=2,
         )
         return state
 
-    def test_gate_rejects_when_other_tools_called(self):
-        """set_next_task is rejected when other tools were called in the same round."""
+    def test_mutations_plus_dispatch_all_succeed(self):
+        """add_hypothesis + set_next_task in same round both succeed."""
         ws = _make_workspace()
         state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        # Phase 1: mutation
         tc1 = ex.execute("add_hypothesis", {"statement": "New claim", "from_rq": "RQ-003"})
         assert not tc1.is_error
-        assert "WH-003" in state.hypotheses  # mutation applied
+        assert "WH-003" in state.hypotheses
 
-        # set_next_task in same round → rejected
         tc2 = ex.execute("set_next_task", {
             "task_type": "review",
             "target_claim": "WH-003",
             "description": "Verify new claim.",
         })
-        assert "DISPATCH REJECTED" in tc2.output
-        assert ex.task_data is None
-        assert not ex.stop_after_round
+        assert "Task set" in tc2.output
+        assert ex.task_data is not None
+        assert ex.stop_after_round
 
     def test_multiple_entity_mutations_in_same_round(self):
         """Multiple entity-creating mutations in the same response all execute."""
@@ -875,7 +873,7 @@ class TestDispatchGate:
         assert "WH-003" in state.hypotheses
         assert "RQ-004" in state.research_questions
 
-    def test_gate_allows_set_next_task_alone(self):
+    def test_dispatch_alone_succeeds(self):
         """set_next_task succeeds when no mutations occurred this round."""
         ws = _make_workspace()
         state = _make_state()
@@ -890,74 +888,28 @@ class TestDispatchGate:
         assert ex.task_data is not None
         assert ex.stop_after_round
 
-    def test_gate_allows_after_new_round(self):
-        """Mutation round → begin_round → dispatch succeeds."""
+    def test_dispatch_works_across_rounds(self):
+        """Mutation in round 1 → begin_round → dispatch in round 2 succeeds."""
         ws = _make_workspace()
         state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        # Round 1: mutation response
+        # Round 1: mutation only
         ex.execute("add_hypothesis", {"statement": "Claim", "from_rq": "RQ-003"})
-        # set_next_task in same response → rejected
-        tc_reject = ex.execute("set_next_task", {
-            "task_type": "review",
-            "target_claim": "WH-003",
-            "description": "Verify.",
-        })
-        assert "DISPATCH REJECTED" in tc_reject.output
-        assert not ex.stop_after_round
 
-        # Round 2: new response (begin_round clears mutations_this_round)
+        # Round 2: dispatch
         ex.begin_round()
-        tc_ok = ex.execute("set_next_task", {
+        tc = ex.execute("set_next_task", {
             "task_type": "review",
             "target_claim": "WH-003",
             "description": "Verify.",
         })
-        assert "Task set" in tc_ok.output
+        assert "Task set" in tc.output
         assert ex.stop_after_round
         assert ex.task_data["target_claim"] == "WH-003"
 
-    def test_gate_still_rejects_within_same_round_after_rejection(self):
-        """Two set_next_task calls in same response: both rejected if mutations present."""
-        ws = _make_workspace()
-        state = self._state_with_open_rq()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-
-        ex.execute("add_hypothesis", {"statement": "Claim", "from_rq": "RQ-003"})
-        tc1 = ex.execute("set_next_task", {
-            "task_type": "review",
-            "description": "First try.",
-        })
-        tc2 = ex.execute("set_next_task", {
-            "task_type": "review",
-            "description": "Second try.",
-        })
-        assert "DISPATCH REJECTED" in tc1.output
-        assert "DISPATCH REJECTED" in tc2.output
-        assert not ex.stop_after_round
-
-    def test_multiple_tools_listed_in_rejection(self):
-        """Error message lists applied mutations from this round."""
-        ws = _make_workspace()
-        state = self._state_with_open_rq()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-
-        ex.execute("add_hypothesis", {"statement": "First", "from_rq": "RQ-003"})
-        ex.execute("add_research_question", {
-            "question": "Some question?",
-        })
-
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
-            "description": "Verify.",
-        })
-        assert "DISPATCH REJECTED" in tc.output
-        assert "Added WH-003" in tc.output
-        assert "Added RQ-004" in tc.output
-
     def test_tools_in_prior_round_dont_block_dispatch(self):
-        """Tool calls in an earlier response don't block set_next_task in a later one."""
+        """Tool calls in an earlier response don't affect set_next_task in a later one."""
         ws = _make_workspace()
         state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
@@ -977,8 +929,8 @@ class TestDispatchGate:
         assert "Task set" in tc.output
         assert ex.stop_after_round
 
-    def test_non_entity_mutations_also_trigger_gate(self):
-        """Any tool call alongside set_next_task triggers the gate."""
+    def test_non_entity_mutations_plus_dispatch_succeed(self):
+        """update + resolve_critique + update_section + set_next_task all succeed."""
         ws = _make_workspace()
         state = _make_state()
         state.critiques["CRIT-001"] = Critique(
@@ -1001,11 +953,12 @@ class TestDispatchGate:
             "target_claim": "WH-001",
             "description": "Verify.",
         })
-        assert "DISPATCH REJECTED" in tc.output
-        assert not ex.stop_after_round
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
+        assert ex.task_data is not None
 
-    def test_promote_plus_set_next_task_rejected(self):
-        """promote + resolve_critique + set_next_task in same round is rejected."""
+    def test_promote_plus_dispatch_succeed(self):
+        """promote + resolve_critique + set_next_task in same round all succeed."""
         ws = _make_workspace()
         state = _make_state_with_verified("WH-001")
         state.critiques["CRIT-001"] = Critique(
@@ -1025,8 +978,8 @@ class TestDispatchGate:
             "target_claim": "WH-002",
             "description": "Verify WH-002.",
         })
-        assert "DISPATCH REJECTED" in tc.output
-        assert not ex.stop_after_round
+        assert "Task set" in tc.output
+        assert ex.stop_after_round
 
 
 # ---------------------------------------------------------------------------
