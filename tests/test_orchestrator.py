@@ -160,17 +160,14 @@ class TestSuffixPlacement:
         orchestrator.build_context(_EMPTY_TASK, iteration=1)
         assert orchestrator.context_suffix == ""
 
-    def test_suffix_after_situation_assessment(self, orchestrator):
-        """context_suffix appears after situation assessment and research notes."""
+    def test_suffix_after_research_notes(self, orchestrator):
+        """context_suffix appears after research notes."""
         rs = ResearchState()
-        rs.situation_assessment = "We are making good progress."
         rs.research_notes = [{"iteration": 1, "text": "Found a key relation."}]
         orchestrator.research_state = rs
         orchestrator.context_suffix = ">>> VERIFIED HYPOTHESES <<<"
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
 
-        assessment_pos = context.index("situation-assessment")
         notes_pos = context.index("research-notes")
         suffix_pos = context.index("VERIFIED HYPOTHESES")
-        assert suffix_pos > assessment_pos
         assert suffix_pos > notes_pos

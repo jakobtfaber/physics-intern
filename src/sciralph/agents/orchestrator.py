@@ -49,9 +49,6 @@ class OrchestratorAgent(BaseAgent):
             "\n",
             render_orchestrator_critique_log(self.research_state) if self.research_state else "",
         ])
-        # Situation assessment
-        if self.research_state and self.research_state.situation_assessment:
-            parts.append(f"\n<situation-assessment>\n{self.research_state.situation_assessment}\n</situation-assessment>\n")
         # Research notes
         if self.research_state and self.research_state.research_notes:
             note_lines = []

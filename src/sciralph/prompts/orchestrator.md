@@ -111,10 +111,6 @@ The strategy section is initially written by a dedicated planner agent. Follow t
 Use these tools to maintain shared context that all agents read:
 
 - **`update_section`** with "Conventions" — Unit system, metric signature, sign conventions, variable definitions. Set once, update only when conventions genuinely change.
-- **`update_section`** with "Situation Assessment" — **Update every iteration.** Explain your reasoning about the current state:
-    - What just happened (what evidence/verdicts came back)
-    - What the current situation is (what's established, what's pending, what's blocked)
-    - What should happen next (plan for the next 2-3 iterations)
 - **`append_note`** — Record intermediate insights, observations, or decisions. Notes are append-only, use it when you want to record something that does not fit into the structured sections.
 
 

@@ -186,7 +186,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                 "properties": {
                     "section": {
                         "type": "string",
-                        "enum": ["Conventions", "Situation Assessment", "Strategy"],
+                        "enum": ["Conventions", "Strategy"],
                         "description": "Which section to update.",
                     },
                     "content": {
@@ -800,8 +800,6 @@ class OrchestratorToolExecutor:
 
         if section_name == "Conventions":
             state.conventions = content.strip()
-        elif section_name == "Situation Assessment":
-            state.situation_assessment = content.strip()
         elif section_name == "Strategy":
             state.strategy = content.strip()
         else:

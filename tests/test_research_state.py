@@ -328,7 +328,6 @@ class TestNewResearchStateFields:
         assert state.problem_statement == ""
         assert state.conventions == ""
         assert state.strategy == ""
-        assert state.situation_assessment == ""
         assert state.research_notes == []
         assert state.status == "in_progress"
         assert state.title == ""
@@ -340,7 +339,6 @@ class TestNewResearchStateFields:
             problem_statement="Derive Hawking temperature.",
             conventions="Natural units: hbar = c = k_B = 1.",
             strategy="Focus on surface gravity approach.",
-            situation_assessment="Verify temperature formula.",
             research_notes=[{"text": "Surface gravity confirmed.", "iteration": 1}],
             status="complete",
             title="Hawking Temperature",
@@ -349,7 +347,6 @@ class TestNewResearchStateFields:
         assert restored.problem_statement == "Derive Hawking temperature."
         assert restored.conventions == "Natural units: hbar = c = k_B = 1."
         assert restored.strategy == "Focus on surface gravity approach."
-        assert restored.situation_assessment == "Verify temperature formula."
         assert restored.research_notes == [{"text": "Surface gravity confirmed.", "iteration": 1}]
         assert restored.status == "complete"
         assert restored.title == "Hawking Temperature"

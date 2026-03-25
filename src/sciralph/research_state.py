@@ -183,7 +183,6 @@ class ResearchState:
     problem_statement: str = ""
     conventions: str = ""
     strategy: str = ""
-    situation_assessment: str = ""
     research_notes: list[dict] = field(default_factory=list)
     status: str = "in_progress"
     title: str = ""
@@ -347,7 +346,6 @@ class ResearchState:
             problem_statement=data.get("problem_statement", ""),
             conventions=data.get("conventions", ""),
             strategy=data.get("strategy", ""),
-            situation_assessment=data.get("situation_assessment", ""),
             research_notes=data.get("research_notes", []),
             status=data.get("status", "in_progress"),
             title=data.get("title", ""),

@@ -487,18 +487,6 @@ class TestUpdateSection:
         assert "Updated" in tc.output
         assert state.strategy == "Focus on surface gravity approach first."
 
-    def test_updates_situation_assessment(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("update_section", {
-            "section": "Situation Assessment",
-            "content": "1. Verify WH-001\n2. Explore entropy corrections",
-        })
-        assert not tc.is_error
-        assert state.situation_assessment == "1. Verify WH-001\n2. Explore entropy corrections"
-        assert ex.mutations_applied
-
     def test_unknown_section_returns_error(self):
         ws = _make_workspace()
         state = _make_state()
