@@ -34,8 +34,11 @@ class OrchestratorAgent(BaseAgent):
         if self.research_state:
             if self.research_state.problem_statement:
                 parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>\n")
-            if self.research_state.background_survey and self.research_state.background_survey.raw_notes:
-                parts.append(f"<background-survey>\n{self.research_state.background_survey.raw_notes}\n</background-survey>\n")
+            if self.research_state.background_survey:
+                from ..renderers import render_survey_sections_text
+                survey_text = render_survey_sections_text(self.research_state.background_survey)
+                if survey_text:
+                    parts.append(f"<background-survey>\n{survey_text}\n</background-survey>\n")
         state_text = render_orchestrator_research_state(self.research_state) if self.research_state else ""
         if iteration >= 3 and self.research_state and not self.research_state.conventions:
             parts.append(

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from .markdown import render_frontmatter
 from .research_state import (
+    BackgroundSurvey,
     CritiqueStatus,
     Hypothesis,
     HypothesisStatus,
@@ -50,6 +51,28 @@ def render_background_survey(state: ResearchState) -> str:
         parts.append("")
 
     return "\n".join(parts)
+
+
+def render_survey_sections_text(survey: BackgroundSurvey) -> str:
+    """Render survey as plain text sections for embedding in XML contexts.
+
+    Uses structured fields when available, otherwise falls back to raw_notes.
+    """
+    if survey.has_structured_sections:
+        parts: list[str] = []
+        for label, field_name in [
+            ("Background", "background"),
+            ("Key Insights", "key_insights"),
+            ("Known Methods and Techniques", "known_methods"),
+            ("Known Pitfalls", "known_pitfalls"),
+            ("Conventions and Definitions", "conventions_and_definitions"),
+            ("Sanity Checks", "sanity_checks"),
+        ]:
+            content = getattr(survey, field_name, "")
+            if content:
+                parts.append(f"## {label}\n\n{content}")
+        return "\n\n".join(parts)
+    return survey.raw_notes or ""
 
 
 def _research_state_body(state: ResearchState) -> str:
@@ -630,8 +653,10 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
         parts.append("<dead-ends>\n" + "\n".join(de_parts) + "\n</dead-ends>")
 
     # Background Survey
-    if state.background_survey and state.background_survey.raw_notes:
-        parts.append(f"<background-survey>\n{state.background_survey.raw_notes}\n</background-survey>")
+    if state.background_survey:
+        survey_text = render_survey_sections_text(state.background_survey)
+        if survey_text:
+            parts.append(f"<background-survey>\n{survey_text}\n</background-survey>")
 
     # Previous Critiques (reuse existing XML renderer)
     critique_xml = render_orchestrator_critique_log(state)

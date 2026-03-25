@@ -31,11 +31,10 @@ class PlannerAgent(BaseAgent):
             "\n</problem-statement>",
         ]
         if self.research_state and self.research_state.background_survey:
-            survey = self.research_state.background_survey
-            if survey.raw_notes:
-                parts.append("\n<background-survey>\n")
-                parts.append(survey.raw_notes)
-                parts.append("\n</background-survey>")
+            from ..renderers import render_survey_sections_text
+            survey_text = render_survey_sections_text(self.research_state.background_survey)
+            if survey_text:
+                parts.append(f"\n<background-survey>\n{survey_text}\n</background-survey>")
         return "\n".join(parts)
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
