@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from .markdown import render_frontmatter
 from .research_state import (
     CritiqueStatus,
+    Hypothesis,
     HypothesisStatus,
     ResearchState,
     RQStatus,
@@ -99,17 +100,51 @@ def _research_state_body(state: ResearchState) -> str:
             parts.append("  **This RQ is closed. Do not resolve it again or create a WH from it.**")
             parts.append("")
 
-    # Working Hypotheses and Established Results
-    parts.append("# Working Hypotheses (WH) and Established Results (ER)\n")
-    parts.append("Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, pending).")
-    parts.append("")
-
-    # Sort hypotheses: ER first (by number), then WH (by number)
-    sorted_hyps = sorted(
-        state.hypotheses.values(),
-        key=lambda h: (0 if h.id.startswith("ER-") else 1, h.id),
+    # Established Results
+    parts.append("# Established Results (ER)\n")
+    ers = sorted(
+        [h for h in state.hypotheses.values() if h.status == HypothesisStatus.ESTABLISHED],
+        key=lambda h: h.id,
     )
-    for h in sorted_hyps:
+    for h in ers:
+        if h.status == HypothesisStatus.ABANDONED:
+            continue  # abandoned go in Dead Ends
+        statement_part = f" — {h.statement}" if h.statement else ""
+        parts.append(f"## {h.id}{statement_part}\n")
+        if h.depends_on:
+            parts.append(f"**Depends on:** {', '.join(h.depends_on)}\n")
+        if h.promotion_justification:
+            parts.append(f"**Promotion justification:** {h.promotion_justification}\n")
+        if h.derivation:
+            parts.append(h.derivation)
+            parts.append("")
+        if h.evidence:
+            for idx, ev in enumerate(h.evidence):
+                prefix = f"**Evidence {idx + 1}/{len(h.evidence)} " if len(h.evidence) > 1 else "**Evidence "
+                parts.append(f"{prefix}({ev.type}):** {ev.method or 'not specified'}")
+                if ev.summary:
+                    parts.append(f"  Summary: {ev.summary}")
+                if ev.confidence:
+                    parts.append(f"  Confidence: {ev.confidence}")
+                if ev.result:
+                    parts.append(f"  Result: {ev.result[:800]}")
+                parts.append("")
+        if h.review:
+            v = h.review
+            parts.append(f"**Review:** {v.verdict}")
+            if v.summary:
+                parts.append(f"  Summary: {v.summary}")
+            if v.details:
+                parts.append(f"  Details: {v.details}")
+            parts.append("")
+
+    # Working Hypotheses
+    parts.append("# Working Hypotheses (WH)\n")
+    whs = sorted(
+        [h for h in state.hypotheses.values() if h.status == HypothesisStatus.WORKING],
+        key=lambda h: h.id,
+    )
+    for h in whs:
         if h.status == HypothesisStatus.ABANDONED:
             continue  # abandoned go in Dead Ends
         statement_part = f" — {h.statement}" if h.statement else ""
@@ -158,7 +193,7 @@ def _research_state_body(state: ResearchState) -> str:
             parts.append(f"  Related entities: {', '.join(fa.related_entities)}")
     # Only render abandoned hypotheses not already covered by failed_approaches
     fa_descriptions = {fa.description for fa in state.failed_approaches}
-    for h in sorted_hyps:
+    for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
         if h.status == HypothesisStatus.ABANDONED:
             desc = f"Abandoned {h.id} — {h.statement}"
             if desc not in fa_descriptions:
@@ -347,6 +382,34 @@ def render_task_md(task: Task) -> str:
 # Per-agent context renderers (XML-delimited for dynamic content)
 # ---------------------------------------------------------------------------
 
+def _render_hypothesis_parts(h: Hypothesis) -> list[str]:
+    """Render the inner XML parts of a hypothesis/result entry."""
+    h_parts: list[str] = []
+    if h.statement:
+        h_parts.append(f"Statement: {h.statement}")
+    if h.depends_on:
+        h_parts.append(f"Depends on: {', '.join(h.depends_on)}")
+    if h.promotion_justification:
+        h_parts.append(f"Promotion justification: {h.promotion_justification}")
+    if h.derivation:
+        h_parts.append(f"<derivation>\n{h.derivation}\n</derivation>")
+    if h.evidence:
+        for ev in h.evidence:
+            ev_parts = [f"Method: {ev.method or 'not specified'}"]
+            if ev.confidence:
+                ev_parts.append(f"Confidence: {ev.confidence}")
+            if ev.result:
+                ev_parts.append(f"Result: {ev.result[:1500]}")
+            h_parts.append(f'<evidence type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
+    if h.review:
+        v = h.review
+        v_parts: list[str] = []
+        if v.summary:
+            v_parts.append(f"Summary: {v.summary[:1500]}")
+        h_parts.append(f'<review verdict="{v.verdict}">\n' + "\n".join(v_parts) + "\n</review>")
+    return h_parts
+
+
 def render_orchestrator_research_state(state: ResearchState) -> str:
     """Render research state for orchestrator context using XML tags."""
     parts: list[str] = []
@@ -394,39 +457,29 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
             rq_lines.append(f'<rq id="{rq.id}" status="{status_tag}">\n' + "\n".join(rq_content) + "\n</rq>")
         parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
 
-    # Hypotheses
-    sorted_hyps = sorted(
-        state.hypotheses.values(),
-        key=lambda h: (0 if h.id.startswith("ER-") else 1, h.id),
+    # Established Results
+    ers = sorted(
+        [h for h in state.hypotheses.values()
+         if h.status == HypothesisStatus.ESTABLISHED and not h.status == HypothesisStatus.ABANDONED],
+        key=lambda h: h.id,
+    )
+    if ers:
+        er_lines: list[str] = []
+        for h in ers:
+            h_parts = _render_hypothesis_parts(h)
+            er_lines.append(f'<result id="{h.id}">\n' + "\n".join(h_parts) + "\n</result>")
+        parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+
+    # Working Hypotheses
+    whs = sorted(
+        [h for h in state.hypotheses.values()
+         if h.status == HypothesisStatus.WORKING],
+        key=lambda h: h.id,
     )
     hyp_lines: list[str] = []
-    for h in sorted_hyps:
-        if h.status == HypothesisStatus.ABANDONED:
-            continue
-        h_parts: list[str] = []
-        if h.statement:
-            h_parts.append(f"Statement: {h.statement}")
-        if h.depends_on:
-            h_parts.append(f"Depends on: {', '.join(h.depends_on)}")
-        if h.promotion_justification:
-            h_parts.append(f"Promotion justification: {h.promotion_justification}")
-        if h.derivation:
-            h_parts.append(f"<derivation>\n{h.derivation}\n</derivation>")
-        if h.evidence:
-            for ev in h.evidence:
-                ev_parts = [f"Method: {ev.method or 'not specified'}"]
-                if ev.confidence:
-                    ev_parts.append(f"Confidence: {ev.confidence}")
-                if ev.result:
-                    ev_parts.append(f"Result: {ev.result[:1500]}")
-                h_parts.append(f'<evidence type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
-        if h.review:
-            v = h.review
-            v_parts: list[str] = []
-            if v.summary:
-                v_parts.append(f"Summary: {v.summary[:1500]}")
-            h_parts.append(f'<review verdict="{v.verdict}">\n' + "\n".join(v_parts) + "\n</review>")
-        elif h.status == HypothesisStatus.WORKING and h.evidence:
+    for h in whs:
+        h_parts = _render_hypothesis_parts(h)
+        if not h.review and h.evidence:
             h_parts.append('<review verdict="PENDING">Not yet reviewed.</review>')
         hyp_lines.append(f'<hypothesis id="{h.id}">\n' + "\n".join(h_parts) + "\n</hypothesis>")
     parts.append("<hypotheses>\n" + "\n".join(hyp_lines) + "\n</hypotheses>")
@@ -446,7 +499,7 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
             if fa.related_entities:
                 de_parts.append(f"  Related entities: {', '.join(fa.related_entities)}")
         fa_descriptions = {fa.description for fa in state.failed_approaches}
-        for h in sorted_hyps:
+        for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
             if h.status == HypothesisStatus.ABANDONED:
                 desc = f"Abandoned {h.id} — {h.statement}"
                 if desc not in fa_descriptions:
@@ -496,12 +549,6 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
             rq_lines.append(f'<rq id="{rq.id}" status="{rq.status.upper()}">{rq.question}</rq>')
         parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
 
-    # Hypotheses (one-liner summaries, with conditional review details)
-    sorted_hyps = sorted(
-        state.hypotheses.values(),
-        key=lambda h: (0 if h.id.startswith("ER-") else 1, h.id),
-    )
-
     # Compute last critic iteration from clean reviews and filed critiques
     last_critic_iter = 0
     if state.critic_clean_reviews:
@@ -517,10 +564,7 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
             if c.iteration_filed > critic_targets_since.get(t, 0):
                 critic_targets_since[t] = c.iteration_filed
 
-    hyp_lines: list[str] = []
-    for h in sorted_hyps:
-        if h.status == HypothesisStatus.ABANDONED:
-            continue
+    def _critic_hyp_parts(h: Hypothesis) -> list[str]:
         h_parts: list[str] = []
         if h.statement:
             h_parts.append(f"Statement: {h.statement}")
@@ -535,8 +579,6 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
         if h.review:
             v = h.review
             h_parts.append(f"Review: {v.verdict} — {v.summary}")
-            # Show review details if critic hasn't yet seen this hypothesis
-            # without filing a critique against it
             survived_critic = (
                 h.iteration_modified <= last_critic_iter
                 and critic_targets_since.get(h.id, 0) < h.iteration_modified
@@ -544,8 +586,28 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
             if not survived_critic and v.details:
                 details_truncated = (v.details[:1000] + "...") if len(v.details) > 1000 else v.details
                 h_parts.append(f"Review details: {details_truncated}")
-        hyp_lines.append(f'<hypothesis id="{h.id}">\n' + "\n".join(h_parts) + "\n</hypothesis>")
-    if hyp_lines:
+        return h_parts
+
+    # Established Results
+    ers = sorted(
+        [h for h in state.hypotheses.values() if h.status == HypothesisStatus.ESTABLISHED],
+        key=lambda h: h.id,
+    )
+    if ers:
+        er_lines: list[str] = []
+        for h in ers:
+            er_lines.append(f'<result id="{h.id}">\n' + "\n".join(_critic_hyp_parts(h)) + "\n</result>")
+        parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+
+    # Working Hypotheses
+    whs = sorted(
+        [h for h in state.hypotheses.values() if h.status == HypothesisStatus.WORKING],
+        key=lambda h: h.id,
+    )
+    if whs:
+        hyp_lines: list[str] = []
+        for h in whs:
+            hyp_lines.append(f'<hypothesis id="{h.id}">\n' + "\n".join(_critic_hyp_parts(h)) + "\n</hypothesis>")
         parts.append("<hypotheses>\n" + "\n".join(hyp_lines) + "\n</hypotheses>")
 
     # Dead Ends
@@ -560,7 +622,7 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
                 line += f" (Reason: {fa.reason})"
             de_parts.append(line)
         fa_descriptions = {fa.description for fa in state.failed_approaches}
-        for h in sorted_hyps:
+        for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
             if h.status == HypothesisStatus.ABANDONED:
                 desc = f"Abandoned {h.id} — {h.statement}"
                 if desc not in fa_descriptions:
