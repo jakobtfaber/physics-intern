@@ -58,6 +58,8 @@ When evidence comes back from the researcher or computer, it appears in the EVID
 
 **Qualitative surprises:** When a result's qualitative behavior (scaling, symmetry, limiting value) conflicts with what the background survey or problem statement implies, treat this as a red flag requiring investigation — not something to rationalize. Do not construct post-hoc explanations for unexpected behavior. Instead, note the discrepancy and dispatch a verification task (review or independent compute) that specifically checks the surprising aspect.
 
+**Accept simple answers.** If a derivation or simulation shows that a parameter has no effect, do not reject this because it contradicts the problem's framing. Never choose between competing models or frameworks based on which gives a more complex or "interesting" answer — choose based on the physics.
+
 ### Verdict interpretation
 
 When review results appear in the VERIFICATION RESULTS banner:

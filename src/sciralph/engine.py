@@ -81,8 +81,9 @@ class SciRalph:
                        + "\n\n# Expected answer format\n\n" + answer_template.strip()
                        + "\n\n**Note:** Not every parameter in the template necessarily belongs"
                        " in the final answer. Some may be zero, absent, or irrelevant"
-                       " depending on the problem. Determine which quantities are"
-                       " actually needed from the physics, not from the template.")
+                       " depending on the problem."
+                       " Determine which quantities are actually needed from the physics,"
+                       " not from the template or from how the question is phrased.")
         self.workspace.init(problem)
         self.config.logs_dir = str(self.workspace.logs_dir)
         self.iteration = 0
