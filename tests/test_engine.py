@@ -1526,26 +1526,23 @@ class TestRedundantCriticPassFix:
             engine.critic = MagicMock()
         return engine
 
-    def test_forced_critic_clears_stale_termination_blockers(self):
-        """After forced critic, pending_termination_blockers must be empty."""
+    def test_should_trigger_critic_after_verified_review(self):
+        """_should_trigger_critic returns True after a VERIFIED review when interval exceeded."""
         engine = self._make_engine()
-        engine._state.pending_termination_blockers = [
-            "No critic pass has occurred yet"
-        ]
         engine.metrics.last_critic_iteration = 0
-        engine.config.critic_every_n = 1  # ensure _critic_overdue fires
+        engine.config.critic_every_n = 4
+        engine._state.last_verified_review_iteration = 5
 
-        # Patch _critic_overdue to return True and _make_forced_critic_task
-        with patch.object(type(engine), '_critic_overdue', return_value=True), \
-             patch.object(type(engine), '_make_forced_critic_task',
-                          return_value=Task(task_id="TASK-FC", task_type=TaskType.CRITIQUE,
-                                            assigned_to="deep_critic")):
-            # Call the forced-critic branch directly by simulating the condition
-            # We just need to test the code path after _make_forced_critic_task
-            task = engine._make_forced_critic_task()
-            engine._state.pending_termination_blockers.clear()
+        assert engine._should_trigger_critic() is True
 
-        assert engine._state.pending_termination_blockers == []
+    def test_should_not_trigger_critic_without_verified_review(self):
+        """_should_trigger_critic returns False when no verified review this iteration."""
+        engine = self._make_engine()
+        engine.metrics.last_critic_iteration = 0
+        engine.config.critic_every_n = 4
+        engine._state.last_verified_review_iteration = 3  # different from current iteration
+
+        assert engine._should_trigger_critic() is False
 
     def test_critic_clean_can_terminate_injected_after_prior_terminate_attempt(self):
         """When critic files no issues and orchestrator had tried to terminate,

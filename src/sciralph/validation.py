@@ -259,7 +259,7 @@ def can_terminate(
     if has_verified and metrics.last_critic_iteration == 0:
         blockers.append(
             "No critic pass has occurred yet. "
-            "Emit task_type: critique to run a review before terminating."
+            "A critic pass is triggered automatically after a VERIFIED review."
         )
 
     # Gate 2: All RQs and WHs must be resolved before termination

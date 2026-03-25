@@ -284,7 +284,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         "type": "string",
                         "enum": [
                             "research", "compute", "review",
-                            "critique", "terminate",
+                            "terminate",
                         ],
                     },
                     "priority": {
@@ -924,7 +924,7 @@ class OrchestratorToolExecutor:
         # Validate target_claim when present
         task_type = args.get("task_type", "")
         target_claim = args.get("target_claim")
-        skip_validation = task_type in ("critique", "terminate")
+        skip_validation = task_type in ("terminate",)
         if target_claim and not skip_validation and self.research_state:
             valid = self._validate_target_claim(target_claim)
             if valid is not None:

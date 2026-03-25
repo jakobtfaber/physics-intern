@@ -61,6 +61,7 @@ class LoopState:
     pending_explore_results: list[dict] = field(default_factory=list)
     agent_failures: list[dict] = field(default_factory=list)
     pending_critic_result: dict | None = None
+    last_verified_review_iteration: int = 0
     # Persistent dispatch history (never cleared)
     dispatch_history: list[DispatchRecord] = field(default_factory=list)
 
@@ -186,49 +187,36 @@ class SciRalph:
             console.rule(f"[bold]ITERATION {self.iteration}[/bold]")
             self._update_research_iteration()
 
-            # 1. Forced critic or orchestrator pass
-            if self._critic_overdue():
-                console.print(
-                    f"[yellow]Forced critic (last at iter "
-                    f"{self.metrics.last_critic_iteration}, "
-                    f"threshold {self.config.critic_every_n})[/yellow]"
+            # 1. Orchestrator pass
+            try:
+                task = self._run_orchestrator()
+            except Exception as exc:
+                if not _is_transient(exc):
+                    raise
+                self.metrics.alert(
+                    self.iteration,
+                    f"Orchestrator failed (transient): {type(exc).__name__}: {exc}",
                 )
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                                   "forced_critic",
-                                   f"last_critic={self.metrics.last_critic_iteration}")
-                task = self._make_forced_critic_task()
-                # Clear stale termination blockers — the forced critic addresses the critic gate
-                self._state.pending_termination_blockers.clear()
-            else:
-                try:
-                    task = self._run_orchestrator()
-                except Exception as exc:
-                    if not _is_transient(exc):
-                        raise
-                    self.metrics.alert(
-                        self.iteration,
-                        f"Orchestrator failed (transient): {type(exc).__name__}: {exc}",
+                self._state.pending_violations.append(
+                    Violation(
+                        check="orchestrator_failure",
+                        severity=ViolationSeverity.WARNING,
+                        message=(
+                            f"Orchestrator failed with transient error: "
+                            f"{type(exc).__name__}: {str(exc)[:200]}"
+                        ),
                     )
-                    self._state.pending_violations.append(
-                        Violation(
-                            check="orchestrator_failure",
-                            severity=ViolationSeverity.WARNING,
-                            message=(
-                                f"Orchestrator failed with transient error: "
-                                f"{type(exc).__name__}: {str(exc)[:200]}"
-                            ),
-                        )
-                    )
-                    console.print(
-                        f"[yellow]Orchestrator failed (transient), skipping to "
-                        f"next iteration: {exc}[/yellow]"
-                    )
-                    log_scaffold_event(
-                        self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                        "orchestrator_failure",
-                        f"{type(exc).__name__}: {str(exc)[:200]}",
-                    )
-                    continue
+                )
+                console.print(
+                    f"[yellow]Orchestrator failed (transient), skipping to "
+                    f"next iteration: {exc}[/yellow]"
+                )
+                log_scaffold_event(
+                    self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                    "orchestrator_failure",
+                    f"{type(exc).__name__}: {str(exc)[:200]}",
+                )
+                continue
 
             # 2. Post-integration validation
             violations = validate_post_integration(
@@ -335,6 +323,21 @@ class SciRalph:
             if task.task_type in (TaskType.RESEARCH, TaskType.COMPUTE, TaskType.REVIEW):
                 self._track_agent_result(task)
             self._append_dispatch_record(task)
+
+            # 6b. Auto-trigger critic after VERIFIED review
+            if self._should_trigger_critic():
+                console.print(
+                    f"[yellow]Auto-triggering critic after VERIFIED review "
+                    f"(last critic at iter {self.metrics.last_critic_iteration})[/yellow]"
+                )
+                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                                   "forced_critic",
+                                   f"trigger=verified_review, "
+                                   f"last_critic={self.metrics.last_critic_iteration}")
+                critic_task = self._make_forced_critic_task()
+                agent_name_c, result_c = self._dispatch(critic_task)
+                self._record_agent_failures(critic_task, agent_name_c, result_c)
+                self._append_dispatch_record(critic_task)
 
             # 7. Compression, metrics, structured state snapshot, render files, git
             self._check_compression()
@@ -701,14 +704,43 @@ class SciRalph:
             result = self.researcher.run(task, self.iteration)
             return "researcher", result
 
-    def _critic_overdue(self) -> bool:
-        """Check if more than N iterations since last critic pass."""
+    def _should_trigger_critic(self) -> bool:
+        """Check if the critic should auto-trigger after a VERIFIED review."""
+        # Condition 1: latest dispatch was a VERIFIED review
+        if self._state.last_verified_review_iteration != self.iteration:
+            return False
+        # Condition 2: critic hasn't run in the last critic_every_n iterations
         if (self.iteration - self.metrics.last_critic_iteration) < self.config.critic_every_n:
             return False
-        # Skip if critic already reviewed the latest content
-        if self.metrics.last_critic_iteration >= self._state.last_content_iteration:
-            return False
         return True
+
+    def _auto_promote(self, wh_id: str):
+        """Auto-promote a VERIFIED WH to ER if dependencies are satisfied."""
+        from .research_state import HypothesisStatus
+        state = self.research_state
+        if wh_id not in state.hypotheses:
+            return
+        unestablished = state.unestablished_dependencies(wh_id)
+        if unestablished:
+            console.print(
+                f"  [dim]Auto-promote skipped for {wh_id} "
+                f"(unestablished deps: {', '.join(unestablished)})[/dim]"
+            )
+            return
+        h = state.hypotheses.pop(wh_id)
+        num = wh_id.split("-")[1]
+        er_id = f"ER-{num}"
+        h.id = er_id
+        h.status = HypothesisStatus.ESTABLISHED
+        h.promotion_justification = "Auto-promoted after VERIFIED review"
+        h.iteration_modified = self.iteration
+        state.hypotheses[er_id] = h
+        state.normalize_references()
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "auto_promote", f"{wh_id} → {er_id}",
+        )
+        console.print(f"  [bold green]{wh_id} → {er_id}[/] auto-promoted")
 
     def _make_forced_critic_task(self) -> Task:
         """Create a forced critic task."""
@@ -805,7 +837,11 @@ class SciRalph:
                     "reasoning": h.review.summary or "",
                 })
                 self._state.claim_failure_count.pop(target_id, None)
+                self._state.last_verified_review_iteration = self.iteration
                 console.print(f"  [green]{target_id} VERIFIED[/green]")
+                # Auto-promote WH→ER if dependencies are satisfied
+                if target_id.startswith("WH-"):
+                    self._auto_promote(target_id)
             elif verdict == Verdict.REFUTED:
                 count = self._state.claim_failure_count.get(target_id, 0) + 1
                 self._state.claim_failure_count[target_id] = count

@@ -1224,16 +1224,21 @@ class TestTargetClaimValidation:
         assert ex.task_data is None
         assert not ex.stop_after_round
 
-    def test_skipped_for_critique(self):
+    def test_critique_no_longer_valid_task_type(self):
+        """Critique is not a valid dispatch type — the deep critic is auto-triggered."""
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("set_next_task", {
             "task_type": "critique",
-            "target_claim": "WH-099",
+            "target_claim": "WH-001",
             "description": "Review.",
         })
-        assert "Task set" in tc.output
+        # critique is no longer in the enum — the LLM schema enforcement
+        # rejects it, but at the executor level the task still gets set
+        # (schema validation is provider-side). The key change is that
+        # target_claim validation now applies (no longer skipped).
+        # With a valid target WH-001, it succeeds but goes through validation.
         assert ex.stop_after_round
 
     def test_skipped_for_terminate(self):

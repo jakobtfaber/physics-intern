@@ -595,10 +595,11 @@ class TestCritiqueResolutionRegex:
 # P3: Skip Redundant Critic Passes
 # ---------------------------------------------------------------------------
 
-class TestCriticOverdue:
-    """P3: _critic_overdue returns False when no new content since last critic."""
+class TestShouldTriggerCritic:
+    """P3: _should_trigger_critic fires after VERIFIED review when interval exceeded."""
 
-    def _make_engine(self, last_critic_iteration=0, last_content_iteration=0,
+    def _make_engine(self, last_critic_iteration=0,
+                     last_verified_review_iteration=0,
                      current_iteration=5, critic_every_n=4):
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
@@ -616,41 +617,43 @@ class TestCriticOverdue:
             engine.metrics.last_critic_iteration = last_critic_iteration
             engine.iteration = current_iteration
             from sciralph.engine import LoopState
-            engine._state = LoopState(last_content_iteration=last_content_iteration)
+            engine._state = LoopState(
+                last_verified_review_iteration=last_verified_review_iteration,
+            )
 
         return engine
 
-    def test_overdue_with_new_content(self):
-        """Overdue returns True when interval exceeded AND new content exists."""
+    def test_trigger_after_verified_review(self):
+        """Triggers when latest iteration is a VERIFIED review and interval exceeded."""
         engine = self._make_engine(
-            last_critic_iteration=0, last_content_iteration=3,
+            last_critic_iteration=0, last_verified_review_iteration=5,
             current_iteration=5, critic_every_n=4,
         )
-        assert engine._critic_overdue() is True
+        assert engine._should_trigger_critic() is True
 
-    def test_not_overdue_when_critic_reviewed_latest(self):
-        """Overdue returns False when critic reviewed after last content."""
+    def test_no_trigger_without_verified_review(self):
+        """Does not trigger when latest iteration is not a VERIFIED review."""
         engine = self._make_engine(
-            last_critic_iteration=4, last_content_iteration=3,
-            current_iteration=8, critic_every_n=4,
-        )
-        assert engine._critic_overdue() is False
-
-    def test_not_overdue_when_interval_not_reached(self):
-        """Overdue returns False when fewer than N iterations since last critic."""
-        engine = self._make_engine(
-            last_critic_iteration=3, last_content_iteration=4,
+            last_critic_iteration=0, last_verified_review_iteration=3,
             current_iteration=5, critic_every_n=4,
         )
-        assert engine._critic_overdue() is False
+        assert engine._should_trigger_critic() is False
 
-    def test_overdue_when_content_after_critic(self):
-        """Overdue returns True when content produced after last critic and interval exceeded."""
+    def test_no_trigger_when_critic_recent(self):
+        """Does not trigger when critic ran within the last critic_every_n iterations."""
         engine = self._make_engine(
-            last_critic_iteration=2, last_content_iteration=5,
+            last_critic_iteration=3, last_verified_review_iteration=5,
+            current_iteration=5, critic_every_n=4,
+        )
+        assert engine._should_trigger_critic() is False
+
+    def test_trigger_when_interval_exactly_reached(self):
+        """Triggers when exactly critic_every_n iterations since last critic."""
+        engine = self._make_engine(
+            last_critic_iteration=4, last_verified_review_iteration=8,
             current_iteration=8, critic_every_n=4,
         )
-        assert engine._critic_overdue() is True
+        assert engine._should_trigger_critic() is True
 
     def test_last_content_tracked_in_dispatch(self):
         """_dispatch updates _last_content_iteration for research/compute tasks."""
