@@ -452,6 +452,20 @@ class TestUpdateSection:
         assert "Natural units" in state.conventions
         assert ex.mutations_applied
 
+    def test_conventions_append_to_existing(self):
+        """Conventions are append-only — new content is appended, not replaced."""
+        ws = _make_workspace()
+        state = _make_state()
+        state.conventions = "Existing conventions."
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("update_section", {
+            "section": "Conventions",
+            "content": "New convention added.",
+        })
+        assert not tc.is_error
+        assert "Existing conventions." in state.conventions
+        assert "New convention added." in state.conventions
+
     def test_open_questions_returns_error(self):
         """Open Questions section was removed — should return error."""
         ws = _make_workspace()

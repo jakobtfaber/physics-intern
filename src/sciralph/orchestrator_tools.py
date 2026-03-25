@@ -799,7 +799,8 @@ class OrchestratorToolExecutor:
         content = args.get("content", "")
 
         if section_name == "Conventions":
-            state.conventions = content.strip()
+            new = content.strip()
+            state.conventions = (state.conventions.rstrip() + "\n\n" + new) if state.conventions else new
         elif section_name == "Strategy":
             state.strategy = content.strip()
         else:

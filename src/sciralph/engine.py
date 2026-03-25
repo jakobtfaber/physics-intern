@@ -392,6 +392,9 @@ class SciRalph:
             return
 
         self.research_state.background_survey = survey
+        # Seed conventions from surveyor's conventions section
+        if survey.conventions_and_definitions and not self.research_state.conventions:
+            self.research_state.conventions = survey.conventions_and_definitions.strip()
 
     def _run_planner(self):
         """Run planner agent to produce an initial research strategy."""

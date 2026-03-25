@@ -178,8 +178,6 @@ class ReviewerAgent(BaseAgent):
             # Surveyor-provided adversarial context
             survey = self.research_state.background_survey
             if survey and survey.has_structured_sections:
-                if survey.conventions_and_definitions:
-                    parts.append(f"\n<problem-conventions>\n{survey.conventions_and_definitions}\n</problem-conventions>")
                 if survey.known_pitfalls:
                     parts.append(f"\n<known-pitfalls>\n{survey.known_pitfalls}\n</known-pitfalls>")
                 if survey.sanity_checks:

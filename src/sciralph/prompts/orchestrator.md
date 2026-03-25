@@ -110,7 +110,7 @@ The strategy section is initially written by a dedicated planner agent. Follow t
 
 Use these tools to maintain shared context that all agents read:
 
-- **`update_section`** with "Conventions" — Unit system, metric signature, sign conventions, variable definitions. Set once, update only when conventions genuinely change.
+- **`update_section`** with "Conventions" — Unit system, metric signature, sign conventions, variable definitions. This field is **append-only** — new content is appended to the existing conventions (initially seeded from the background survey). Only append when new conventions are needed; do not repeat what is already there.
 - **`append_note`** — Record intermediate insights, observations, or decisions. Notes are append-only, use it when you want to record something that does not fit into the structured sections.
 
 
