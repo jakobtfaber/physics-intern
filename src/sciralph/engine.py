@@ -596,7 +596,47 @@ class SciRalph:
                 lines.append(f"  - [{f['task_id']}] {f['agent']}: {f['event']}. {f['detail']}")
             lines.append(">>> END AGENT FAILURES <<<\n")
             self._state.agent_failures.clear()
+        # Pending work summary — always present so the orchestrator sees current state
+        pending = self._render_pending_work()
+        if pending:
+            lines.append(pending)
         return "\n".join(lines)
+
+    def _render_pending_work(self) -> str:
+        """Render a summary of open RQs, non-reviewed WHs, and unresolved critiques."""
+        from .research_state import CritiqueStatus
+
+        state = self.research_state
+        if not state:
+            return ""
+
+        lines: list[str] = []
+        whs = state.working_hypotheses()
+        if whs:
+            wh_items = []
+            for h in whs:
+                if h.evidence:
+                    status = h.review.verdict.upper() if h.review else f"has {len(h.evidence)} evidence, PENDING REVIEW"
+                else:
+                    status = "no evidence"
+                wh_items.append(f"{h.id} ({status})")
+            lines.append(f"  WH: {', '.join(wh_items)}")
+
+        open_rqs = state.open_research_questions()
+        if open_rqs:
+            rq_items = []
+            for rq in open_rqs:
+                ev = f"{len(rq.evidence)} evidence" if rq.evidence else "no evidence"
+                rq_items.append(f"{rq.id} ({ev})")
+            lines.append(f"  Open RQs: {', '.join(rq_items)}")
+
+        unresolved = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
+        if unresolved:
+            lines.append(f"  Unresolved critiques: {', '.join(c.id for c in unresolved)}")
+
+        if not lines:
+            return ""
+        return ">>> PENDING WORK <<<\n" + "\n".join(lines) + "\n>>> END PENDING WORK <<<\n"
 
     def _dispatch(self, task: Task) -> tuple[str, "LLMResponse | AgentResult"]:
         """Route task to the correct agent. Returns (agent_name, result)."""

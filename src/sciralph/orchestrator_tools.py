@@ -551,11 +551,27 @@ class OrchestratorToolExecutor:
     # -- Mutation handlers --
 
     def _add_hypothesis(self, args: dict) -> str:
-        from .research_state import Hypothesis, HypothesisStatus, RQStatus
+        from .research_state import CritiqueStatus, Hypothesis, HypothesisStatus, RQStatus
 
         state = self.research_state
         if not state:
             return "Error: no research state available"
+
+        # Cap: block if too many working WHs or unresolved critiques
+        whs = state.working_hypotheses()
+        if len(whs) >= 2:
+            ids = ", ".join(h.id for h in whs)
+            return (
+                f"Error: already {len(whs)} working hypotheses ({ids}). "
+                "Review, promote, or abandon existing WHs before creating new ones."
+            )
+        unresolved = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
+        if unresolved:
+            crit_ids = ", ".join(c.id for c in unresolved)
+            return (
+                f"Error: {len(unresolved)} unresolved critique(s) ({crit_ids}). "
+                "Address critiques before creating new WHs."
+            )
 
         statement = args.get("statement", "Untitled")
         derivation = args.get("derivation", "")
@@ -832,11 +848,28 @@ class OrchestratorToolExecutor:
         return "Note appended."
 
     def _add_research_question(self, args: dict) -> str:
-        from .research_state import ResearchQuestion
+        from .research_state import CritiqueStatus, ResearchQuestion
 
         state = self.research_state
         if not state:
             return "Error: no research state available"
+
+        # Cap: block if too many open RQs or unresolved critiques
+        open_rqs = state.open_research_questions()
+        unresolved = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
+        if len(open_rqs) >= 3:
+            ids = ", ".join(rq.id for rq in open_rqs)
+            return (
+                f"Error: already {len(open_rqs)} open RQs ({ids}). "
+                "Resolve or abandon existing RQs before creating new ones. "
+                "Dispatch research/compute tasks on existing RQs first."
+            )
+        if unresolved:
+            crit_ids = ", ".join(c.id for c in unresolved)
+            return (
+                f"Error: {len(unresolved)} unresolved critique(s) ({crit_ids}). "
+                "Address critiques before creating new RQs."
+            )
 
         num = state.next_entity_num()
         rq_id = f"RQ-{num:03d}"

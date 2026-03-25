@@ -83,6 +83,7 @@ class TestAddHypothesis:
         from sciralph.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
+        state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
         state.research_questions["RQ-003"] = ResearchQuestion(
             id="RQ-003", question="What is the third result?",
             iteration_created=2,
@@ -109,12 +110,47 @@ class TestAddHypothesis:
     def test_rejects_without_from_rq(self):
         ws = _make_workspace()
         state = _make_state()
+        state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("add_hypothesis", {
             "statement": "Third hypothesis",
             "derivation": "Some derivation.",
         })
         assert "from_rq is required" in tc.output
+
+    def test_blocked_by_wh_cap(self):
+        """Cannot create WH when >= 2 working hypotheses exist."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = _make_state()  # 2 working WHs
+        state.research_questions["RQ-003"] = ResearchQuestion(
+            id="RQ-003", question="Q?", iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("add_hypothesis", {
+            "statement": "Blocked", "from_rq": "RQ-003",
+        })
+        assert "already 2 working hypotheses" in tc.output
+        assert "WH-003" not in state.hypotheses
+
+    def test_blocked_by_unresolved_critiques(self):
+        """Cannot create WH when unresolved critiques exist."""
+        from sciralph.research_state import Critique, CritiqueStatus, ResearchQuestion, Severity
+        ws = _make_workspace()
+        state = _make_state()
+        state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
+            status=CritiqueStatus.ACTIVE, argument="Issue.",
+        )
+        state.research_questions["RQ-003"] = ResearchQuestion(
+            id="RQ-003", question="Q?", iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("add_hypothesis", {
+            "statement": "Blocked", "from_rq": "RQ-003",
+        })
+        assert "unresolved critique" in tc.output
 
 
 # ---------------------------------------------------------------------------
@@ -630,6 +666,7 @@ class TestDependencyGraph:
         from sciralph.research_state import ResearchQuestion
         ws = _make_workspace()
         state = _make_state()
+        state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
         state.research_questions["RQ-003"] = ResearchQuestion(
             id="RQ-003", question="Derived from WH-001?",
             iteration_created=2,
@@ -801,11 +838,39 @@ class TestResearchQuestionTools:
         # Should not count as a mutation
         assert not ex.mutations_applied
 
+    def test_add_rq_blocked_by_cap(self):
+        """Cannot create RQ when >= 3 open RQs exist."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = _make_state()
+        for i in range(3, 6):
+            rq_id = f"RQ-{i:03d}"
+            state.research_questions[rq_id] = ResearchQuestion(
+                id=rq_id, question=f"Q{i}?", iteration_created=1,
+            )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("add_research_question", {"question": "One more?"})
+        assert "already 3 open RQs" in tc.output
+
+    def test_add_rq_blocked_by_unresolved_critiques(self):
+        """Cannot create RQ when unresolved critiques exist."""
+        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        ws = _make_workspace()
+        state = _make_state()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
+            status=CritiqueStatus.ACTIVE, argument="Issue.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("add_research_question", {"question": "Blocked?"})
+        assert "unresolved critique" in tc.output
+
     def test_add_hypothesis_from_already_resolved_rq_blocked(self):
         """Creating a WH from an already-resolved RQ is rejected."""
         from sciralph.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
+        state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
         state.research_questions["RQ-003"] = ResearchQuestion(
             id="RQ-003", question="What is the entropy?",
             status=RQStatus.RESOLVED,
@@ -832,9 +897,10 @@ class TestSetNextTask:
 
     @staticmethod
     def _state_with_open_rq():
-        """State with WH-001, WH-002, and an open RQ-003 for add_hypothesis calls."""
+        """State with WH-001 (working), WH-002 (established), and an open RQ-003 for add_hypothesis calls."""
         from sciralph.research_state import ResearchQuestion
         state = _make_state()
+        state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
         state.research_questions["RQ-003"] = ResearchQuestion(
             id="RQ-003", question="Placeholder for dispatch test",
             iteration_created=2,
