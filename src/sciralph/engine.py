@@ -293,6 +293,9 @@ class SciRalph:
             else:
                 self._state.consecutive_termination_blocks = 0
 
+            # 4b. Auto-redirect CRIT targets to the underlying entity
+            self._resolve_critique_target(task)
+
             # 5. Dispatch to agent
             try:
                 agent_name, agent_result = self._dispatch(task)
@@ -848,6 +851,37 @@ class SciRalph:
             "Diagnose the ROOT CAUSE before writing new code.\n"
         )
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
+
+    def _resolve_critique_target(self, task: Task):
+        """If task targets a CRIT that points to WH/ER entities, redirect to the entity.
+
+        Keeps the critique reference in task.blocking_critiques so agents see it.
+        STRATEGY critiques (no WH/ER targets) are left untouched.
+        """
+        if task.task_type not in (TaskType.RESEARCH, TaskType.COMPUTE):
+            return
+        target = task.target_claim
+        if not target or not target.startswith("CRIT-"):
+            return
+        crit = self.research_state.critiques.get(target)
+        if not crit:
+            return
+        # Find first WH/ER target (skip STRATEGY or non-entity targets)
+        entity_targets = [
+            t for t in crit.targets
+            if t.startswith(("WH-", "ER-"))
+        ]
+        if not entity_targets:
+            return
+        redirected_to = entity_targets[0]
+        task.target_claim = redirected_to
+        if target not in task.blocking_critiques:
+            task.blocking_critiques.append(target)
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+            "critique_redirect", f"{target} -> {redirected_to}",
+        )
+        console.print(f"  [yellow]Redirected {target} -> {redirected_to}[/yellow]")
 
     def _track_agent_result(self, task: Task):
         """After researcher/computer/reviewer runs, track results for orchestrator banners."""

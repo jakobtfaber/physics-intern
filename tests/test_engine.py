@@ -1900,3 +1900,132 @@ class TestDispatchHistory:
         violations_pos = suffix.index("POST-INTEGRATION VIOLATIONS")
         assert history_pos < violations_pos
 
+
+class TestCritiqueRedirect:
+    """Test _resolve_critique_target auto-redirects CRIT targets to underlying entities."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 5
+            engine._state = LoopState()
+            engine.research_state = ResearchState()
+        return engine
+
+    def test_critique_redirect_to_entity(self):
+        """CRIT targeting ER-001 redirects task.target_claim to ER-001."""
+        from sciralph.research_state import Critique, Severity, Hypothesis, HypothesisStatus
+        engine = self._make_engine()
+        engine.research_state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["ER-001"], severity=Severity.HIGH,
+            argument="Inconsistent polynomial",
+        )
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", target_claim="CRIT-001")
+        engine._resolve_critique_target(task)
+
+        assert task.target_claim == "ER-001"
+        assert "CRIT-001" in task.blocking_critiques
+
+    def test_critique_redirect_strategy_not_redirected(self):
+        """CRIT targeting STRATEGY is not redirected."""
+        from sciralph.research_state import Critique, Severity
+        engine = self._make_engine()
+        engine.research_state.critiques["CRIT-002"] = Critique(
+            id="CRIT-002", targets=["STRATEGY"], severity=Severity.MEDIUM,
+            argument="Strategy needs adjustment",
+        )
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", target_claim="CRIT-002")
+        engine._resolve_critique_target(task)
+
+        assert task.target_claim == "CRIT-002"
+        assert task.blocking_critiques == []
+
+    def test_critique_redirect_unknown_crit(self):
+        """Unknown CRIT-999 is not redirected."""
+        engine = self._make_engine()
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH,
+                    assigned_to="researcher", target_claim="CRIT-999")
+        engine._resolve_critique_target(task)
+
+        assert task.target_claim == "CRIT-999"
+        assert task.blocking_critiques == []
+
+    def test_critique_redirect_only_research_compute(self):
+        """REVIEW task targeting a CRIT is not redirected."""
+        from sciralph.research_state import Critique, Severity
+        engine = self._make_engine()
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["ER-001"], severity=Severity.HIGH,
+            argument="Test",
+        )
+        task = Task(task_id="TASK-005", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="CRIT-001")
+        engine._resolve_critique_target(task)
+
+        assert task.target_claim == "CRIT-001"
+
+    def test_critique_redirect_preserves_existing_blocking_critiques(self):
+        """Redirect appends to existing blocking_critiques."""
+        from sciralph.research_state import Critique, Severity
+        engine = self._make_engine()
+        engine.research_state.critiques["CRIT-002"] = Critique(
+            id="CRIT-002", targets=["WH-001"], severity=Severity.HIGH,
+            argument="Test",
+        )
+        task = Task(task_id="TASK-005", task_type=TaskType.RESEARCH,
+                    assigned_to="researcher", target_claim="CRIT-002",
+                    blocking_critiques=["CRIT-000"])
+        engine._resolve_critique_target(task)
+
+        assert task.target_claim == "WH-001"
+        assert task.blocking_critiques == ["CRIT-000", "CRIT-002"]
+
+    def test_track_agent_result_after_redirect(self):
+        """After redirect from CRIT-001 to ER-001, evidence on ER-001 is tracked."""
+        from sciralph.research_state import Critique, Severity, Hypothesis, HypothesisStatus, Evidence
+        engine = self._make_engine()
+        engine.research_state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+            evidence=[Evidence(
+                type="compute", result="Weights match", confidence="exact", iteration=5,
+            )],
+        )
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["ER-001"], severity=Severity.HIGH,
+            argument="Inconsistent polynomial",
+        )
+        # Simulate redirect + dispatch
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", target_claim="CRIT-001")
+        engine._resolve_critique_target(task)
+
+        # Now track — should find evidence on ER-001
+        engine._track_agent_result(task)
+        assert len(engine._state.pending_explore_results) == 1
+        assert engine._state.pending_explore_results[0]["target_id"] == "ER-001"
+
+    def test_non_crit_target_not_affected(self):
+        """Normal WH/RQ targets are unaffected by redirect."""
+        engine = self._make_engine()
+        task = Task(task_id="TASK-005", task_type=TaskType.COMPUTE,
+                    assigned_to="computer", target_claim="WH-001")
+        engine._resolve_critique_target(task)
+
+        assert task.target_claim == "WH-001"
+        assert task.blocking_critiques == []
+

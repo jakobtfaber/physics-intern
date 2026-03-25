@@ -97,6 +97,11 @@ class EvidenceAgent(BaseAgent):
         if target_text:
             parts.append(f"<target>\n{task.target_claim}: {target_text}\n</target>")
 
+        # 2b. Active critiques targeting this entity
+        critique_block = self._render_active_critiques(task)
+        if critique_block:
+            parts.append(critique_block)
+
         # 3. Task description + method hints + assumptions
         task_parts: list[str] = []
         if task.body:
@@ -144,8 +149,47 @@ class EvidenceAgent(BaseAgent):
             text = f"[{c.severity.value}] {c.argument}"
             if c.targets:
                 text += f"\nTargets: {', '.join(c.targets)}"
+                # Include targeted entity content for better context
+                for tid in c.targets:
+                    entity_text = self._resolve_entity_text(tid)
+                    if entity_text:
+                        text += f"\n\n{tid}: {entity_text}"
             return text
         return None
+
+    def _resolve_entity_text(self, entity_id: str) -> str | None:
+        """Resolve an entity ID to its statement/question text (non-recursive)."""
+        if not self.research_state:
+            return None
+        if entity_id in self.research_state.research_questions:
+            return self.research_state.research_questions[entity_id].question
+        if entity_id in self.research_state.hypotheses:
+            return self.research_state.hypotheses[entity_id].statement
+        return None
+
+    def _render_active_critiques(self, task: "Task") -> str:
+        """Render active critiques targeting the task's entity."""
+        if not self.research_state:
+            return ""
+        target = task.target_claim
+        seen_ids: set[str] = set()
+        lines: list[str] = []
+        # 1. Active critiques filed against the target entity
+        if target:
+            for c in self.research_state.active_critiques_for(target):
+                if c.id not in seen_ids:
+                    lines.append(f"- **{c.id}** [{c.severity.value}]: {c.argument}")
+                    seen_ids.add(c.id)
+        # 2. Explicit blocking_critiques (from CRIT redirect)
+        for crit_id in task.blocking_critiques:
+            if crit_id not in seen_ids:
+                crit = self.research_state.critiques.get(crit_id)
+                if crit:
+                    lines.append(f"- **{crit.id}** [{crit.severity.value}]: {crit.argument}")
+                    seen_ids.add(crit.id)
+        if not lines:
+            return ""
+        return "<active-critiques>\n" + "\n".join(lines) + "\n</active-critiques>"
 
     def _store_evidence(self, target_id: str, evidence: Evidence):
         """Store evidence on the target entity (RQ, WH, or critique).

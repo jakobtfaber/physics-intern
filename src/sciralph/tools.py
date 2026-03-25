@@ -90,7 +90,7 @@ class ToolExecutor:
                 "properties": {
                     "target_id": {
                         "type": "string",
-                        "description": "The WH/ER ID being explored (e.g. 'WH-001').",
+                        "description": "The RQ/WH/ER ID being explored (e.g. 'WH-001'). Use the target from your task assignment.",
                     },
                     "description": {
                         "type": "string",
