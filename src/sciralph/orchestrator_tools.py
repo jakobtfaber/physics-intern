@@ -651,6 +651,18 @@ class OrchestratorToolExecutor:
                 output=f"Unknown tool: {tool_name}", is_error=True,
                 duration=time.time() - start,
             )
+        # Block a second exit tool from overwriting the first dispatch
+        if tool_name in self.exit_tool_names and self.stop_after_round:
+            return ToolCall(
+                tool_name=tool_name, tool_input=tool_input,
+                output=(
+                    f"Error: an exit tool has already been called this round "
+                    f"(task_data={self.task_data}). Only one exit tool per "
+                    f"turn is allowed. This call was ignored."
+                ),
+                is_error=True,
+                duration=time.time() - start,
+            )
         try:
             output = handler(tool_input)
             is_error = False
