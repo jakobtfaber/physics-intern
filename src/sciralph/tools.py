@@ -118,10 +118,10 @@ class ToolExecutor:
                         "items": {"type": "string"},
                         "description": (
                             "List of script filenames that produced meaningful "
-                            "results supporting your conclusion. Exclude scripts "
-                            "that errored, timed out, were abandoned before "
+                            "results supporting your conclusion. Ideally only ONE script should contain all the evidence."
+                            "Exclude scripts that superfluous, errored, timed out, were abandoned before "
                             "completing, or produced clearly incorrect output. "
-                            "Only the listed scripts will be shown to the reviewer."
+                            "Only the listed scripts will be shown to the reviewer. Aim for one unless necessary."
                         ),
                     },
                 },
