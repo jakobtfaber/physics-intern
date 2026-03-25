@@ -125,7 +125,7 @@ class TestProblemStatementInContext:
         )
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
         ps_pos = context.index("<problem-statement>")
-        bg_pos = context.index("<background-survey>")
+        bg_pos = context.index("<survey-background>")
         assert ps_pos < bg_pos
 
 

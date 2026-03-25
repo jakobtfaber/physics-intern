@@ -75,6 +75,28 @@ def render_survey_sections_text(survey: BackgroundSurvey) -> str:
     return survey.raw_notes or ""
 
 
+def render_survey_sections_xml(survey: BackgroundSurvey) -> str:
+    """Render survey as individual XML tags for orchestrator context.
+
+    Skips conventions_and_definitions (rendered separately in <conventions>).
+    """
+    if not survey.has_structured_sections:
+        return f"<survey-background>\n{survey.raw_notes}\n</survey-background>" if survey.raw_notes else ""
+    tag_map = [
+        ("survey-background", "background"),
+        ("survey-key-insights", "key_insights"),
+        ("survey-known-methods", "known_methods"),
+        ("survey-known-pitfalls", "known_pitfalls"),
+        ("survey-sanity-checks", "sanity_checks"),
+    ]
+    parts: list[str] = []
+    for tag, field_name in tag_map:
+        content = getattr(survey, field_name, "")
+        if content:
+            parts.append(f"<{tag}>\n{content}\n</{tag}>")
+    return "\n\n".join(parts)
+
+
 def _research_state_body(state: ResearchState) -> str:
     """Build the body text for a research state snapshot rendering."""
     parts: list[str] = []
@@ -465,19 +487,14 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
                     rq_content.append(f"Evidence ({ev.type}): {ev.result[:1000] if ev.result else 'pending'}")
             rq_lines.append(f'<rq id="{rq.id}" status="OPEN">\n' + "\n".join(rq_content) + "\n</rq>")
         for rq in resolved_rqs:
-            rq_content = [rq.question]
             if rq.resolved_to:
-                rq_content.append(f"Resolved to: {', '.join(rq.resolved_to)}")
-            resolution_parts: list[str] = []
-            if rq.iteration_resolved is not None:
-                resolution_parts.append(f"iteration {rq.iteration_resolved}")
-            if rq.resolution_reason:
-                resolution_parts.append(rq.resolution_reason)
-            if resolution_parts:
-                rq_content.append(f"Closed: {' — '.join(resolution_parts)}")
-            rq_content.append("This RQ is closed. Do not resolve it again or create a WH from it.")
+                body = f"→ {', '.join(rq.resolved_to)}"
+            elif rq.resolution_reason:
+                body = f"Closed: {rq.resolution_reason[:80]}"
+            else:
+                body = "Closed"
             status_tag = rq.status.upper()
-            rq_lines.append(f'<rq id="{rq.id}" status="{status_tag}">\n' + "\n".join(rq_content) + "\n</rq>")
+            rq_lines.append(f'<rq id="{rq.id}" status="{status_tag}">{body}</rq>')
         parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
 
     # Established Results

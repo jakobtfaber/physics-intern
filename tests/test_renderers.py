@@ -10,6 +10,7 @@ from sciralph.renderers import (
     render_orchestrator_research_state,
     render_background_survey,
     render_research_state_md,
+    render_survey_sections_xml,
     render_task_md,
 )
 from sciralph.research_state import (
@@ -720,3 +721,73 @@ class TestRenderBackgroundSurvey:
         state = self._make_survey_state()
         text = render_orchestrator_research_state(state)
         assert "<background-survey>" not in text
+
+
+# ===========================================================================
+# render_survey_sections_xml
+# ===========================================================================
+
+class TestRenderSurveySectionsXml:
+
+    def test_structured_sections_render_as_xml_tags(self):
+        survey = BackgroundSurvey(
+            raw_notes="full text",
+            background="Physics context.",
+            key_insights="Core principles.",
+            known_methods="Method A.",
+            known_pitfalls="Pitfall B.",
+            conventions_and_definitions="Some conventions.",
+            sanity_checks="Check C.",
+        )
+        text = render_survey_sections_xml(survey)
+        assert "<survey-background>" in text
+        assert "Physics context." in text
+        assert "<survey-key-insights>" in text
+        assert "<survey-known-methods>" in text
+        assert "<survey-known-pitfalls>" in text
+        assert "<survey-sanity-checks>" in text
+        # conventions_and_definitions must be SKIPPED (rendered in <conventions>)
+        assert "conventions_and_definitions" not in text
+        assert "Some conventions." not in text
+
+    def test_raw_notes_fallback(self):
+        survey = BackgroundSurvey(raw_notes="Just raw notes here.")
+        text = render_survey_sections_xml(survey)
+        assert text == "<survey-background>\nJust raw notes here.\n</survey-background>"
+
+    def test_empty_survey(self):
+        survey = BackgroundSurvey()
+        text = render_survey_sections_xml(survey)
+        assert text == ""
+
+
+# ===========================================================================
+# Collapsed resolved RQs in orchestrator context
+# ===========================================================================
+
+class TestCollapsedResolvedRQs:
+
+    def test_resolved_rq_one_liner(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        state = ResearchState(problem_statement="Test")
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is X?",
+            status=RQStatus.RESOLVED, resolved_to=["ER-001"],
+            iteration_created=1, iteration_resolved=2,
+        )
+        text = render_orchestrator_research_state(state)
+        assert '<rq id="RQ-001" status="RESOLVED">→ ER-001</rq>' in text
+        # Full question text should NOT appear
+        assert "What is X?" not in text
+
+    def test_abandoned_rq_one_liner(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        state = ResearchState(problem_statement="Test")
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is X?",
+            status=RQStatus.ABANDONED, resolution_reason="Dead end after 2 attempts",
+            iteration_created=1, iteration_resolved=3,
+        )
+        text = render_orchestrator_research_state(state)
+        assert '<rq id="RQ-001" status="ABANDONED">Closed: Dead end after 2 attempts</rq>' in text
+        assert "What is X?" not in text
