@@ -148,16 +148,25 @@ class EvidenceAgent(BaseAgent):
         return None
 
     def _store_evidence(self, target_id: str, evidence: Evidence):
-        """Store evidence on the target entity (RQ, WH, or critique)."""
+        """Store evidence on the target entity (RQ, WH, or critique).
+
+        Clears any previously-refuted evidence before appending,
+        so contradictory old results don't coexist with new ones.
+        """
         state = self.research_state
         if not state:
             return
+
+        def _append(ev_list: list[Evidence]):
+            ev_list[:] = [ev for ev in ev_list if not ev.refuted]
+            ev_list.append(evidence)
+
         if target_id in state.research_questions:
-            state.research_questions[target_id].evidence.append(evidence)
+            _append(state.research_questions[target_id].evidence)
         elif target_id in state.hypotheses:
-            state.hypotheses[target_id].evidence.append(evidence)
+            _append(state.hypotheses[target_id].evidence)
         elif target_id in state.critiques:
-            state.critiques[target_id].evidence.append(evidence)
+            _append(state.critiques[target_id].evidence)
 
     @abstractmethod
     def process_response(self, response: "LLMResponse | AgentResult", task: "Task", iteration: int):

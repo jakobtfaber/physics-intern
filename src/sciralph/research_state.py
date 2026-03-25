@@ -71,6 +71,7 @@ class Evidence:
     summary: str = ""        # One-sentence summary for banners
     iteration: int | None = None
     derivation_file: str = ""  # Filename in derivations/ (researcher only)
+    refuted: bool = False      # Marked True when review verdict is REFUTED
 
 
 @dataclass
@@ -370,6 +371,7 @@ class ResearchState:
                     summary=edata.get("summary", ""),
                     iteration=edata.get("iteration"),
                     derivation_file=edata.get("derivation_file", ""),
+                    refuted=edata.get("refuted", False),
                 ))
             return result
 

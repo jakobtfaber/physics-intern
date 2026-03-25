@@ -903,6 +903,10 @@ class SciRalph:
                 if target_id.startswith("WH-"):
                     self._auto_promote(target_id)
             elif verdict == Verdict.REFUTED:
+                # Mark existing evidence as refuted so it gets cleared
+                # when new evidence arrives (prevents contradictory evidence).
+                for ev in h.evidence:
+                    ev.refuted = True
                 count = self._state.claim_failure_count.get(target_id, 0) + 1
                 self._state.claim_failure_count[target_id] = count
                 self._state.pending_compute_verdicts.append({
@@ -916,6 +920,8 @@ class SciRalph:
                 detail = h.review.summary[:120].replace("\n", " ") if h.review.summary else ""
                 console.print(f"  [red]{target_id} REFUTED[/red] — {detail}")
             else:
+                for ev in h.evidence:
+                    ev.refuted = True
                 count = self._state.claim_failure_count.get(target_id, 0) + 1
                 self._state.claim_failure_count[target_id] = count
                 self._state.pending_compute_verdicts.append({

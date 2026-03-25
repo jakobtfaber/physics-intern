@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch, PropertyMock, call
 
 from sciralph.config import Config
 from sciralph.engine import DispatchRecord, LoopState
-from sciralph.research_state import ResearchState
+from sciralph.research_state import Evidence, Hypothesis, ResearchState, ReviewResult
 from sciralph.task import Task, TaskType
 from sciralph.validation import Violation, ViolationSeverity
 
@@ -184,6 +184,55 @@ class TestComputeVerdictTracking:
 
         assert len(engine._state.pending_compute_verdicts) == 1
         assert engine._state.pending_compute_verdicts[0]["verdict"] == "INCONCLUSIVE"
+
+    def test_refuted_marks_evidence_as_refuted(self):
+        """REFUTED verdict marks all existing evidence on hypothesis as refuted."""
+        engine = self._make_engine()
+        h = Hypothesis(id="WH-001", evidence=[
+            Evidence(type="compute", result="wrong answer", iteration=1),
+            Evidence(type="research", result="also wrong", iteration=2),
+        ])
+        engine.research_state.hypotheses["WH-001"] = h
+        h.review = ReviewResult(verdict="REFUTED", summary="bad", iteration=3)
+
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
+                    body="Review WH-001")
+        engine._track_agent_result(task)
+
+        assert all(ev.refuted for ev in h.evidence)
+
+    def test_inconclusive_marks_evidence_as_refuted(self):
+        """INCONCLUSIVE verdict also marks existing evidence as refuted."""
+        engine = self._make_engine()
+        h = Hypothesis(id="WH-001", evidence=[
+            Evidence(type="compute", result="unclear", iteration=1),
+        ])
+        engine.research_state.hypotheses["WH-001"] = h
+        h.review = ReviewResult(verdict="INCONCLUSIVE", summary="unclear", iteration=2)
+
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
+                    body="Review WH-001")
+        engine._track_agent_result(task)
+
+        assert all(ev.refuted for ev in h.evidence)
+
+    def test_verified_does_not_mark_evidence_refuted(self):
+        """VERIFIED verdict leaves evidence untouched."""
+        engine = self._make_engine()
+        h = Hypothesis(id="WH-001", evidence=[
+            Evidence(type="compute", result="correct", iteration=1),
+        ])
+        engine.research_state.hypotheses["WH-001"] = h
+        h.review = ReviewResult(verdict="VERIFIED", summary="good", iteration=2)
+
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
+                    body="Review WH-001")
+        engine._track_agent_result(task)
+
+        assert not any(ev.refuted for ev in h.evidence)
 
     def test_stalled_verdict_signal(self):
         """After N failures, signal says STALLED in context suffix."""
@@ -451,6 +500,71 @@ class TestComputeVerdictTracking:
 
         assert len(engine._state.claim_failure_count) == 0
         assert len(engine._state.pending_compute_verdicts) == 0
+
+
+class TestRefutedEvidenceClearing:
+    """Test that refuted evidence is cleared when new evidence is stored."""
+
+    def test_store_evidence_clears_refuted(self):
+        """New evidence replaces previously-refuted evidence on a hypothesis."""
+        from sciralph.agents.evidence_base import EvidenceAgent
+
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            evidence=[
+                Evidence(type="compute", result="wrong", iteration=1, refuted=True),
+                Evidence(type="compute", result="also wrong", iteration=2, refuted=True),
+            ],
+        )
+
+        # Create a minimal concrete subclass to test _store_evidence
+        class _Stub(EvidenceAgent):
+            def process_response(self, response, task, iteration):
+                pass
+            def build_context(self, task, iteration):
+                return ""
+
+        stub = _Stub.__new__(_Stub)
+        stub.research_state = state
+
+        new_ev = Evidence(type="compute", result="correct", iteration=3)
+        stub._store_evidence("WH-001", new_ev)
+
+        assert len(state.hypotheses["WH-001"].evidence) == 1
+        assert state.hypotheses["WH-001"].evidence[0].result == "correct"
+        assert not state.hypotheses["WH-001"].evidence[0].refuted
+
+    def test_store_evidence_keeps_non_refuted(self):
+        """Non-refuted evidence is preserved alongside new evidence."""
+        from sciralph.agents.evidence_base import EvidenceAgent
+
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001",
+            evidence=[
+                Evidence(type="compute", result="good", iteration=1, refuted=False),
+                Evidence(type="compute", result="bad", iteration=2, refuted=True),
+            ],
+        )
+
+        class _Stub(EvidenceAgent):
+            def process_response(self, response, task, iteration):
+                pass
+            def build_context(self, task, iteration):
+                return ""
+
+        stub = _Stub.__new__(_Stub)
+        stub.research_state = state
+
+        new_ev = Evidence(type="compute", result="new", iteration=3)
+        stub._store_evidence("WH-001", new_ev)
+
+        assert len(state.hypotheses["WH-001"].evidence) == 2
+        results = [ev.result for ev in state.hypotheses["WH-001"].evidence]
+        assert "good" in results
+        assert "new" in results
+        assert "bad" not in results
 
 
 class TestCriticCleanSignal:
