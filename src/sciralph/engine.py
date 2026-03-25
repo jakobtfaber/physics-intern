@@ -528,6 +528,12 @@ class SciRalph:
                 "Do NOT emit task_type: terminate again until you have addressed "
                 "ALL blockers above. Emit the specific task_type indicated in each blocker."
             )
+            lines.append("")
+            lines.append("Pre-dispatch checklist (verify before retrying termination):")
+            lines.append("1. Every FILL IN placeholder in the answer template has a concrete ER.")
+            lines.append("2. ER expressions are explicit closed-form SymPy (no abstract operators or opaque functions).")
+            lines.append("3. MCQ answers are a concrete letter from the given set, not prose.")
+            lines.append("4. Return types match the template (tuple elements, etc.).")
             lines.append(">>> END TERMINATION BLOCKERS <<<\n")
             self._state.pending_termination_blockers.clear()
         if self._state.pending_explore_results:

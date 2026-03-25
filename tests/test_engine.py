@@ -574,6 +574,18 @@ class TestTerminationGate:
         assert "Unresolved critiques remain" in prefix
         assert len(engine._state.pending_termination_blockers) == 0  # consumed
 
+    def test_termination_blockers_include_checklist(self):
+        """Termination blockers banner includes the pre-dispatch checklist."""
+        engine, _ = self._make_engine()
+        engine._state.pending_termination_blockers = ["Some blocker"]
+        prefix = engine._build_context_suffix()
+
+        assert "Pre-dispatch checklist" in prefix
+        assert "FILL IN placeholder" in prefix
+        assert "closed-form SymPy" in prefix
+        assert "MCQ answers" in prefix
+        assert "Return types match" in prefix
+
     def test_build_context_suffix_empty_when_no_issues(self):
         """Context suffix is empty when no violations or blockers."""
         engine, _ = self._make_engine()
