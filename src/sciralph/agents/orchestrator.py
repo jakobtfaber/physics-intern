@@ -52,6 +52,9 @@ class OrchestratorAgent(BaseAgent):
             "\n",
             render_orchestrator_critique_log(self.research_state) if self.research_state else "",
         ])
+        # Inject critique-handling advice only when there are unresolved critiques
+        if self.research_state and self._has_active_critiques():
+            parts.append(self._critique_handling_banner())
         # Research notes
         if self.research_state and self.research_state.research_notes:
             note_lines = []
@@ -63,6 +66,51 @@ class OrchestratorAgent(BaseAgent):
             parts.append(self.context_suffix)
             self.context_suffix = ""  # consume after use
         return "\n".join(parts)
+
+    def _has_active_critiques(self) -> bool:
+        """Check if there are any unresolved critiques."""
+        from ..research_state import CritiqueStatus
+        if not self.research_state:
+            return False
+        return any(
+            c.status == CritiqueStatus.ACTIVE
+            for c in self.research_state.critiques.values()
+        )
+
+    @staticmethod
+    def _critique_handling_banner() -> str:
+        return (
+            "\n>>> HANDLING CRITIQUES <<<\n"
+            "The deep critic runs automatically after VERIFIED reviews — you do not dispatch it. "
+            "It assesses research strategy and coherence but does NOT see detailed evidence, code, "
+            "or reviewer context. A reviewer's VERIFIED verdict is a stronger signal on specific "
+            "claims than a critic's objection, because the reviewer had full evidence access.\n"
+            "\n"
+            "When the deep critic files critiques, address each one substantively. Three options:\n"
+            "- **Investigate (preferred)** — Dispatch a research or compute task with target_claim "
+            "set to the critique ID (e.g., CRIT-001). The dispatched agent will see the critique's "
+            "argument and produce evidence stored on the critique. After evidence comes back in the "
+            "EVIDENCE RESULTS banner, resolve the critique citing the new evidence.\n"
+            "- **Rework** — If the critique reveals a legit fundamental flaw, abandon the affected "
+            "hypothesis and start fresh. Update the strategy if needed. Resolve the critique "
+            "explaining what was abandoned and why.\n"
+            "- **Dismiss** — Resolve with an explanation of why the critique is already addressed "
+            "or immaterial. When the critique questions a verified result, prefer dispatching a "
+            "second review over dismissal.\n"
+            "\n"
+            "Quantitative critiques require investigation — dispatch a research or compute task "
+            "to check the claim. Do not resolve quantitative critiques by reasoning alone.\n"
+            "\n"
+            "The resolution field in resolve_critique is free text — state *why* the critique is "
+            "addressed, not just *that* it is. Be thorough and specific.\n"
+            "\n"
+            "Every HIGH severity critique should be addressed in priority. MEDIUM and LOW severity "
+            "critiques are advisory — they do not block promotion or termination.\n"
+            "- Critique loops: If a critique persists 2+ iterations, escalate to a different approach.\n"
+            "- Strategy critiques: If the critic targets STRATEGY, review the argument — if the "
+            "disconnect is real, record the pivot in Research Notes, adjust dispatch, and resolve.\n"
+            ">>> END HANDLING CRITIQUES <<<\n"
+        )
 
     def _call_with_tools(
         self,
