@@ -1649,6 +1649,16 @@ class TestRedundantCriticPassFix:
 
         assert engine._should_trigger_critic() is True
 
+    def test_should_trigger_critic_first_er_regardless_of_interval(self):
+        """First critic always fires on first ER, even if iteration < critic_every_n."""
+        engine = self._make_engine()
+        engine.metrics.last_critic_iteration = 0
+        engine.config.critic_every_n = 4
+        engine.iteration = 2  # only 2 iterations in, well below critic_every_n
+        engine._state.last_verified_review_iteration = 2
+
+        assert engine._should_trigger_critic() is True
+
     def test_should_not_trigger_critic_without_verified_review(self):
         """_should_trigger_critic returns False when no verified review this iteration."""
         engine = self._make_engine()

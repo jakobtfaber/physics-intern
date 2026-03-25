@@ -631,6 +631,14 @@ class TestShouldTriggerCritic:
         )
         assert engine._should_trigger_critic() is True
 
+    def test_first_critic_always_fires(self):
+        """First critic fires on first ER even when iteration < critic_every_n."""
+        engine = self._make_engine(
+            last_critic_iteration=0, last_verified_review_iteration=2,
+            current_iteration=2, critic_every_n=4,
+        )
+        assert engine._should_trigger_critic() is True
+
     def test_no_trigger_without_verified_review(self):
         """Does not trigger when latest iteration is not a VERIFIED review."""
         engine = self._make_engine(

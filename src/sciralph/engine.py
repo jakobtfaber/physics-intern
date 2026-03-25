@@ -731,6 +731,9 @@ class SciRalph:
         # Condition 1: latest dispatch was a VERIFIED review
         if self._state.last_verified_review_iteration != self.iteration:
             return False
+        # Always fire on the first established result (no critic has run yet)
+        if self.metrics.last_critic_iteration == 0:
+            return True
         # Condition 2: critic hasn't run in the last critic_every_n iterations
         if (self.iteration - self.metrics.last_critic_iteration) < self.config.critic_every_n:
             return False
