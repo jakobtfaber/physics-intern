@@ -21,6 +21,7 @@ Do NOT call `document_approach` again.
 
 ### Final Turn: Submit your result.
 When you are done, call `submit_result` with your findings, method, and confidence level. This ends the session.
+In `evidence_scripts`, list only the scripts whose output you actually rely on for your conclusion. Do not include scripts that failed, timed out, were abandoned mid-implementation, or produced nonsensical output. The reviewer will read the full code and output of every listed script — including broken ones wastes review capacity and undermines your case.
 
 ## Fresh process per call
 

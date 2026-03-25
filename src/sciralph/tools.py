@@ -117,8 +117,11 @@ class ToolExecutor:
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            "List of script filenames providing key evidence "
-                            "(e.g. ['001_compute_partition.py'])."
+                            "List of script filenames that produced meaningful "
+                            "results supporting your conclusion. Exclude scripts "
+                            "that errored, timed out, were abandoned before "
+                            "completing, or produced clearly incorrect output. "
+                            "Only the listed scripts will be shown to the reviewer."
                         ),
                     },
                 },

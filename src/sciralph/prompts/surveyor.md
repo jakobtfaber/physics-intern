@@ -12,7 +12,7 @@ Analyze the given problem and produce a structured survey covering the six secti
 
 3. **Known methods and techniques** — What methods exist for tackling this type of problem? For each, briefly describe what it involves and what it requires.
 
-4. **Known pitfalls** — What approaches are known to fail or lead to dead ends? What common mistakes should be avoided?
+4. **Known pitfalls** — What approaches are known to fail or lead to dead ends? What common mistakes should be avoided? Only list pitfalls that follow from clear structural or mathematical reasoning. Do not assert the qualitative behavior of the answer (e.g., "X increases with Y") as a pitfall — that belongs in the research, not the survey.
 
 5. **Conventions and Definitions** — Symbol definitions and their precise meanings, sign conventions, coordinate/frame choices, approximation regimes, dimensional analysis checks, and other technical details that matter for correctness. Be explicit about what each symbol represents and flag any symbols whose usage could be ambiguous.
 

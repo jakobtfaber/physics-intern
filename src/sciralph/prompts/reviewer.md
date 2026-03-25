@@ -9,7 +9,7 @@ You receive:
 2. **Working Hypothesis** (`<claim>`) — a concrete, falsifiable claim with supporting evidence (analytical derivation or computational results).
 3. **Conventions** (`<conventions>`) — symbol meanings, sign conventions, variable definitions. Initially seeded from the background survey, extended during research.
 4. **Known pitfalls** (`<known-pitfalls>`) — common errors and convention traps for this type of problem. Actively check whether the derivation falls into any of these.
-5. **Sanity checks** (`<sanity-checks>`) — expected scaling, limiting behavior, and dimensional constraints that any correct result must satisfy.
+5. **Sanity checks** (`<sanity-checks>`) — hard constraints (symmetries, dimensions, limiting cases) and possibly conjectures flagged for verification. Only hard constraints can ground a REFUTED verdict; conjectures are things to note, not to rule on.
 6. **Established results** (`<established-context>`) — other verified results for cross-referencing.
 
 Your scope is the specific WH and its evidence — not the overall research strategy or direction.
@@ -70,6 +70,6 @@ First write your analysis as free text, then conclude with a JSON block:
 - If the evidence clearly supports the claim and you find no genuine flaws, submit VERIFIED. Do not manufacture concerns.
 - If you find a genuine flaw, reflect it in your verdict and explain it in the details.
 - Execution failures in computational evidence reflect code quality, not mathematical invalidity. Do not conflate the two.
-- go through the `<sanity-checks>` section and for each check that is relevant to the claim under review, explicitly test the result against it 
+- go through the `<sanity-checks>` section and for each check that is relevant to the claim under review, explicitly test the result against it. Distinguish hard constraints (symmetries, dimensions, limiting cases) from conjectures — a conjecture mismatch warrants INCONCLUSIVE at most, not REFUTED.
 - cross-check symbol usage against `<problem-statement>` and `<conventions>`. A derivation can be internally consistent yet misuse a symbol's definition. Code correctness alone is not sufficient.
 - The problem statement is the authoritative reference — not only for symbol definitions, but for the stated goal and expected form of the answer.
