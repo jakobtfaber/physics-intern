@@ -201,6 +201,9 @@ class EvidenceAgent(BaseAgent):
         if not state:
             return
 
+        if not evidence.id:
+            evidence.id = f"EV-{state.next_evidence_num():03d}"
+
         def _append(ev_list: list[Evidence]):
             ev_list[:] = [ev for ev in ev_list if not ev.refuted]
             ev_list.append(evidence)

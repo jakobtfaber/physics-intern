@@ -299,13 +299,15 @@ def _evidence_log_body(state: ResearchState) -> str:
     for entry_type, iteration, entity, ev in entries:
         if entry_type == "rq_promoted":
             resolved_ids = ", ".join(entity.resolved_to) if entity.resolved_to else "?"
-            parts.append(f"## {entity.id}: Evidence ({ev.type}) → promoted\n")
+            ev_label = f" {ev.id}" if ev.id else ""
+            parts.append(f"## {entity.id}:{ev_label} Evidence ({ev.type}) → promoted\n")
             parts.append(f"**Question:** {entity.question}")
             parts.append(f"**Result:** {ev.result}")
             parts.append(f"*(Full evidence under {resolved_ids}.)*")
             parts.append(f"**Iteration:** {iteration}\n")
         elif entry_type == "rq_evidence":
-            parts.append(f"## {entity.id}: Evidence ({ev.type})\n")
+            ev_label = f" {ev.id}" if ev.id else ""
+            parts.append(f"## {entity.id}:{ev_label} Evidence ({ev.type})\n")
             parts.append(f"**Question:** {entity.question}")
             parts.append(f"**Method:** {ev.method}")
             if ev.summary:
@@ -319,7 +321,8 @@ def _evidence_log_body(state: ResearchState) -> str:
                 parts.append(f"**Scripts:** {', '.join(ev.scripts)}")
             parts.append(f"**Iteration:** {iteration}\n")
         elif entry_type == "evidence":
-            parts.append(f"## {entity.id}: Evidence ({ev.type})\n")
+            ev_label = f" {ev.id}" if ev.id else ""
+            parts.append(f"## {entity.id}:{ev_label} Evidence ({ev.type})\n")
             parts.append(f"**Statement:** {entity.statement}")
             parts.append(f"**Method:** {ev.method}")
             if ev.summary:
@@ -445,7 +448,8 @@ def _render_hypothesis_parts(h: Hypothesis) -> list[str]:
                 ev_parts.append(f"Confidence: {ev.confidence}")
             if ev.result:
                 ev_parts.append(f"Result: {ev.result[:1500]}")
-            h_parts.append(f'<evidence type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
+            ev_id_attr = f' id="{ev.id}"' if ev.id else ""
+            h_parts.append(f'<evidence{ev_id_attr} type="{ev.type}">\n' + "\n".join(ev_parts) + "\n</evidence>")
     if h.review:
         v = h.review
         v_parts: list[str] = []
@@ -484,7 +488,8 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
                 rq_content.append(f"Context: {rq.context}")
             if rq.evidence:
                 for ev in rq.evidence:
-                    rq_content.append(f"Evidence ({ev.type}): {ev.result[:1000] if ev.result else 'pending'}")
+                    ev_label = f"{ev.id} " if ev.id else ""
+                    rq_content.append(f"Evidence {ev_label}({ev.type}): {ev.result[:1000] if ev.result else 'pending'}")
             rq_lines.append(f'<rq id="{rq.id}" status="OPEN">\n' + "\n".join(rq_content) + "\n</rq>")
         for rq in resolved_rqs:
             if rq.resolved_to:

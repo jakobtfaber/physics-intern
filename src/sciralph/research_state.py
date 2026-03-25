@@ -59,6 +59,7 @@ class RQStatus(StrEnum):
 @dataclass
 class Evidence:
     """Evidence produced by a researcher or computer agent."""
+    id: str = ""             # EV-NNN, assigned by _store_evidence
     type: str = ""           # "research" or "compute"
     reasoning: str = ""      # Researcher's analytical work
     approach: str = ""       # Computer's document_approach output
@@ -283,6 +284,19 @@ class ResearchState:
                     pass
         return max(nums, default=0) + 1
 
+    def next_evidence_num(self) -> int:
+        """Max existing EV number across all entities + 1."""
+        nums: list[int] = []
+        for collection in (self.hypotheses.values(), self.research_questions.values(), self.critiques.values()):
+            for entity in collection:
+                for ev in entity.evidence:
+                    if ev.id and ev.id.startswith("EV-"):
+                        try:
+                            nums.append(int(ev.id.split("-")[1]))
+                        except ValueError:
+                            pass
+        return max(nums, default=0) + 1
+
     def demote_hypothesis(self, hid: str) -> str | None:
         """Demote ER→WH: update status, rename key, fix references.
 
@@ -359,6 +373,7 @@ class ResearchState:
             result: list[Evidence] = []
             for edata in items:
                 result.append(Evidence(
+                    id=edata.get("id", ""),
                     type=edata.get("type", ""),
                     reasoning=edata.get("reasoning", ""),
                     approach=edata.get("approach", ""),

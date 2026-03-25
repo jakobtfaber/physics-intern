@@ -568,13 +568,37 @@ class SciRalph:
         if self._state.pending_explore_results:
             lines.append(">>> EVIDENCE RESULTS (previous iteration) <<<")
             for r in self._state.pending_explore_results:
+                ev_label = f" [{r['evidence_id']}]" if r.get("evidence_id") else ""
                 provenance = f"  [from {r['task_id']}: {r['task_type']} on {r['target_id']}]"
-                lines.append(f"- {r['target_id']}: {r['description']}  [{r['confidence']}]{provenance}")
+                lines.append(f"-{ev_label} {r['target_id']}: {r['description']}  [{r['confidence']}]{provenance}")
                 if r.get("result"):
                     lines.append(f"  Result: {r['result'][:800]}")
                 _is_failure = r.get("result", "").startswith(("Agent produced no exit tool call", "Failed to parse structured"))
                 if _is_failure:
                     lines.append("  NOTE: This evidence is from a failed agent run — do NOT treat it as usable evidence.")
+                # --- Evidence accumulation nudges ---
+                tid = r["target_id"]
+                count = r.get("evidence_count", 0)
+                types = r.get("evidence_types", {})
+                is_rq = r.get("target_is_rq", False)
+                if is_rq and not _is_failure:
+                    lines.append(
+                        f"  -> ACTION NEEDED: {tid} now has {count} evidence item(s) on a Research Question."
+                        " Consider promoting to a Working Hypothesis (add_hypothesis) so it undergoes adversarial review."
+                    )
+                if count >= 3 and is_rq:
+                    lines.append(
+                        f"  >> WARNING: {tid} has {count} evidence items WITHOUT a Working Hypothesis."
+                        " Accumulating evidence on an RQ bypasses the review cycle — the primary error-correction mechanism."
+                        " Create a Working Hypothesis NOW unless you have a strong reason to gather more evidence first."
+                    )
+                if count >= 3 and len(types) == 1:
+                    only_type = next(iter(types))
+                    alt = "researcher" if only_type == "compute" else "computer"
+                    lines.append(
+                        f"  >> NOTE: All {count} evidence items on {tid} are type '{only_type}'."
+                        f" Consider dispatching a {alt} for a different analytical perspective."
+                    )
             lines.append(">>> END EVIDENCE RESULTS <<<\n")
             self._state.pending_explore_results.clear()
         if self._state.pending_verified_results:
@@ -892,6 +916,7 @@ class SciRalph:
         if tt in (TaskType.RESEARCH, TaskType.COMPUTE):
             # Find evidence on the target entity
             ev = None
+            evs: list = []
             if target_id in self.research_state.research_questions:
                 evs = self.research_state.research_questions[target_id].evidence
                 ev = evs[-1] if evs else None
@@ -903,6 +928,12 @@ class SciRalph:
                 ev = evs[-1] if evs else None
 
             if ev and ev.result:
+                # Compute evidence metadata for banner nudges
+                active_evs = [e for e in evs if not e.refuted]
+                type_counts: dict[str, int] = {}
+                for e in active_evs:
+                    type_counts[e.type] = type_counts.get(e.type, 0) + 1
+
                 description = ev.summary or (ev.method[:500] if ev.method else "unknown")
                 self._state.pending_explore_results.append({
                     "target_id": target_id,
@@ -911,6 +942,10 @@ class SciRalph:
                     "confidence": ev.confidence or "partial",
                     "task_id": task.task_id,
                     "task_type": task.task_type.value,
+                    "evidence_id": ev.id,
+                    "evidence_count": len(active_evs),
+                    "evidence_types": type_counts,
+                    "target_is_rq": target_id.startswith("RQ-"),
                 })
                 snippet = (ev.summary or ev.result[:120]).replace("\n", " ")
                 conf = f", {ev.confidence}" if ev.confidence else ""
