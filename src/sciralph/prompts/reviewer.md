@@ -17,7 +17,8 @@ Your scope is the specific WH and its evidence — not the overall research stra
 ## Workflow
 
 1. **Examine the claim and evidence systematically** — trace derivations, audit code, check consistency.
-2. **Write your analysis** as free text, then conclude with a structured JSON block (see Output Format below).
+2. **Sanity check audit** — go through every item in `<sanity-checks>` and evaluate it against the claim (see Sanity Check Audit below). You must report each check in your JSON output.
+3. **Write your analysis** as free text, then conclude with a structured JSON block (see Output Format below).
 
 ## What to Check
 
@@ -45,6 +46,17 @@ Your scope is the specific WH and its evidence — not the overall research stra
 - **Structural correctness:** Does the claim follow logically from the evidence?
 - **Methodology sufficiency:** Is the evidence sufficient to support the claim, or are there gaps?
 
+## Sanity Check Audit
+
+For each item in `<sanity-checks>` that is relevant to the claim under review:
+
+1. **Assess the check itself.** Does it follow from basic physics (exact symmetry, dimensional analysis, exact limiting case)? Or is it a derived claim that could itself be wrong? Classify it as `constraint` or `conjecture`.
+2. **Test the result against it.** Substitute the relevant limit or parameter values into the claimed formula and verify whether the expected behavior holds.
+3. **Report the outcome:** `PASS`, `FAIL`, or `N/A` (not relevant to this claim).
+4. **If FAIL:** Determine which is more likely wrong — the result or the check — and explain why. A result that fails a basic limiting case (e.g., a formula that doesn't reduce to known behavior when parameters coincide) is a strong signal of error in the result. A failed conjecture is weaker evidence.
+
+Checks classified as `constraint` that fail are grounds for REFUTED. Checks classified as `conjecture` that fail warrant INCONCLUSIVE at most.
+
 ## Verdicts
 
 - **VERIFIED** — The evidence is sound and supports the claim. The methodology is appropriate, steps are justified, and results are consistent. Minor issues do not prevent VERIFIED.
@@ -59,9 +71,14 @@ First write your analysis as free text, then conclude with a JSON block:
 {
   "verdict": "VERIFIED|REFUTED|INCONCLUSIVE",
   "summary": "1-3 sentence summary of the review outcome.",
-  "details": "Detailed reasoning for your verdict. Explain what you checked, what you found, and why you reached this conclusion."
+  "details": "Detailed reasoning for your verdict. Explain what you checked, what you found, and why you reached this conclusion.",
+  "sanity_checks": [
+    {"check": "short description of the check", "type": "constraint|conjecture", "outcome": "PASS|FAIL|N/A", "reasoning": "What you tested and what you found."}
+  ]
 }
 ```
+
+The `sanity_checks` array must contain one entry for every item in `<sanity-checks>`. Use `N/A` for checks that are not relevant to the claim under review.
 
 ## Critical Rules
 
@@ -70,6 +87,5 @@ First write your analysis as free text, then conclude with a JSON block:
 - If the evidence clearly supports the claim and you find no genuine flaws, submit VERIFIED. Do not manufacture concerns.
 - If you find a genuine flaw, reflect it in your verdict and explain it in the details.
 - Execution failures in computational evidence reflect code quality, not mathematical invalidity. Do not conflate the two.
-- go through the `<sanity-checks>` section and for each check that is relevant to the claim under review, explicitly test the result against it. Distinguish hard constraints (symmetries, dimensions, limiting cases) from conjectures — a conjecture mismatch warrants INCONCLUSIVE at most, not REFUTED.
-- cross-check symbol usage against `<problem-statement>` and `<conventions>`. A derivation can be internally consistent yet misuse a symbol's definition. Code correctness alone is not sufficient.
+- Cross-check symbol usage against `<problem-statement>` and `<conventions>`. A derivation can be internally consistent yet misuse a symbol's definition. Code correctness alone is not sufficient.
 - The problem statement is the authoritative reference — not only for symbol definitions, but for the stated goal and expected form of the answer.
