@@ -373,9 +373,10 @@ class TestExitToolName:
         executor = ToolExecutor(workspace_root=root)
         assert executor.exit_tool_name == "submit_result"
 
-    def test_orchestrator_exit_tool(self):
+    def test_orchestrator_exit_tools(self):
         from sciralph.orchestrator_tools import OrchestratorToolExecutor
-        assert OrchestratorToolExecutor.exit_tool_name == "set_next_task"
+        expected = {"dispatch_researcher", "dispatch_computer", "dispatch_reviewer", "request_termination"}
+        assert OrchestratorToolExecutor.exit_tool_names == frozenset(expected)
 
     def test_report_progress_mentions_submit_result(self):
         from sciralph.task import TaskType

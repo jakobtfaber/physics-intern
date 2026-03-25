@@ -260,8 +260,19 @@ def run_agent_loop(
     ready_conclude_recovery_count = 0
     text_end_turn_recovery_count = 0
     loop_exit_reason = "max_rounds"  # default; overridden on early exits
-    # Resolve exit tool name for context-aware messages
-    _exit_tool = getattr(tool_executor, "exit_tool_name", "submit_review")
+    # Resolve exit tool name(s) for context-aware messages
+    _exit_tool_names: frozenset[str] = getattr(
+        tool_executor, "exit_tool_names",
+        frozenset({getattr(tool_executor, "exit_tool_name", "submit_review")}),
+    )
+    if len(_exit_tool_names) == 1:
+        _exit_tool_msg = f"`{next(iter(_exit_tool_names))}`"
+    else:
+        _exit_tool_msg = (
+            "a dispatch tool ("
+            + ", ".join(f"`{n}`" for n in sorted(_exit_tool_names))
+            + ")"
+        )
     for round_num in range(1, max_rounds + 1):
         start = time.time()
         # Allow executor to dynamically switch tool set (e.g. after document_approach)
@@ -348,9 +359,9 @@ def run_agent_loop(
                 # Inject recovery message and retry — the for loop
                 # naturally exhausts at max_rounds
                 _recovery_msg = (
-                    f"Your response was empty. You still need to call `{_exit_tool}` "
+                    f"Your response was empty. You still need to call {_exit_tool_msg} "
                     f"to complete your task. If you are done, review your findings and call "
-                    f"`{_exit_tool}` now."
+                    f"{_exit_tool_msg} now."
                 )
                 messages.append(provider.format_assistant_message(resp.raw_content))
                 messages.append({"role": "user", "content": _recovery_msg})
@@ -370,8 +381,8 @@ def run_agent_loop(
                 ready_conclude_recovery_count += 1
                 if ready_conclude_recovery_count == 1:
                     _recovery_msg = (
-                        f"You produced output but did not call `{_exit_tool}`. "
-                        f"You reported ready to conclude — call `{_exit_tool}` now "
+                        f"You produced output but did not call {_exit_tool_msg}. "
+                        f"You reported ready to conclude — call {_exit_tool_msg} now "
                         f"with your findings."
                     )
                     messages.append(provider.format_assistant_message(resp.raw_content))
@@ -393,9 +404,9 @@ def run_agent_loop(
                 text_end_turn_recovery_count += 1
                 if text_end_turn_recovery_count == 1:
                     _recovery_msg = (
-                        f"You wrote your findings as text but did not call `{_exit_tool}`. "
-                        f"You MUST call `{_exit_tool}` with your results to complete your task. "
-                        f"Use the text you just wrote to fill in the `{_exit_tool}` parameters."
+                        f"You wrote your findings as text but did not call {_exit_tool_msg}. "
+                        f"You MUST call {_exit_tool_msg} with your results to complete your task. "
+                        f"Use the text you just wrote to fill in the {_exit_tool_msg} parameters."
                     )
                     messages.append(provider.format_assistant_message(resp.raw_content))
                     messages.append({"role": "user", "content": _recovery_msg})
@@ -499,7 +510,7 @@ def run_agent_loop(
                          total_input, total_output,
                          resp.input_tokens, resp.output_tokens, duration)
 
-            # Executor-signaled early stop (e.g., orchestrator's set_next_task)
+            # Executor-signaled early stop (e.g., orchestrator dispatch tools)
             if getattr(tool_executor, "stop_after_round", False):
                 result = AgentResult(
                     text=round_text,
@@ -540,7 +551,7 @@ def run_agent_loop(
                     "If your recent computations confirmed what earlier ones already "
                     "showed, you likely have enough evidence — set ready_to_conclude "
                     "to true."
-                ).format(n=consecutive_exec_python, exit_tool=_exit_tool)
+                ).format(n=consecutive_exec_python, exit_tool=_exit_tool_msg)
                 messages.append({"role": "user", "content": _progress_msg})
                 # Expose report_progress tool for the next round
                 if hasattr(tool_executor, "_progress_check_pending"):
@@ -559,7 +570,7 @@ def run_agent_loop(
                 _final_warn_msg = (
                     "WARNING: You have 2 rounds left before your session ends. "
                     "Wrap up your work and prepare your final output. "
-                    f"Call `{_exit_tool}` now."
+                    f"Call {_exit_tool_msg} now."
                 )
                 messages.append({"role": "user", "content": _final_warn_msg})
                 round_log.append({
@@ -571,7 +582,7 @@ def run_agent_loop(
             if round_num == max_rounds - 1 and max_rounds >= 4:
                 _crit_msg = (
                     "CRITICAL: This is your LAST round with tool access. "
-                    f"You MUST call `{_exit_tool}` now, or write your final "
+                    f"You MUST call {_exit_tool_msg} now, or write your final "
                     "output as text in this response."
                 )
                 messages.append({"role": "user", "content": _crit_msg})
@@ -598,7 +609,7 @@ def run_agent_loop(
     )
     _exit_tool_defs = None
     if _forced_with_exit_tool:
-        _exit_tool_defs = [t for t in tools if t["function"]["name"] == _exit_tool]
+        _exit_tool_defs = [t for t in tools if t["function"]["name"] in _exit_tool_names]
         if not _exit_tool_defs:
             _forced_with_exit_tool = False
 
@@ -607,7 +618,7 @@ def run_agent_loop(
     if _forced_with_exit_tool:
         forced_msg = (
             f"IMPORTANT: {reason}\n\n"
-            f"You MUST call `{_exit_tool}` now with your findings.\n"
+            f"You MUST call {_exit_tool_msg} now with your findings.\n"
         )
     else:
         forced_msg = (
@@ -621,7 +632,7 @@ def run_agent_loop(
     round_log.append({"kind": "scaffold_injection", "round": round_num + 1,
                        "label": "forced_final_message", "content": forced_msg})
 
-    # Clear executor state so forced set_next_task isn't rejected by the dispatch gate
+    # Clear executor state so forced dispatch isn't rejected by the dispatch gate
     if hasattr(tool_executor, "begin_round"):
         tool_executor.begin_round()
 
@@ -659,7 +670,7 @@ def run_agent_loop(
             # Process exit tool call if returned
             if _forced_with_exit_tool and final_resp.tool_calls:
                 for tc_info in final_resp.tool_calls:
-                    if tc_info["name"] == _exit_tool:
+                    if tc_info["name"] in _exit_tool_names:
                         tc = tool_executor.execute(tc_info["name"], tc_info["input"])
                         all_tool_calls.append(tc)
                         round_log.append({
@@ -678,8 +689,8 @@ def run_agent_loop(
             if _forced_with_exit_tool and _forced_attempt < _forced_max_retries:
                 messages.append(provider.format_assistant_message(final_resp.raw_content))
                 _retry_msg = (
-                    f"You did not call `{_exit_tool}`. "
-                    f"You MUST call `{_exit_tool}` with your findings to complete your task."
+                    f"You did not call {_exit_tool_msg}. "
+                    f"You MUST call {_exit_tool_msg} with your findings to complete your task."
                 )
                 messages.append({"role": "user", "content": _retry_msg})
                 round_log.append({

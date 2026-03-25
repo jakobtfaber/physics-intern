@@ -77,7 +77,12 @@ class SciRalph:
         self.workspace = WorkspaceManager(self.config)
         # Append answer template to problem so all agents see the expected output format
         if answer_template:
-            problem = problem.rstrip() + "\n\n# Expected answer format\n\n" + answer_template.strip()
+            problem = (problem.rstrip()
+                       + "\n\n# Expected answer format\n\n" + answer_template.strip()
+                       + "\n\n**Note:** Not every parameter in the template necessarily belongs"
+                       " in the final answer. Some may be zero, absent, or irrelevant"
+                       " depending on the problem. Determine which quantities are"
+                       " actually needed from the physics, not from the template.")
         self.workspace.init(problem)
         self.config.logs_dir = str(self.workspace.logs_dir)
         self.iteration = 0
@@ -238,7 +243,7 @@ class SciRalph:
                     research_state=self.research_state)
                 if allowed:
                     console.print("[green]Orchestrator signaled completion.[/green]")
-                    rejection = self._run_formatter()
+                    rejection = self._run_formatter(answer_ers=task.answer_ers)
                     if rejection is None:
                         self._set_research_status("completed")
                         self._render_files_for_git()
@@ -903,7 +908,7 @@ class SciRalph:
         self.workspace.write_file("EVIDENCE_LOG.md", render_evidence_log_md(self.research_state))
         self.workspace.write_file("CRITIQUE_LOG.md", render_critique_log_md(self.research_state))
 
-    def _run_formatter(self) -> str | None:
+    def _run_formatter(self, answer_ers: list[str] | None = None) -> str | None:
         """Run the formatter agent to produce ANSWER.md.
 
         Returns ``None`` on success, or a rejection reason string if the
@@ -915,6 +920,7 @@ class SciRalph:
             task_type=TaskType.FORMAT,
             assigned_to="formatter",
             iteration=self.iteration,
+            answer_ers=answer_ers or [],
         )
         self.formatter.research_state = self.research_state
         result = self.formatter.run(fmt_task, self.iteration)

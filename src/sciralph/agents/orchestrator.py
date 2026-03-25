@@ -167,7 +167,7 @@ class OrchestratorAgent(BaseAgent):
             self.workspace.write_file("CURRENT_TASK.md", task_obj.to_markdown())
 
     def _task_from_tool_data(self, data: dict, iteration: int) -> Task:
-        """Build a Task from set_next_task tool arguments."""
+        """Build a Task from dispatch tool arguments."""
         raw_type = data.get("task_type", "research")
         try:
             task_type = TaskType(raw_type)
@@ -186,6 +186,7 @@ class OrchestratorAgent(BaseAgent):
             method_hints=data.get("method_hints", []),
             assumptions=data.get("assumptions", []),
             relevant_results=data.get("relevant_results", []),
+            answer_ers=data.get("answer_ers", []),
         )
 
     def parse_task(self, text: str, iteration: int = 0) -> Task:

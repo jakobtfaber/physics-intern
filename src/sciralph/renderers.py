@@ -682,12 +682,18 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
     return "\n\n".join(parts)
 
 
-def render_formatter_context(state: ResearchState) -> str:
+def render_formatter_context(
+    state: ResearchState,
+    answer_ers: list[str] | None = None,
+) -> str:
     """Render focused context for the formatter agent using XML tags.
 
     Includes only what the formatter needs: problem statement, conventions,
     established results (with evidence/review), and a brief warning for any
     remaining open RQs or WHs.
+
+    If *answer_ers* is provided, an ``<answer-structure>`` section is emitted
+    listing the ER IDs in the order chosen by the orchestrator.
     """
     parts: list[str] = []
 
@@ -697,6 +703,17 @@ def render_formatter_context(state: ResearchState) -> str:
     # Conventions
     if state.conventions:
         parts.append(f"<conventions>\n{state.conventions}\n</conventions>")
+
+    # Answer structure hint from orchestrator
+    if answer_ers:
+        er_list = "\n".join(f"- {er_id}" for er_id in answer_ers)
+        parts.append(
+            "<answer-structure>\n"
+            "The orchestrator identified these established results as the "
+            "key answers, in this order:\n"
+            f"{er_list}\n"
+            "</answer-structure>"
+        )
 
     # Established Results
     ers = sorted(

@@ -247,9 +247,9 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Two agents are agentic: orchestrator (10 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching). Seven agents are one-shot: researcher (structured JSON via `_parse_researcher_json()`), reviewer (structured JSON via `_parse_review_json()`), critic (structured JSON via `_parse_critic_json()`), surveyor, planner, compressor, and formatter.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Two agents are agentic: orchestrator (13 tools via `OrchestratorToolExecutor`: 9 mutation + 4 dispatch) and computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching). Seven agents are one-shot: researcher (structured JSON via `_parse_researcher_json()`), reviewer (structured JSON via `_parse_review_json()`), critic (structured JSON via `_parse_critic_json()`), surveyor, planner, compressor, and formatter.
 
-All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (`set_next_task`, `submit_result`) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`. (Only the computer agent now uses `submit_result` via this mechanism; the researcher uses one-shot JSON output instead.)
+All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (dispatch tools for the orchestrator, `submit_result` for the computer) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`. The orchestrator has four dispatch tools (`dispatch_researcher`, `dispatch_computer`, `dispatch_reviewer`, `request_termination`), each with tailored parameters. (Only the computer agent now uses `submit_result` via this mechanism; the researcher uses one-shot JSON output instead.)
 
 **No retry on truncation:** `_call_with_retry` returns immediately when `stop_reason == "max_tokens"` (no retries). The engine's `_record_agent_failures()` detects the truncation and injects a CAPACITY EXCEEDED banner into the orchestrator's next context via `_build_context_prefix()`, prompting task decomposition.
 
@@ -298,14 +298,17 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `append_note` — appends a research note to `research_notes` list
 - `add_research_question` — creates new RQ-NNN for open-ended exploration targets
 - `resolve_research_question` — marks RQ as resolved, links to resulting hypothesis IDs
-- `set_next_task` — emits next task with structured dispatch params (background, method_hints, assumptions, relevant_results); triggers `stop_after_round` to end agent loop
+- `dispatch_researcher` — dispatches researcher with target_claim (required), description, background, method_hints, assumptions, relevant_results; triggers `stop_after_round`
+- `dispatch_computer` — dispatches computer with same params as researcher; triggers `stop_after_round`
+- `dispatch_reviewer` — dispatches reviewer with target_claim (WH-only, required), description, background; triggers `stop_after_round`
+- `request_termination` — requests loop termination with optional reason; triggers `stop_after_round`
 
 **Context (largest in the system):**
 - `context_prefix` from engine — violations, termination blockers, evidence results, verified hypotheses, review results, agent failures (6 consumed-once banners)
 - Completion analysis banner (if ER count sufficient, or budget pressure) — includes synthesis instruction
 - Full research state, critique log, and metrics — all rendered from `self.research_state` via renderers (not from file reads)
 
-**Output processing:** Only processes if `_tool_executor.mutations_applied` is true. Writes `CURRENT_TASK.md` from `set_next_task` tool data. (MD files are rendered centrally by the engine's `_render_files_for_git()`, not by individual agents.)
+**Output processing:** Only processes if `_tool_executor.mutations_applied` is true. Writes `CURRENT_TASK.md` from dispatch tool data. (MD files are rendered centrally by the engine's `_render_files_for_git()`, not by individual agents.)
 
 **Prompt rules (key):** COMPUTE-FIRST (new hypotheses get review before critique); converged derivation → move to review; stall loops → escalate or downgrade; critiques don't block promotion (severity is informational only).
 
@@ -459,7 +462,10 @@ For `COMPUTE`:
 7. **`append_note`** — appends to `research_notes` list
 8. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
 9. **`resolve_research_question`** — marks RQ as resolved, links to resulting hypothesis IDs
-10. **`set_next_task`** — emits task with structured dispatch params (background, method_hints, assumptions, relevant_results); sets `stop_after_round = True`
+10. **`dispatch_researcher`** — dispatches researcher; sets `stop_after_round = True`
+11. **`dispatch_computer`** — dispatches computer; sets `stop_after_round = True`
+12. **`dispatch_reviewer`** — dispatches reviewer (WH-only target); sets `stop_after_round = True`
+13. **`request_termination`** — requests loop termination; sets `stop_after_round = True`
 
 Tracks `mutations_applied` (bool) and `resolved_critique_ids` (set) for `process_response` to use.
 
@@ -520,7 +526,7 @@ Each run creates a timestamped workspace directory (e.g., `workspaces/20260313_1
 workspaces/<run>/
   RESEARCH_GRAPH.json    ← Authoritative structured state (ResearchState serialized as JSON)
   RESEARCH_STATE.md      ← Rendered from ResearchState by engine's _render_files_for_git()
-  CURRENT_TASK.md        ← Orchestrator writes via set_next_task tool; consumed by dispatched agent
+  CURRENT_TASK.md        ← Orchestrator writes via dispatch tools; consumed by dispatched agent
   EVIDENCE_LOG.md        ← Rendered from ResearchState by engine's _render_files_for_git()
   CRITIQUE_LOG.md        ← Rendered from ResearchState by engine's _render_files_for_git()
   ANSWER.md              ← Formatter writes on successful termination
@@ -803,7 +809,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 | Test file | Lines | What it covers |
 |-----------|------:|----------------|
 | `test_engine.py` | 1490 | Main loop, termination gates, compression, budget, stalls, dispatch, context prefix, result tracking |
-| `test_orchestrator_tools.py` | 1150 | OrchestratorToolExecutor: add/update/abandon/promote hypothesis, resolve critique, set_next_task, append_note, update_section |
+| `test_orchestrator_tools.py` | 1150 | OrchestratorToolExecutor: add/update/abandon/promote hypothesis, resolve critique, dispatch tools, append_note, update_section |
 | `test_tools.py` | 1060 | ToolExecutor, submit_result, document_approach, run_agent_loop, truncation, token accumulation, active_tools |
 | `test_markdown.py` | 972 | Frontmatter, sections, critique lifecycle, header normalisation |
 | `test_research_state.py` | 929 | ResearchState dataclass, query methods, promote/demote, normalize_references, Evidence/ReviewResult, serialization |

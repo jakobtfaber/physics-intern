@@ -261,6 +261,11 @@ class ToolExecutor:
         """Return the context-appropriate exit tool name."""
         return "submit_result"
 
+    @property
+    def exit_tool_names(self) -> frozenset[str]:
+        """Return all exit tool names (for multi-exit-tool executors)."""
+        return frozenset({self.exit_tool_name})
+
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
         """Dispatch a tool call by name."""
         start = time.time()

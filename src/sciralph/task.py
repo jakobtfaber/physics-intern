@@ -46,11 +46,13 @@ class Task:
     target_file: str = ""
     target_claim: str = ""
     body: str = ""
-    # Structured dispatch context (populated by orchestrator's set_next_task)
+    # Structured dispatch context (populated by orchestrator dispatch tools)
     background: str = ""
     method_hints: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     relevant_results: list[str] = field(default_factory=list)
+    # Termination context (populated by request_termination)
+    answer_ers: list[str] = field(default_factory=list)
 
     def to_markdown(self) -> str:
         """Render as YAML frontmatter + body Markdown."""

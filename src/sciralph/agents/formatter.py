@@ -30,7 +30,7 @@ class FormatterAgent(BaseAgent):
         self.rejection_reason: str | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
-        parts = [render_formatter_context(self.research_state)]
+        parts = [render_formatter_context(self.research_state, answer_ers=task.answer_ers)]
         if self.answer_template:
             parts.append(f"<answer-template>\n{self.answer_template}\n</answer-template>")
         return "\n\n".join(parts)

@@ -271,32 +271,20 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "set_next_task",
+            "name": "dispatch_researcher",
             "description": (
-                "Set the next task for the research loop. "
-                "Can be called alongside mutation tools — all mutations "
-                "are applied before the dispatch is processed."
+                "Dispatch the researcher agent for pure reasoning, derivation, "
+                "or analysis. No code execution. Can be called alongside "
+                "mutation tools — all mutations are applied before dispatch."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "task_type": {
-                        "type": "string",
-                        "enum": [
-                            "research", "compute", "review",
-                            "terminate",
-                        ],
-                    },
-                    "priority": {
-                        "type": "string",
-                        "enum": ["high", "medium", "low"],
-                    },
                     "target_claim": {
                         "type": "string",
                         "description": (
-                            "The RQ/WH/ER/CRIT ID this task targets. "
-                            "For research/compute: the RQ, WH, or CRIT being investigated. "
-                            "For review: the WH being reviewed."
+                            "The RQ, WH, or CRIT ID this task targets "
+                            "(e.g. 'RQ-001', 'WH-003', 'CRIT-001')."
                         ),
                     },
                     "description": {
@@ -309,11 +297,17 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                             "suggestions in method_hints instead."
                         ),
                     },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"],
+                    },
                     "background": {
                         "type": "string",
                         "description": (
                             "Background context for the task: relevant prior results, "
-                            "established conventions, domain knowledge."
+                            "established conventions, domain knowledge. CRITICAL: the "
+                            "researcher has NO access to background survey, research "
+                            "notes, or strategy — provide all needed context here."
                         ),
                     },
                     "method_hints": {
@@ -339,7 +333,131 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         ),
                     },
                 },
-                "required": ["task_type", "description"],
+                "required": ["target_claim", "description"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "dispatch_computer",
+            "description": (
+                "Dispatch the computer agent for numerical, symbolic, or "
+                "simulation work via Python/SymPy/NumPy/SciPy. Can be called "
+                "alongside mutation tools — all mutations are applied before dispatch."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_claim": {
+                        "type": "string",
+                        "description": (
+                            "The RQ, WH, or CRIT ID this task targets "
+                            "(e.g. 'RQ-001', 'WH-003', 'CRIT-001')."
+                        ),
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": (
+                            "Goal-focused task description. Lead with a single "
+                            "sentence stating the deliverable and its scope. "
+                            "Add critical constraints or pitfalls if needed. "
+                            "Do NOT write step-by-step procedures — put method "
+                            "suggestions in method_hints instead."
+                        ),
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"],
+                    },
+                    "background": {
+                        "type": "string",
+                        "description": (
+                            "Background context for the task: relevant prior results, "
+                            "established conventions, domain knowledge. CRITICAL: the "
+                            "computer has NO access to background survey, research "
+                            "notes, or strategy — provide all needed context here."
+                        ),
+                    },
+                    "method_hints": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Suggested methods or approaches for the agent to consider."
+                        ),
+                    },
+                    "assumptions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Key assumptions the agent should work under."
+                        ),
+                    },
+                    "relevant_results": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "References to established results or prior evidence "
+                            "that are relevant to this task (e.g. 'ER-001', 'WH-003')."
+                        ),
+                    },
+                },
+                "required": ["target_claim", "description"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "dispatch_reviewer",
+            "description": (
+                "Dispatch the reviewer agent to check evidence on a Working "
+                "Hypothesis. The reviewer auto-builds its context from the WH's "
+                "evidence, code, and reasoning — it does NOT execute code. "
+                "Can be called alongside mutation tools."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_claim": {
+                        "type": "string",
+                        "description": (
+                            "The WH ID to review (e.g. 'WH-003'). "
+                            "Must be a Working Hypothesis."
+                        ),
+                    },
+                },
+                "required": ["target_claim"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "request_termination",
+            "description": (
+                "Request termination of the research loop. Use when all RQs "
+                "are resolved or abandoned and all WHs are promoted or abandoned. "
+                "The system enforces completion gates and reports blockers if not met."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the research is complete.",
+                    },
+                    "answer_ers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Ordered list of ER IDs that constitute the answer "
+                            "(e.g. ['ER-001', 'ER-003', 'ER-005']). The formatter "
+                            "uses this to structure the final answer."
+                        ),
+                    },
+                },
+                "required": ["answer_ers"],
             },
         },
     },
@@ -355,7 +473,10 @@ class OrchestratorToolExecutor:
 
     TOOL_DEFINITIONS: ClassVar[list[dict]] = ORCHESTRATOR_TOOL_DEFINITIONS
 
-    exit_tool_name: str = "set_next_task"
+    exit_tool_names: ClassVar[frozenset[str]] = frozenset({
+        "dispatch_researcher", "dispatch_computer",
+        "dispatch_reviewer", "request_termination",
+    })
 
     def __init__(
         self, workspace: WorkspaceManager, iteration: int,
@@ -510,7 +631,7 @@ class OrchestratorToolExecutor:
             guidance.append(f"{active_critiques} unresolved critique(s) to address.")
 
         # Default closing
-        guidance.append("When ready to dispatch, include set_next_task in your response.")
+        guidance.append("When ready, call a dispatch tool (dispatch_researcher, dispatch_computer, dispatch_reviewer, or request_termination).")
         return guidance
 
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
@@ -527,7 +648,10 @@ class OrchestratorToolExecutor:
             "append_note": self._append_note,
             "add_research_question": self._add_research_question,
             "resolve_research_question": self._resolve_research_question,
-            "set_next_task": self._set_next_task,
+            "dispatch_researcher": self._dispatch_researcher,
+            "dispatch_computer": self._dispatch_computer,
+            "dispatch_reviewer": self._dispatch_reviewer,
+            "request_termination": self._request_termination,
         }
         handler = handlers.get(tool_name)
         if not handler:
@@ -596,7 +720,7 @@ class OrchestratorToolExecutor:
                 f"Error: {from_rq} is already resolved"
                 f" (iteration {rq.iteration_resolved})."
                 " Do not create a WH from an already-closed RQ."
-                " Call set_next_task to proceed."
+                " Call a dispatch tool to proceed."
             )
         rq_num = int(from_rq.split("-")[1])
         new_id = f"WH-{rq_num:03d}"
@@ -920,19 +1044,51 @@ class OrchestratorToolExecutor:
         console.print(f"  [dim]{rq_id}[/] closed" + (f" — {reason[:60]}" if reason else ""))
         return f"Closed {rq_id}."
 
-    def _set_next_task(self, args: dict) -> str:
-        # Validate target_claim when present
-        task_type = args.get("task_type", "")
-        target_claim = args.get("target_claim")
-        skip_validation = task_type in ("terminate",)
-        if target_claim and not skip_validation and self.research_state:
-            valid = self._validate_target_claim(target_claim)
-            if valid is not None:
-                return valid
-
-        self.task_data = args
+    def _dispatch_researcher(self, args: dict) -> str:
+        target = args["target_claim"]
+        if self.research_state:
+            err = self._validate_target_claim(target)
+            if err is not None:
+                return err
+        self.task_data = {"task_type": "research", **args}
         self.stop_after_round = True
-        return f"Task set: {args.get('task_type', '?')}"
+        return f"Dispatched: researcher → {target}"
+
+    def _dispatch_computer(self, args: dict) -> str:
+        target = args["target_claim"]
+        if self.research_state:
+            err = self._validate_target_claim(target)
+            if err is not None:
+                return err
+        self.task_data = {"task_type": "compute", **args}
+        self.stop_after_round = True
+        return f"Dispatched: computer → {target}"
+
+    def _dispatch_reviewer(self, args: dict) -> str:
+        target = args["target_claim"]
+        if not target.startswith("WH-"):
+            return (
+                f"Error: dispatch_reviewer requires a WH target, got '{target}'. "
+                "The reviewer can only review Working Hypotheses."
+            )
+        if self.research_state:
+            err = self._validate_target_claim(target)
+            if err is not None:
+                return err
+        self.task_data = {"task_type": "review", **args}
+        self.stop_after_round = True
+        return f"Dispatched: reviewer → {target}"
+
+    def _request_termination(self, args: dict) -> str:
+        reason = args.get("reason", "Research complete.")
+        answer_ers = args.get("answer_ers", [])
+        self.task_data = {
+            "task_type": "terminate",
+            "description": reason,
+            "answer_ers": answer_ers,
+        }
+        self.stop_after_round = True
+        return "Termination requested."
 
     def _validate_target_claim(self, target_claim: str) -> str | None:
         """Validate target_claim exists. Returns error string or None if valid."""

@@ -94,7 +94,7 @@ class TestNewAgentTools:
         from sciralph.agents.orchestrator import OrchestratorAgent
         assert len(OrchestratorAgent.tools) > 0
         tool_names = {t["function"]["name"] for t in OrchestratorAgent.tools}
-        assert "set_next_task" in tool_names
+        assert "dispatch_researcher" in tool_names
         assert "add_hypothesis" in tool_names
 
 

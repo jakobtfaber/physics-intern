@@ -582,33 +582,71 @@ class TestAppendNote:
 
 
 # ---------------------------------------------------------------------------
-# set_next_task
+# Dispatch tools
 # ---------------------------------------------------------------------------
 
-class TestSetNextTask:
-    def test_stores_task_data(self):
+class TestDispatchTools:
+    def test_dispatch_reviewer_stores_task_data(self):
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3)
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
-            "priority": "high",
+        tc = ex.execute("dispatch_reviewer", {
             "target_claim": "WH-001",
-            "description": "Verify WH-001 numerically.",
         })
         assert not tc.is_error
         assert ex.task_data is not None
         assert ex.task_data["task_type"] == "review"
         assert ex.task_data["target_claim"] == "WH-001"
 
-    def test_sets_stop_after_round(self):
+    def test_dispatch_researcher_stores_task_data(self):
+        ws = _make_workspace()
+        ex = OrchestratorToolExecutor(ws, iteration=3)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "WH-001",
+            "description": "Derive result.",
+        })
+        assert not tc.is_error
+        assert ex.task_data["task_type"] == "research"
+
+    def test_dispatch_computer_stores_task_data(self):
+        ws = _make_workspace()
+        ex = OrchestratorToolExecutor(ws, iteration=3)
+        tc = ex.execute("dispatch_computer", {
+            "target_claim": "WH-001",
+            "description": "Compute numerically.",
+        })
+        assert not tc.is_error
+        assert ex.task_data["task_type"] == "compute"
+
+    def test_request_termination_sets_stop(self):
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3)
         assert not ex.stop_after_round
-        ex.execute("set_next_task", {
-            "task_type": "terminate",
-            "description": "Done.",
+        ex.execute("request_termination", {
+            "reason": "Done.",
+            "answer_ers": ["ER-001", "ER-003"],
         })
         assert ex.stop_after_round
+        assert ex.task_data["task_type"] == "terminate"
+        assert ex.task_data["answer_ers"] == ["ER-001", "ER-003"]
+
+    def test_request_termination_without_reason(self):
+        ws = _make_workspace()
+        ex = OrchestratorToolExecutor(ws, iteration=3)
+        tc = ex.execute("request_termination", {"answer_ers": []})
+        assert not tc.is_error
+        assert ex.stop_after_round
+        assert ex.task_data["description"] == "Research complete."
+
+    def test_dispatch_reviewer_rejects_non_wh_target(self):
+        ws = _make_workspace()
+        ex = OrchestratorToolExecutor(ws, iteration=3)
+        tc = ex.execute("dispatch_reviewer", {
+            "target_claim": "RQ-001",
+        })
+        assert "Error" in tc.output
+        assert "WH" in tc.output
+        assert ex.task_data is None
+        assert not ex.stop_after_round
 
 
 # ---------------------------------------------------------------------------
@@ -647,15 +685,22 @@ class TestNoResearchState:
                 f"{tool_name} should error without research_state"
             )
 
-    def test_set_next_task_works_without_state(self):
+    def test_dispatch_works_without_state(self):
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
-        tc = ex.execute("set_next_task", {
-            "task_type": "research",
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "RQ-001",
             "description": "Continue.",
         })
         assert not tc.is_error
         assert ex.task_data is not None
+        assert ex.stop_after_round
+
+    def test_request_termination_works_without_state(self):
+        ws = _make_workspace()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
+        tc = ex.execute("request_termination", {})
+        assert not tc.is_error
         assert ex.stop_after_round
 
 
@@ -892,8 +937,8 @@ class TestResearchQuestionTools:
 # Dispatch gate
 # ---------------------------------------------------------------------------
 
-class TestSetNextTask:
-    """Tests for set_next_task dispatch behavior."""
+class TestDispatchGate:
+    """Tests for dispatch tool behavior with mutations."""
 
     @staticmethod
     def _state_with_open_rq():
@@ -908,7 +953,7 @@ class TestSetNextTask:
         return state
 
     def test_mutations_plus_dispatch_all_succeed(self):
-        """add_hypothesis + set_next_task in same round both succeed."""
+        """add_hypothesis + dispatch_reviewer in same round both succeed."""
         ws = _make_workspace()
         state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
@@ -917,12 +962,10 @@ class TestSetNextTask:
         assert not tc1.is_error
         assert "WH-003" in state.hypotheses
 
-        tc2 = ex.execute("set_next_task", {
-            "task_type": "review",
+        tc2 = ex.execute("dispatch_reviewer", {
             "target_claim": "WH-003",
-            "description": "Verify new claim.",
         })
-        assert "Task set" in tc2.output
+        assert "Dispatched" in tc2.output
         assert ex.task_data is not None
         assert ex.stop_after_round
 
@@ -940,17 +983,15 @@ class TestSetNextTask:
         assert "RQ-004" in state.research_questions
 
     def test_dispatch_alone_succeeds(self):
-        """set_next_task succeeds when no mutations occurred this round."""
+        """dispatch_reviewer succeeds when no mutations occurred this round."""
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
+        tc = ex.execute("dispatch_reviewer", {
             "target_claim": "WH-001",
-            "description": "Verify.",
         })
-        assert "Task set" in tc.output
+        assert "Dispatched" in tc.output
         assert ex.task_data is not None
         assert ex.stop_after_round
 
@@ -965,17 +1006,15 @@ class TestSetNextTask:
 
         # Round 2: dispatch
         ex.begin_round()
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
+        tc = ex.execute("dispatch_reviewer", {
             "target_claim": "WH-003",
-            "description": "Verify.",
         })
-        assert "Task set" in tc.output
+        assert "Dispatched" in tc.output
         assert ex.stop_after_round
         assert ex.task_data["target_claim"] == "WH-003"
 
     def test_tools_in_prior_round_dont_block_dispatch(self):
-        """Tool calls in an earlier response don't affect set_next_task in a later one."""
+        """Tool calls in an earlier response don't affect dispatch in a later one."""
         ws = _make_workspace()
         state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
@@ -987,16 +1026,14 @@ class TestSetNextTask:
         # Round 2: new response, dispatch only
         ex.begin_round()
         assert ex._calls_this_round == 0
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
+        tc = ex.execute("dispatch_reviewer", {
             "target_claim": "WH-003",
-            "description": "Verify.",
         })
-        assert "Task set" in tc.output
+        assert "Dispatched" in tc.output
         assert ex.stop_after_round
 
     def test_non_entity_mutations_plus_dispatch_succeed(self):
-        """update + resolve_critique + update_section + set_next_task all succeed."""
+        """update + resolve_critique + update_section + dispatch all succeed."""
         ws = _make_workspace()
         state = _make_state()
         state.critiques["CRIT-001"] = Critique(
@@ -1014,17 +1051,15 @@ class TestSetNextTask:
         ex.execute("update_section", {
             "section": "Conventions", "content": "Natural units.",
         })
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
+        tc = ex.execute("dispatch_reviewer", {
             "target_claim": "WH-001",
-            "description": "Verify.",
         })
-        assert "Task set" in tc.output
+        assert "Dispatched" in tc.output
         assert ex.stop_after_round
         assert ex.task_data is not None
 
     def test_promote_plus_dispatch_succeed(self):
-        """promote + resolve_critique + set_next_task in same round all succeed."""
+        """promote + resolve_critique + dispatch in same round all succeed."""
         ws = _make_workspace()
         state = _make_state_with_verified("WH-001")
         state.critiques["CRIT-001"] = Critique(
@@ -1039,12 +1074,10 @@ class TestSetNextTask:
         ex.execute("resolve_critique", {
             "critique_id": "CRIT-001", "resolution": "Promoted WH-001.",
         })
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
+        tc = ex.execute("dispatch_reviewer", {
             "target_claim": "WH-002",
-            "description": "Verify WH-002.",
         })
-        assert "Task set" in tc.output
+        assert "Dispatched" in tc.output
         assert ex.stop_after_round
 
 
@@ -1158,7 +1191,7 @@ class TestStateInjection:
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        nudge = "Call set_next_task ALONE in your next response to dispatch"
+        nudge = "Call a dispatch tool"
         tc1 = ex.execute("add_hypothesis", {"statement": "Test"})
         assert nudge not in tc1.output
         tc2 = ex.execute("resolve_critique", {
@@ -1178,18 +1211,16 @@ class TestStateInjection:
 # ---------------------------------------------------------------------------
 
 class TestTargetClaimValidation:
-    """Tests for target_claim validation in set_next_task."""
+    """Tests for target_claim validation in dispatch tools."""
 
     def test_valid_wh_target_passes(self):
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
+        tc = ex.execute("dispatch_reviewer", {
             "target_claim": "WH-001",
-            "description": "Verify.",
         })
-        assert "Task set" in tc.output
+        assert "Dispatched" in tc.output
         assert ex.stop_after_round
 
     def test_valid_rq_target_passes(self):
@@ -1200,20 +1231,18 @@ class TestTargetClaimValidation:
             id="RQ-003", question="Test?", iteration_created=1,
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("set_next_task", {
-            "task_type": "research",
+        tc = ex.execute("dispatch_researcher", {
             "target_claim": "RQ-003",
             "description": "Explore.",
         })
-        assert "Task set" in tc.output
+        assert "Dispatched" in tc.output
         assert ex.stop_after_round
 
     def test_invalid_target_rejected_with_listing(self):
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
+        tc = ex.execute("dispatch_researcher", {
             "target_claim": "WH-099",
             "description": "Verify.",
         })
@@ -1224,42 +1253,12 @@ class TestTargetClaimValidation:
         assert ex.task_data is None
         assert not ex.stop_after_round
 
-    def test_critique_no_longer_valid_task_type(self):
-        """Critique is not a valid dispatch type — the deep critic is auto-triggered."""
+    def test_termination_skips_validation(self):
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("set_next_task", {
-            "task_type": "critique",
-            "target_claim": "WH-001",
-            "description": "Review.",
-        })
-        # critique is no longer in the enum — the LLM schema enforcement
-        # rejects it, but at the executor level the task still gets set
-        # (schema validation is provider-side). The key change is that
-        # target_claim validation now applies (no longer skipped).
-        # With a valid target WH-001, it succeeds but goes through validation.
-        assert ex.stop_after_round
-
-    def test_skipped_for_terminate(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("set_next_task", {
-            "task_type": "terminate",
-            "description": "Done.",
-        })
-        assert "Task set" in tc.output
-
-    def test_skipped_when_target_claim_absent(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
-            "description": "Verify something.",
-        })
-        assert "Task set" in tc.output
+        tc = ex.execute("request_termination", {"reason": "Done."})
+        assert "Termination" in tc.output
         assert ex.stop_after_round
 
     def test_valid_crit_target_passes(self):
@@ -1270,12 +1269,11 @@ class TestTargetClaimValidation:
             status=CritiqueStatus.ACTIVE, argument="Spin prediction may be wrong.",
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("set_next_task", {
-            "task_type": "research",
+        tc = ex.execute("dispatch_researcher", {
             "target_claim": "CRIT-001",
             "description": "Investigate critique.",
         })
-        assert "Task set" in tc.output
+        assert "Dispatched" in tc.output
         assert ex.stop_after_round
 
     def test_invalid_crit_target_rejected(self):
@@ -1286,8 +1284,7 @@ class TestTargetClaimValidation:
             status=CritiqueStatus.ACTIVE, argument="Spin prediction may be wrong.",
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("set_next_task", {
-            "task_type": "research",
+        tc = ex.execute("dispatch_researcher", {
             "target_claim": "CRIT-099",
             "description": "Investigate critique.",
         })
@@ -1299,10 +1296,8 @@ class TestTargetClaimValidation:
     def test_skipped_when_research_state_is_none(self):
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
-        tc = ex.execute("set_next_task", {
-            "task_type": "review",
+        tc = ex.execute("dispatch_reviewer", {
             "target_claim": "WH-099",
-            "description": "Verify.",
         })
-        assert "Task set" in tc.output
+        assert "Dispatched" in tc.output
         assert ex.stop_after_round

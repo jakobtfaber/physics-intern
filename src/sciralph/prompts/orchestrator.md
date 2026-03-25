@@ -41,9 +41,9 @@ You are expected to do two things, one after the other.
 
 **Turn structure:**
 
-- Call mutation tools and `set_next_task` in any order within a single response. All mutations are applied before the dispatch is processed.
-- After each round of mutations (without `set_next_task`), you will receive an updated state summary showing what changed. Use it to decide whether more mutations are needed.
-- When `set_next_task` is called, the orchestrator turn ends.
+- Call mutation tools freely — after each round you will receive an updated state summary showing what changed. Use it to decide whether more mutations are needed.
+- **End your turn by calling exactly one dispatch tool** (`dispatch_researcher`, `dispatch_computer`, `dispatch_reviewer`, or `request_termination`). This is your final action — no further tool calls are processed after it. Complete all mutations before dispatching.
+- You may call mutation tools and a dispatch tool in the same response. All mutations are applied before the dispatch is processed.
 
 Note: `add_hypothesis` and `add_research_question` auto-assign entity IDs (WH-NNN, RQ-NNN). You will see the assigned ID in the tool result.
 
@@ -102,27 +102,28 @@ Use these tools to maintain shared context that all agents read:
 
 ## 4. Dispatching the Next Task
 
-### Agent types
+### Dispatch tools
 
-| Agent     | When to use                           | Notes                        |
-|-----------|---------------------------------------|------------------------------|
-| research  | Pure reasoning, derivation, analysis  | No code, produces evidence   |
-| compute   | Numerical, symbolic, or simulation    | Python/SymPy/NumPy/SciPy     |
-| review    | Check evidence on a WH                | No code, submits verdict     |
+| Tool                    | When to use                           | Notes                        |
+|-------------------------|---------------------------------------|------------------------------|
+| `dispatch_researcher`   | Pure reasoning, derivation, analysis  | No code, produces evidence   |
+| `dispatch_computer`     | Numerical, symbolic, or simulation    | Python/SymPy/NumPy/SciPy     |
+| `dispatch_reviewer`     | Check evidence on a WH                | Only needs target WH ID      |
+| `request_termination`   | All work is complete                  | Requires answer_ers list     |
 
-The reviewer examines evidence, code, output and reasoning — it does NOT execute code or recompute results. Task descriptions for `review` should focus on what to *check*, not what to *compute*. For independent recomputation, dispatch a separate `compute` task first, then review.
+The reviewer examines evidence, code, output and reasoning — it does NOT execute code or recompute results. Task descriptions for `dispatch_reviewer` should focus on what to *check*, not what to *compute*. For independent recomputation, dispatch a separate compute task first, then review.
 
 - **Convergence:** If the same derivation appears 2+ times, proceed to review instead of re-deriving.
 
 ### Dispatch rules
 
-You can call `set_next_task` in the same response as mutation tools. All mutations are applied before the dispatch is processed.
+Every turn MUST end with exactly one dispatch tool call. This is the last thing you do — finish all state mutations first, then dispatch.
 
-Each task targets EXACTLY ONE entity (RQ, WH, ER, or CRIT). Always include `target_claim` in `set_next_task`. Task type must be one of: `research`, `compute`, `review`, or `terminate`.
+Each task targets EXACTLY ONE entity (RQ, WH, ER, or CRIT) via the `target_claim` parameter (required for researcher, computer, and reviewer). The reviewer can only target WHs.
 
 ### Structured dispatch
 
-**IMPORTANT — `background` is critical for research and compute tasks.** The researcher and computer agents have NO access to the background survey, research notes, or strategy — they see only what you put in the dispatch fields plus conventions and established results. Always provide `background` summarizing the problem setup, key definitions, and any prior context the agent needs. Do not assume the agent can infer context from entity labels alone.
+**IMPORTANT — `background` is critical for `dispatch_researcher` and `dispatch_computer`.** The researcher and computer agents have NO access to the background survey, research notes, or strategy — they see only what you put in the dispatch fields plus conventions and established results. Always provide `background` summarizing the problem setup, key definitions, and any prior context the agent needs. Do not assume the agent can infer context from entity labels alone.
 
 ### Writing effective task descriptions
 
@@ -133,5 +134,5 @@ Each task targets EXACTLY ONE entity (RQ, WH, ER, or CRIT). Always include `targ
 
 ### Termination
 
-Call `set_next_task` with `task_type: terminate` when all RQs are resolved or abandoned and all WHs are promoted or abandoned. The system enforces completion gates (including at least one critic pass) and reports blockers if not met.
+Call `request_termination` with `answer_ers` listing the ER IDs that constitute the answer, in order. The system enforces completion gates (including at least one critic pass) and reports blockers if not met.
 
