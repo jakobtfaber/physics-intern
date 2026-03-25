@@ -180,24 +180,43 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "update_section",
+            "name": "update_strategy",
             "description": (
-                "Replace the content of a top-level section in the research state."
+                "Replace the Strategy section in the research state. "
+                "Preserve completed steps and amend with what changed and why."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "section": {
-                        "type": "string",
-                        "enum": ["Conventions", "Strategy"],
-                        "description": "Which section to update.",
-                    },
                     "content": {
                         "type": "string",
-                        "description": "New section content (replaces existing).",
+                        "description": "New strategy content (replaces existing).",
                     },
                 },
-                "required": ["section", "content"],
+                "required": ["content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "append_convention",
+            "description": (
+                "Add new convention entries to the Conventions section. "
+                "Only include NEW items — existing conventions are preserved automatically."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": (
+                            "New convention entries to append. "
+                            "Do NOT repeat existing conventions."
+                        ),
+                    },
+                },
+                "required": ["content"],
             },
         },
     },
@@ -616,7 +635,8 @@ class OrchestratorToolExecutor:
             "abandon_hypothesis": self._abandon_hypothesis,
             "promote_hypothesis": self._promote_hypothesis,
             "resolve_critique": self._resolve_critique,
-            "update_section": self._update_section,
+            "update_strategy": self._update_strategy,
+            "append_convention": self._append_convention,
             "append_note": self._append_note,
             "add_research_question": self._add_research_question,
             "resolve_research_question": self._resolve_research_question,
@@ -905,26 +925,33 @@ class OrchestratorToolExecutor:
         console.print(f"  [dim]{crit_id}[/] resolved — {resolution[:60]}")
         return f"Resolved {crit_id}."
 
-    def _update_section(self, args: dict) -> str:
+    def _update_strategy(self, args: dict) -> str:
         state = self.research_state
         if not state:
             return "Error: no research state available"
 
-        section_name = args["section"]
-        content = args.get("content", "")
-
-        if section_name == "Conventions":
-            new = content.strip()
-            state.conventions = (state.conventions.rstrip() + "\n\n" + new) if state.conventions else new
-        elif section_name == "Strategy":
-            state.strategy = content.strip()
-        else:
-            return f"Error: unknown section '{section_name}'"
+        state.strategy = args.get("content", "").strip()
 
         self.mutations_applied = True
-        self._round_mutations.append(f"Updated {section_name}")
-        console.print(f"  [dim]Updated {section_name}[/]")
-        return f"Updated {section_name}."
+        self._round_mutations.append("Updated Strategy")
+        console.print("  [dim]Updated Strategy[/]")
+        return "Updated Strategy."
+
+    def _append_convention(self, args: dict) -> str:
+        state = self.research_state
+        if not state:
+            return "Error: no research state available"
+
+        new = args.get("content", "").strip()
+        if not new:
+            return "Error: convention content cannot be empty"
+
+        state.conventions = (state.conventions.rstrip() + "\n\n" + new) if state.conventions else new
+
+        self.mutations_applied = True
+        self._round_mutations.append("Appended conventions")
+        console.print("  [dim]Appended conventions[/]")
+        return "Appended to Conventions."
 
     def _append_note(self, args: dict) -> str:
         state = self.research_state

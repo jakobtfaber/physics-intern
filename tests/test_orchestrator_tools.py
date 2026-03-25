@@ -475,13 +475,12 @@ class TestResolveCritique:
 # update_section
 # ---------------------------------------------------------------------------
 
-class TestUpdateSection:
-    def test_updates_conventions(self):
+class TestAppendConvention:
+    def test_appends_conventions(self):
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("update_section", {
-            "section": "Conventions",
+        tc = ex.execute("append_convention", {
             "content": "- Natural units: h-bar = c = k_B = 1\n- Metric signature: (-,+,+,+)",
         })
         assert not tc.is_error
@@ -494,58 +493,33 @@ class TestUpdateSection:
         state = _make_state()
         state.conventions = "Existing conventions."
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("update_section", {
-            "section": "Conventions",
+        tc = ex.execute("append_convention", {
             "content": "New convention added.",
         })
         assert not tc.is_error
         assert "Existing conventions." in state.conventions
         assert "New convention added." in state.conventions
 
-    def test_open_questions_returns_error(self):
-        """Open Questions section was removed — should return error."""
+    def test_empty_content_returns_error(self):
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("update_section", {
-            "section": "Open Questions",
-            "content": "- Is string theory testable?",
-        })
-        assert "unknown" in tc.output.lower()
+        tc = ex.execute("append_convention", {"content": "  "})
+        assert "empty" in tc.output.lower()
 
-    def test_dead_ends_returns_error(self):
-        """Dead Ends section was removed — should return error."""
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("update_section", {
-            "section": "Dead Ends",
-            "content": "Something.",
-        })
-        assert "unknown" in tc.output.lower()
 
-    def test_strategy_accepted(self):
+class TestUpdateStrategy:
+    def test_strategy_replaces(self):
         """Strategy can be updated by the orchestrator."""
         ws = _make_workspace()
         state = _make_state()
         state.strategy = "Original strategy."
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("update_section", {
-            "section": "Strategy",
+        tc = ex.execute("update_strategy", {
             "content": "Focus on surface gravity approach first.",
         })
         assert "Updated" in tc.output
         assert state.strategy == "Focus on surface gravity approach first."
-
-    def test_unknown_section_returns_error(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("update_section", {
-            "section": "Nonexistent",
-            "content": "x",
-        })
-        assert "not found" in tc.output or "unknown" in tc.output
 
 
 # ---------------------------------------------------------------------------
@@ -654,7 +628,8 @@ class TestNoResearchState:
             ("abandon_hypothesis", {"id": "WH-001", "reason": "test"}),
             ("promote_hypothesis", {"id": "WH-001", "justification": "test"}),
             ("resolve_critique", {"critique_id": "CRIT-001", "resolution": "test"}),
-            ("update_section", {"section": "Conventions", "content": "test"}),
+            ("update_strategy", {"content": "test"}),
+            ("append_convention", {"content": "test"}),
         ]
         for tool_name, tool_input in mutation_calls:
             tc = ex.execute(tool_name, tool_input)

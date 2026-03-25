@@ -91,13 +91,13 @@ The planner has decomposed the problem into steps. Your job is to convert these 
 - **Follow dependency order.** Execute steps in the planner's suggested order unless evidence forces a detour.
 - **Record pivots.** If evidence invalidates a strategy step, note the pivot in Research Notes and adjust the Strategy section.
 
-The strategy section is initially written by a dedicated planner agent. Follow this roadmap unless evidence warrants a pivot. When you update it (via `update_section` with "Strategy"), preserve completed steps and amend with what changed and why — do not rewrite from scratch. Strategy rewrites should be rare, reserved for when evidence forces a significant pivot.
+The strategy section is initially written by a dedicated planner agent. Follow this roadmap unless evidence warrants a pivot. When you update it (via `update_strategy`), preserve completed steps and amend with what changed and why — do not rewrite from scratch. Strategy rewrites should be rare, reserved for when evidence forces a significant pivot.
 
 ### Updating Research Notes
 
 Use these tools to maintain shared context that all agents read:
 
-- **`update_section`** with "Conventions" — Unit system, metric signature, sign conventions, variable definitions. This field is **append-only** — new content is appended to the existing conventions (initially seeded from the background survey). Only append when new conventions are needed; do not repeat what is already there.
+- **`append_convention`** — Add new convention entries (unit system, sign conventions, variable definitions). Conventions are **append-only** — only pass new items, existing ones are preserved automatically. Initially seeded from the background survey.
 - **`append_note`** — Record intermediate insights, observations, or decisions. Notes are append-only, use it when you want to record something that does not fit into the structured sections.
 
 

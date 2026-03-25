@@ -11,6 +11,8 @@ Read README.md to understand how the multi-agent research process works.
 
 Given a workspace directory (under `workspaces/` in the SciRalph project), perform a systematic post-mortem analysis of the run and its failure modes and inefficiencies. The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
 
+Check `references/` in the project root for a reference document matching the problem. These files describe what a correct answer looks like and what a typical successful run looks like for known problems.
+
 **Key deliverables:**
 - A list of specific failures, which agent or part of the framework didn't work, when, and why.
 - A list of insights for improvements in the process design, improved agents (prompt, tools), and scaffold adjustments.
@@ -42,9 +44,6 @@ The verification report (`VERIFICATION.md`) is produced by two independent LLM c
 
 2. **Process Audit** — assesses effectiveness of the multi-agent process, but you should go beyond this first preliminary audit.
 
-### Reference Documents
-
-Check `references/` in the project root for a reference document matching the problem. These files describe what a correct answer looks like and what a typical successful run looks like for known problems:
 
 ## Procedure
 
@@ -218,13 +217,14 @@ Work through each of these questions systematically. Not all will apply to every
 - Did the background notes contain accurate and relevant information?
 - Did the surveyor accidentally anchor the system by including candidate answers, code, or numerical predictions?
 - Were important conventions, definitions, or pitfalls flagged?
+- Were important sanity checks reported that the reviewer should have used? Were some missed that could have caught a critical error?
 
 #### Was the strategy sound?
 
 - Did the planner/orchestrator formulate a reasonable initial strategy?
 - Was the strategy updated after refutations, new evidence, or critiques?
 - Did a stale or wrong strategy cause the system to pursue a dead end?
-- Was the strategy too vague (generic "explore and verify") or too prescriptive (locked into a single approach)?
+- Was the strategy too vague or too prescriptive?
 
 #### Did the researcher/computer produce correct work?
 
