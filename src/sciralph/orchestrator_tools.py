@@ -32,9 +32,12 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
         "function": {
             "name": "add_hypothesis",
             "description": (
-                "Add a new Working Hypothesis from a Research Question. "
+                "Add a new Working Hypothesis from a Research Question and "
+                "auto-dispatch the reviewer. "
                 "Requires from_rq: every WH must originate from an RQ "
                 "that has gathered evidence. "
+                "ENDS YOUR TURN — the reviewer is auto-dispatched to check "
+                "the new WH. Complete all other mutations before calling this. "
                 "Returns the auto-assigned ID (e.g., WH-003)."
             ),
             "parameters": {
@@ -409,31 +412,6 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "dispatch_reviewer",
-            "description": (
-                "Dispatch the reviewer agent to check evidence on a Working "
-                "Hypothesis. The reviewer auto-builds its context from the WH's "
-                "evidence, code, and reasoning — it does NOT execute code. "
-                "Can be called alongside mutation tools."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "target_claim": {
-                        "type": "string",
-                        "description": (
-                            "The WH ID to review (e.g. 'WH-003'). "
-                            "Must be a Working Hypothesis."
-                        ),
-                    },
-                },
-                "required": ["target_claim"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "request_termination",
             "description": (
                 "Request termination of the research loop. Use when all RQs "
@@ -474,8 +452,8 @@ class OrchestratorToolExecutor:
     TOOL_DEFINITIONS: ClassVar[list[dict]] = ORCHESTRATOR_TOOL_DEFINITIONS
 
     exit_tool_names: ClassVar[frozenset[str]] = frozenset({
-        "dispatch_researcher", "dispatch_computer",
-        "dispatch_reviewer", "request_termination",
+        "add_hypothesis", "dispatch_researcher", "dispatch_computer",
+        "request_termination",
     })
 
     def __init__(
@@ -603,23 +581,17 @@ class OrchestratorToolExecutor:
                     "resolve or abandon them before terminating."
                 )
 
-        # Review backlog
-        unreviewed_whs = [h for h in whs if h.evidence and not h.review]
-        if len(unreviewed_whs) >= 2:
-            ids = ", ".join(h.id for h in unreviewed_whs[:5])
-            guidance.append(
-                f"Review backlog: {len(unreviewed_whs)} WHs have evidence but no review "
-                f"({ids}). Prioritize reviews."
-            )
-
         # Per-WH guidance
         for h in whs:
             if h.review and h.review.verdict == Verdict.VERIFIED:
-                guidance.append(f"{h.id} is VERIFIED — promote it.")
+                guidance.append(f"{h.id} is VERIFIED but not yet promoted — check depends_on.")
             elif h.review and h.review.verdict == Verdict.REFUTED:
-                guidance.append(f"{h.id} was REFUTED — rework or abandon.")
+                guidance.append(
+                    f"{h.id} was REFUTED — dispatch researcher/computer with "
+                    "new evidence (auto-review will follow), or abandon."
+                )
             elif h.evidence and not h.review:
-                guidance.append(f"{h.id} has evidence but no review — consider dispatching a review.")
+                guidance.append(f"{h.id} awaiting auto-review.")
 
         # Per-RQ with evidence
         for rq in open_rqs:
@@ -631,7 +603,7 @@ class OrchestratorToolExecutor:
             guidance.append(f"{active_critiques} unresolved critique(s) to address.")
 
         # Default closing
-        guidance.append("When ready, call a dispatch tool (dispatch_researcher, dispatch_computer, dispatch_reviewer, or request_termination).")
+        guidance.append("When ready, call a dispatch tool (dispatch_researcher, dispatch_computer, or request_termination) — or add_hypothesis to formulate a WH (auto-triggers review).")
         return guidance
 
     def execute(self, tool_name: str, tool_input: dict) -> ToolCall:
@@ -650,7 +622,6 @@ class OrchestratorToolExecutor:
             "resolve_research_question": self._resolve_research_question,
             "dispatch_researcher": self._dispatch_researcher,
             "dispatch_computer": self._dispatch_computer,
-            "dispatch_reviewer": self._dispatch_reviewer,
             "request_termination": self._request_termination,
         }
         handler = handlers.get(tool_name)
@@ -760,9 +731,15 @@ class OrchestratorToolExecutor:
             "add_hypothesis", detail,
         )
         console.print(f"  [bold cyan]{from_rq}[/] → [bold yellow]+{new_id}[/] {statement[:80]}")
+
+        # Auto-dispatch reviewer for the new WH
+        self.task_data = {"task_type": "review", "target_claim": new_id}
+        self.stop_after_round = True
+
         msg = f"Added {new_id} — {statement}."
         if evidence:
-            msg += f" {len(evidence)} evidence item(s) copied — this WH is ready for review."
+            msg += f" {len(evidence)} evidence item(s) copied."
+        msg += " Review will be dispatched automatically."
         return msg
 
     def _update_hypothesis(self, args: dict) -> str:
@@ -1063,21 +1040,6 @@ class OrchestratorToolExecutor:
         self.task_data = {"task_type": "compute", **args}
         self.stop_after_round = True
         return f"Dispatched: computer → {target}"
-
-    def _dispatch_reviewer(self, args: dict) -> str:
-        target = args["target_claim"]
-        if not target.startswith("WH-"):
-            return (
-                f"Error: dispatch_reviewer requires a WH target, got '{target}'. "
-                "The reviewer can only review Working Hypotheses."
-            )
-        if self.research_state:
-            err = self._validate_target_claim(target)
-            if err is not None:
-                return err
-        self.task_data = {"task_type": "review", **args}
-        self.stop_after_round = True
-        return f"Dispatched: reviewer → {target}"
 
     def _request_termination(self, args: dict) -> str:
         reason = args.get("reason", "Research complete.")

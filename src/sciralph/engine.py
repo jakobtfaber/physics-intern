@@ -329,7 +329,24 @@ class SciRalph:
                 self._track_agent_result(task)
             self._append_dispatch_record(task)
 
-            # 6b. Auto-trigger critic after VERIFIED review
+            # 6b. Auto-review for WHs with new evidence after stale review
+            auto_review_target = self._should_auto_review(task)
+            if auto_review_target:
+                console.print(
+                    f"[yellow]Auto-dispatching reviewer for {auto_review_target} "
+                    f"(new evidence after stale review)[/yellow]"
+                )
+                log_scaffold_event(
+                    self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                    "auto_review", f"target={auto_review_target}, trigger=new_evidence",
+                )
+                review_task = self._make_auto_review_task(auto_review_target)
+                agent_name_r, result_r = self._dispatch(review_task)
+                self._record_agent_failures(review_task, agent_name_r, result_r)
+                self._track_agent_result(review_task)
+                self._append_dispatch_record(review_task)
+
+            # 6c. Auto-trigger critic after VERIFIED review
             if self._should_trigger_critic():
                 console.print(
                     f"[yellow]Auto-triggering critic after VERIFIED review "
@@ -760,6 +777,44 @@ class SciRalph:
                 "Mandatory periodic review. Perform a thorough critique of all Working\n"
                 "Hypotheses and recent Established Results in RESEARCH_STATE.md.\n"
             ),
+        )
+        self.workspace.write_file("CURRENT_TASK.md", task.to_markdown())
+        return task
+
+    def _should_auto_review(self, task: Task) -> str | None:
+        """Check if a WH needs auto-review after new evidence from this task.
+
+        Returns the WH ID to review, or None.
+        Triggers when a researcher/computer deposits evidence on a WH that
+        already has a review older than the newest evidence (re-review cycle).
+        """
+        if task.task_type not in (TaskType.RESEARCH, TaskType.COMPUTE):
+            return None
+        target_id = task.target_claim
+        if not target_id or not target_id.startswith("WH-"):
+            return None
+        h = self.research_state.hypotheses.get(target_id)
+        if not h or not h.evidence or not h.review:
+            return None
+        # Check if any evidence is newer than the review
+        review_iter = h.review.iteration or 0
+        newest_evidence_iter = max(
+            (ev.iteration or 0) for ev in h.evidence
+        )
+        if newest_evidence_iter > review_iter:
+            return target_id
+        return None
+
+    def _make_auto_review_task(self, wh_id: str) -> Task:
+        """Create an auto-review task for a WH."""
+        task = Task(
+            task_id=f"TASK-{self.iteration:03d}",
+            task_type=TaskType.REVIEW,
+            assigned_to="reviewer",
+            priority="high",
+            iteration=self.iteration,
+            target_claim=wh_id,
+            body=f"Auto-triggered review of {wh_id}.",
         )
         self.workspace.write_file("CURRENT_TASK.md", task.to_markdown())
         return task

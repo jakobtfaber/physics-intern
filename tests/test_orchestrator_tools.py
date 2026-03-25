@@ -586,17 +586,6 @@ class TestAppendNote:
 # ---------------------------------------------------------------------------
 
 class TestDispatchTools:
-    def test_dispatch_reviewer_stores_task_data(self):
-        ws = _make_workspace()
-        ex = OrchestratorToolExecutor(ws, iteration=3)
-        tc = ex.execute("dispatch_reviewer", {
-            "target_claim": "WH-001",
-        })
-        assert not tc.is_error
-        assert ex.task_data is not None
-        assert ex.task_data["task_type"] == "review"
-        assert ex.task_data["target_claim"] == "WH-001"
-
     def test_dispatch_researcher_stores_task_data(self):
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3)
@@ -636,18 +625,6 @@ class TestDispatchTools:
         assert not tc.is_error
         assert ex.stop_after_round
         assert ex.task_data["description"] == "Research complete."
-
-    def test_dispatch_reviewer_rejects_non_wh_target(self):
-        ws = _make_workspace()
-        ex = OrchestratorToolExecutor(ws, iteration=3)
-        tc = ex.execute("dispatch_reviewer", {
-            "target_claim": "RQ-001",
-        })
-        assert "Error" in tc.output
-        assert "WH" in tc.output
-        assert ex.task_data is None
-        assert not ex.stop_after_round
-
 
 # ---------------------------------------------------------------------------
 # Unknown tool
@@ -952,22 +929,20 @@ class TestDispatchGate:
         )
         return state
 
-    def test_mutations_plus_dispatch_all_succeed(self):
-        """add_hypothesis + dispatch_reviewer in same round both succeed."""
+    def test_add_hypothesis_acts_as_dispatch(self):
+        """add_hypothesis sets stop_after_round and task_data for auto-review."""
         ws = _make_workspace()
         state = self._state_with_open_rq()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        tc1 = ex.execute("add_hypothesis", {"statement": "New claim", "from_rq": "RQ-003"})
-        assert not tc1.is_error
+        tc = ex.execute("add_hypothesis", {"statement": "New claim", "from_rq": "RQ-003"})
+        assert not tc.is_error
         assert "WH-003" in state.hypotheses
-
-        tc2 = ex.execute("dispatch_reviewer", {
-            "target_claim": "WH-003",
-        })
-        assert "Dispatched" in tc2.output
-        assert ex.task_data is not None
         assert ex.stop_after_round
+        assert ex.task_data is not None
+        assert ex.task_data["task_type"] == "review"
+        assert ex.task_data["target_claim"] == "WH-003"
+        assert "Review will be dispatched automatically" in tc.output
 
     def test_multiple_entity_mutations_in_same_round(self):
         """Multiple entity-creating mutations in the same response all execute."""
@@ -983,13 +958,14 @@ class TestDispatchGate:
         assert "RQ-004" in state.research_questions
 
     def test_dispatch_alone_succeeds(self):
-        """dispatch_reviewer succeeds when no mutations occurred this round."""
+        """dispatch_researcher succeeds when no mutations occurred this round."""
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        tc = ex.execute("dispatch_reviewer", {
+        tc = ex.execute("dispatch_researcher", {
             "target_claim": "WH-001",
+            "description": "Derive result.",
         })
         assert "Dispatched" in tc.output
         assert ex.task_data is not None
@@ -998,36 +974,38 @@ class TestDispatchGate:
     def test_dispatch_works_across_rounds(self):
         """Mutation in round 1 → begin_round → dispatch in round 2 succeeds."""
         ws = _make_workspace()
-        state = self._state_with_open_rq()
+        state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         # Round 1: mutation only
-        ex.execute("add_hypothesis", {"statement": "Claim", "from_rq": "RQ-003"})
+        ex.execute("update_hypothesis", {"id": "WH-001", "statement": "Updated"})
 
         # Round 2: dispatch
         ex.begin_round()
-        tc = ex.execute("dispatch_reviewer", {
-            "target_claim": "WH-003",
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "WH-001",
+            "description": "Derive result.",
         })
         assert "Dispatched" in tc.output
         assert ex.stop_after_round
-        assert ex.task_data["target_claim"] == "WH-003"
+        assert ex.task_data["target_claim"] == "WH-001"
 
     def test_tools_in_prior_round_dont_block_dispatch(self):
         """Tool calls in an earlier response don't affect dispatch in a later one."""
         ws = _make_workspace()
-        state = self._state_with_open_rq()
+        state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         # Round 1: mutations only
-        ex.execute("add_hypothesis", {"statement": "Claim", "from_rq": "RQ-003"})
+        ex.execute("update_hypothesis", {"id": "WH-001", "statement": "Updated"})
         assert ex._calls_this_round == 1
 
         # Round 2: new response, dispatch only
         ex.begin_round()
         assert ex._calls_this_round == 0
-        tc = ex.execute("dispatch_reviewer", {
-            "target_claim": "WH-003",
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "WH-001",
+            "description": "Derive result.",
         })
         assert "Dispatched" in tc.output
         assert ex.stop_after_round
@@ -1051,8 +1029,9 @@ class TestDispatchGate:
         ex.execute("update_section", {
             "section": "Conventions", "content": "Natural units.",
         })
-        tc = ex.execute("dispatch_reviewer", {
+        tc = ex.execute("dispatch_researcher", {
             "target_claim": "WH-001",
+            "description": "Derive result.",
         })
         assert "Dispatched" in tc.output
         assert ex.stop_after_round
@@ -1074,8 +1053,9 @@ class TestDispatchGate:
         ex.execute("resolve_critique", {
             "critique_id": "CRIT-001", "resolution": "Promoted WH-001.",
         })
-        tc = ex.execute("dispatch_reviewer", {
+        tc = ex.execute("dispatch_researcher", {
             "target_claim": "WH-002",
+            "description": "Derive result.",
         })
         assert "Dispatched" in tc.output
         assert ex.stop_after_round
@@ -1128,7 +1108,7 @@ class TestStateInjection:
         ex.execute("append_note", {"text": "Test note"})
         injection = ex.end_round()
         assert injection is not None
-        assert "WH-001 has evidence but no review" in injection
+        assert "WH-001 awaiting auto-review" in injection
 
     def test_injection_shows_verified_promote_guidance(self):
         """WH with VERIFIED review → promote guidance in injection."""
@@ -1139,7 +1119,7 @@ class TestStateInjection:
         ex.execute("append_note", {"text": "Test note"})
         injection = ex.end_round()
         assert injection is not None
-        assert "WH-001 is VERIFIED — promote it" in injection
+        assert "WH-001 is VERIFIED but not yet promoted" in injection
 
     def test_injection_shows_budget_pressure(self):
         """Low iterations remaining → budget message in injection."""
@@ -1217,8 +1197,9 @@ class TestTargetClaimValidation:
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("dispatch_reviewer", {
+        tc = ex.execute("dispatch_researcher", {
             "target_claim": "WH-001",
+            "description": "Derive result.",
         })
         assert "Dispatched" in tc.output
         assert ex.stop_after_round
@@ -1296,8 +1277,9 @@ class TestTargetClaimValidation:
     def test_skipped_when_research_state_is_none(self):
         ws = _make_workspace()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=None)
-        tc = ex.execute("dispatch_reviewer", {
+        tc = ex.execute("dispatch_researcher", {
             "target_claim": "WH-099",
+            "description": "Derive result.",
         })
         assert "Dispatched" in tc.output
         assert ex.stop_after_round

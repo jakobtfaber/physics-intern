@@ -375,7 +375,7 @@ class TestExitToolName:
 
     def test_orchestrator_exit_tools(self):
         from sciralph.orchestrator_tools import OrchestratorToolExecutor
-        expected = {"dispatch_researcher", "dispatch_computer", "dispatch_reviewer", "request_termination"}
+        expected = {"add_hypothesis", "dispatch_researcher", "dispatch_computer", "request_termination"}
         assert OrchestratorToolExecutor.exit_tool_names == frozenset(expected)
 
     def test_report_progress_mentions_submit_result(self):
