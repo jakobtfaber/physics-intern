@@ -29,6 +29,7 @@ import yaml
 from .config import Config
 from .evaluate import evaluate_response
 from .providers import create_provider, LLMProvider, ProviderResponse
+from .verify import load_reference_file
 
 # ---------------------------------------------------------------------------
 # System prompt — distilled from the one-shot/prompt_template_default.yaml
@@ -168,6 +169,36 @@ def _run_once(
 
 
 # ---------------------------------------------------------------------------
+# Ground-truth resolution (problem YAML → reference file fallback)
+# ---------------------------------------------------------------------------
+
+def _resolve_ground_truth(
+    problem_def: dict, problem_path: Path,
+) -> dict | None:
+    """Return kwargs for ``evaluate_response``, or *None* if no ground truth."""
+    answer_val = problem_def.get("answer")
+    has_answer = answer_val is not None and (
+        not isinstance(answer_val, str) or answer_val.strip()
+    )
+
+    if has_answer:
+        return {"problem_def": problem_def}
+
+    # Fallback: reference file
+    ref_answer, _ = load_reference_file(problem_path)
+    if ref_answer is None:
+        return None
+
+    if "def answer" in ref_answer:
+        return {"problem_def": problem_def, "reference_code": ref_answer}
+
+    # Legacy expression-style reference — inject into a shallow copy
+    patched = dict(problem_def)
+    patched["answer"] = ref_answer
+    return {"problem_def": patched}
+
+
+# ---------------------------------------------------------------------------
 # Single-run mode (original behavior + evaluation)
 # ---------------------------------------------------------------------------
 
@@ -194,8 +225,9 @@ def _run_single(
         print(f"Est. cost:     ${result['cost_usd']:.4f}", file=sys.stderr)
 
     # --- Evaluation ---
-    if problem_def.get("answer") is not None:
-        ev = evaluate_response(result["response_text"], problem_def)
+    eval_kwargs = _resolve_ground_truth(problem_def, args.problem)
+    if eval_kwargs is not None:
+        ev = evaluate_response(result["response_text"], **eval_kwargs)
         if ev["correct"] is True:
             print(f"Evaluation:    CORRECT ({ev['method']})", file=sys.stderr)
         elif ev["correct"] is False:
@@ -256,11 +288,15 @@ def _run_batch(
     runs: list[dict] = []
     counts = {"correct": 0, "incorrect": 0, "error": 0}
 
+    eval_kwargs = _resolve_ground_truth(problem_def, args.problem)
+
     for i in range(n):
         print(f"Run {i + 1}/{n}... ", end="", file=sys.stderr, flush=True)
         try:
             result = _run_once(provider, config, user_message)
-            ev = evaluate_response(result["response_text"], problem_def)
+            ev = evaluate_response(result["response_text"], **eval_kwargs) if eval_kwargs else {
+                "correct": None, "method": "no_ground_truth", "error": "No answer in problem or references", "details": ""
+            }
 
             if ev["correct"] is True:
                 counts["correct"] += 1
