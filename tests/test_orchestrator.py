@@ -61,17 +61,6 @@ class TestParseTask:
         assert task.iteration == 42
 
 
-class TestContextIteration:
-    def test_context_includes_iteration(self, workspace):
-        """build_context shows current iteration number."""
-        config = Config(workspace_dir=str(workspace.root), max_iterations=20)
-        metrics = MetricsTracker()
-        orch = OrchestratorAgent(config, workspace, metrics)
-        orch.research_state = ResearchState()
-
-        context = orch.build_context(_EMPTY_TASK, iteration=5)
-        assert "# Current Iteration: 5" in context
-
 
 class TestConventionReminder:
     """Test the gentle nudge when the Conventions section is still placeholder."""
@@ -148,10 +137,10 @@ class TestSuffixPlacement:
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
 
         assert "EVIDENCE RESULTS" in context
-        # Suffix must appear after the iteration header (which contains research state)
-        iteration_pos = context.index("Current Iteration")
+        # Suffix must appear after the hypotheses section
+        hyp_pos = context.index("</hypotheses>")
         suffix_pos = context.index("EVIDENCE RESULTS")
-        assert suffix_pos > iteration_pos
+        assert suffix_pos > hyp_pos
 
     def test_suffix_consumed_after_use(self, orchestrator):
         """context_suffix is cleared after build_context consumes it."""
