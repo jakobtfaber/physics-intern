@@ -512,6 +512,9 @@ class SciRalph:
             elif target and target in self.research_state.hypotheses:
                 evs = self.research_state.hypotheses[target].evidence
                 ev = evs[-1] if evs else None
+            elif target and target in self.research_state.critiques:
+                evs = self.research_state.critiques[target].evidence
+                ev = evs[-1] if evs else None
             if ev and ev.result:
                 outcome = f"evidence ({ev.confidence})" if ev.confidence else "evidence"
             else:
