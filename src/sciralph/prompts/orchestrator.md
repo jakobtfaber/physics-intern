@@ -127,6 +127,11 @@ Each task targets EXACTLY ONE entity (RQ, WH, ER, or CRIT) via the `target_claim
 - If your task description exceeds 4-5 sentences, you are likely bundling — split it.
 - Separate WHAT (`description`) from HOW (`method_hints`).
 
+### Critique severity
+
+- **HIGH** critiques **block** creation of new WHs and RQs. You must investigate, dismiss, or accept them before advancing.
+- **MEDIUM/LOW** critiques are **advisory**. They appear in your context but do not block forward progress. Address them when convenient — dismissing with a brief reason is acceptable. Do not stall research to investigate a LOW critique. MEDIUM/LOW critiques auto-expire after a few iterations if unresolved.
+
 ### Termination
 
 Call `request_termination` with `answer_ers` listing the ER IDs that constitute the answer, in order. The system enforces completion gates (including at least one critic pass) and reports blockers if not met.

@@ -17,6 +17,7 @@ from .research_state import (
     HypothesisStatus,
     ResearchState,
     RQStatus,
+    Severity,
 )
 
 if TYPE_CHECKING:
@@ -776,8 +777,9 @@ def render_orchestrator_critique_log(state: ResearchState) -> str:
 
     for c in sorted(active, key=lambda c: c.id):
         target_str = ", ".join(c.targets) if c.targets else "general"
+        blocking = "true" if c.severity == Severity.HIGH else "false"
         content = c.argument or ""
-        parts.append(f'<critique id="{c.id}" severity="{c.severity}" status="UNRESOLVED" target="{target_str}">\n{content}\n</critique>')
+        parts.append(f'<critique id="{c.id}" severity="{c.severity}" blocking="{blocking}" status="UNRESOLVED" target="{target_str}">\n{content}\n</critique>')
 
     if state.critic_clean_reviews:
         review_lines: list[str] = []

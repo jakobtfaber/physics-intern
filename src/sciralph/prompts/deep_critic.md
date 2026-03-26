@@ -109,6 +109,22 @@ First write your analysis as free text, then conclude with a JSON block.
 - Do not critique the strategy for being incomplete early in the research.
   Only critique when a strategy exists and conflicts with accumulated evidence.
 
+## Filing Constraints
+
+- **ER protection:** Established Results have survived full adversarial review where the
+  reviewer had access to complete derivations, code, and outputs. You only see high-level
+  summaries. Critiquing an ER requires identifying a *logical impossibility* or
+  *inter-result contradiction* visible from the summaries alone — not vague concerns
+  about approach quality or missing checks.
+- **No problem meta-reasoning:** The problem IS well-posed and HAS a solution. Do not
+  critique problem formulation, question the role of variables, or suggest the problem
+  may be ambiguous. Focus on research execution, not problem validity.
+- **No re-filing resolved critiques:** If a previous critique was dismissed with a
+  counter-argument, do not re-file the same concern even if you disagree with the
+  resolution. The resolution stands unless *new evidence* contradicts it.
+- **Redundancy guard:** Before filing, check if an existing active critique already
+  covers the same concern. If so, do not file a duplicate.
+
 ## Non-Repetition
 
 - Check PREVIOUS CRITIQUES for existing equivalent critiques. Do not duplicate.

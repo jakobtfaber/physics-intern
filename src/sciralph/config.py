@@ -52,6 +52,7 @@ class Config:
     orchestrator_comp_log_tail: int = DEFAULTS["orchestrator_comp_log_tail"]
     prior_failure_excerpt_chars: int = DEFAULTS["prior_failure_excerpt_chars"]
     rq_evidence_cap: int = DEFAULTS["rq_evidence_cap"]
+    auto_expire_iterations: int = DEFAULTS["auto_expire_iterations"]
     provider: str = ""
     workspace_dir: str = ""
     logs_dir: str = ""
@@ -132,6 +133,7 @@ _YAML_CONFIG_FIELDS = frozenset({
     "orchestrator_comp_log_tail",
     "prior_failure_excerpt_chars",
     "rq_evidence_cap",
+    "auto_expire_iterations",
     "provider",
 })
 

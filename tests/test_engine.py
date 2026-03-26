@@ -2085,3 +2085,105 @@ class TestAutoPromoteCascade:
         assert "WH-002" in engine.research_state.hypotheses  # not promoted (no review)
         assert "WH-003" in engine.research_state.hypotheses  # blocked by WH-002
 
+
+# ---------------------------------------------------------------------------
+# Auto-expire critiques (Tier 1c)
+# ---------------------------------------------------------------------------
+
+class TestAutoExpireCritiques:
+    """Test _auto_expire_critiques expiration logic."""
+
+    def _make_engine(self, auto_expire_iterations=3):
+        from sciralph.engine import SciRalph
+        engine = SciRalph.__new__(SciRalph)
+        engine.config = Config()
+        engine.config.auto_expire_iterations = auto_expire_iterations
+        engine.research_state = ResearchState()
+        engine.workspace = MagicMock()
+        engine.workspace.root = MagicMock()
+        return engine
+
+    def test_medium_critique_expires(self):
+        """MEDIUM critique auto-expires after TTL iterations."""
+        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        engine = self._make_engine(auto_expire_iterations=3)
+        engine.iteration = 8
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.MEDIUM,
+            status=CritiqueStatus.ACTIVE, argument="Minor.",
+            iteration_filed=5,
+        )
+        engine._auto_expire_critiques()
+        crit = engine.research_state.critiques["CRIT-001"]
+        assert crit.status == CritiqueStatus.RESOLVED
+        assert crit.resolution_type == "expired"
+        assert crit.iteration_resolved == 8
+
+    def test_low_critique_expires(self):
+        """LOW critique auto-expires after TTL iterations."""
+        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        engine = self._make_engine(auto_expire_iterations=3)
+        engine.iteration = 10
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["STRATEGY"], severity=Severity.LOW,
+            status=CritiqueStatus.ACTIVE, argument="Cosmetic.",
+            iteration_filed=5,
+        )
+        engine._auto_expire_critiques()
+        assert engine.research_state.critiques["CRIT-001"].status == CritiqueStatus.RESOLVED
+
+    def test_high_critique_never_expires(self):
+        """HIGH critique is never auto-expired regardless of age."""
+        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        engine = self._make_engine(auto_expire_iterations=3)
+        engine.iteration = 100
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
+            status=CritiqueStatus.ACTIVE, argument="Critical flaw.",
+            iteration_filed=5,
+        )
+        engine._auto_expire_critiques()
+        assert engine.research_state.critiques["CRIT-001"].status == CritiqueStatus.ACTIVE
+
+    def test_young_critique_not_expired(self):
+        """MEDIUM critique younger than TTL is not expired."""
+        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        engine = self._make_engine(auto_expire_iterations=3)
+        engine.iteration = 7
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.MEDIUM,
+            status=CritiqueStatus.ACTIVE, argument="Minor.",
+            iteration_filed=5,
+        )
+        engine._auto_expire_critiques()
+        assert engine.research_state.critiques["CRIT-001"].status == CritiqueStatus.ACTIVE
+
+    def test_disabled_when_ttl_zero(self):
+        """No expiry when auto_expire_iterations is 0."""
+        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        engine = self._make_engine(auto_expire_iterations=0)
+        engine.iteration = 100
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.MEDIUM,
+            status=CritiqueStatus.ACTIVE, argument="Minor.",
+            iteration_filed=5,
+        )
+        engine._auto_expire_critiques()
+        assert engine.research_state.critiques["CRIT-001"].status == CritiqueStatus.ACTIVE
+
+    def test_already_resolved_not_touched(self):
+        """Already-resolved critiques are not re-expired."""
+        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        engine = self._make_engine(auto_expire_iterations=3)
+        engine.iteration = 100
+        engine.research_state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.MEDIUM,
+            status=CritiqueStatus.RESOLVED, argument="Minor.",
+            resolution_type="dismissed", resolution="Already handled.",
+            iteration_filed=5, iteration_resolved=6,
+        )
+        engine._auto_expire_critiques()
+        crit = engine.research_state.critiques["CRIT-001"]
+        assert crit.resolution_type == "dismissed"  # unchanged
+        assert crit.iteration_resolved == 6  # unchanged
+

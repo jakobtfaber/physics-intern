@@ -150,7 +150,7 @@ class TestAddHypothesis:
         tc = ex.execute("add_hypothesis", {
             "statement": "Blocked", "from_rq": "RQ-003",
         })
-        assert "unresolved critique" in tc.output
+        assert "unresolved HIGH-severity critique" in tc.output
 
 
 # ---------------------------------------------------------------------------
@@ -837,7 +837,40 @@ class TestResearchQuestionTools:
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("add_research_question", {"question": "Blocked?"})
-        assert "unresolved critique" in tc.output
+        assert "unresolved HIGH-severity critique" in tc.output
+
+    def test_add_hypothesis_not_blocked_by_medium_critique(self):
+        """MEDIUM critique does not block WH creation (severity-gated)."""
+        from sciralph.research_state import Critique, CritiqueStatus, ResearchQuestion, Severity
+        ws = _make_workspace()
+        state = _make_state()
+        state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["WH-001"], severity=Severity.MEDIUM,
+            status=CritiqueStatus.ACTIVE, argument="Minor concern.",
+        )
+        state.research_questions["RQ-003"] = ResearchQuestion(
+            id="RQ-003", question="Q?", iteration_created=1,
+            evidence=[Evidence(id="EV-001", type="research", result="r")],
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("add_hypothesis", {
+            "statement": "Allowed", "from_rq": "RQ-003",
+        })
+        assert "Error" not in tc.output or "critique" not in tc.output
+
+    def test_add_rq_not_blocked_by_low_critique(self):
+        """LOW critique does not block RQ creation (severity-gated)."""
+        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        ws = _make_workspace()
+        state = ResearchState()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", targets=["STRATEGY"], severity=Severity.LOW,
+            status=CritiqueStatus.ACTIVE, argument="Cosmetic issue.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("add_research_question", {"question": "Allowed?"})
+        assert "critique" not in tc.output.lower()
 
     def test_add_hypothesis_from_already_resolved_rq_blocked(self):
         """Creating a WH from an already-resolved RQ is rejected."""

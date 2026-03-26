@@ -190,6 +190,7 @@ class SciRalph:
             self.iteration += 1
             console.rule(f"[bold]ITERATION {self.iteration}[/bold]")
             self._update_research_iteration()
+            self._auto_expire_critiques()
 
             # 1. Orchestrator pass
             try:
@@ -1092,6 +1093,32 @@ class SciRalph:
     def _update_research_iteration(self):
         """Update the iteration field in research state."""
         self.research_state.iteration = self.iteration
+
+    def _auto_expire_critiques(self) -> None:
+        """Auto-expire MEDIUM/LOW critiques older than auto_expire_iterations."""
+        from .research_state import CritiqueStatus, Severity
+
+        ttl = self.config.auto_expire_iterations
+        if ttl <= 0:
+            return
+        expired = []
+        for crit in self.research_state.critiques.values():
+            if crit.status != CritiqueStatus.ACTIVE:
+                continue
+            if crit.severity == Severity.HIGH:
+                continue
+            if self.iteration - crit.iteration_filed >= ttl:
+                crit.status = CritiqueStatus.RESOLVED
+                crit.resolution_type = "expired"
+                crit.resolution = f"Auto-expired after {self.iteration - crit.iteration_filed} iterations without resolution"
+                crit.iteration_resolved = self.iteration
+                expired.append(crit.id)
+        if expired:
+            log_scaffold_event(
+                self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                "auto_expire_critiques", f"ids={','.join(expired)}",
+            )
+            console.print(f"[dim]Auto-expired {len(expired)} critique(s): {', '.join(expired)}[/dim]")
 
     def _set_research_status(self, status: str):
         """Update the status field in research state."""
