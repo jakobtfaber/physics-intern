@@ -96,7 +96,7 @@ Reconstruct the full lifecycle of every entity (RQ, WH, ER) from `RESEARCH_GRAPH
 
 **Data sources:**
 - `RESEARCH_GRAPH.json` — the final snapshot of all entities with their fields (`iteration_created`, `iteration_modified`, `iteration_resolved`, `status`, `evidence`, `review`, `resolved_to`, `depends_on`, `promotion_justification`, etc.)
-- `EVENT_LOG.jsonl` — timestamped events that record when mutations happened: `add_research_question`, `add_hypothesis`, `promote_hypothesis`, `abandon_hypothesis`, `resolve_research_question`, `resolve_critique`, `file_critique`, `er_demotion_safety`
+- `EVENT_LOG.jsonl` — timestamped events that record when mutations happened: `add_research_question`, `add_hypothesis`, `promote_hypothesis`, `abandon_hypothesis`, `abandon_research_question`, `resolve_critique`, `file_critique`, `er_demotion_safety`
 
 **Entity numbering convention:** RQ, WH, and ER share a single counter. When an RQ is explored and the result formulated as a hypothesis, RQ-001 → WH-001 → ER-001. The `from_rq` field on `add_hypothesis` events and the `resolved_to` field on RQs confirm these links.
 
@@ -164,7 +164,7 @@ Read `EVENT_LOG.jsonl`. Events fall into 4 categories: `call_reliability`, `stat
 - `abandon_hypothesis` — check if dependents are noted and handled
 - `resolve_critique` — critique resolution; check if resolution text is meaningful
 - `file_critique` — new critique filed; check severity and target
-- `add_research_question` / `resolve_research_question` — RQ lifecycle tracking
+- `add_research_question` / `abandon_research_question` — RQ lifecycle tracking
 - `append_note` — research notes added by orchestrator
 
 **Validation checks (state_invariants category):**

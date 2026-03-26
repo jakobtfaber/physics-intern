@@ -918,7 +918,7 @@ class TestDependencyGraph:
 
 
 class TestResearchQuestionTools:
-    """Tests for add_research_question and resolve_research_question tools."""
+    """Tests for add_research_question and abandon_research_question tools."""
 
     def test_add_research_question(self):
         ws = _make_workspace()
@@ -937,7 +937,7 @@ class TestResearchQuestionTools:
         assert rq.context == "Needed for WH-002"
         assert ex.mutations_applied
 
-    def test_resolve_research_question(self):
+    def test_abandon_research_question(self):
         from sciralph.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
@@ -946,41 +946,50 @@ class TestResearchQuestionTools:
             iteration_created=1,
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("resolve_research_question", {
+        tc = ex.execute("abandon_research_question", {
             "id": "RQ-001",
-            "reason": "Answered by WH-003",
+            "reason": "Dead end after 2 attempts",
         })
         assert not tc.is_error
         rq = state.research_questions["RQ-001"]
-        assert rq.status == RQStatus.RESOLVED
-        assert rq.resolved_to == []  # not populated by this tool
+        assert rq.status == RQStatus.ABANDONED
         assert rq.iteration_resolved == 3
-        assert rq.resolution_reason == "Answered by WH-003"
+        assert rq.resolution_reason == "Dead end after 2 attempts"
 
-    def test_resolve_research_question_no_reason(self):
+    def test_abandon_missing_rq_returns_error(self):
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("abandon_research_question", {
+            "id": "RQ-999", "reason": "gone",
+        })
+        assert "not found" in tc.output
+
+    def test_abandon_already_abandoned_rq_is_idempotent(self):
+        """Re-abandoning an already-abandoned RQ returns early without mutation."""
         from sciralph.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
-        state.research_questions["RQ-002"] = ResearchQuestion(
-            id="RQ-002", question="Is X > 0?",
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="What is F(p)?",
+            status=RQStatus.ABANDONED,
             iteration_created=1,
+            iteration_resolved=2,
+            resolution_reason="Dead end",
         )
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("resolve_research_question", {"id": "RQ-002"})
-        assert not tc.is_error
-        rq = state.research_questions["RQ-002"]
-        assert rq.status == RQStatus.RESOLVED
-        assert rq.iteration_resolved == 3
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
+        tc = ex.execute("abandon_research_question", {
+            "id": "RQ-001",
+            "reason": "Trying to abandon again",
+        })
+        assert "already abandoned" in tc.output
+        rq = state.research_questions["RQ-001"]
+        assert rq.iteration_resolved == 2
+        assert rq.resolution_reason == "Dead end"
+        assert not ex.mutations_applied
 
-    def test_resolve_missing_rq_returns_error(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("resolve_research_question", {"id": "RQ-999"})
-        assert "not found" in tc.output
-
-    def test_resolve_already_resolved_rq_is_idempotent(self):
-        """Re-resolving an already-resolved RQ returns early without mutation."""
+    def test_abandon_resolved_rq_returns_error(self):
+        """Cannot abandon an RQ that was auto-resolved by add_hypothesis."""
         from sciralph.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
@@ -989,19 +998,14 @@ class TestResearchQuestionTools:
             status=RQStatus.RESOLVED,
             iteration_created=1,
             iteration_resolved=2,
-            resolution_reason="Answered during exploration",
+            resolution_reason="Promoted to WH-001",
         )
         ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("resolve_research_question", {
+        tc = ex.execute("abandon_research_question", {
             "id": "RQ-001",
-            "reason": "Trying to close again",
+            "reason": "Trying to abandon a resolved RQ",
         })
         assert "already resolved" in tc.output
-        rq = state.research_questions["RQ-001"]
-        # Original resolution preserved
-        assert rq.iteration_resolved == 2
-        assert rq.resolution_reason == "Answered during exploration"
-        # Should not count as a mutation
         assert not ex.mutations_applied
 
     def test_add_rq_blocked_by_cap(self):

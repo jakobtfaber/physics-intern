@@ -311,10 +311,12 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "resolve_research_question",
+            "name": "abandon_research_question",
             "description": (
-                "Close a research question — either it was answered "
-                "(e.g. via add_hypothesis with from_rq) or it led nowhere."
+                "Mark a research question as a dead end. "
+                "Use when the gathered evidence is inconclusive or the "
+                "question turned out to be ill-posed. "
+                "(RQs answered via add_hypothesis are auto-resolved.)"
             ),
             "parameters": {
                 "type": "object",
@@ -325,10 +327,10 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     },
                     "reason": {
                         "type": "string",
-                        "description": "Why this RQ is being closed (optional).",
+                        "description": "Why this RQ is being abandoned.",
                     },
                 },
-                "required": ["id"],
+                "required": ["id", "reason"],
             },
         },
     },
@@ -685,7 +687,7 @@ class OrchestratorToolExecutor:
             "append_convention": self._append_convention,
             "append_note": self._append_note,
             "add_research_question": self._add_research_question,
-            "resolve_research_question": self._resolve_research_question,
+            "abandon_research_question": self._abandon_research_question,
             "dispatch_researcher": self._dispatch_researcher,
             "dispatch_computer": self._dispatch_computer,
             "request_termination": self._request_termination,
@@ -1191,7 +1193,7 @@ class OrchestratorToolExecutor:
         self.accepted_without_rq.clear()  # follow-up action taken
         return f"Added {rq_id} — {question}."
 
-    def _resolve_research_question(self, args: dict) -> str:
+    def _abandon_research_question(self, args: dict) -> str:
         from .research_state import RQStatus
 
         state = self.research_state
@@ -1199,26 +1201,27 @@ class OrchestratorToolExecutor:
             return "Error: no research state available"
 
         rq_id = args["id"]
-        reason = args.get("reason", "")
+        reason = args["reason"]
 
         if rq_id not in state.research_questions:
             return f"Error: {rq_id} not found in research state"
 
         rq = state.research_questions[rq_id]
         if rq.status == RQStatus.RESOLVED:
-            return f"{rq_id} is already resolved (iteration {rq.iteration_resolved})."
-        rq.status = RQStatus.RESOLVED
+            return f"Error: {rq_id} is already resolved (promoted to WH). Cannot abandon."
+        if rq.status == RQStatus.ABANDONED:
+            return f"{rq_id} is already abandoned (iteration {rq.iteration_resolved})."
+        rq.status = RQStatus.ABANDONED
         rq.iteration_resolved = self.iteration
         rq.resolution_reason = reason
         self.mutations_applied = True
-        self._round_mutations.append(f"Closed {rq_id}")
-        detail = f"{rq_id}: {reason}" if reason else f"{rq_id} (closed)"
+        self._round_mutations.append(f"Abandoned {rq_id}")
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
-            "resolve_research_question", detail,
+            "abandon_research_question", f"{rq_id}: {reason}",
         )
-        console.print(f"  [dim]{rq_id}[/] closed" + (f" — {reason[:60]}" if reason else ""))
-        return f"Closed {rq_id}."
+        console.print(f"  [dim]{rq_id}[/] abandoned — {reason[:60]}")
+        return f"Abandoned {rq_id}."
 
     def _dispatch_researcher(self, args: dict) -> str:
         target = args["target_claim"]
@@ -1328,5 +1331,5 @@ class OrchestratorToolExecutor:
             f"Error: dispatch blocked — saturated RQ(s): {listing}. "
             f"RQs with >= {cap} evidence items must be resolved before dispatching new work. "
             "Either promote to a Working Hypothesis (add_hypothesis) for adversarial review, "
-            "or abandon (resolve_research_question) if the evidence is inconclusive."
+            "or abandon (abandon_research_question) if the evidence is inconclusive."
         )

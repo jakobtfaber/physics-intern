@@ -267,7 +267,7 @@ def can_terminate(
         if rq.status == RQStatus.OPEN:
             blockers.append(
                 f"{rq.id} is still OPEN. "
-                "Call resolve_research_question or abandon it before terminating."
+                "Call abandon_research_question to close it before terminating."
             )
 
     for h in research_state.hypotheses.values():

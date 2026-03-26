@@ -298,7 +298,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `update_section` — replaces content of Conventions, Situation Assessment, or Strategy
 - `append_note` — appends a research note to `research_notes` list
 - `add_research_question` — creates new RQ-NNN for open-ended exploration targets
-- `resolve_research_question` — marks RQ as resolved, links to resulting hypothesis IDs
+- `abandon_research_question` — marks RQ as abandoned (dead end); reason required
 - `dispatch_researcher` — dispatches researcher with target_claim (required), description, background, method_hints, assumptions, relevant_results; triggers `stop_after_round`
 - `dispatch_computer` — dispatches computer with same params as researcher; triggers `stop_after_round`
 - `dispatch_reviewer` — dispatches reviewer with target_claim (WH-only, required), description, background; triggers `stop_after_round`
@@ -463,7 +463,7 @@ For `COMPUTE`:
 7. **`update_section`** — replaces Conventions, Situation Assessment, or Strategy content
 8. **`append_note`** — appends to `research_notes` list
 9. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
-10. **`resolve_research_question`** — marks RQ as resolved, links to resulting hypothesis IDs
+10. **`abandon_research_question`** — marks RQ as abandoned (dead end); reason required
 11. **`dispatch_researcher`** — dispatches researcher; sets `stop_after_round = True`
 12. **`dispatch_computer`** — dispatches computer; sets `stop_after_round = True`
 13. **`dispatch_reviewer`** — dispatches reviewer (WH-only target); sets `stop_after_round = True`
