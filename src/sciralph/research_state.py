@@ -107,6 +107,7 @@ class Critique:
     argument: str = ""
     status: CritiqueStatus = CritiqueStatus.ACTIVE
     resolution: str = ""
+    resolution_type: str = ""  # "dismissed" or "accepted"
     iteration_filed: int = 0
     iteration_resolved: int | None = None
     evidence: list[Evidence] = field(default_factory=list)

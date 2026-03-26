@@ -484,11 +484,11 @@ class TestPromoteHypothesis:
 
 
 # ---------------------------------------------------------------------------
-# resolve_critique
+# dismiss_critique / accept_critique
 # ---------------------------------------------------------------------------
 
-class TestResolveCritique:
-    def test_resolves_critique(self):
+class TestDismissCritique:
+    def test_dismisses_critique(self):
         ws = _make_workspace()
         state = _make_state()
         state.critiques["CRIT-001"] = Critique(
@@ -496,14 +496,15 @@ class TestResolveCritique:
             targets=["WH-001"], argument="Spin prediction may be wrong.",
         )
         ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("resolve_critique", {
+        tc = ex.execute("dismiss_critique", {
             "critique_id": "CRIT-001",
-            "resolution": "Fixed spin prediction to spin-0.",
+            "reason": "Spin prediction is correct per reviewer.",
         })
         assert not tc.is_error
         c = state.critiques["CRIT-001"]
         assert c.status == CritiqueStatus.RESOLVED
-        assert c.resolution == "Fixed spin prediction to spin-0."
+        assert c.resolution == "Spin prediction is correct per reviewer."
+        assert c.resolution_type == "dismissed"
         assert c.iteration_resolved == 5
         assert "CRIT-001" in ex.resolved_critique_ids
         assert ex.mutations_applied
@@ -517,9 +518,9 @@ class TestResolveCritique:
             resolution="Already fixed.", iteration_resolved=4,
         )
         ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("resolve_critique", {
+        tc = ex.execute("dismiss_critique", {
             "critique_id": "CRIT-001",
-            "resolution": "Attempting to re-resolve.",
+            "reason": "Attempting to re-resolve.",
         })
         assert not tc.is_error
         assert "already resolved" in tc.output
@@ -533,11 +534,110 @@ class TestResolveCritique:
         ws = _make_workspace()
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("resolve_critique", {
+        tc = ex.execute("dismiss_critique", {
             "critique_id": "CRIT-999",
-            "resolution": "Doesn't exist.",
+            "reason": "Doesn't exist.",
         })
         assert "not found" in tc.output
+
+
+class TestAcceptCritique:
+    def test_accepts_critique_without_rq(self):
+        ws = _make_workspace()
+        state = _make_state()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
+            targets=["STRATEGY"], argument="Strategy is flawed.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
+        tc = ex.execute("accept_critique", {
+            "critique_id": "CRIT-001",
+            "resolution": "The critique correctly identified a gap.",
+        })
+        assert not tc.is_error
+        c = state.critiques["CRIT-001"]
+        assert c.status == CritiqueStatus.RESOLVED
+        assert c.resolution_type == "accepted"
+        assert "CRIT-001" in ex.accepted_without_rq
+        assert "Consider creating an RQ" in tc.output
+
+    def test_accepts_critique_with_rq_creation(self):
+        ws = _make_workspace()
+        state = _make_state()
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
+            targets=["STRATEGY"], argument="Missing α=1 case.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
+        tc = ex.execute("accept_critique", {
+            "critique_id": "CRIT-001",
+            "resolution": "α=1 case is uniquely solvable.",
+            "create_rq": "What is the general formula for the α=1 Markov case?",
+        })
+        assert not tc.is_error
+        assert "Created RQ-" in tc.output
+        assert state.critiques["CRIT-001"].resolution_type == "accepted"
+        # Should NOT be in accepted_without_rq since RQ was created
+        assert len(ex.accepted_without_rq) == 0
+        # RQ should exist
+        rqs = list(state.research_questions.values())
+        assert len(rqs) == 1
+        assert "α=1" in rqs[0].question
+
+    def test_accepts_critique_with_evidence_carry(self):
+        ws = _make_workspace()
+        state = _make_state()
+        # Add evidence to an RQ
+        from sciralph.research_state import Evidence, ResearchQuestion
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Test question",
+            evidence=[Evidence(id="EV-001", result="formula", confidence="exact")],
+        )
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
+            targets=["STRATEGY"], argument="Missing case.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
+        tc = ex.execute("accept_critique", {
+            "critique_id": "CRIT-001",
+            "resolution": "Critique is valid.",
+            "create_rq": "Investigate the missing case",
+            "carry_evidence": ["EV-001", "EV-999"],
+        })
+        assert not tc.is_error
+        assert "1 evidence item(s) carried over" in tc.output
+        assert "EV-999" in tc.output  # not found warning
+        # Check the new RQ has the evidence
+        new_rqs = [rq for rq in state.research_questions.values() if rq.id != "RQ-001"]
+        assert len(new_rqs) == 1
+        assert len(new_rqs[0].evidence) == 1
+        assert new_rqs[0].evidence[0].id == "EV-001"
+
+    def test_rq_cap_blocks_creation(self):
+        ws = _make_workspace()
+        state = _make_state()
+        from sciralph.research_state import ResearchQuestion
+        # Fill up 3 open RQs
+        for i in range(1, 4):
+            state.research_questions[f"RQ-{i:03d}"] = ResearchQuestion(
+                id=f"RQ-{i:03d}", question=f"Question {i}",
+            )
+        state.critiques["CRIT-001"] = Critique(
+            id="CRIT-001", severity=Severity.HIGH, status=CritiqueStatus.ACTIVE,
+            targets=["STRATEGY"], argument="Gap identified.",
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
+        tc = ex.execute("accept_critique", {
+            "critique_id": "CRIT-001",
+            "resolution": "Valid critique.",
+            "create_rq": "New question",
+        })
+        assert not tc.is_error
+        # Critique should be resolved even though RQ creation was blocked
+        assert state.critiques["CRIT-001"].status == CritiqueStatus.RESOLVED
+        assert "RQ creation blocked" in tc.output
+        # No new RQ created
+        assert len(state.research_questions) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -696,7 +796,7 @@ class TestNoResearchState:
             ("update_hypothesis", {"id": "WH-001"}),
             ("abandon_hypothesis", {"id": "WH-001", "reason": "test"}),
             ("promote_hypothesis", {"id": "WH-001", "justification": "test"}),
-            ("resolve_critique", {"critique_id": "CRIT-001", "resolution": "test"}),
+            ("dismiss_critique", {"critique_id": "CRIT-001", "reason": "test"}),
             ("update_strategy", {"content": "test"}),
             ("append_convention", {"content": "test"}),
         ]
@@ -1055,7 +1155,7 @@ class TestDispatchGate:
         assert ex.stop_after_round
 
     def test_non_entity_mutations_plus_dispatch_succeed(self):
-        """update + resolve_critique + update_section + dispatch all succeed."""
+        """update + dismiss_critique + update_section + dispatch all succeed."""
         ws = _make_workspace()
         state = _make_state()
         state.critiques["CRIT-001"] = Critique(
@@ -1067,8 +1167,8 @@ class TestDispatchGate:
         ex.execute("update_hypothesis", {
             "id": "WH-001", "statement": "Updated title",
         })
-        ex.execute("resolve_critique", {
-            "critique_id": "CRIT-001", "resolution": "Fixed.",
+        ex.execute("dismiss_critique", {
+            "critique_id": "CRIT-001", "reason": "Fixed.",
         })
         ex.execute("update_section", {
             "section": "Conventions", "content": "Natural units.",
@@ -1082,7 +1182,7 @@ class TestDispatchGate:
         assert ex.task_data is not None
 
     def test_promote_plus_dispatch_succeed(self):
-        """promote + resolve_critique + dispatch in same round all succeed."""
+        """promote + dismiss_critique + dispatch in same round all succeed."""
         ws = _make_workspace()
         state = _make_state_with_verified("WH-001")
         state.critiques["CRIT-001"] = Critique(
@@ -1094,8 +1194,8 @@ class TestDispatchGate:
         ex.execute("promote_hypothesis", {
             "id": "WH-001", "justification": "Verified by reviewer.",
         })
-        ex.execute("resolve_critique", {
-            "critique_id": "CRIT-001", "resolution": "Promoted WH-001.",
+        ex.execute("dismiss_critique", {
+            "critique_id": "CRIT-001", "reason": "Promoted WH-001.",
         })
         tc = ex.execute("dispatch_researcher", {
             "target_claim": "WH-002",
@@ -1218,8 +1318,8 @@ class TestStateInjection:
         nudge = "Call a dispatch tool"
         tc1 = ex.execute("add_hypothesis", {"statement": "Test"})
         assert nudge not in tc1.output
-        tc2 = ex.execute("resolve_critique", {
-            "critique_id": "CRIT-001", "resolution": "Fixed.",
+        tc2 = ex.execute("dismiss_critique", {
+            "critique_id": "CRIT-001", "reason": "Fixed.",
         })
         assert nudge not in tc2.output
         tc3 = ex.execute("update_section", {

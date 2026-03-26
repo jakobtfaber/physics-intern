@@ -156,10 +156,35 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "resolve_critique",
+            "name": "dismiss_critique",
             "description": (
-                "Mark a critique as resolved. "
-                "The resolution must describe the specific fix — not a generic note."
+                "Dismiss a critique as wrong or inapplicable. "
+                "The reason must explain why the critique does not hold."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "critique_id": {
+                        "type": "string",
+                        "description": "Critique ID, e.g. CRIT-001.",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the critique is wrong, inapplicable, or already addressed.",
+                    },
+                },
+                "required": ["critique_id", "reason"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "accept_critique",
+            "description": (
+                "Accept a critique as valid — the critique identified a real problem. "
+                "Optionally create an RQ from the findings to funnel them into the "
+                "research pipeline (bypasses the unresolved-critiques block for RQ creation)."
             ),
             "parameters": {
                 "type": "object",
@@ -170,7 +195,24 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     },
                     "resolution": {
                         "type": "string",
-                        "description": "Specific description of how the critique was addressed.",
+                        "description": "What was found — describe the valid problem the critique identified.",
+                    },
+                    "create_rq": {
+                        "type": "string",
+                        "description": (
+                            "Optional. Question text for a new Research Question created "
+                            "from the critique findings. The RQ enters the normal pipeline "
+                            "(dispatch → evidence → WH → review → ER)."
+                        ),
+                    },
+                    "carry_evidence": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional. Evidence IDs (e.g. ['EV-012']) to copy onto the new RQ. "
+                            "Only used when create_rq is provided. Evidence is looked up across "
+                            "all entities (RQs, WHs, critiques)."
+                        ),
                     },
                 },
                 "required": ["critique_id", "resolution"],
@@ -492,6 +534,7 @@ class OrchestratorToolExecutor:
         self._round_mutations: list[str] = []
         self.task_data: dict | None = None
         self.resolved_critique_ids: set[str] = set()
+        self.accepted_without_rq: set[str] = set()
         self.stop_after_round: bool = False
         self._min_er_for_completion = min_er_for_completion
         self._max_iterations = max_iterations
@@ -636,7 +679,8 @@ class OrchestratorToolExecutor:
             "update_hypothesis": self._update_hypothesis,
             "abandon_hypothesis": self._abandon_hypothesis,
             "promote_hypothesis": self._promote_hypothesis,
-            "resolve_critique": self._resolve_critique,
+            "dismiss_critique": self._dismiss_critique,
+            "accept_critique": self._accept_critique,
             "update_strategy": self._update_strategy,
             "append_convention": self._append_convention,
             "append_note": self._append_note,
@@ -769,6 +813,8 @@ class OrchestratorToolExecutor:
         # Auto-dispatch reviewer for the new WH
         self.task_data = {"task_type": "review", "target_claim": new_id}
         self.stop_after_round = True
+
+        self.accepted_without_rq.clear()  # follow-up action taken
 
         msg = f"Added {new_id} — {statement}."
         if evidence:
@@ -908,7 +954,25 @@ class OrchestratorToolExecutor:
         self._round_mutations.append(f"Promoted {wh_id} → {er_id}")
         return f"Promoted {wh_id} → {er_id}."
 
-    def _resolve_critique(self, args: dict) -> str:
+    def _find_evidence_by_id(self, ev_id: str) -> "Evidence | None":
+        """Find an Evidence object by ID across all entities."""
+        from .research_state import Evidence
+
+        state = self.research_state
+        if not state:
+            return None
+        for collection in (
+            state.hypotheses.values(),
+            state.research_questions.values(),
+            state.critiques.values(),
+        ):
+            for entity in collection:
+                for ev in entity.evidence:
+                    if ev.id == ev_id:
+                        return ev
+        return None
+
+    def _dismiss_critique(self, args: dict) -> str:
         from .research_state import CritiqueStatus
 
         state = self.research_state
@@ -916,7 +980,7 @@ class OrchestratorToolExecutor:
             return "Error: no research state available"
 
         crit_id = args["critique_id"]
-        resolution = args.get("resolution", f"Addressed at iteration {self.iteration}")
+        reason = args.get("reason", f"Dismissed at iteration {self.iteration}")
 
         if crit_id not in state.critiques:
             return f"Error: {crit_id} not found in research state"
@@ -926,18 +990,111 @@ class OrchestratorToolExecutor:
             return f"{crit_id} is already resolved."
 
         c.status = CritiqueStatus.RESOLVED
-        c.resolution = resolution
+        c.resolution = reason
+        c.resolution_type = "dismissed"
         c.iteration_resolved = self.iteration
 
         self.resolved_critique_ids.add(crit_id)
         self.mutations_applied = True
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
-            "resolve_critique", f"{crit_id}: {resolution[:120]}",
+            "dismiss_critique", f"{crit_id}: {reason[:120]}",
         )
-        self._round_mutations.append(f"Resolved {crit_id}")
-        console.print(f"  [dim]{crit_id}[/] resolved — {resolution[:60]}")
-        return f"Resolved {crit_id}."
+        self._round_mutations.append(f"Dismissed {crit_id}")
+        console.print(f"  [dim]{crit_id}[/] dismissed — {reason[:60]}")
+        return f"Dismissed {crit_id}."
+
+    def _accept_critique(self, args: dict) -> str:
+        from copy import deepcopy
+
+        from .research_state import CritiqueStatus, ResearchQuestion
+
+        state = self.research_state
+        if not state:
+            return "Error: no research state available"
+
+        crit_id = args["critique_id"]
+        resolution = args.get("resolution", f"Accepted at iteration {self.iteration}")
+
+        if crit_id not in state.critiques:
+            return f"Error: {crit_id} not found in research state"
+
+        c = state.critiques[crit_id]
+        if c.status == CritiqueStatus.RESOLVED:
+            return f"{crit_id} is already resolved."
+
+        # Resolve the critique as accepted
+        c.status = CritiqueStatus.RESOLVED
+        c.resolution = resolution
+        c.resolution_type = "accepted"
+        c.iteration_resolved = self.iteration
+
+        self.resolved_critique_ids.add(crit_id)
+        self.mutations_applied = True
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "accept_critique", f"{crit_id}: {resolution[:120]}",
+        )
+        self._round_mutations.append(f"Accepted {crit_id}")
+        console.print(f"  [yellow]{crit_id}[/] accepted — {resolution[:60]}")
+
+        # Optional: create an RQ from the findings
+        create_rq = args.get("create_rq")
+        if not create_rq:
+            self.accepted_without_rq.add(crit_id)
+            return (
+                f"Accepted {crit_id}. Consider creating an RQ from these findings — "
+                "you can call add_research_question, or re-call accept_critique with "
+                "create_rq to bundle."
+            )
+
+        # Check RQ count cap (but bypass the unresolved-critiques check)
+        open_rqs = state.open_research_questions()
+        if len(open_rqs) >= 3:
+            ids = ", ".join(rq.id for rq in open_rqs)
+            return (
+                f"Accepted {crit_id}. RQ creation blocked — already {len(open_rqs)} "
+                f"open RQs ({ids}). Resolve or abandon an existing RQ, then create "
+                "the RQ with add_research_question."
+            )
+
+        # Create the RQ
+        num = state.next_entity_num()
+        rq_id = f"RQ-{num:03d}"
+        context = f"Created from accepted critique {crit_id}."
+
+        # Carry evidence if requested
+        carry_ids = args.get("carry_evidence", [])
+        evidence = []
+        not_found = []
+        for ev_id in carry_ids:
+            ev = self._find_evidence_by_id(ev_id)
+            if ev:
+                evidence.append(deepcopy(ev))
+            else:
+                not_found.append(ev_id)
+
+        state.research_questions[rq_id] = ResearchQuestion(
+            id=rq_id,
+            question=create_rq,
+            context=context,
+            iteration_created=self.iteration,
+            evidence=evidence,
+        )
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "accept_critique",
+            f"{crit_id} → {rq_id}: {create_rq[:100]}",
+        )
+        self._round_mutations.append(f"Added {rq_id} (from {crit_id})")
+        console.print(f"  [bold cyan]+{rq_id}[/] (from {crit_id}) {create_rq[:60]}")
+
+        msg = f"Accepted {crit_id}. Created {rq_id} — {create_rq}."
+        if evidence:
+            msg += f" {len(evidence)} evidence item(s) carried over."
+        if not_found:
+            msg += f" Evidence not found: {', '.join(not_found)}."
+        return msg
 
     def _update_strategy(self, args: dict) -> str:
         state = self.research_state
@@ -1031,6 +1188,7 @@ class OrchestratorToolExecutor:
             "add_research_question", f"{rq_id}: {question[:120]}",
         )
         console.print(f"  [bold cyan]+{rq_id}[/] {question[:80]}")
+        self.accepted_without_rq.clear()  # follow-up action taken
         return f"Added {rq_id} — {question}."
 
     def _resolve_research_question(self, args: dict) -> str:

@@ -293,7 +293,8 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `update_hypothesis` — updates statement/derivation for existing WH/ER
 - `abandon_hypothesis` — marks as ABANDONED, records in `failed_approaches`
 - `promote_hypothesis` — promotes WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, blocks on unestablished `depends_on`)
-- `resolve_critique` — marks critique as RESOLVED with resolution text
+- `dismiss_critique` — dismisses a critique as wrong/inapplicable, marks as RESOLVED
+- `accept_critique` — accepts a critique as valid, marks as RESOLVED; optionally creates an RQ from the findings with carried-over evidence
 - `update_section` — replaces content of Conventions, Situation Assessment, or Strategy
 - `append_note` — appends a research note to `research_notes` list
 - `add_research_question` — creates new RQ-NNN for open-ended exploration targets
@@ -457,15 +458,16 @@ For `COMPUTE`:
 2. **`update_hypothesis`** — updates statement/derivation
 3. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
 4. **`promote_hypothesis`** — WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, dependency checks)
-5. **`resolve_critique`** — marks CRIT-NNN as RESOLVED with resolution text
-6. **`update_section`** — replaces Conventions, Situation Assessment, or Strategy content
-7. **`append_note`** — appends to `research_notes` list
-8. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
-9. **`resolve_research_question`** — marks RQ as resolved, links to resulting hypothesis IDs
-10. **`dispatch_researcher`** — dispatches researcher; sets `stop_after_round = True`
-11. **`dispatch_computer`** — dispatches computer; sets `stop_after_round = True`
-12. **`dispatch_reviewer`** — dispatches reviewer (WH-only target); sets `stop_after_round = True`
-13. **`request_termination`** — requests loop termination; sets `stop_after_round = True`
+5. **`dismiss_critique`** — dismisses a critique as wrong/inapplicable
+6. **`accept_critique`** — accepts a critique as valid; optionally creates an RQ with carried-over evidence
+7. **`update_section`** — replaces Conventions, Situation Assessment, or Strategy content
+8. **`append_note`** — appends to `research_notes` list
+9. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
+10. **`resolve_research_question`** — marks RQ as resolved, links to resulting hypothesis IDs
+11. **`dispatch_researcher`** — dispatches researcher; sets `stop_after_round = True`
+12. **`dispatch_computer`** — dispatches computer; sets `stop_after_round = True`
+13. **`dispatch_reviewer`** — dispatches reviewer (WH-only target); sets `stop_after_round = True`
+14. **`request_termination`** — requests loop termination; sets `stop_after_round = True`
 
 Tracks `mutations_applied` (bool) and `resolved_critique_ids` (set) for `process_response` to use.
 

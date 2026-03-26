@@ -640,7 +640,7 @@ class TestRenderOrchestratorCritiqueLog:
 
     def test_empty_returns_compact(self, empty_state):
         text = render_orchestrator_critique_log(empty_state)
-        assert text == "No critiques filed."
+        assert text == ""
 
     def test_no_frontmatter(self, populated_state):
         text = render_orchestrator_critique_log(populated_state)
@@ -648,10 +648,12 @@ class TestRenderOrchestratorCritiqueLog:
 
     def test_body_without_frontmatter(self, populated_state):
         text = render_orchestrator_critique_log(populated_state)
+        # Only ACTIVE (unresolved) critiques shown to orchestrator
         assert 'status="UNRESOLVED"' in text
         assert "CRIT-001" in text
-        assert 'status="RESOLVED"' in text
-        assert "CRIT-002" in text
+        # CRIT-002 is resolved — should NOT appear in orchestrator context
+        assert 'status="RESOLVED"' not in text
+        assert "CRIT-002" not in text
 
 
 # ===========================================================================

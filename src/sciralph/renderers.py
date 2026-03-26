@@ -765,12 +765,12 @@ def render_formatter_context(
 
 
 def render_orchestrator_critique_log(state: ResearchState) -> str:
-    """Render critique log for orchestrator context using XML tags."""
-    if not state.critiques:
-        return "No critiques filed."
+    """Render critique log for orchestrator context using XML tags.
 
+    Only shows ACTIVE (unresolved) critiques — resolved critiques are noise
+    for the orchestrator (already handled; preserved in git snapshots).
+    """
     active = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
-    resolved = [c for c in state.critiques.values() if c.status in (CritiqueStatus.RESOLVED, CritiqueStatus.WITHDRAWN)]
 
     parts: list[str] = []
 
@@ -778,14 +778,6 @@ def render_orchestrator_critique_log(state: ResearchState) -> str:
         target_str = ", ".join(c.targets) if c.targets else "general"
         content = c.argument or ""
         parts.append(f'<critique id="{c.id}" severity="{c.severity}" status="UNRESOLVED" target="{target_str}">\n{content}\n</critique>')
-
-    for c in sorted(resolved, key=lambda c: c.id):
-        target_str = ", ".join(c.targets) if c.targets else "general"
-        content = c.argument or ""
-        if c.resolution:
-            content += f"\n<resolution>{c.resolution}</resolution>"
-        status_tag = c.status.upper()
-        parts.append(f'<critique id="{c.id}" severity="{c.severity}" status="{status_tag}" target="{target_str}">\n{content}\n</critique>')
 
     if state.critic_clean_reviews:
         review_lines: list[str] = []

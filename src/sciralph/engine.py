@@ -61,6 +61,7 @@ class LoopState:
     pending_explore_results: list[dict] = field(default_factory=list)
     agent_failures: list[dict] = field(default_factory=list)
     pending_critic_result: dict | None = None
+    pending_accepted_critiques: set[str] = field(default_factory=set)
     last_verified_review_iteration: int = 0
     # Persistent dispatch history (never cleared)
     dispatch_history: list[DispatchRecord] = field(default_factory=list)
@@ -223,6 +224,11 @@ class SciRalph:
                     f"{type(exc).__name__}: {str(exc)[:200]}",
                 )
                 continue
+
+            # Track accepted-but-no-RQ critiques for next-iteration nudge
+            tex = self.orchestrator._tool_executor
+            if tex and tex.accepted_without_rq:
+                self._state.pending_accepted_critiques.update(tex.accepted_without_rq)
 
             # 2. Post-integration validation
             violations = validate_post_integration(
@@ -658,10 +664,20 @@ class SciRalph:
                 lines.append(">>> END DEEP CRITIC RESULT <<<\n")
             else:
                 lines.append(">>> DEEP CRITIC RESULT (previous iteration) <<<")
-                lines.append(
-                    f"The deep critic filed {cr['count']} critique(s). "
-                    "See the critique log in your context for details."
-                )
+                crit_list = cr.get("critiques", [])
+                if crit_list:
+                    crit_desc = ", ".join(
+                        f"{c['id']} ({c['severity']})" for c in crit_list
+                    )
+                    lines.append(
+                        f"The deep critic filed {cr['count']} new critique(s): "
+                        f"{crit_desc}. Address them before other work."
+                    )
+                else:
+                    lines.append(
+                        f"The deep critic filed {cr['count']} critique(s). "
+                        "See the critique log in your context for details."
+                    )
                 lines.append(">>> END DEEP CRITIC RESULT <<<\n")
             self._state.pending_critic_result = None
         if self._state.agent_failures:
@@ -670,6 +686,18 @@ class SciRalph:
                 lines.append(f"  - [{f['task_id']}] {f['agent']}: {f['event']}. {f['detail']}")
             lines.append(">>> END AGENT FAILURES <<<\n")
             self._state.agent_failures.clear()
+        if self._state.pending_accepted_critiques:
+            crit_ids = ", ".join(sorted(self._state.pending_accepted_critiques))
+            lines.append(">>> ACCEPTED CRITIQUE — ACTION NEEDED <<<")
+            lines.append(
+                f"You accepted {crit_ids} as valid but didn't create an RQ from the findings. "
+                "What concrete research action follows? Consider:"
+            )
+            lines.append("- add_research_question to investigate the finding further")
+            lines.append("- add_hypothesis if the evidence already supports a specific claim")
+            lines.append("- update_strategy if the research direction needs to change")
+            lines.append(">>> END ACCEPTED CRITIQUE <<<\n")
+            self._state.pending_accepted_critiques.clear()
         # Pending work summary — always present so the orchestrator sees current state
         pending = self._render_pending_work()
         if pending:
@@ -706,7 +734,8 @@ class SciRalph:
 
         unresolved = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
         if unresolved:
-            lines.append(f"  Unresolved critiques: {', '.join(c.id for c in unresolved)}")
+            crit_items = [f"{c.id} ({c.severity})" for c in unresolved]
+            lines.append(f"  Unresolved critiques: {', '.join(crit_items)}")
 
         if not lines:
             return ""
@@ -766,6 +795,10 @@ class SciRalph:
                     self._state.pending_critic_result = {
                         "clean": False,
                         "count": len(recent),
+                        "critiques": [
+                            {"id": c.id, "severity": str(c.severity)}
+                            for c in recent
+                        ],
                     }
             return "deep_critic", response
 
