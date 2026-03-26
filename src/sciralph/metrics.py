@@ -57,8 +57,7 @@ class MetricsTracker:
     def alert(self, iteration: int, message: str):
         self.alerts.append({"iteration": iteration, "message": message})
 
-    def to_markdown(self, file_sizes: dict[str, int] | None = None,
-                    thresholds: dict[str, int] | None = None) -> str:
+    def to_markdown(self) -> str:
         """Render metrics as METRICS.md content."""
         total_iters = max((c.iteration for c in self.calls), default=0)
         has_tool_calls = any(c.tool_calls > 0 for c in self.calls)
@@ -98,15 +97,6 @@ class MetricsTracker:
                     f"| {c.iteration} | {c.agent} | {c.input_tokens} | {c.output_tokens} "
                     f"| {'yes' if c.max_tokens_hit else 'no'} | {c.duration:.1f} |"
                 )
-
-        if file_sizes and thresholds:
-            lines.append("\n# File Size Tracking\n")
-            lines.append("| File | Current Size (chars) | Threshold | Compression Needed |")
-            lines.append("|------|---------------------|-----------|-------------------|")
-            for fname, size in file_sizes.items():
-                thresh = thresholds.get(fname, 0)
-                needed = "yes" if size > thresh else "no"
-                lines.append(f"| {fname} | {size} | {thresh} | {needed} |")
 
         if self.alerts:
             lines.append("\n# Alerts")

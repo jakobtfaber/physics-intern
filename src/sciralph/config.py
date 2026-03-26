@@ -35,9 +35,6 @@ class Config:
     max_tokens: int = DEFAULTS["max_tokens"]
     max_iterations: int = DEFAULTS["max_iterations"]
     critic_every_n: int = DEFAULTS["critic_every_n"]
-    compress_threshold: dict[str, int] = field(
-        default_factory=lambda: dict(DEFAULTS["compress_threshold"])
-    )
     sympy_timeout_seconds: int = DEFAULTS["sympy_timeout_seconds"]
     max_tool_rounds: int = DEFAULTS["max_tool_rounds"]
     progress_check_interval: int = DEFAULTS["progress_check_interval"]
@@ -51,7 +48,6 @@ class Config:
     api_retry_initial_delay: float = DEFAULTS["api_retry_initial_delay"]
     api_retry_max_delay: float = DEFAULTS["api_retry_max_delay"]
     api_timeout: float = DEFAULTS["api_timeout"]
-    compress_soft_multiplier: float = DEFAULTS["compress_soft_multiplier"]
     budget_synthesis_margin: int = DEFAULTS["budget_synthesis_margin"]
     orchestrator_comp_log_tail: int = DEFAULTS["orchestrator_comp_log_tail"]
     prior_failure_excerpt_chars: int = DEFAULTS["prior_failure_excerpt_chars"]
@@ -127,12 +123,11 @@ class Config:
 # Fields settable via config.yaml (workspace_dir, logs_dir, api_key excluded)
 _YAML_CONFIG_FIELDS = frozenset({
     "model", "verify_model", "max_tokens", "max_iterations", "critic_every_n",
-    "compress_threshold", "sympy_timeout_seconds",
+    "sympy_timeout_seconds",
     "max_tool_rounds", "progress_check_interval",
     "computation_token_alert", "tool_output_limit", "stall_threshold", "stall_recompute_limit",
     "min_er_for_completion", "api_retry_max", "api_retry_initial_delay",
     "api_retry_max_delay", "api_timeout",
-    "compress_soft_multiplier",
     "budget_synthesis_margin",
     "orchestrator_comp_log_tail",
     "prior_failure_excerpt_chars",

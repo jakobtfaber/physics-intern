@@ -7,10 +7,6 @@ verify_model: claude-opus-4.6
 max_tokens: 65536
 max_iterations: 200
 critic_every_n: 4
-compress_threshold:
-  RESEARCH_STATE.md: 50000
-  CRITIQUE_LOG.md: 30000
-  EVIDENCE_LOG.md: 40000
 sympy_timeout_seconds: 60
 max_tool_rounds: 10
 progress_check_interval: 4
@@ -26,10 +22,6 @@ api_retry_max: 10
 api_retry_initial_delay: 10.0
 api_retry_max_delay: 60.0
 api_timeout: 600.0
-
-# --- Compression ---
-# Multiplier relative to compress_threshold for triggering compression
-compress_soft_multiplier: 1.5
 
 # --- Budget hints (orchestrator context) ---
 # Iterations remaining before orchestrator injects BUDGET SYNTHESIS banner

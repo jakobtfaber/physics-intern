@@ -1,7 +1,6 @@
 """Workspace manager for SciRalph file I/O and git operations."""
 
 import json
-import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +16,6 @@ class WorkspaceManager:
         self.root = Path(config.workspace_dir)
         self.computations_dir = self.root / "computations"
         self.derivations_dir = self.root / "derivations"
-        self.archive_dir = self.root / "archive"
         self.logs_dir = self.root / "logs"
 
     def attach(self):
@@ -28,7 +26,6 @@ class WorkspaceManager:
             raise FileNotFoundError(f"Workspace has no .git directory: {self.root}")
         self.computations_dir.mkdir(exist_ok=True)
         self.derivations_dir.mkdir(exist_ok=True)
-        self.archive_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
 
     def init(self, problem: str):
@@ -37,7 +34,6 @@ class WorkspaceManager:
         self.root.mkdir(parents=True, exist_ok=True)
         self.computations_dir.mkdir(exist_ok=True)
         self.derivations_dir.mkdir(exist_ok=True)
-        self.archive_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
 
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -142,15 +138,6 @@ Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, p
     def file_exists(self, filename: str) -> bool:
         """Check if a file exists in the workspace."""
         return (self.root / filename).exists()
-
-    def archive_file(self, filename: str):
-        """Archive a file before compression."""
-        src = self.root / filename
-        if not src.exists():
-            return
-        now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        dest = self.archive_dir / f"{src.stem}_{now}{src.suffix}"
-        shutil.copy2(str(src), str(dest))
 
     def git_commit(self, message: str):
         """Stage all changes and commit.

@@ -22,7 +22,6 @@ from .agents.researcher import ResearcherAgent
 from .agents.computer import ComputerAgent
 from .agents.reviewer import ReviewerAgent
 from .agents.critic import CriticAgent
-from .agents.compressor import CompressorAgent
 from .agents.formatter import FormatterAgent
 from .agents.surveyor import SurveyorAgent
 from .agents.planner import PlannerAgent
@@ -100,7 +99,6 @@ class SciRalph:
         self.computer = ComputerAgent(self.config, self.workspace, self.metrics)
         self.reviewer = ReviewerAgent(self.config, self.workspace, self.metrics)
         self.critic = CriticAgent(self.config, self.workspace, self.metrics)
-        self.compressor = CompressorAgent(self.config, self.workspace, self.metrics)
         self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
         self.surveyor = SurveyorAgent(self.config, self.workspace, self.metrics)
         self.planner = PlannerAgent(self.config, self.workspace, self.metrics)
@@ -158,7 +156,6 @@ class SciRalph:
         engine.computer = ComputerAgent(config, engine.workspace, engine.metrics)
         engine.reviewer = ReviewerAgent(config, engine.workspace, engine.metrics)
         engine.critic = CriticAgent(config, engine.workspace, engine.metrics)
-        engine.compressor = CompressorAgent(config, engine.workspace, engine.metrics)
         engine.formatter = FormatterAgent(config, engine.workspace, engine.metrics, answer_template)
         engine.surveyor = SurveyorAgent(config, engine.workspace, engine.metrics)
         engine.planner = PlannerAgent(config, engine.workspace, engine.metrics)
@@ -170,7 +167,7 @@ class SciRalph:
         return engine
 
     def run(self):
-        """Main loop: survey → orchestrate → validate → override → dispatch → compress → git."""
+        """Main loop: survey → orchestrate → validate → override → dispatch → git."""
         console.print(Panel("SciRalph Research System", style="bold blue"))
 
         # Skip surveyor if background survey already exists (e.g. on resume)
@@ -387,8 +384,7 @@ class SciRalph:
                 self._record_agent_failures(critic_task, agent_name_c, result_c)
                 self._append_dispatch_record(critic_task)
 
-            # 7. Compression, metrics, structured state snapshot, render files, git
-            self._check_compression()
+            # 7. Metrics, structured state snapshot, render files, git
             self._update_metrics()
             self._sync_research_state()
             self._render_files_for_git()
@@ -1093,26 +1089,6 @@ class SciRalph:
                 detail = h.review.summary[:120].replace("\n", " ") if h.review.summary else ""
                 console.print(f"  [yellow]{target_id} INCONCLUSIVE[/yellow] — {detail}")
 
-    def _check_compression(self):
-        """Check file sizes against thresholds, compress if needed."""
-        for filename, threshold in self.config.compress_threshold.items():
-            size = self.workspace.file_size(filename)
-            if size > threshold:
-                self.metrics.alert(
-                    self.iteration,
-                    f"{filename} size ({size}) exceeds threshold ({threshold})."
-                )
-                if size > threshold * self.config.compress_soft_multiplier:
-                    console.print(f"[yellow]Compressing {filename} ({size}/{threshold})[/yellow]")
-                    compress_task = Task(
-                        task_id=f"COMPRESS-{self.iteration:03d}",
-                        task_type=TaskType.RESEARCH,
-                        assigned_to="compressor",
-                        iteration=self.iteration,
-                        target_file=filename,
-                    )
-                    self.compressor.run(compress_task, self.iteration)
-
     def _update_research_iteration(self):
         """Update the iteration field in research state."""
         self.research_state.iteration = self.iteration
@@ -1212,10 +1188,7 @@ class SciRalph:
 
     def _update_metrics(self):
         """Write current metrics to METRICS.md."""
-        file_sizes = {}
-        for filename in self.config.compress_threshold:
-            file_sizes[filename] = self.workspace.file_size(filename)
-        md = self.metrics.to_markdown(file_sizes, self.config.compress_threshold)
+        md = self.metrics.to_markdown()
         self.workspace.write_file("METRICS.md", md)
 
     def _print_task(self, task: Task):

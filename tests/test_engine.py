@@ -1,4 +1,4 @@
-"""Tests for SciRalph engine (compression thresholds, research status, budget enforcement, overrides)."""
+"""Tests for SciRalph engine (research status, budget enforcement, overrides)."""
 
 from unittest.mock import MagicMock, patch, PropertyMock, call
 
@@ -7,59 +7,6 @@ from sciralph.engine import DispatchRecord, LoopState
 from sciralph.research_state import Evidence, Hypothesis, ResearchState, ReviewResult
 from sciralph.task import Task, TaskType
 from sciralph.validation import Violation, ViolationSeverity
-
-
-class TestCheckCompression:
-    """Test _check_compression with various file sizes vs thresholds."""
-
-    def _make_engine(self, file_size_map: dict[str, int]):
-        """Create a SciRalph instance with mocked workspace and compressor."""
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
-            ws = MockWS.return_value
-            ws.init = MagicMock()
-            ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
-            ws.logs_dir = "/tmp/logs"
-            ws.file_size = MagicMock(side_effect=lambda f: file_size_map.get(f, 0))
-
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
-            engine.config = Config(compress_threshold={"TEST.md": 10_000})
-            engine.research_state = ResearchState()
-            engine.workspace = ws
-            engine.metrics = MagicMock()
-            engine.compressor = MagicMock()
-            engine.iteration = 1
-        return engine
-
-    def test_no_compression_below_threshold(self):
-        engine = self._make_engine({"TEST.md": 5_000})
-        engine._check_compression()
-        engine.compressor.run.assert_not_called()
-        engine.metrics.alert.assert_not_called()
-
-    def test_alert_only_between_1x_and_1_5x(self):
-        engine = self._make_engine({"TEST.md": 12_000})  # 1.2x
-        engine._check_compression()
-        engine.metrics.alert.assert_called_once()
-        engine.compressor.run.assert_not_called()
-
-    def test_compression_at_1_5x(self):
-        engine = self._make_engine({"TEST.md": 16_000})  # 1.6x
-        engine._check_compression()
-        engine.metrics.alert.assert_called_once()
-        engine.compressor.run.assert_called_once()
-        task_arg = engine.compressor.run.call_args[0][0]
-        assert task_arg.target_file == "TEST.md"
-
-    def test_compression_at_2x_still_compresses(self):
-        """2.5x exceeds soft multiplier, so compression triggers."""
-        engine = self._make_engine({"TEST.md": 25_000})  # 2.5x
-        engine._check_compression()
-        engine.metrics.alert.assert_called_once()
-        engine.compressor.run.assert_called_once()
-        task_arg = engine.compressor.run.call_args[0][0]
-        assert task_arg.target_file == "TEST.md"
 
 
 class TestSetResearchStatus:
@@ -932,7 +879,6 @@ class TestDispatchFailureRecovery:
             engine.computer = MagicMock()
             engine.reviewer = MagicMock()
             engine.critic = MagicMock()
-            engine.compressor = MagicMock()
             engine.formatter = MagicMock(rejection_reason=None)
             engine.surveyor = MagicMock()
             engine.surveyor.parsed_survey = None
@@ -1258,7 +1204,6 @@ class TestSyncOnTermination:
             engine.computer = MagicMock()
             engine.reviewer = MagicMock()
             engine.critic = MagicMock()
-            engine.compressor = MagicMock()
             engine.formatter = MagicMock(rejection_reason=None)
             engine.surveyor = MagicMock()
             engine.surveyor.parsed_survey = None

@@ -43,7 +43,6 @@ class Task:
     priority: str = "medium"
     iteration: int = 0
     blocking_critiques: list[str] = field(default_factory=list)
-    target_file: str = ""
     target_claim: str = ""
     body: str = ""
     # Structured dispatch context (populated by orchestrator dispatch tools)
@@ -65,8 +64,6 @@ class Task:
         }
         if self.blocking_critiques:
             meta["blocking_critiques"] = self.blocking_critiques
-        if self.target_file:
-            meta["target_file"] = self.target_file
         if self.target_claim:
             meta["target_claim"] = self.target_claim
         if self.background:
@@ -125,7 +122,6 @@ class Task:
             priority=meta.get("priority", "medium"),
             iteration=effective_iter,
             blocking_critiques=meta.get("blocking_critiques", []),
-            target_file=meta.get("target_file", ""),
             target_claim=meta.get("target_claim", ""),
             body=body,
             background=meta.get("background", ""),

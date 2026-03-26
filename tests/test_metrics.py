@@ -36,15 +36,11 @@ def test_to_markdown():
     m.record_call(1, "orchestrator", 1000, 500, 2.5, False)
     m.record_call(2, "researcher", 2000, 1000, 5.0, True)
     m.alert(2, "max_tokens hit")
-    md = m.to_markdown(
-        file_sizes={"RESEARCH_STATE.md": 5000},
-        thresholds={"RESEARCH_STATE.md": 50000},
-    )
+    md = m.to_markdown()
     assert "---" in md
     assert "total_llm_calls: 2" in md
     assert "orchestrator" in md
     assert "max_tokens hit" in md
-    assert "RESEARCH_STATE.md" in md
 
 
 def test_to_markdown_shows_all_calls():

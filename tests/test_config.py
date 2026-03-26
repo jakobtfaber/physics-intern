@@ -18,7 +18,7 @@ from sciralph.config import Config, DEFAULTS, _YAML_CONFIG_FIELDS, load_config_y
 class TestDefaults:
     def test_defaults_has_required_keys(self):
         required = {"model", "verify_model", "max_tokens", "max_iterations",
-                     "critic_every_n", "compress_threshold",
+                     "critic_every_n",
                      "sympy_timeout_seconds",
                      "max_tool_rounds", "tool_output_limit", "min_er_for_completion"}
         assert required.issubset(DEFAULTS.keys())
@@ -66,13 +66,6 @@ class TestLoadConfigYaml:
         cfg = tmp_path / "config.yaml"
         cfg.write_text("")
         assert load_config_yaml(cfg) == {}
-
-    def test_compress_threshold_dict(self, tmp_path):
-        cfg = tmp_path / "config.yaml"
-        threshold = {"RESEARCH_STATE.md": 10000}
-        cfg.write_text(yaml.dump({"compress_threshold": threshold}))
-        result = load_config_yaml(cfg)
-        assert result["compress_threshold"] == threshold
 
     def test_excluded_fields_rejected(self, tmp_path):
         cfg = tmp_path / "config.yaml"

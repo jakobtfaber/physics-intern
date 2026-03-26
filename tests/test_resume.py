@@ -84,7 +84,6 @@ class TestWorkspaceAttach:
         ws2 = WorkspaceManager(config)
         ws2.attach()
         assert ws2.computations_dir.exists()
-        assert ws2.archive_dir.exists()
         assert ws2.logs_dir.exists()
 
     def test_workspace_attach_missing(self, tmp_path):
@@ -313,7 +312,6 @@ class TestRunSurveyorSkip:
         engine.surveyor = MagicMock()
         engine.planner = MagicMock()
         engine.planner.parsed_strategy = None
-        engine.compressor = MagicMock()
 
         engine.run()
 
@@ -339,7 +337,6 @@ class TestRunSurveyorSkip:
         engine.surveyor.parsed_survey = None
         engine.planner = MagicMock()
         engine.planner.parsed_strategy = None
-        engine.compressor = MagicMock()
 
         engine.run()
 
@@ -369,7 +366,6 @@ class TestRunSurveyorSkip:
         engine.planner = MagicMock()
         engine.planner.parsed_strategy = None
         engine.orchestrator = MagicMock()
-        engine.compressor = MagicMock()
 
         engine.run()
 
