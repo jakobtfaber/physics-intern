@@ -96,9 +96,9 @@ class Config:
         return cls(**data)
 
     def __post_init__(self):
+        resolved = _resolve_model(self.model)
         # Resolve provider from models.yaml if not explicitly set
         if not self.provider:
-            resolved = _resolve_model(self.model)
             if resolved:
                 self.provider = resolved["provider"]
                 self.model_id = resolved["model_id"]
@@ -109,16 +109,19 @@ class Config:
                 model_max = resolved.get("max_output_tokens", 0)
                 if model_max and self.max_tokens == DEFAULTS["max_tokens"]:
                     self.max_tokens = model_max
-                if not self.api_key:
-                    self.api_key = os.environ.get(resolved["env_key"], "")
             else:
                 # Default to anthropic for backward compatibility
                 self.provider = "anthropic"
         # If model_id wasn't resolved, fall back to model (direct API id)
         if not self.model_id:
             self.model_id = self.model
+        # Resolve API key from environment if not already set (needed on resume,
+        # where provider is already populated so the block above is skipped)
         if not self.api_key:
-            self.api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            if resolved:
+                self.api_key = os.environ.get(resolved["env_key"], "")
+            if not self.api_key:
+                self.api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
 
 # Fields settable via config.yaml (workspace_dir, logs_dir, api_key excluded)
