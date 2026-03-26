@@ -70,12 +70,12 @@ This is a single-pass review.
 
 ## Output Format
 
-First write your analysis as free text, then conclude with a JSON block:
+First write your analysis as free text, then conclude with a JSON block.
+
+**If you find issues**, file up to 3 critiques prioritized by severity. Each critique must be fully self-contained — its `argument` field must include all relevant reasoning and context:
 
 ```json
 {
-  "summary": "Concise audit trail: one line per area reviewed with your conclusion.",
-  "details": "Full reasoning and analysis of the research strategy, result coherence, and any issues found.",
   "critiques": [
     {
       "target_id": "STRATEGY or WH-NNN or ER-NNN",
@@ -86,7 +86,14 @@ First write your analysis as free text, then conclude with a JSON block:
 }
 ```
 
-File up to 3 critiques if warranted, prioritized by severity. If no issues are found, the `critiques` array should be empty.
+**If no issues are found**, return a summary of what you reviewed and why it is sound:
+
+```json
+{
+  "summary": "Concise audit trail: one line per area reviewed with your conclusion.",
+  "critiques": []
+}
+```
 
 ### Severity Levels
 
