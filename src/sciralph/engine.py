@@ -555,6 +555,7 @@ class SciRalph:
     def _build_context_suffix(self) -> str:
         """Build suffix for orchestrator context with violations, blockers, and agent failures."""
         lines = []
+        lines.append(f"# Current Iteration: {self.iteration}\n")
         if self._state.dispatch_history:
             lines.append("<tasks_dispatch_history>")
             for rec in self._state.dispatch_history:
@@ -573,8 +574,8 @@ class SciRalph:
             for b in self._state.pending_termination_blockers:
                 lines.append(f"  - {b}")
             lines.append(
-                "Do NOT emit task_type: terminate again until you have addressed "
-                "ALL blockers above. Emit the specific task_type indicated in each blocker."
+                "Do request termination again until you have addressed "
+                "ALL blockers above."
             )
             lines.append("")
             lines.append("Pre-dispatch checklist (verify before retrying termination):")

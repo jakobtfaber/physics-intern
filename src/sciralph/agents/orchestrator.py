@@ -47,7 +47,6 @@ class OrchestratorAgent(BaseAgent):
                 "and variable definitions being used. <<<\n"
             )
         parts.extend([
-            f"# Current Iteration: {iteration}\n",
             state_text,
             "\n",
             render_orchestrator_critique_log(self.research_state) if self.research_state else "",
