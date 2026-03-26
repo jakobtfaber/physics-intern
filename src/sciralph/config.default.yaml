@@ -42,3 +42,8 @@ orchestrator_comp_log_tail: 5
 # --- Prior failure enrichment ---
 # Max chars of prior failure excerpt pasted into compute task body
 prior_failure_excerpt_chars: 3000
+
+# --- Evidence pile-up cap ---
+# Max non-refuted evidence items on an RQ before dispatch tools are blocked.
+# Forces the orchestrator to promote (add_hypothesis) or abandon the RQ.
+rq_evidence_cap: 3

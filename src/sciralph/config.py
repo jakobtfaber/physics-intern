@@ -55,6 +55,7 @@ class Config:
     budget_synthesis_margin: int = DEFAULTS["budget_synthesis_margin"]
     orchestrator_comp_log_tail: int = DEFAULTS["orchestrator_comp_log_tail"]
     prior_failure_excerpt_chars: int = DEFAULTS["prior_failure_excerpt_chars"]
+    rq_evidence_cap: int = DEFAULTS["rq_evidence_cap"]
     provider: str = ""
     workspace_dir: str = ""
     logs_dir: str = ""
@@ -132,6 +133,7 @@ _YAML_CONFIG_FIELDS = frozenset({
     "budget_synthesis_margin",
     "orchestrator_comp_log_tail",
     "prior_failure_excerpt_chars",
+    "rq_evidence_cap",
     "provider",
 })
 

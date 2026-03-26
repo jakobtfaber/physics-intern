@@ -154,6 +154,75 @@ class TestAddHypothesis:
 
 
 # ---------------------------------------------------------------------------
+# RQ evidence cap (dispatch blocked when saturated)
+# ---------------------------------------------------------------------------
+
+class TestRqEvidenceCap:
+    def _make_rq_with_evidence(self, rq_id: str, n_evidence: int) -> "ResearchQuestion":
+        from sciralph.research_state import ResearchQuestion, Evidence
+        rq = ResearchQuestion(id=rq_id, question="Q?", iteration_created=1)
+        for i in range(n_evidence):
+            rq.evidence.append(Evidence(id=f"EV-{i+1:03d}", type="compute", result="r"))
+        return rq
+
+    def test_dispatch_blocked_when_rq_saturated(self):
+        """dispatch_computer is rejected when an open RQ has >= cap evidence."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = ResearchState()
+        state.research_questions["RQ-001"] = self._make_rq_with_evidence("RQ-001", 3)
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state, rq_evidence_cap=3)
+        tc = ex.execute("dispatch_computer", {
+            "target_claim": "RQ-001", "description": "More work",
+        })
+        assert "dispatch blocked" in tc.output
+        assert "RQ-001" in tc.output
+        assert ex.task_data is None  # dispatch did NOT go through
+
+    def test_dispatch_allowed_below_cap(self):
+        """dispatch_computer succeeds when RQ evidence count < cap."""
+        ws = _make_workspace()
+        state = ResearchState()
+        state.research_questions["RQ-001"] = self._make_rq_with_evidence("RQ-001", 2)
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state, rq_evidence_cap=3)
+        tc = ex.execute("dispatch_computer", {
+            "target_claim": "RQ-001", "description": "More work",
+        })
+        assert not tc.is_error
+        assert ex.task_data is not None
+
+    def test_dispatch_researcher_also_blocked(self):
+        """dispatch_researcher is also blocked by saturated RQs."""
+        ws = _make_workspace()
+        state = ResearchState()
+        state.research_questions["RQ-001"] = self._make_rq_with_evidence("RQ-001", 4)
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state, rq_evidence_cap=3)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "RQ-001", "description": "Analyze",
+        })
+        assert "dispatch blocked" in tc.output
+
+    def test_refuted_evidence_not_counted(self):
+        """Refuted evidence does not count toward the cap."""
+        from sciralph.research_state import ResearchQuestion, Evidence
+        ws = _make_workspace()
+        state = ResearchState()
+        rq = ResearchQuestion(id="RQ-001", question="Q?", iteration_created=1)
+        for i in range(4):
+            rq.evidence.append(Evidence(
+                id=f"EV-{i+1:03d}", type="compute", result="r", refuted=True,
+            ))
+        # One non-refuted — below cap
+        rq.evidence.append(Evidence(id="EV-005", type="compute", result="r"))
+        state.research_questions["RQ-001"] = rq
+        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state, rq_evidence_cap=3)
+        tc = ex.execute("dispatch_computer", {
+            "target_claim": "RQ-001", "description": "More work",
+        })
+        assert not tc.is_error
+
+
+# ---------------------------------------------------------------------------
 # update_hypothesis
 # ---------------------------------------------------------------------------
 

@@ -602,11 +602,12 @@ class SciRalph:
                         f"  -> ACTION NEEDED: {tid} now has {count} evidence item(s) on a Research Question."
                         " Consider promoting to a Working Hypothesis (add_hypothesis) so it undergoes adversarial review."
                     )
-                if count >= 3 and is_rq:
+                rq_cap = self.config.rq_evidence_cap
+                if count >= rq_cap and is_rq:
                     lines.append(
-                        f"  >> WARNING: {tid} has {count} evidence items WITHOUT a Working Hypothesis."
-                        " Accumulating evidence on an RQ bypasses the review cycle — the primary error-correction mechanism."
-                        " Create a Working Hypothesis NOW unless you have a strong reason to gather more evidence first."
+                        f"  >> BLOCKED: {tid} has {count} evidence items (cap={rq_cap}) WITHOUT a Working Hypothesis."
+                        " dispatch_researcher / dispatch_computer WILL BE REJECTED until you"
+                        " promote this RQ to a WH (add_hypothesis) or resolve/abandon it."
                     )
                 if count >= 3 and len(types) == 1:
                     only_type = next(iter(types))

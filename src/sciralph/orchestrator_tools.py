@@ -482,6 +482,7 @@ class OrchestratorToolExecutor:
         min_er_for_completion: int = 3,
         max_iterations: int = 20,
         budget_synthesis_margin: int = 3,
+        rq_evidence_cap: int = 3,
     ):
         self.workspace = workspace
         self.iteration = iteration
@@ -495,6 +496,7 @@ class OrchestratorToolExecutor:
         self._min_er_for_completion = min_er_for_completion
         self._max_iterations = max_iterations
         self._budget_synthesis_margin = budget_synthesis_margin
+        self._rq_evidence_cap = rq_evidence_cap
 
     def begin_round(self) -> None:
         """Called at the start of each response's tool batch.
@@ -1066,6 +1068,9 @@ class OrchestratorToolExecutor:
             err = self._validate_target_claim(target)
             if err is not None:
                 return err
+            err = self._check_saturated_rqs()
+            if err is not None:
+                return err
         self.task_data = {"task_type": "research", **args}
         self.stop_after_round = True
         return f"Dispatched: researcher → {target}"
@@ -1074,6 +1079,9 @@ class OrchestratorToolExecutor:
         target = args["target_claim"]
         if self.research_state:
             err = self._validate_target_claim(target)
+            if err is not None:
+                return err
+            err = self._check_saturated_rqs()
             if err is not None:
                 return err
         self.task_data = {"task_type": "compute", **args}
@@ -1139,4 +1147,28 @@ class OrchestratorToolExecutor:
             f"Error: target_claim '{target_claim}' not found. "
             f"Valid entities: {listing}. "
             "Use the actual entity ID from mutation results."
+        )
+
+    def _check_saturated_rqs(self) -> str | None:
+        """Block dispatch if any open RQ has >= rq_evidence_cap non-refuted evidence.
+
+        Returns an error string listing the saturated RQs, or None if all clear.
+        """
+        state = self.research_state
+        if state is None:
+            return None
+        cap = self._rq_evidence_cap
+        saturated: list[tuple[str, int]] = []
+        for rq in state.open_research_questions():
+            active = sum(1 for e in rq.evidence if not e.refuted)
+            if active >= cap:
+                saturated.append((rq.id, active))
+        if not saturated:
+            return None
+        listing = ", ".join(f"{rid} ({n} evidence)" for rid, n in saturated)
+        return (
+            f"Error: dispatch blocked — saturated RQ(s): {listing}. "
+            f"RQs with >= {cap} evidence items must be resolved before dispatching new work. "
+            "Either promote to a Working Hypothesis (add_hypothesis) for adversarial review, "
+            "or abandon (resolve_research_question) if the evidence is inconclusive."
         )
