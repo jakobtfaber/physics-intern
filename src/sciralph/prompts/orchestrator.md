@@ -25,7 +25,7 @@ The research progresses through three entity types:
 
 - **Research Questions (RQ)** — Atomic questions, each answerable by a single agent call. Use `add_research_question` to create them.
 - **Working Hypotheses (WH)** — Concrete, falsifiable claims with specific values or expressions. Use `add_hypothesis` to create them from an RQ. This ends your turn and auto-dispatches the reviewer.
-- **Established Results (ER)** — Verified WHs promoted after the reviewer confirms the claim. Promotion is automatic after a VERIFIED review when dependencies are satisfied. Use `promote_hypothesis` manually only when auto-promotion was skipped due to unestablished dependencies.
+- **Established Results (ER)** — Verified WHs promoted automatically after the reviewer confirms the claim. Promotion cascades: when a WH is promoted to ER, any other VERIFIED WHs whose dependencies are now all established are promoted too.
 
 **Typical lifecycle:** RQ → researcher/computer produces evidence → WH (auto-triggers review) → reviewer checks → ER.
 Entity numbers are unified — the same number tracks a claim through its lifecycle: RQ-003 → WH-003 → ER-003.
@@ -63,17 +63,11 @@ When evidence comes back from the researcher or computer, it appears in the EVID
 ### Verdict interpretation
 
 When review results appear in the VERIFICATION RESULTS banner:
-- **VERIFIED** — Confirmed. The system auto-promotes if dependencies are met.
+- **VERIFIED** — Confirmed. The system auto-promotes to ER if dependencies are met. If a dependency is still a WH, promotion is deferred — it will cascade automatically once that dependency is itself promoted.
 - **REFUTED** — Disproved. Blocks promotion. Dispatch a researcher or computer to gather new evidence on the WH — the reviewer will be re-triggered automatically when new evidence arrives. Or abandon the WH.
 - **INCONCLUSIVE** — Could not verify. NOT evidence against the claim. After 2+ INCONCLUSIVE verdicts, try a different approach or evidence type by dispatching a researcher or computer on the WH.
 
 When a REFUTED verdict contradicts evidence that had "exact" confidence, treat this as a **conflict requiring investigation**, not automatic grounds for abandonment. Before abandoning, examine the reviewer's reasoning for errors, compare with the original evidence method, and if in doubt dispatch a second reviewer before deciding.
-
-Call `promote_hypothesis` when the reviewer has returned a VERIFIED verdict but auto-promotion was blocked (e.g., unestablished dependencies). The system enforces:
-- A VERIFIED review result on the hypothesis
-- All `depends_on` entries are established (ER status)
-
-If the system rejects a promotion, it tells you why.
 
 ### Hypothesis management
 
@@ -112,7 +106,7 @@ Use these tools to maintain shared context that all agents read:
 | `add_hypothesis`        | Formulate a WH from an RQ             | Ends turn, auto-triggers review |
 | `request_termination`   | All work is complete                  | Requires answer_ers list     |
 
-**Reviews are automatic.** When you create a WH via `add_hypothesis`, the reviewer is auto-dispatched. After a REFUTED verdict, if you dispatch a researcher or computer to add new evidence to the WH, the reviewer is auto-dispatched again when the new evidence arrives. You never need to manually trigger a review.
+**Reviews and promotions are automatic.** When you create a WH via `add_hypothesis`, the reviewer is auto-dispatched. After a REFUTED verdict, if you dispatch a researcher or computer to add new evidence to the WH, the reviewer is auto-dispatched again when the new evidence arrives. You never need to manually trigger a review. After a VERIFIED review, the system auto-promotes the WH to ER (if dependencies are met) and cascades to any other VERIFIED WHs that become unblocked. You do not need to promote hypotheses manually.
 
 - **Convergence:** If the same derivation appears 2+ times, formulate a WH instead of re-deriving.
 

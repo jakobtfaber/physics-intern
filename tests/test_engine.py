@@ -2029,3 +2029,114 @@ class TestCritiqueRedirect:
         assert task.target_claim == "WH-001"
         assert task.blocking_critiques == []
 
+
+class TestAutoPromoteCascade:
+    """Tests for cascading auto-promotion in _auto_promote."""
+
+    def _make_engine(self):
+        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+            ws = MockWS.return_value
+            ws.init = MagicMock()
+            ws.root = MagicMock()
+            ws.root.__truediv__ = MagicMock()
+            ws.logs_dir = "/tmp/logs"
+
+            from sciralph.engine import SciRalph
+            from sciralph.research_state import HypothesisStatus
+            engine = SciRalph.__new__(SciRalph)
+            engine.config = Config()
+            engine.workspace = ws
+            engine.metrics = MagicMock()
+            engine.iteration = 5
+            engine._state = LoopState()
+            engine.research_state = ResearchState()
+        return engine
+
+    def test_simple_promotion(self):
+        """VERIFIED WH with no deps is promoted."""
+        from sciralph.research_state import Hypothesis, HypothesisStatus, Verdict
+        engine = self._make_engine()
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+            review=ReviewResult(verdict=Verdict.VERIFIED, summary="OK", iteration=4),
+        )
+        engine._auto_promote("WH-001")
+        assert "ER-001" in engine.research_state.hypotheses
+        assert "WH-001" not in engine.research_state.hypotheses
+
+    def test_skipped_when_deps_unestablished(self):
+        """VERIFIED WH with unestablished dep is NOT promoted."""
+        from sciralph.research_state import Hypothesis, HypothesisStatus, Verdict
+        engine = self._make_engine()
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+        )
+        engine.research_state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", status=HypothesisStatus.WORKING, depends_on=["WH-001"],
+            review=ReviewResult(verdict=Verdict.VERIFIED, summary="OK", iteration=4),
+        )
+        engine._auto_promote("WH-002")
+        assert "WH-002" in engine.research_state.hypotheses
+        assert "ER-002" not in engine.research_state.hypotheses
+
+    def test_cascade_promotes_dependent(self):
+        """Promoting WH-001 cascades to promote WH-002 that depends on it."""
+        from sciralph.research_state import Hypothesis, HypothesisStatus, Verdict
+        engine = self._make_engine()
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+            review=ReviewResult(verdict=Verdict.VERIFIED, summary="OK", iteration=4),
+        )
+        engine.research_state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", status=HypothesisStatus.WORKING, depends_on=["WH-001"],
+            review=ReviewResult(verdict=Verdict.VERIFIED, summary="OK too", iteration=4),
+        )
+        engine._auto_promote("WH-001")
+        # Both should be promoted
+        assert "ER-001" in engine.research_state.hypotheses
+        assert "ER-002" in engine.research_state.hypotheses
+        assert "WH-001" not in engine.research_state.hypotheses
+        assert "WH-002" not in engine.research_state.hypotheses
+
+    def test_cascade_chain_three_deep(self):
+        """Cascade works through a chain: WH-001 -> WH-002 -> WH-003."""
+        from sciralph.research_state import Hypothesis, HypothesisStatus, Verdict
+        engine = self._make_engine()
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+            review=ReviewResult(verdict=Verdict.VERIFIED, summary="OK", iteration=4),
+        )
+        engine.research_state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", status=HypothesisStatus.WORKING, depends_on=["WH-001"],
+            review=ReviewResult(verdict=Verdict.VERIFIED, summary="OK", iteration=4),
+        )
+        engine.research_state.hypotheses["WH-003"] = Hypothesis(
+            id="WH-003", status=HypothesisStatus.WORKING, depends_on=["WH-002"],
+            review=ReviewResult(verdict=Verdict.VERIFIED, summary="OK", iteration=4),
+        )
+        engine._auto_promote("WH-001")
+        assert "ER-001" in engine.research_state.hypotheses
+        assert "ER-002" in engine.research_state.hypotheses
+        assert "ER-003" in engine.research_state.hypotheses
+
+    def test_cascade_stops_at_unverified(self):
+        """Cascade does not promote unverified WHs in the chain."""
+        from sciralph.research_state import Hypothesis, HypothesisStatus, Verdict
+        engine = self._make_engine()
+        engine.research_state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+            review=ReviewResult(verdict=Verdict.VERIFIED, summary="OK", iteration=4),
+        )
+        engine.research_state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", status=HypothesisStatus.WORKING, depends_on=["WH-001"],
+            # No review — not promotable
+        )
+        engine.research_state.hypotheses["WH-003"] = Hypothesis(
+            id="WH-003", status=HypothesisStatus.WORKING, depends_on=["WH-002"],
+            review=ReviewResult(verdict=Verdict.VERIFIED, summary="OK", iteration=4),
+        )
+        engine._auto_promote("WH-001")
+        assert "ER-001" in engine.research_state.hypotheses
+        assert "WH-002" in engine.research_state.hypotheses  # not promoted (no review)
+        assert "WH-003" in engine.research_state.hypotheses  # blocked by WH-002
+

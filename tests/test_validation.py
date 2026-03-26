@@ -403,8 +403,30 @@ class TestCanTerminate:
         assert not allowed
         assert any("WH-002" in b for b in blockers)
 
-    def test_blocks_wh_with_verified_backing(self):
-        """WH with VERIFIED review should get specific promote/abandon message."""
+    def test_blocks_wh_with_verified_but_unestablished_deps(self):
+        """WH with VERIFIED review + unestablished deps → blocker about deps."""
+        state = self._make_state()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", status=HypothesisStatus.WORKING,
+            depends_on=["WH-002"],
+            review=ReviewResult(
+                verdict=Verdict.VERIFIED, summary="Confirmed", iteration=1,
+            ),
+        )
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", status=HypothesisStatus.WORKING,
+        )
+        allowed, blockers = can_terminate(
+            MockWorkspace(), MockConfig(), MockMetrics(last_critic_iteration=1),
+            research_state=state,
+        )
+        assert not allowed
+        wh1_blocker = [b for b in blockers if "WH-001" in b][0]
+        assert "unestablished" in wh1_blocker.lower()
+        assert "promote_hypothesis" not in wh1_blocker
+
+    def test_blocks_wh_with_verified_no_deps_unexpected(self):
+        """WH with VERIFIED review + no dep issues → unexpected blocker."""
         state = self._make_state()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -417,7 +439,9 @@ class TestCanTerminate:
             research_state=state,
         )
         assert not allowed
-        assert any("promote" in b.lower() for b in blockers)
+        wh1_blocker = [b for b in blockers if "WH-001" in b][0]
+        assert "unexpected" in wh1_blocker.lower()
+        assert "promote_hypothesis" not in wh1_blocker
 
     def test_wh_without_verification_gets_review_message(self):
         """WH without review result should say 'emit review', not 'promote'."""

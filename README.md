@@ -135,7 +135,7 @@ Results go through layered review before being promoted to "Established":
 2. **Strategic critique** — Deep Critic reviews research direction and inter-result coherence
 3. **Dependency tracking** — All prerequisite results must themselves be Established
 
-The orchestrator enforces promotion criteria via its `promote_hypothesis` tool and forces periodic critic passes every N iterations. A post-integration validation pipeline (`validation.py`) runs 4 checks on ResearchState after every orchestrator pass — demoting unreviewed ERs, stripping phantom labels, and ensuring critique resolution consistency.
+Promotion from WH to ER is automatic: the engine's `_auto_promote` fires after a VERIFIED review when all dependencies are established, including cascading promotion of other VERIFIED WHs whose dependencies become satisfied. Periodic critic passes run every N iterations. A post-integration validation pipeline (`validation.py`) runs 4 checks on ResearchState after every orchestrator pass — demoting unreviewed ERs, stripping phantom labels, and ensuring critique resolution consistency.
 
 ### Workspace Files
 

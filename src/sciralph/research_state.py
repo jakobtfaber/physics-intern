@@ -319,7 +319,7 @@ class ResearchState:
     def normalize_references(self):
         """Normalize hypothesis references after ID changes (promote/demote).
 
-        When promote_hypothesis or demotion safety renames WH-002 → ER-002 (or
+        When auto-promotion or demotion safety renames WH-002 → ER-002 (or
         vice versa), depends_on and resolved_to references may become stale.
         This method fixes those backlinks by mapping the numeric suffix to the
         current hypothesis ID.

@@ -358,132 +358,6 @@ class TestAbandonHypothesis:
 
 
 # ---------------------------------------------------------------------------
-# promote_hypothesis
-# ---------------------------------------------------------------------------
-
-class TestPromoteHypothesis:
-    def test_successful_promotion(self):
-        ws = _make_workspace()
-        state = _make_state_with_verified("WH-001")
-        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-001",
-            "justification": "COMP-001 verified spin-1.",
-        })
-        assert not tc.is_error
-        assert "Promoted" in tc.output
-        assert "ER-001" in tc.output
-        # WH-001 gone, ER-001 present
-        assert "WH-001" not in state.hypotheses
-        assert "ER-001" in state.hypotheses
-        h = state.hypotheses["ER-001"]
-        assert h.status == HypothesisStatus.ESTABLISHED
-        assert h.iteration_modified == 5
-        assert h.statement == "First hypothesis"
-        assert ex.mutations_applied
-
-    def test_normalizes_references(self):
-        """Promotion calls state.normalize_references() to update depends_on."""
-        ws = _make_workspace()
-        state = _make_state_with_verified("WH-001")
-        # WH-002 depends on WH-001 — should be updated to ER-001 after promotion
-        state.hypotheses["WH-002"].depends_on = ["WH-001"]
-        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        ex.execute("promote_hypothesis", {
-            "id": "WH-001",
-            "justification": "Verified.",
-        })
-        # After normalize_references, depends_on should point to ER-001
-        assert state.hypotheses["WH-002"].depends_on == ["ER-001"]
-
-    def test_blocked_by_refuted_no_verified(self):
-        ws = _make_workspace()
-        state = _make_state_with_refuted("WH-001")
-        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-001",
-            "justification": "Should fail.",
-        })
-        assert "Error" in tc.output
-        assert "no VERIFIED" in tc.output
-        # State unchanged
-        assert "WH-001" in state.hypotheses
-        assert "ER-001" not in state.hypotheses
-        assert not ex.mutations_applied
-
-    def test_succeeds_despite_high_critique(self):
-        """HIGH critiques no longer block promotion."""
-        ws = _make_workspace()
-        state = _make_state_with_high_critique("WH-001")
-        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-001",
-            "justification": "Promote despite HIGH critique.",
-        })
-        assert not tc.is_error
-        assert "Promoted" in tc.output
-        assert "ER-001" in state.hypotheses
-        assert "WH-001" not in state.hypotheses
-        assert ex.mutations_applied
-
-    def test_non_wh_returns_error(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "ER-001",
-            "justification": "Not a WH.",
-        })
-        assert "Error" in tc.output
-        assert "not a WH" in tc.output
-        assert not ex.mutations_applied
-
-    def test_missing_id_returns_error(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-099",
-            "justification": "Doesn't exist.",
-        })
-        assert "Error" in tc.output or "not found" in tc.output
-        assert not ex.mutations_applied
-
-    def test_refuted_plus_verified_allows_promotion(self):
-        ws = _make_workspace()
-        state = _make_state_with_refuted_and_verified("WH-001")
-        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-001",
-            "justification": "COMP-002 verified despite earlier REFUTED.",
-        })
-        assert not tc.is_error
-        assert "Promoted" in tc.output
-        assert "ER-001" in state.hypotheses
-        assert "WH-001" not in state.hypotheses
-
-    def test_promote_result_is_simple(self):
-        """Promote tool result is a short confirmation (guidance moves to injection)."""
-        ws = _make_workspace()
-        state = ResearchState()
-        state.hypotheses["WH-001"] = Hypothesis(
-            id="WH-001", statement="Only hypothesis",
-            status=HypothesisStatus.WORKING, derivation="Derivation.",
-            iteration_created=1, iteration_modified=1,
-        )
-        state.hypotheses["WH-001"].review = ReviewResult(
-            verdict=Verdict.VERIFIED, summary="Verified", iteration=3,
-        )
-        ex = OrchestratorToolExecutor(ws, iteration=5, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-001",
-            "justification": "All checks pass.",
-        })
-        assert not tc.is_error
-        assert tc.output == "Promoted WH-001 → ER-001."
-
-
-# ---------------------------------------------------------------------------
 # dismiss_critique / accept_critique
 # ---------------------------------------------------------------------------
 
@@ -795,7 +669,6 @@ class TestNoResearchState:
             ("add_hypothesis", {"statement": "Test"}),
             ("update_hypothesis", {"id": "WH-001"}),
             ("abandon_hypothesis", {"id": "WH-001", "reason": "test"}),
-            ("promote_hypothesis", {"id": "WH-001", "justification": "test"}),
             ("dismiss_critique", {"critique_id": "CRIT-001", "reason": "test"}),
             ("update_strategy", {"content": "test"}),
             ("append_convention", {"content": "test"}),
@@ -826,7 +699,7 @@ class TestNoResearchState:
 
 
 class TestDependencyGraph:
-    """Tests for depends_on in add_hypothesis and promotion dependency guardrail (B4)."""
+    """Tests for depends_on in add_hypothesis."""
 
     def test_add_hypothesis_with_depends_on(self):
         from sciralph.research_state import ResearchQuestion
@@ -847,75 +720,6 @@ class TestDependencyGraph:
         new_id = "WH-003"
         assert new_id in state.hypotheses
         assert state.hypotheses[new_id].depends_on == ["WH-001"]
-
-    def test_promotion_blocked_by_unestablished_dependency(self):
-        ws = _make_workspace()
-        state = _make_state_with_verified("WH-002")
-        state.hypotheses["WH-002"].depends_on = ["WH-001"]
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-002",
-            "justification": "Evidence from COMP-001",
-        })
-        assert tc.is_error or "unestablished" in tc.output.lower()
-        assert "WH-002" in state.hypotheses  # not promoted
-
-    def test_promotion_allowed_when_dependency_established(self):
-        ws = _make_workspace()
-        state = _make_state_with_verified("WH-002")
-        # Promote WH-001 to ER-001 first
-        state.hypotheses["ER-001"] = Hypothesis(
-            id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        del state.hypotheses["WH-001"]
-        state.hypotheses["WH-002"].depends_on = ["ER-001"]
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-002",
-            "justification": "Verified by COMP-001, dependency ER-001 established",
-        })
-        assert not tc.is_error
-        assert "ER-002" in state.hypotheses
-        assert state.hypotheses["ER-002"].promotion_justification == "Verified by COMP-001, dependency ER-001 established"
-
-    def test_promotion_blocked_without_review_evidence(self):
-        """Promotion requires a VERIFIED review result."""
-        ws = _make_workspace()
-        state = _make_state()  # no review
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-001",
-            "justification": "Just because",
-        })
-        assert "no VERIFIED review" in tc.output
-
-    def test_promotion_allowed_with_review_result(self):
-        """A VERIFIED review result allows promotion."""
-        ws = _make_workspace()
-        state = _make_state()
-        state.hypotheses["WH-001"].review = ReviewResult(
-            verdict=Verdict.VERIFIED, summary="Analytical review passed", iteration=2,
-        )
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-001",
-            "justification": "Verified by analytical review",
-        })
-        assert not tc.is_error
-        assert "ER-001" in state.hypotheses
-
-    def test_promotion_stores_justification(self):
-        ws = _make_workspace()
-        state = _make_state_with_verified("WH-001")
-        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
-        tc = ex.execute("promote_hypothesis", {
-            "id": "WH-001",
-            "justification": "Strong evidence from COMP-001",
-        })
-        assert not tc.is_error
-        assert "ER-001" in state.hypotheses
-        assert state.hypotheses["ER-001"].promotion_justification == "Strong evidence from COMP-001"
-
 
 class TestResearchQuestionTools:
     """Tests for add_research_question and abandon_research_question tools."""
@@ -1185,8 +989,8 @@ class TestDispatchGate:
         assert ex.stop_after_round
         assert ex.task_data is not None
 
-    def test_promote_plus_dispatch_succeed(self):
-        """promote + dismiss_critique + dispatch in same round all succeed."""
+    def test_mutations_plus_dispatch_succeed(self):
+        """dismiss_critique + append_note + dispatch in same round all succeed."""
         ws = _make_workspace()
         state = _make_state_with_verified("WH-001")
         state.critiques["CRIT-001"] = Critique(
@@ -1195,12 +999,10 @@ class TestDispatchGate:
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        ex.execute("promote_hypothesis", {
-            "id": "WH-001", "justification": "Verified by reviewer.",
-        })
         ex.execute("dismiss_critique", {
-            "critique_id": "CRIT-001", "reason": "Promoted WH-001.",
+            "critique_id": "CRIT-001", "reason": "Addressed.",
         })
+        ex.execute("append_note", {"text": "Test note"})
         tc = ex.execute("dispatch_researcher", {
             "target_claim": "WH-002",
             "description": "Derive result.",
@@ -1219,20 +1021,17 @@ class TestStateInjection:
     def test_render_state_injection_after_mutations(self):
         """Injection includes applied mutations and state snapshot."""
         ws = _make_workspace()
-        state = _make_state_with_verified("WH-001")
+        state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        # Round 1: mutations
-        ex.execute("promote_hypothesis", {
-            "id": "WH-001", "justification": "Reviewer verified.",
-        })
+        # Round 1: mutation
+        ex.execute("append_note", {"text": "Test observation"})
 
         # end_round returns injection for THIS round's mutations
         injection = ex.end_round()
         assert injection is not None
-        assert "Promoted WH-001 → ER-001" in injection
+        assert "Appended research note" in injection
         assert "State snapshot" in injection
-        assert "ER-001" in injection
 
     def test_render_state_injection_none_without_mutations(self):
         """No injection when no mutations occurred."""
@@ -1258,33 +1057,38 @@ class TestStateInjection:
         assert injection is not None
         assert "WH-001 awaiting auto-review" in injection
 
-    def test_injection_shows_verified_promote_guidance(self):
-        """WH with VERIFIED review → promote guidance in injection."""
+    def test_injection_shows_verified_pending_guidance(self):
+        """WH with VERIFIED review but unestablished deps → pending guidance."""
         ws = _make_workspace()
         state = _make_state_with_verified("WH-001")
+        state.hypotheses["WH-001"].depends_on = ["WH-002"]
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         ex.execute("append_note", {"text": "Test note"})
         injection = ex.end_round()
         assert injection is not None
-        assert "WH-001 is VERIFIED but not yet promoted" in injection
+        assert "WH-001 is VERIFIED, pending auto-promotion" in injection
+        assert "WH-002" in injection
 
     def test_injection_shows_budget_pressure(self):
         """Low iterations remaining → budget message in injection."""
         ws = _make_workspace()
-        state = _make_state()
-        # Promote WH-001 to ER so we have an established result
-        state.hypotheses["WH-001"].review = ReviewResult(
-            verdict=Verdict.VERIFIED, summary="Verified", iteration=2,
+        state = ResearchState()
+        # Set up ER directly
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+        )
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", statement="Second",
+            status=HypothesisStatus.WORKING,
+            iteration_created=2, iteration_modified=2,
         )
         ex = OrchestratorToolExecutor(
             ws, iteration=18, research_state=state,
             max_iterations=20, budget_synthesis_margin=3,
         )
 
-        ex.execute("promote_hypothesis", {
-            "id": "WH-001", "justification": "Verified.",
-        })
+        ex.execute("append_note", {"text": "Budget check"})
         injection = ex.end_round()
         assert injection is not None
         assert "BUDGET" in injection

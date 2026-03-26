@@ -273,11 +273,20 @@ def can_terminate(
     for h in research_state.hypotheses.values():
         if h.status == HypothesisStatus.WORKING:
             if h.review and h.review.verdict == Verdict.VERIFIED:
-                blockers.append(
-                    f"{h.id} has VERIFIED review but was not promoted. "
-                    f"Call promote_hypothesis(id=\"{h.id}\") or "
-                    f"abandon_hypothesis(id=\"{h.id}\") before terminating."
-                )
+                unest = research_state.unestablished_dependencies(h.id)
+                if unest:
+                    blockers.append(
+                        f"{h.id} has VERIFIED review but unestablished dependencies "
+                        f"({', '.join(unest)}). Promote or resolve the dependencies "
+                        f"so {h.id} can auto-promote, or call "
+                        f"abandon_hypothesis(id=\"{h.id}\") before terminating."
+                    )
+                else:
+                    blockers.append(
+                        f"{h.id} has VERIFIED review but was not promoted. "
+                        f"This is unexpected — auto-promotion should have handled it. "
+                        f"Abandon with abandon_hypothesis(id=\"{h.id}\") before terminating."
+                    )
             else:
                 blockers.append(
                     f"{h.id} has no VERIFIED review. "

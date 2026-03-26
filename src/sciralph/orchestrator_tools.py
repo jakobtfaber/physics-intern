@@ -128,34 +128,6 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "promote_hypothesis",
-            "description": (
-                "Promote a Working Hypothesis to an Established Result. "
-                "Requires a VERIFIED verdict from the reviewer. "
-                "Call after the reviewer has confirmed the claim."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "WH-NNN to promote to ER-NNN.",
-                    },
-                    "justification": {
-                        "type": "string",
-                        "description": (
-                            "Why the evidence is sufficient. "
-                            "Reference the verification result and supporting evidence."
-                        ),
-                    },
-                },
-                "required": ["id", "justification"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "dismiss_critique",
             "description": (
                 "Dismiss a critique as wrong or inapplicable. "
@@ -650,7 +622,14 @@ class OrchestratorToolExecutor:
         # Per-WH guidance
         for h in whs:
             if h.review and h.review.verdict == Verdict.VERIFIED:
-                guidance.append(f"{h.id} is VERIFIED but not yet promoted — check depends_on.")
+                unest = state.unestablished_dependencies(h.id)
+                if unest:
+                    guidance.append(
+                        f"{h.id} is VERIFIED, pending auto-promotion "
+                        f"(unestablished deps: {', '.join(unest)})."
+                    )
+                else:
+                    guidance.append(f"{h.id} is VERIFIED, pending auto-promotion.")
             elif h.review and h.review.verdict == Verdict.REFUTED:
                 guidance.append(
                     f"{h.id} was REFUTED — dispatch researcher/computer with "
@@ -680,7 +659,6 @@ class OrchestratorToolExecutor:
             "add_hypothesis": self._add_hypothesis,
             "update_hypothesis": self._update_hypothesis,
             "abandon_hypothesis": self._abandon_hypothesis,
-            "promote_hypothesis": self._promote_hypothesis,
             "dismiss_critique": self._dismiss_critique,
             "accept_critique": self._accept_critique,
             "update_strategy": self._update_strategy,
@@ -900,61 +878,6 @@ class OrchestratorToolExecutor:
                 "dependency (update or abandon them too)."
             )
         return msg
-
-    def _promote_hypothesis(self, args: dict) -> str:
-        from .research_state import HypothesisStatus, CritiqueStatus, Verdict
-
-        state = self.research_state
-        if not state:
-            return "Error: no research state available"
-
-        wh_id = args["id"]
-        justification = args.get("justification", "")
-
-        if not wh_id.startswith("WH-"):
-            return f"Error: {wh_id} is not a WH. Only WH-NNN can be promoted."
-
-        if wh_id not in state.hypotheses:
-            return f"Error: {wh_id} not found in research state"
-
-        h = state.hypotheses[wh_id]
-        num = wh_id.split("-")[1]
-        er_id = f"ER-{num}"
-
-        # Guardrail: require VERIFIED review result
-        if not h.review or h.review.verdict != Verdict.VERIFIED:
-            return (
-                f"Error: Cannot promote {wh_id} — no VERIFIED review "
-                "result. Schedule a review task first."
-            )
-
-        # Guardrail: check for unestablished dependencies
-        unestablished = state.unestablished_dependencies(wh_id)
-        if unestablished:
-            return (
-                f"Error: Cannot promote {wh_id} — unestablished dependencies: "
-                f"{', '.join(unestablished)}. Promote or resolve them first."
-            )
-
-        # Perform promotion in state
-        h = state.hypotheses.pop(wh_id)
-        h.id = er_id
-        h.status = HypothesisStatus.ESTABLISHED
-        h.promotion_justification = justification
-        h.iteration_modified = self.iteration
-        state.hypotheses[er_id] = h
-        state.normalize_references()
-
-        log_scaffold_event(
-            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
-            "promote_hypothesis",
-            f"Promoted {wh_id} → {er_id}: {justification}",
-        )
-        console.print(f"  [bold green]{wh_id} → {er_id}[/] promoted")
-
-        self.mutations_applied = True
-        self._round_mutations.append(f"Promoted {wh_id} → {er_id}")
-        return f"Promoted {wh_id} → {er_id}."
 
     def _find_evidence_by_id(self, ev_id: str) -> "Evidence | None":
         """Find an Evidence object by ID across all entities."""

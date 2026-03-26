@@ -269,7 +269,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **Key query methods:** `has_verified_evidence()`, `hypotheses_with_evidence()`, `active_critiques_for()`, `established_hypotheses()`, `working_hypotheses()`, `abandoned_hypotheses()`, `failures_for_hypothesis()`, `open_research_questions()`
 
-**Mutation methods:** `promote_hypothesis(wh_id)` → renames WH-NNN → ER-NNN, updates status, calls `normalize_references()`; `demote_hypothesis(er_id)` → reverse (used by validation demotion safety)
+**Mutation methods:** `promote_hypothesis(wh_id)` → renames WH-NNN → ER-NNN, updates status, calls `normalize_references()` (called by engine's `_auto_promote`, not exposed as an orchestrator tool); `demote_hypothesis(er_id)` → reverse (used by validation demotion safety). `_auto_promote` in engine.py calls `promote_hypothesis` after a VERIFIED review and cascades: when a WH is promoted, other VERIFIED WHs whose `depends_on` entries are now all established are automatically promoted too.
 
 **Serialization:** `to_json()`/`from_json()` → persisted as `RESEARCH_GRAPH.json`
 
@@ -288,11 +288,10 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **Role:** Planning and state mutation. Mutates `ResearchState` via tools, emits `CURRENT_TASK.md`. (MD files are rendered centrally by the engine.)
 
-**Tools** (11, via `OrchestratorToolExecutor`):
+**Tools** (10, via `OrchestratorToolExecutor`):
 - `add_hypothesis` — creates new WH-NNN in state, auto-assigns ID; optional `from_rq` param links to originating RQ (copies evidence from RQ)
 - `update_hypothesis` — updates statement/derivation for existing WH/ER
 - `abandon_hypothesis` — marks as ABANDONED, records in `failed_approaches`
-- `promote_hypothesis` — promotes WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, blocks on unestablished `depends_on`)
 - `dismiss_critique` — dismisses a critique as wrong/inapplicable, marks as RESOLVED
 - `accept_critique` — accepts a critique as valid, marks as RESOLVED; optionally creates an RQ from the findings with carried-over evidence
 - `update_section` — replaces content of Conventions, Situation Assessment, or Strategy
@@ -453,21 +452,20 @@ For `COMPUTE`:
 3. **`submit_result`** — structured exit. Params: `target_id`, `description`, `method`, `result`, `confidence` (exact/approximate/partial), `notes`. Sets `stop_after_round = True`.
 4. **`report_progress`** — progress check. Params: `findings_so_far`, `remaining_questions`, `ready_to_conclude`. Does NOT stop.
 
-**`OrchestratorToolExecutor`** (orchestrator) — 10 state-mutation tools:
+**`OrchestratorToolExecutor`** (orchestrator) — 9 state-mutation tools:
 1. **`add_hypothesis`** — creates new WH-NNN in `ResearchState`; optional `from_rq` links to originating RQ (copies evidence)
 2. **`update_hypothesis`** — updates statement/derivation
 3. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
-4. **`promote_hypothesis`** — WH → ER with guardrails (requires `h.review.verdict == "VERIFIED"`, dependency checks)
-5. **`dismiss_critique`** — dismisses a critique as wrong/inapplicable
-6. **`accept_critique`** — accepts a critique as valid; optionally creates an RQ with carried-over evidence
-7. **`update_section`** — replaces Conventions, Situation Assessment, or Strategy content
-8. **`append_note`** — appends to `research_notes` list
-9. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
-10. **`abandon_research_question`** — marks RQ as abandoned (dead end); reason required
-11. **`dispatch_researcher`** — dispatches researcher; sets `stop_after_round = True`
-12. **`dispatch_computer`** — dispatches computer; sets `stop_after_round = True`
-13. **`dispatch_reviewer`** — dispatches reviewer (WH-only target); sets `stop_after_round = True`
-14. **`request_termination`** — requests loop termination; sets `stop_after_round = True`
+4. **`dismiss_critique`** — dismisses a critique as wrong/inapplicable
+5. **`accept_critique`** — accepts a critique as valid; optionally creates an RQ with carried-over evidence
+6. **`update_section`** — replaces Conventions, Situation Assessment, or Strategy content
+7. **`append_note`** — appends to `research_notes` list
+8. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
+9. **`abandon_research_question`** — marks RQ as abandoned (dead end); reason required
+10. **`dispatch_researcher`** — dispatches researcher; sets `stop_after_round = True`
+11. **`dispatch_computer`** — dispatches computer; sets `stop_after_round = True`
+12. **`dispatch_reviewer`** — dispatches reviewer (WH-only target); sets `stop_after_round = True`
+13. **`request_termination`** — requests loop termination; sets `stop_after_round = True`
 
 Tracks `mutations_applied` (bool) and `resolved_critique_ids` (set) for `process_response` to use.
 
@@ -568,7 +566,7 @@ A claim advances through this lifecycle:
 3. **Working Hypothesis (WH-NNN)** — orchestrator calls `add_hypothesis` (optionally with `from_rq` to link to originating RQ and copy evidence), creates `Hypothesis` with status WORKING. Direct WH creation (skipping RQ) is allowed when the claim is already concrete.
 4. **Review** — `reviewer` examines WH + evidence → one-shot structured JSON → `ReviewResult` stored on hypothesis (VERIFIED / REFUTED / INCONCLUSIVE)
 5. **Critique** — deep critic reviews strategy/direction via one-shot structured JSON, files objections
-6. **Established Result (ER-NNN)** — orchestrator calls `promote_hypothesis` tool with guardrails: (a) `h.review.verdict == "VERIFIED"`, (b) all `depends_on` entries are already established
+6. **Established Result (ER-NNN)** — engine auto-promotes via `_auto_promote` after a VERIFIED review when all `depends_on` entries are established; cascades to other VERIFIED WHs whose dependencies become satisfied
 7. **Termination** — orchestrator emits `terminate` task → `can_terminate()` gates → formatter produces `ANSWER.md`
 
 ---
@@ -740,7 +738,7 @@ Non-VERIFIED review verdicts go to `pending_compute_verdicts` in `LoopState` (wi
 |-----------|----------|--------------|---------------------|
 | Budget-aware completion analysis | `_completion_analysis()` | Injects "COMPLETION CHECK" or "BUDGET SYNTHESIS REQUIRED" banners based on ER/WH/critique counts and remaining budget | Orchestrator failing to terminate when done |
 | Phantom marker cleaning | `build_context()` | Flattens nested `[[[ID:unverified]...]]` brackets and replaces `[ID:unverified]` with `ID (unverified)` before the LLM sees the state | LLM copying bracket syntax into new outputs |
-| `promote_hypothesis` guardrails | `OrchestratorToolExecutor._promote_hypothesis()` | Rejects promotion if review verdict is not VERIFIED | LLM promoting unreviewed hypotheses |
+| Auto-promotion guardrails | `engine._auto_promote()` | Promotes WH → ER only when review verdict is VERIFIED and all dependencies are established; cascades to other VERIFIED WHs | LLM promoting unreviewed hypotheses |
 | Conventions section staleness reminder | `build_context()` | From iteration 3+, injects banner if Conventions still says "To be populated" | LLM skipping conventions population |
 
 #### Critic corrections (`agents/critic.py`)

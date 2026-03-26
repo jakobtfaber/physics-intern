@@ -830,32 +830,55 @@ class SciRalph:
         return gap >= 2 * self.config.critic_every_n
 
     def _auto_promote(self, wh_id: str):
-        """Auto-promote a VERIFIED WH to ER if dependencies are satisfied."""
-        from .research_state import HypothesisStatus
+        """Auto-promote a VERIFIED WH to ER if dependencies are satisfied.
+
+        After promotion, cascades: scans remaining WHs for VERIFIED ones
+        whose dependencies are now all established, and promotes those too.
+        """
+        from .research_state import HypothesisStatus, Verdict
         state = self.research_state
-        if wh_id not in state.hypotheses:
-            return
-        unestablished = state.unestablished_dependencies(wh_id)
-        if unestablished:
-            console.print(
-                f"  [dim]Auto-promote skipped for {wh_id} "
-                f"(unestablished deps: {', '.join(unestablished)})[/dim]"
+
+        # Seed the cascade with the initial candidate
+        candidates = [wh_id]
+        while candidates:
+            current_id = candidates.pop(0)
+            if current_id not in state.hypotheses:
+                continue
+            h = state.hypotheses[current_id]
+            # Must be VERIFIED to promote
+            if not h.review or h.review.verdict != Verdict.VERIFIED:
+                continue
+            unestablished = state.unestablished_dependencies(current_id)
+            if unestablished:
+                console.print(
+                    f"  [dim]Auto-promote skipped for {current_id} "
+                    f"(unestablished deps: {', '.join(unestablished)})[/dim]"
+                )
+                continue
+            # Promote
+            h = state.hypotheses.pop(current_id)
+            num = current_id.split("-")[1]
+            er_id = f"ER-{num}"
+            h.id = er_id
+            h.status = HypothesisStatus.ESTABLISHED
+            h.promotion_justification = "Auto-promoted after VERIFIED review"
+            h.iteration_modified = self.iteration
+            state.hypotheses[er_id] = h
+            state.normalize_references()
+            log_scaffold_event(
+                self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+                "auto_promote", f"{current_id} → {er_id}",
             )
-            return
-        h = state.hypotheses.pop(wh_id)
-        num = wh_id.split("-")[1]
-        er_id = f"ER-{num}"
-        h.id = er_id
-        h.status = HypothesisStatus.ESTABLISHED
-        h.promotion_justification = "Auto-promoted after VERIFIED review"
-        h.iteration_modified = self.iteration
-        state.hypotheses[er_id] = h
-        state.normalize_references()
-        log_scaffold_event(
-            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
-            "auto_promote", f"{wh_id} → {er_id}",
-        )
-        console.print(f"  [bold green]{wh_id} → {er_id}[/] auto-promoted")
+            console.print(f"  [bold green]{current_id} → {er_id}[/] auto-promoted")
+            # Cascade: find VERIFIED WHs that might now have all deps met
+            for hid, hyp in state.hypotheses.items():
+                if (
+                    hid.startswith("WH-")
+                    and hyp.review
+                    and hyp.review.verdict == Verdict.VERIFIED
+                    and hid not in candidates
+                ):
+                    candidates.append(hid)
 
     def _make_forced_critic_task(self) -> Task:
         """Create a forced critic task."""
