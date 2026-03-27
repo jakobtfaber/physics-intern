@@ -108,7 +108,7 @@ Use these tools to maintain shared context that all agents read:
 
 Every turn MUST end with exactly one dispatch/exit tool call (`dispatch_researcher`, `dispatch_computer`, `add_hypothesis`, or `request_termination`). This is the last thing you do — finish all state mutations first, then dispatch.
 
-Each task targets EXACTLY ONE entity (RQ, WH, ER, or CRIT) via the `target_claim` parameter (required for researcher and computer).
+Each task targets EXACTLY ONE entity via the `target_claim` parameter (required for researcher and computer). Valid targets are **open RQs** and **working WHs** (including refuted WHs awaiting new evidence). ERs are immutable — if you suspect one is wrong, note your concern in research notes. Resolved or abandoned RQs cannot receive new evidence — create a new RQ instead.
 
 ### Structured dispatch
 

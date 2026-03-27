@@ -428,6 +428,83 @@ class TestAppendNote:
 
 
 # ---------------------------------------------------------------------------
+# Target claim validation — immutable entity guards
+# ---------------------------------------------------------------------------
+
+class TestTargetClaimValidation:
+    def test_block_dispatch_on_er(self):
+        """ERs are immutable — dispatch should be rejected."""
+        ws = _make_workspace()
+        state = _make_state()
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", statement="Established.",
+            status=HypothesisStatus.ESTABLISHED, iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "ER-001", "description": "Re-derive."
+        })
+        assert tc.is_error
+        assert "immutable" in tc.output.lower() or "Established Results" in tc.output
+
+    def test_block_dispatch_on_resolved_rq(self):
+        """Resolved RQs should not receive new evidence."""
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        ws = _make_workspace()
+        state = _make_state()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Test?", status=RQStatus.RESOLVED,
+            resolved_to=["WH-001"], iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "RQ-001", "description": "More work."
+        })
+        assert tc.is_error
+        assert "resolved" in tc.output.lower()
+
+    def test_block_dispatch_on_abandoned_rq(self):
+        """Abandoned RQs should not receive new evidence."""
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        ws = _make_workspace()
+        state = _make_state()
+        state.research_questions["RQ-002"] = ResearchQuestion(
+            id="RQ-002", question="Dead end?", status=RQStatus.ABANDONED,
+            iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_computer", {
+            "target_claim": "RQ-002", "description": "Try again."
+        })
+        assert tc.is_error
+        assert "abandoned" in tc.output.lower()
+
+    def test_allow_dispatch_on_open_rq(self):
+        """Open RQs are valid dispatch targets."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = _make_state()
+        state.research_questions["RQ-003"] = ResearchQuestion(
+            id="RQ-003", question="Investigate?", iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "RQ-003", "description": "Derive."
+        })
+        assert not tc.is_error
+
+    def test_allow_dispatch_on_working_wh(self):
+        """Working WHs (including refuted) are valid dispatch targets."""
+        ws = _make_workspace()
+        state = _make_state()
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_computer", {
+            "target_claim": "WH-001", "description": "Compute."
+        })
+        assert not tc.is_error
+
+
+# ---------------------------------------------------------------------------
 # Dispatch tools
 # ---------------------------------------------------------------------------
 

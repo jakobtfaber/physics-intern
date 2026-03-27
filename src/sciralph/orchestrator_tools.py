@@ -938,7 +938,12 @@ class OrchestratorToolExecutor:
         return "Termination requested."
 
     def _validate_target_claim(self, target_claim: str) -> str | None:
-        """Validate target_claim exists. Returns error string or None if valid."""
+        """Validate target_claim exists and is a valid dispatch target.
+
+        Valid targets: open RQs, working WHs (including refuted), CRITs.
+        Blocked: ERs (immutable), resolved/abandoned RQs.
+        Returns error string or None if valid.
+        """
         import re
         state = self.research_state
         assert state is not None
@@ -949,14 +954,28 @@ class OrchestratorToolExecutor:
             return None
 
         prefix = match.group(1)
+        if prefix == "ER":
+            return (
+                f"Error: cannot dispatch work on {target_claim} — Established Results "
+                "are immutable. If you suspect an ER is wrong, note your concern in "
+                "research notes; the strategic auditor will evaluate it."
+            )
         if prefix == "RQ":
-            if target_claim in state.research_questions:
+            rq = state.research_questions.get(target_claim)
+            if rq:
+                from .research_state import RQStatus
+                if rq.status != RQStatus.OPEN:
+                    return (
+                        f"Error: {target_claim} is {rq.status.value} and cannot receive "
+                        "new evidence. Create a new RQ with add_research_question if "
+                        "further investigation is needed."
+                    )
                 return None
         elif prefix == "CRIT":
             if target_claim in state.critiques:
                 return None
         else:
-            # WH or ER
+            # WH — always valid if it exists (including refuted WHs awaiting new evidence)
             if target_claim in state.hypotheses:
                 return None
 
