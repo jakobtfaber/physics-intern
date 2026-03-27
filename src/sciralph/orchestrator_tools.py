@@ -76,34 +76,6 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "update_hypothesis",
-            "description": (
-                "Update an existing hypothesis (WH-NNN or ER-NNN). "
-                "Only provided fields are changed; omitted fields are preserved."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Hypothesis ID, e.g. WH-001 or ER-002.",
-                    },
-                    "statement": {
-                        "type": "string",
-                        "description": "New title (optional).",
-                    },
-                    "derivation": {
-                        "type": "string",
-                        "description": "New body text — replaces the entire section body (optional).",
-                    },
-                },
-                "required": ["id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "abandon_hypothesis",
             "description": (
                 "Mark a hypothesis as a dead end. "
@@ -569,7 +541,6 @@ class OrchestratorToolExecutor:
 
         handlers = {
             "add_hypothesis": self._add_hypothesis,
-            "update_hypothesis": self._update_hypothesis,
             "abandon_hypothesis": self._abandon_hypothesis,
             "append_convention": self._append_convention,
             "append_note": self._append_note,
@@ -709,26 +680,6 @@ class OrchestratorToolExecutor:
             msg += f" {len(evidence)} evidence item(s) copied."
         msg += " Review will be dispatched automatically."
         return msg
-
-    def _update_hypothesis(self, args: dict) -> str:
-        state = self.research_state
-        if not state:
-            return "Error: no research state available"
-
-        hid = args["id"]
-        if hid not in state.hypotheses:
-            return f"Error: {hid} not found in research state"
-
-        h = state.hypotheses[hid]
-        if "statement" in args:
-            h.statement = args["statement"]
-        if "derivation" in args:
-            h.derivation = args["derivation"]
-        h.iteration_modified = self.iteration
-        self.mutations_applied = True
-        self._round_mutations.append(f"Updated {hid}")
-        console.print(f"  [dim]Updated {hid}[/]")
-        return f"Updated {hid}."
 
     def _abandon_hypothesis(self, args: dict) -> str:
         from .research_state import FailedApproach, HypothesisStatus

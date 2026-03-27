@@ -336,7 +336,7 @@ class TestPlannerReviseProcessResponse:
 {
   "revised_strategy": "1. Re-derive surface gravity\\n2. Verify with Euclidean method",
   "entity_actions": [
-    {"id": "ER-001", "action": "re-review", "reason": "needs fresh check"},
+    {"id": "ER-001", "action": "keep", "concern": "may need re-examination"},
     {"id": "WH-002", "action": "abandon", "reason": "premise invalidated"},
     {"id": "RQ-001", "action": "keep"}
   ],
@@ -355,7 +355,7 @@ class TestPlannerReviseProcessResponse:
         agent.process_response(response, task, iteration=5)
         assert agent.parsed_strategy == "1. Re-derive surface gravity\n2. Verify with Euclidean method"
         assert len(agent.parsed_entity_actions) == 3
-        assert agent.parsed_entity_actions[0] == {"id": "ER-001", "action": "re-review", "reason": "needs fresh check"}
+        assert agent.parsed_entity_actions[0] == {"id": "ER-001", "action": "keep", "concern": "may need re-examination"}
         assert agent.parsed_entity_actions[1] == {"id": "WH-002", "action": "abandon", "reason": "premise invalidated"}
         assert len(agent.parsed_sanity_checks) == 1
         assert agent.parsed_sanity_checks[0]["check"] == "T -> 0 as M -> inf"

@@ -876,24 +876,51 @@ class SciRalph:
         reasoning = result.get("reasoning", "")[:200]
 
         if adjudication == "valid":
-            # Demote ER → WH
+            from .research_state import FailedApproach
+            # Collect dependents before first demotion (normalize_references
+            # rewrites depends_on from ER-NNN to WH-NNN after demotion)
+            dependent_ids = [
+                hid for hid, h in self.research_state.hypotheses.items()
+                if h.status == HypothesisStatus.ESTABLISHED
+                and target_id in h.depends_on
+            ]
+            # Demote ER → WH and auto-abandon
             console.print(f"  [red]{crit.id} VALID — demoting {target_id}[/red]")
-            self.research_state.demote_hypothesis(target_id)
-            # Also demote dependent ERs
-            for hid, h in list(self.research_state.hypotheses.items()):
-                if (h.status == HypothesisStatus.ESTABLISHED
-                        and target_id in h.depends_on):
-                    console.print(f"  [red]Cascade: demoting {hid} (depends on {target_id})[/red]")
-                    self.research_state.demote_hypothesis(hid)
-                    self._state.pending_system_events.append(
-                        f"{hid} DEMOTED (depends on overturned {target_id})"
-                    )
+            new_id = self.research_state.demote_hypothesis(target_id)
+            if new_id:
+                h = self.research_state.hypotheses[new_id]
+                h.status = HypothesisStatus.ABANDONED
+                h.iteration_modified = self.iteration
+                self.research_state.failed_approaches.append(FailedApproach(
+                    description=f"Overturned {target_id} — {h.statement}",
+                    reason=f"Adjudicator ruled critique {crit.id} valid: {reasoning}",
+                    related_entities=[new_id],
+                    derivation_excerpt=(h.derivation[:300] if h.derivation else ""),
+                    iteration=self.iteration,
+                ))
+            # Cascade: demote and auto-abandon dependents
+            for dep_id in dependent_ids:
+                console.print(f"  [red]Cascade: demoting {dep_id} (depends on {target_id})[/red]")
+                dep_new_id = self.research_state.demote_hypothesis(dep_id)
+                if dep_new_id:
+                    dep_h = self.research_state.hypotheses[dep_new_id]
+                    dep_h.status = HypothesisStatus.ABANDONED
+                    dep_h.iteration_modified = self.iteration
+                    self.research_state.failed_approaches.append(FailedApproach(
+                        description=f"Cascade from overturned {target_id} — {dep_h.statement}",
+                        reason=f"Depends on {target_id} which was overturned",
+                        related_entities=[dep_new_id],
+                        iteration=self.iteration,
+                    ))
+                self._state.pending_system_events.append(
+                    f"{dep_id} DEMOTED and ABANDONED (depends on overturned {target_id})"
+                )
             crit.status = CritiqueStatus.RESOLVED
             crit.resolution = f"Adjudicator ruled valid: {reasoning}"
             crit.resolution_type = "accepted"
             crit.iteration_resolved = self.iteration
             self._state.pending_system_events.append(
-                f"{target_id} DEMOTED to WH (REFUTED): {crit.id} ruled valid by adjudicator."
+                f"{target_id} OVERTURNED and ABANDONED: {crit.id} ruled valid by adjudicator."
             )
             log_scaffold_event(
                 self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
@@ -971,22 +998,28 @@ class SciRalph:
                 eid = action.get("id", "")
                 act = action.get("action", "keep")
                 reason = action.get("reason", "")
-                if act == "abandon" and eid in self.research_state.hypotheses:
+                if act == "keep":
+                    concern = action.get("concern", "")
+                    if concern and eid:
+                        self._state.pending_system_events.append(
+                            f"PLANNER CONCERN on {eid}: {concern}"
+                        )
+                elif act == "abandon" and eid in self.research_state.hypotheses:
+                    from .research_state import FailedApproach
                     h = self.research_state.hypotheses[eid]
                     h.status = HypothesisStatus.ABANDONED
+                    h.iteration_modified = self.iteration
+                    self.research_state.failed_approaches.append(FailedApproach(
+                        description=f"Abandoned {eid} — {h.statement}",
+                        reason=f"Planner revision: {reason}",
+                        related_entities=[eid],
+                        derivation_excerpt=(h.derivation[:300] if h.derivation else ""),
+                        iteration=self.iteration,
+                    ))
                     self._state.pending_system_events.append(
                         f"{eid} ABANDONED by planner revision: {reason}"
                     )
                     console.print(f"  [red]{eid} abandoned: {reason[:60]}[/red]")
-                elif act == "re-review" and eid in self.research_state.hypotheses:
-                    h = self.research_state.hypotheses[eid]
-                    if h.status == HypothesisStatus.ESTABLISHED:
-                        self.research_state.demote_hypothesis(eid)
-                    h.review = None  # clear review to trigger re-review
-                    self._state.pending_system_events.append(
-                        f"{eid} queued for RE-REVIEW by planner: {reason}"
-                    )
-                    console.print(f"  [yellow]{eid} queued for re-review: {reason[:60]}[/yellow]")
 
         rationale = self.planner.parsed_revision_rationale or "No rationale provided."
         self._state.pending_system_events.append(
@@ -1087,6 +1120,9 @@ class SciRalph:
             return None
         h = self.research_state.hypotheses.get(target_id)
         if not h or not h.evidence or not h.review:
+            return None
+        from .research_state import HypothesisStatus
+        if h.status == HypothesisStatus.ABANDONED:
             return None
         # Check if any evidence is newer than the review
         review_iter = h.review.iteration or 0
@@ -1237,8 +1273,8 @@ class SciRalph:
                 if target_id.startswith("WH-"):
                     self._auto_promote(target_id)
             elif verdict == Verdict.REFUTED:
-                # Mark existing evidence as refuted so it gets cleared
-                # when new evidence arrives (prevents contradictory evidence).
+                from .research_state import FailedApproach, HypothesisStatus
+                # Mark existing evidence as refuted
                 for ev in h.evidence:
                     ev.refuted = True
                 count = self._state.claim_failure_count.get(target_id, 0) + 1
@@ -1251,11 +1287,20 @@ class SciRalph:
                     "details": h.review.details or "",
                     "task_id": task.task_id,
                 })
+                # Auto-abandon: REFUTED claim is closed
+                h.status = HypothesisStatus.ABANDONED
+                h.iteration_modified = self.iteration
+                self.research_state.failed_approaches.append(FailedApproach(
+                    description=f"Refuted {target_id} — {h.statement}",
+                    reason=h.review.summary or "Refuted by reviewer",
+                    related_entities=[target_id],
+                    derivation_excerpt=(h.derivation[:300] if h.derivation else ""),
+                    iteration=self.iteration,
+                ))
                 detail = h.review.summary[:120].replace("\n", " ") if h.review.summary else ""
-                console.print(f"  [red]{target_id} REFUTED[/red] — {detail}")
+                console.print(f"  [red]{target_id} REFUTED (auto-abandoned)[/red] — {detail}")
             else:
-                for ev in h.evidence:
-                    ev.refuted = True
+                # INCONCLUSIVE: keep existing evidence (not wrong, just insufficient)
                 count = self._state.claim_failure_count.get(target_id, 0) + 1
                 self._state.claim_failure_count[target_id] = count
                 self._state.pending_compute_verdicts.append({

@@ -838,11 +838,38 @@ def render_formatter_context(
     return "\n\n".join(parts)
 
 
+def _render_entity_detail(h: Hypothesis) -> str:
+    """Render enriched entity description for planner revision context."""
+    status_tag = "VERIFIED" if h.status == HypothesisStatus.ESTABLISHED else (
+        h.review.verdict if h.review else "PENDING REVIEW"
+    )
+    lines = [f"{h.id}: {h.statement}, {status_tag}"]
+    deps = ", ".join(h.depends_on) if h.depends_on else "none"
+    lines.append(f"  depends_on: {deps}")
+    for ev in h.evidence:
+        summary = (ev.summary or "")[:150]
+        lines.append(f"  evidence: [{ev.id}] {ev.type} — {summary}")
+    if h.review:
+        review_summary = (h.review.summary or "")[:150]
+        lines.append(f"  review: {h.review.verdict} — {review_summary}")
+    return "\n".join(lines)
+
+
+def _render_rq_detail(rq) -> str:
+    """Render enriched RQ description for planner revision context."""
+    n_ev = len(rq.evidence)
+    lines = [f"{rq.id}: {rq.question}, {rq.status.value.upper()}, {n_ev} evidence item{'s' if n_ev != 1 else ''}"]
+    for ev in rq.evidence:
+        summary = (ev.summary or "")[:150]
+        lines.append(f"  evidence: [{ev.id}] {ev.type} — {summary}")
+    return "\n".join(lines)
+
+
 def render_planner_revise_context(state: ResearchState, trigger_text: str) -> str:
     """Render context for the planner's strategy-revision mode.
 
     Provides: problem statement, background survey, current strategy,
-    revision trigger, entity one-liners, dead ends, research notes,
+    revision trigger, enriched entity descriptions, dead ends, research notes,
     and conventions.
     """
     parts: list[str] = []
@@ -863,21 +890,16 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
     # Revision Trigger
     parts.append(f"<revision-trigger>\n{trigger_text}\n</revision-trigger>")
 
-    # Entities — one-liner per active entity
+    # Entities — enriched descriptions for planner revision
     entity_lines: list[str] = []
     for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
-        if h.status == HypothesisStatus.ESTABLISHED:
-            entity_lines.append(f"{h.id}: {h.statement}, VERIFIED")
-    for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
-        if h.status == HypothesisStatus.WORKING:
-            review_tag = h.review.verdict if h.review else "PENDING REVIEW"
-            entity_lines.append(f"{h.id}: {h.statement}, {review_tag}")
+        if h.status in (HypothesisStatus.ESTABLISHED, HypothesisStatus.WORKING):
+            entity_lines.append(_render_entity_detail(h))
     for rq in sorted(state.research_questions.values(), key=lambda r: r.id):
         if rq.status == RQStatus.OPEN:
-            n_ev = len(rq.evidence)
-            entity_lines.append(f"{rq.id}: {rq.question}, OPEN, {n_ev} evidence item{'s' if n_ev != 1 else ''}")
+            entity_lines.append(_render_rq_detail(rq))
     if entity_lines:
-        parts.append("<entities>\n" + "\n".join(entity_lines) + "\n</entities>")
+        parts.append("<entities>\n" + "\n\n".join(entity_lines) + "\n</entities>")
 
     # Dead Ends
     de_lines: list[str] = []

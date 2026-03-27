@@ -223,58 +223,6 @@ class TestRqEvidenceCap:
 
 
 # ---------------------------------------------------------------------------
-# update_hypothesis
-# ---------------------------------------------------------------------------
-
-class TestUpdateHypothesis:
-    def test_updates_statement_and_derivation(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=4, research_state=state)
-        tc = ex.execute("update_hypothesis", {
-            "id": "WH-001",
-            "statement": "Updated title",
-            "derivation": "Updated derivation.",
-        })
-        assert not tc.is_error
-        h = state.hypotheses["WH-001"]
-        assert h.statement == "Updated title"
-        assert h.derivation == "Updated derivation."
-        assert h.iteration_modified == 4
-
-    def test_updates_derivation_only_preserves_statement(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=4, research_state=state)
-        ex.execute("update_hypothesis", {
-            "id": "WH-001",
-            "derivation": "New derivation only.",
-        })
-        h = state.hypotheses["WH-001"]
-        assert h.statement == "First hypothesis"  # preserved
-        assert h.derivation == "New derivation only."
-
-    def test_updates_statement_only_preserves_derivation(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=4, research_state=state)
-        ex.execute("update_hypothesis", {
-            "id": "WH-001",
-            "statement": "New title",
-        })
-        h = state.hypotheses["WH-001"]
-        assert h.statement == "New title"
-        assert h.derivation == "Photon has spin-1."  # preserved
-
-    def test_missing_id_returns_error(self):
-        ws = _make_workspace()
-        state = _make_state()
-        ex = OrchestratorToolExecutor(ws, iteration=4, research_state=state)
-        tc = ex.execute("update_hypothesis", {"id": "WH-099"})
-        assert "not found" in tc.output
-
-
-# ---------------------------------------------------------------------------
 # abandon_hypothesis
 # ---------------------------------------------------------------------------
 
@@ -573,7 +521,6 @@ class TestNoResearchState:
 
         mutation_calls = [
             ("add_hypothesis", {"statement": "Test"}),
-            ("update_hypothesis", {"id": "WH-001"}),
             ("abandon_hypothesis", {"id": "WH-001", "reason": "test"}),
             ("append_convention", {"content": "test"}),
         ]
@@ -867,7 +814,7 @@ class TestDispatchGate:
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         # Round 1: mutation only
-        ex.execute("update_hypothesis", {"id": "WH-001", "statement": "Updated"})
+        ex.execute("append_convention", {"content": "Natural units."})
 
         # Round 2: dispatch
         ex.begin_round()
@@ -886,7 +833,7 @@ class TestDispatchGate:
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
         # Round 1: mutations only
-        ex.execute("update_hypothesis", {"id": "WH-001", "statement": "Updated"})
+        ex.execute("append_convention", {"content": "Natural units."})
         assert ex._calls_this_round == 1
 
         # Round 2: new response, dispatch only
@@ -905,9 +852,7 @@ class TestDispatchGate:
         state = _make_state()
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
 
-        ex.execute("update_hypothesis", {
-            "id": "WH-001", "statement": "Updated title",
-        })
+        ex.execute("append_convention", {"content": "Natural units."})
         ex.execute("append_convention", {
             "content": "Natural units.",
         })

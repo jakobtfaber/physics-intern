@@ -149,8 +149,30 @@ class TestComputeVerdictTracking:
 
         assert all(ev.refuted for ev in h.evidence)
 
-    def test_inconclusive_marks_evidence_as_refuted(self):
-        """INCONCLUSIVE verdict also marks existing evidence as refuted."""
+    def test_refuted_auto_abandons_hypothesis(self):
+        """REFUTED verdict auto-abandons the WH and creates a FailedApproach record."""
+        from sciralph.research_state import HypothesisStatus
+        engine = self._make_engine()
+        h = Hypothesis(id="WH-001", statement="Claim X = Y", evidence=[
+            Evidence(type="compute", result="wrong", iteration=1),
+        ])
+        engine.research_state.hypotheses["WH-001"] = h
+        h.review = ReviewResult(verdict="REFUTED", summary="Derivation has an error in step 3", iteration=3)
+
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001",
+                    body="Review WH-001")
+        engine._track_agent_result(task)
+
+        assert h.status == HypothesisStatus.ABANDONED
+        assert len(engine.research_state.failed_approaches) == 1
+        fa = engine.research_state.failed_approaches[0]
+        assert "WH-001" in fa.description
+        assert "Claim X = Y" in fa.description
+        assert "error in step 3" in fa.reason
+
+    def test_inconclusive_keeps_evidence(self):
+        """INCONCLUSIVE verdict keeps existing evidence (not wrong, just insufficient)."""
         engine = self._make_engine()
         h = Hypothesis(id="WH-001", evidence=[
             Evidence(type="compute", result="unclear", iteration=1),
@@ -163,7 +185,7 @@ class TestComputeVerdictTracking:
                     body="Review WH-001")
         engine._track_agent_result(task)
 
-        assert all(ev.refuted for ev in h.evidence)
+        assert not any(ev.refuted for ev in h.evidence)
 
     def test_verified_does_not_mark_evidence_refuted(self):
         """VERIFIED verdict leaves evidence untouched."""

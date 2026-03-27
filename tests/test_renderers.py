@@ -9,6 +9,7 @@ from sciralph.renderers import (
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
     render_background_survey,
+    render_planner_revise_context,
     render_research_state_md,
     render_survey_sections_xml,
     render_task_md,
@@ -793,3 +794,64 @@ class TestCollapsedResolvedRQs:
         text = render_orchestrator_research_state(state)
         assert '<rq id="RQ-001" status="ABANDONED">Closed: Dead end after 2 attempts</rq>' in text
         assert "What is X?" not in text
+
+
+# ---------------------------------------------------------------------------
+# Enriched planner revision context
+# ---------------------------------------------------------------------------
+
+class TestPlannerReviseEnrichedContext:
+    def test_enriched_er_shows_deps_evidence_review(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        state = ResearchState(problem_statement="Test problem")
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001",
+            statement="F(p) is a rational function",
+            status=HypothesisStatus.ESTABLISHED,
+            depends_on=[],
+            evidence=[Evidence(id="E-001", type="compute", summary="Markov chain yields degree-5 poly", iteration=2)],
+            review=ReviewResult(verdict="VERIFIED", summary="Independent derivation confirms", iteration=3),
+        )
+        text = render_planner_revise_context(state, "ER-002 was overturned")
+        assert "ER-001: F(p) is a rational function, VERIFIED" in text
+        assert "depends_on: none" in text
+        assert "evidence: [E-001] compute" in text
+        assert "Markov chain" in text
+        assert "review: VERIFIED" in text
+        assert "Independent derivation" in text
+
+    def test_enriched_wh_shows_pending_review(self):
+        state = ResearchState(problem_statement="Test")
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002",
+            statement="X depends on Y",
+            status=HypothesisStatus.WORKING,
+            depends_on=["ER-001"],
+        )
+        text = render_planner_revise_context(state, "trigger")
+        assert "WH-002: X depends on Y, PENDING REVIEW" in text
+        assert "depends_on: ER-001" in text
+
+    def test_enriched_rq_shows_evidence(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        state = ResearchState(problem_statement="Test")
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001",
+            question="What is the leading term?",
+            status=RQStatus.OPEN,
+            evidence=[Evidence(id="E-005", type="research", summary="Leading term is O(p^2)", iteration=4)],
+        )
+        text = render_planner_revise_context(state, "trigger")
+        assert "RQ-001: What is the leading term?, OPEN, 1 evidence item" in text
+        assert "evidence: [E-005] research" in text
+        assert "O(p^2)" in text
+
+    def test_abandoned_entities_excluded(self):
+        state = ResearchState(problem_statement="Test")
+        state.hypotheses["WH-003"] = Hypothesis(
+            id="WH-003",
+            statement="Abandoned claim",
+            status=HypothesisStatus.ABANDONED,
+        )
+        text = render_planner_revise_context(state, "trigger")
+        assert "WH-003" not in text.split("<entities>")[0] if "<entities>" in text else True

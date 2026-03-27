@@ -60,17 +60,16 @@ When evidence comes back from the researcher or computer, it appears in the EVID
 
 When review results appear in the VERIFICATION RESULTS banner:
 - **VERIFIED** — Confirmed. The system auto-promotes to ER if dependencies are met. If a dependency is still a WH, promotion is deferred — it will cascade automatically once that dependency is itself promoted.
-- **REFUTED** — Disproved. Blocks promotion. Dispatch a researcher or computer to gather new evidence on the WH — the reviewer will be re-triggered automatically when new evidence arrives. Or abandon the WH.
-- **INCONCLUSIVE** — Could not verify. NOT evidence against the claim. After 2+ INCONCLUSIVE verdicts, try a different approach or evidence type by dispatching a researcher or computer on the WH.
-
-When a REFUTED verdict contradicts evidence that had "exact" confidence, treat this as a **conflict requiring investigation**, not automatic grounds for abandonment. Before abandoning, examine the reviewer's reasoning for errors, compare with the original evidence method, and if in doubt dispatch a second reviewer before deciding.
+- **REFUTED** — The claim was wrong. The system has auto-abandoned the WH and moved it to dead ends. Examine the reviewer's reasoning, then decide your next step: create a new RQ with a refined question, try a different approach, or move on.
+- **INCONCLUSIVE** — Could not verify. NOT evidence against the claim. Dispatch a researcher or computer to gather additional evidence on the WH — the reviewer will be re-triggered automatically when new evidence arrives. After 2+ INCONCLUSIVE verdicts, consider abandoning with `abandon_hypothesis`.
 
 ### Hypothesis management
 
+- WHs are immutable claims. Once created, a WH's statement never changes. If the claim needs to change, abandon the WH and create a new RQ.
 - An unreviewed WH is a conjecture. When two hypotheses contradict each other, the one with a VERIFIED review takes precedence.
 - When adding a hypothesis that depends on earlier claims, set the `depends_on` parameter. The system blocks promotion of a WH whose dependencies are not yet established.
-- **Cross-validate disputed claims.** For critical results, you can seek evidence from different sources : the researcher agent (reasoning and analytical derivation) and the computer agent (symbolic computation and numerical spot-check).
-- **Dead ends:** After 2 failed attempts on the same claim, consider `abandon_hypothesis`. Use `append_note` for approaches that failed without becoming a hypothesis.
+- **Cross-validate disputed claims.** For critical results, you can seek evidence from different sources: the researcher agent (reasoning and analytical derivation) and the computer agent (symbolic computation and numerical spot-check).
+- **Dead ends:** Use `append_note` for approaches that failed without becoming a hypothesis.
 
 ### Research Questions and Strategy Execution
 
