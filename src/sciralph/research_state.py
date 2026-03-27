@@ -108,6 +108,7 @@ class Critique:
     status: CritiqueStatus = CritiqueStatus.ACTIVE
     resolution: str = ""
     resolution_type: str = ""  # "dismissed" or "accepted"
+    target_type: str = ""  # "er", "strategy", "coordination" (from critic)
     iteration_filed: int = 0
     iteration_resolved: int | None = None
     evidence: list[Evidence] = field(default_factory=list)
@@ -190,6 +191,7 @@ class ResearchState:
     status: str = "in_progress"
     title: str = ""
     background_survey: BackgroundSurvey | None = None
+    sanity_checks: list[dict] = field(default_factory=list)  # planner-owned
 
     # --- Query methods ---
 
@@ -425,6 +427,8 @@ class ResearchState:
                 argument=crdata.get("argument", ""),
                 status=CritiqueStatus(crdata.get("status", "active")),
                 resolution=crdata.get("resolution", ""),
+                resolution_type=crdata.get("resolution_type", ""),
+                target_type=crdata.get("target_type", ""),
                 iteration_filed=crdata.get("iteration_filed", 0),
                 iteration_resolved=crdata.get("iteration_resolved"),
                 evidence=crit_evidence,
@@ -451,6 +455,7 @@ class ResearchState:
                 derivation_excerpt=fdata.get("derivation_excerpt", ""),
             ))
         state.critic_clean_reviews = data.get("critic_clean_reviews", [])
+        state.sanity_checks = data.get("sanity_checks", [])
         survey_data = data.get("background_survey")
         if survey_data and isinstance(survey_data, dict):
             # Backward compat: old files have "survey_notes", new have "raw_notes"
