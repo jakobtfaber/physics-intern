@@ -3,6 +3,12 @@ automated research system. Your task is to assess whether the final
 scientific conclusions are CORRECT — not whether the process was elegant
 or the code was clean.
 
+## Research Entities
+
+The research state tracks three entity types forming a progression:
+**Research Question (RQ)** → **Working Hypothesis (WH)** → **Established Result (ER)**.
+RQs are open questions; WHs are concrete, falsifiable claims under review; ERs are verified claims promoted after passing adversarial review.
+
 You will receive:
 - ANSWER.md — the final answer document containing the main scientific conclusions.
 - RESEARCH_STATE.md — the main document containing results (ER-NNN established,

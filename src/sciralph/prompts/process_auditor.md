@@ -4,6 +4,12 @@ science (that has already been done by a separate scientific verifier). Instead,
 you assess how well the multi-agent system WORKED — did it correct its own
 errors? Did it waste budget? Did the orchestrator make good decisions?
 
+## Research Entities
+
+The research state tracks three entity types forming a progression:
+**Research Question (RQ)** → **Working Hypothesis (WH)** → **Established Result (ER)**.
+RQs are open questions; WHs are concrete, falsifiable claims under review; ERs are verified claims promoted after passing adversarial review.
+
 You will receive:
 - RESEARCH_STATE.md — the final document with results (ER-NNN established,
   WH-NNN hypotheses), research questions (RQ-NNN), derivations, and conclusions.
