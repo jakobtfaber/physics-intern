@@ -60,8 +60,6 @@ class LoopState:
     pending_verified_results: list[dict] = field(default_factory=list)
     pending_explore_results: list[dict] = field(default_factory=list)
     agent_failures: list[dict] = field(default_factory=list)
-    pending_critic_result: dict | None = None
-    pending_accepted_critiques: set[str] = field(default_factory=set)
     last_verified_review_iteration: int = 0
     pending_system_events: list[str] = field(default_factory=list)
     # Persistent dispatch history (never cleared)
@@ -226,11 +224,6 @@ class SciRalph:
                     f"{type(exc).__name__}: {str(exc)[:200]}",
                 )
                 continue
-
-            # Track accepted-but-no-RQ critiques for next-iteration nudge
-            tex = self.orchestrator._tool_executor
-            if tex and tex.accepted_without_rq:
-                self._state.pending_accepted_critiques.update(tex.accepted_without_rq)
 
             # 2. Post-integration validation
             violations = validate_post_integration(
@@ -541,13 +534,14 @@ class SciRalph:
                 outcome = "no review produced"
 
         elif tt == TaskType.CRITIQUE:
-            cr = self._state.pending_critic_result
-            if cr is None:
-                outcome = "no critiques"
-            elif cr.get("clean"):
-                outcome = "no critiques"
+            recent = [
+                c for c in self.research_state.critiques.values()
+                if c.iteration_filed == self.iteration
+            ]
+            if recent:
+                outcome = f"{len(recent)} critique(s)"
             else:
-                outcome = f"{cr['count']} critique(s)"
+                outcome = "no critiques"
 
         elif tt == TaskType.TERMINATE:
             outcome = "blocked"
@@ -654,53 +648,12 @@ class SciRalph:
                     lines.append("  STALLED — do NOT schedule another review. Try alternative evidence.")
             lines.append(">>> END VERIFICATION RESULTS <<<\n")
             self._state.pending_compute_verdicts.clear()
-        if self._state.pending_critic_result is not None:
-            cr = self._state.pending_critic_result
-            if cr.get("clean"):
-                lines.append(">>> DEEP CRITIC RESULT (previous iteration) <<<")
-                lines.append("The deep critic reviewed the research and found NO issues.")
-                if cr.get("can_terminate"):
-                    lines.append(
-                        "You previously attempted to terminate — you may now retry "
-                        "task_type: terminate."
-                    )
-                lines.append(">>> END DEEP CRITIC RESULT <<<\n")
-            else:
-                lines.append(">>> DEEP CRITIC RESULT (previous iteration) <<<")
-                crit_list = cr.get("critiques", [])
-                if crit_list:
-                    crit_desc = ", ".join(
-                        f"{c['id']} ({c['severity']})" for c in crit_list
-                    )
-                    lines.append(
-                        f"The deep critic filed {cr['count']} new critique(s): "
-                        f"{crit_desc}. Address them before other work."
-                    )
-                else:
-                    lines.append(
-                        f"The deep critic filed {cr['count']} critique(s). "
-                        "See the critique log in your context for details."
-                    )
-                lines.append(">>> END DEEP CRITIC RESULT <<<\n")
-            self._state.pending_critic_result = None
         if self._state.agent_failures:
             lines.append(">>> AGENT FAILURES (previous iteration) <<<")
             for f in self._state.agent_failures:
                 lines.append(f"  - [{f['task_id']}] {f['agent']}: {f['event']}. {f['detail']}")
             lines.append(">>> END AGENT FAILURES <<<\n")
             self._state.agent_failures.clear()
-        if self._state.pending_accepted_critiques:
-            crit_ids = ", ".join(sorted(self._state.pending_accepted_critiques))
-            lines.append(">>> ACCEPTED CRITIQUE — ACTION NEEDED <<<")
-            lines.append(
-                f"You accepted {crit_ids} as valid but didn't create an RQ from the findings. "
-                "What concrete research action follows? Consider:"
-            )
-            lines.append("- add_research_question to investigate the finding further")
-            lines.append("- add_hypothesis if the evidence already supports a specific claim")
-            lines.append("- update_strategy if the research direction needs to change")
-            lines.append(">>> END ACCEPTED CRITIQUE <<<\n")
-            self._state.pending_accepted_critiques.clear()
         # System events from critique routing (ER demotions, strategy revisions, etc.)
         if self._state.pending_system_events:
             lines.append(">>> SYSTEM EVENTS (between iterations) <<<")
@@ -791,10 +744,6 @@ class SciRalph:
             response = self.critic.run(task, self.iteration, on_round=self._on_agent_round)
             if self.critic._no_critiques_filed:
                 console.print("[dim]Critic: no issues found[/dim]")
-                result_info: dict = {"clean": True}
-                if self._state.consecutive_termination_blocks > 0:
-                    result_info["can_terminate"] = True
-                self._state.pending_critic_result = result_info
             else:
                 crits = list(self.research_state.critiques.values())
                 recent = [c for c in crits if c.iteration_filed == self.iteration]
@@ -802,14 +751,6 @@ class SciRalph:
                     console.print(
                         f"[red]Critic filed {len(recent)} critique(s)[/red]"
                     )
-                    self._state.pending_critic_result = {
-                        "clean": False,
-                        "count": len(recent),
-                        "critiques": [
-                            {"id": c.id, "severity": str(c.severity)}
-                            for c in recent
-                        ],
-                    }
             return "deep_critic", response
 
         else:

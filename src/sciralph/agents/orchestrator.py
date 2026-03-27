@@ -7,7 +7,6 @@ from collections.abc import Callable
 from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..orchestrator_tools import OrchestratorToolExecutor
 from ..renderers import (
-    render_orchestrator_critique_log,
     render_orchestrator_slim_state,
 )
 from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
@@ -44,11 +43,7 @@ class OrchestratorAgent(BaseAgent):
         parts.extend([
             state_text,
             "\n",
-            render_orchestrator_critique_log(self.research_state) if self.research_state else "",
         ])
-        # Inject critique-handling advice only when there are unresolved critiques
-        if self.research_state and self._has_active_critiques():
-            parts.append(self._critique_handling_banner())
         # Research notes
         if self.research_state and self.research_state.research_notes:
             note_lines = []
@@ -60,48 +55,6 @@ class OrchestratorAgent(BaseAgent):
             parts.append(self.context_suffix)
             self.context_suffix = ""  # consume after use
         return "\n".join(parts)
-
-    def _has_active_critiques(self) -> bool:
-        """Check if there are any unresolved critiques."""
-        from ..research_state import CritiqueStatus
-        if not self.research_state:
-            return False
-        return any(
-            c.status == CritiqueStatus.ACTIVE
-            for c in self.research_state.critiques.values()
-        )
-
-    @staticmethod
-    def _critique_handling_banner() -> str:
-        return (
-            "\n>>> HANDLING CRITIQUES <<<\n"
-            "Critiques have two blocking levels based on severity:\n"
-            "\n"
-            "**HIGH critiques (blocking)** — These BLOCK creation of new WHs and RQs. They "
-            "point where the answer might change. You MUST investigate, dismiss, or accept "
-            "each HIGH critique before creating new hypotheses or research questions.\n"
-            "\n"
-            "**MEDIUM/LOW critiques (advisory)** — These do NOT block forward progress. "
-            "Address them when convenient. Dismissing with a brief reason is acceptable. "
-            "Do not stall research to investigate a MEDIUM or LOW critique.\n"
-            "\n"
-            "The critic does NOT see detailed evidence or code; a reviewer's VERIFIED verdict "
-            "is stronger on specific claims.\n"
-            "\n"
-            "For each critique, choose one path:\n"
-            "- **Investigate** — dispatch research/compute targeting the critique entity or ID "
-            "(e.g., target_claim='CRIT-001'). After evidence returns, call dismiss_critique "
-            "or accept_critique.\n"
-            "- **Dismiss** — call dismiss_critique(critique_id, reason). Explain why the "
-            "critique is already addressed or immaterial.\n"
-            "- **Accept** — call accept_critique(critique_id, resolution). If the investigation "
-            "produced a new finding, pass create_rq and carry_evidence to funnel it into "
-            "the research pipeline.\n"
-            "\n"
-            "Strategy critiques: if the disconnect is real, update_strategy and record the "
-            "pivot in Research Notes.\n"
-            ">>> END HANDLING CRITIQUES <<<\n"
-        )
 
     def _call_with_tools(
         self,

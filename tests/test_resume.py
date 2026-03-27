@@ -150,7 +150,6 @@ class TestReconstructLoopState:
         assert ls.pending_verified_results == []
         assert ls.pending_explore_results == []
         assert ls.agent_failures == []
-        assert ls.pending_critic_result is None
 
     def test_reconstruct_loop_state_established_not_counted(self):
         """REFUTED review on an ESTABLISHED hypothesis should NOT be counted."""

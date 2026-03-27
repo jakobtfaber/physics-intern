@@ -536,8 +536,8 @@ class TestCriticCleanSignal:
             engine.critic = MagicMock()
         return engine
 
-    def test_no_critiques_filed_injects_violation(self):
-        """_no_critiques_filed=True adds a violation for orchestrator."""
+    def test_no_critiques_filed_produces_no_new_critiques(self):
+        """_no_critiques_filed=True means no new critiques in research state."""
         engine = self._make_engine()
         response = MagicMock()
         response.text = ""
@@ -547,8 +547,10 @@ class TestCriticCleanSignal:
         task = Task(task_id="TASK-005", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
         engine._dispatch(task)
 
-        assert engine._state.pending_critic_result is not None
-        assert engine._state.pending_critic_result["clean"] is True
+        # No new critiques should have been filed
+        recent = [c for c in engine.research_state.critiques.values()
+                  if c.iteration_filed == engine.iteration]
+        assert len(recent) == 0
 
     def test_normal_critique_no_violation(self):
         """_no_critiques_filed=False does NOT inject a violation."""
@@ -1613,43 +1615,6 @@ class TestRedundantCriticPassFix:
 
         assert engine._should_trigger_critic() is False
 
-    def test_critic_clean_can_terminate_injected_after_prior_terminate_attempt(self):
-        """When critic files no issues and orchestrator had tried to terminate,
-        can_terminate flag is set in pending_critic_result."""
-        engine = self._make_engine()
-        engine._state.consecutive_termination_blocks = 1  # prior terminate attempt
-
-        response = MagicMock()
-        response.text = ""
-        engine.critic.run = MagicMock(return_value=response)
-        engine.critic._no_critiques_filed = True
-
-        task = Task(task_id="TASK-006", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
-        engine._dispatch(task)
-
-        cr = engine._state.pending_critic_result
-        assert cr is not None
-        assert cr["clean"] is True
-        assert cr["can_terminate"] is True
-
-    def test_critic_clean_can_terminate_not_injected_without_prior_terminate(self):
-        """When no prior terminate attempt, can_terminate is NOT set."""
-        engine = self._make_engine()
-        engine._state.consecutive_termination_blocks = 0  # no prior terminate
-
-        response = MagicMock()
-        response.text = ""
-        engine.critic.run = MagicMock(return_value=response)
-        engine.critic._no_critiques_filed = True
-
-        task = Task(task_id="TASK-007", task_type=TaskType.CRITIQUE, assigned_to="deep_critic")
-        engine._dispatch(task)
-
-        cr = engine._state.pending_critic_result
-        assert cr is not None
-        assert cr["clean"] is True
-        assert cr.get("can_terminate") is None
-
 
 class TestDispatchHistory:
     """Test dispatch history recording and rendering in orchestrator context."""
@@ -1789,9 +1754,16 @@ class TestDispatchHistory:
         assert engine._state.dispatch_history[0].outcome == "no review produced"
 
     def test_append_dispatch_record_critique_with_critiques(self):
-        """Critique task reads pending_critic_result count."""
+        """Critique task counts recent critiques from research state."""
+        from sciralph.research_state import Critique, Severity, CritiqueStatus
         engine = self._make_engine()
-        engine._state.pending_critic_result = {"clean": False, "count": 3}
+        # Add 3 critiques filed this iteration
+        for i in range(1, 4):
+            engine.research_state.critiques[f"CRIT-{i:03d}"] = Critique(
+                id=f"CRIT-{i:03d}", severity=Severity.HIGH,
+                status=CritiqueStatus.ACTIVE, targets=["WH-001"],
+                argument=f"Issue {i}", iteration_filed=engine.iteration,
+            )
         task = Task(task_id="TASK-004", task_type=TaskType.CRITIQUE,
                     assigned_to="deep_critic")
         engine._append_dispatch_record(task)
@@ -1802,9 +1774,9 @@ class TestDispatchHistory:
         assert rec.outcome == "3 critique(s)"
 
     def test_append_dispatch_record_critique_clean(self):
-        """Critique task with clean result records 'no critiques'."""
+        """Critique task with no critiques filed records 'no critiques'."""
         engine = self._make_engine()
-        engine._state.pending_critic_result = {"clean": True}
+        # No critiques in research state
         task = Task(task_id="TASK-004", task_type=TaskType.CRITIQUE,
                     assigned_to="deep_critic")
         engine._append_dispatch_record(task)
