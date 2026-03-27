@@ -135,6 +135,7 @@ class CriticAgent(BaseAgent):
                 sev = Severity.MEDIUM
 
             target_id = crit_data.get("target_id", "")
+            target_type = crit_data.get("target_type", "")
             argument = crit_data.get("argument", "")
 
             crit = Critique(
@@ -143,6 +144,7 @@ class CriticAgent(BaseAgent):
                 severity=sev,
                 argument=argument,
                 status=CritiqueStatus.ACTIVE,
+                target_type=target_type,
                 iteration_filed=iteration,
             )
             self.research_state.critiques[crit.id] = crit
