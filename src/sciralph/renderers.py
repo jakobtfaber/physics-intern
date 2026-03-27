@@ -478,8 +478,11 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
             [rq for rq in state.research_questions.values() if rq.status == RQStatus.OPEN],
             key=lambda r: r.id,
         )
+        # Omit resolved RQs that resolved entirely to ERs (already in established-results)
         resolved_rqs = sorted(
-            [rq for rq in state.research_questions.values() if rq.status != RQStatus.OPEN],
+            [rq for rq in state.research_questions.values()
+             if rq.status != RQStatus.OPEN
+             and not (rq.resolved_to and all(t.startswith("ER-") for t in rq.resolved_to))],
             key=lambda r: r.id,
         )
         rq_lines: list[str] = []
@@ -501,7 +504,8 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
                 body = "Closed"
             status_tag = rq.status.upper()
             rq_lines.append(f'<rq id="{rq.id}" status="{status_tag}">{body}</rq>')
-        parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
+        if rq_lines:
+            parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
 
     # Established Results
     ers = sorted(
@@ -597,7 +601,7 @@ def render_orchestrator_slim_state(state: ResearchState) -> str:
                 wh_lines.append(f"- {h.id}: {h.statement}, no evidence yet")
         parts.append("<hypotheses>\n" + "\n".join(wh_lines) + "\n</hypotheses>")
 
-    # Research Questions — one-liner per RQ
+    # Research Questions — one-liner per RQ (omit resolved→ER, already in established-results)
     if state.research_questions:
         rq_lines: list[str] = []
         for rq in sorted(state.research_questions.values(), key=lambda r: r.id):
@@ -605,11 +609,14 @@ def render_orchestrator_slim_state(state: ResearchState) -> str:
                 n_ev = len(rq.evidence)
                 ev_note = f", {n_ev} evidence item{'s' if n_ev != 1 else ''}" if n_ev else ""
                 rq_lines.append(f"- {rq.id}: {rq.question}, OPEN{ev_note}")
+            elif rq.resolved_to and all(t.startswith("ER-") for t in rq.resolved_to):
+                continue  # already visible in established-results
             elif rq.resolved_to:
                 rq_lines.append(f"- {rq.id}: {rq.question}, RESOLVED → {', '.join(rq.resolved_to)}")
             else:
                 rq_lines.append(f"- {rq.id}: {rq.question}, {rq.status.upper()}")
-        parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
+        if rq_lines:
+            parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
 
     # Dead Ends — one-liner per entry
     dead_lines: list[str] = []

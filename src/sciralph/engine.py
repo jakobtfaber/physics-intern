@@ -524,12 +524,15 @@ class SciRalph:
                 outcome = "no evidence"
 
         elif tt == TaskType.REVIEW:
+            h = None
             if target and target in self.research_state.hypotheses:
                 h = self.research_state.hypotheses[target]
-                if h.review:
-                    outcome = h.review.verdict
-                else:
-                    outcome = "no review produced"
+            elif target and target.startswith("WH-"):
+                er_id = f"ER-{target.split('-')[1]}"
+                if er_id in self.research_state.hypotheses:
+                    h = self.research_state.hypotheses[er_id]
+            if h and h.review:
+                outcome = f"{h.review.verdict} → {h.id}"
             else:
                 outcome = "no review produced"
 
@@ -1022,9 +1025,6 @@ class SciRalph:
                     console.print(f"  [red]{eid} abandoned: {reason[:60]}[/red]")
 
         rationale = self.planner.parsed_revision_rationale or "No rationale provided."
-        self._state.pending_system_events.append(
-            f"STRATEGY REVISED: {rationale}"
-        )
 
         # Resolve strategy/coordination critiques
         for c in strategy_critiques:
@@ -1032,6 +1032,13 @@ class SciRalph:
             c.resolution = f"Addressed in strategy revision: {rationale[:120]}"
             c.resolution_type = "accepted"
             c.iteration_resolved = self.iteration
+            console.print(f"  [green]{c.id} resolved by strategy revision[/green]")
+
+        crit_ids = ", ".join(c.id for c in strategy_critiques)
+        event_label = f"STRATEGY REVISED ({crit_ids})" if crit_ids else "STRATEGY REVISED"
+        self._state.pending_system_events.append(
+            f"{event_label}: {rationale}"
+        )
 
         log_scaffold_event(
             self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
@@ -1272,6 +1279,10 @@ class SciRalph:
                 # Auto-promote WH→ER if dependencies are satisfied
                 if target_id.startswith("WH-"):
                     self._auto_promote(target_id)
+                    # Update banner entry if promotion happened
+                    er_id = f"ER-{target_id.split('-')[1]}"
+                    if er_id in self.research_state.hypotheses:
+                        self._state.pending_verified_results[-1]["claim"] = er_id
             elif verdict == Verdict.REFUTED:
                 from .research_state import FailedApproach, HypothesisStatus
                 # Mark existing evidence as refuted

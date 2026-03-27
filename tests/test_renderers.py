@@ -770,7 +770,8 @@ class TestRenderSurveySectionsXml:
 
 class TestCollapsedResolvedRQs:
 
-    def test_resolved_rq_one_liner(self):
+    def test_resolved_rq_to_er_omitted(self):
+        """Resolved RQ pointing to an ER is omitted (already in established-results)."""
         from sciralph.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -779,9 +780,10 @@ class TestCollapsedResolvedRQs:
             iteration_created=1, iteration_resolved=2,
         )
         text = render_orchestrator_research_state(state)
-        assert '<rq id="RQ-001" status="RESOLVED">→ ER-001</rq>' in text
-        # Full question text should NOT appear
+        assert "RQ-001" not in text
         assert "What is X?" not in text
+        # No research-questions section at all when only resolved→ER RQs exist
+        assert "research-questions" not in text
 
     def test_abandoned_rq_one_liner(self):
         from sciralph.research_state import ResearchQuestion, RQStatus

@@ -246,7 +246,7 @@ class TestComputeVerdictTracking:
 
         assert len(engine._state.pending_verified_results) == 1
         v = engine._state.pending_verified_results[0]
-        assert v["claim"] == "WH-001"
+        assert v["claim"] == "ER-001"  # updated to ER after auto-promote
         assert v["verdict"] == "VERIFIED"
 
     def test_verified_banner_renders_and_consumed_once(self):
@@ -1762,7 +1762,23 @@ class TestDispatchHistory:
         rec = engine._state.dispatch_history[0]
         assert rec.task_type == "review"
         assert rec.target == "WH-001"
-        assert rec.outcome == "VERIFIED"
+        assert rec.outcome == "VERIFIED → WH-001"
+
+    def test_append_dispatch_record_review_promoted_wh(self):
+        """Review task finds promoted WH via ER- fallback."""
+        engine = self._make_engine()
+        from sciralph.research_state import Hypothesis, ReviewResult, HypothesisStatus
+        # Simulate post-promotion state: WH-001 gone, ER-001 present
+        engine.research_state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", status=HypothesisStatus.ESTABLISHED,
+            review=ReviewResult(verdict="VERIFIED", summary="OK.", iteration=2),
+        )
+        task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
+                    assigned_to="reviewer", target_claim="WH-001")
+        engine._append_dispatch_record(task)
+
+        rec = engine._state.dispatch_history[0]
+        assert rec.outcome == "VERIFIED → ER-001"
 
     def test_append_dispatch_record_review_no_review(self):
         """Review task with no review result records 'no review produced'."""
