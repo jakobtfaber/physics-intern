@@ -371,7 +371,7 @@ class SciRalph:
                 console.print(
                     f"[yellow]Forcing periodic critic — no critic in "
                     f"{self.iteration - self.metrics.last_critic_iteration} iterations "
-                    f"(safeguard: 2×critic_every_n)[/yellow]"
+                    f"(safeguard: critic_every_n={self.config.critic_every_n})[/yellow]"
                 )
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
                                    "forced_critic",
@@ -764,25 +764,17 @@ class SciRalph:
 
     def _should_trigger_critic(self) -> bool:
         """Check if the critic should auto-trigger after a VERIFIED review."""
-        # Condition 1: latest dispatch was a VERIFIED review
-        if self._state.last_verified_review_iteration != self.iteration:
-            return False
-        # Always fire on the first established result (no critic has run yet)
-        if self.metrics.last_critic_iteration == 0:
-            return True
-        # Condition 2: critic hasn't run in the last critic_every_n iterations
-        if (self.iteration - self.metrics.last_critic_iteration) < self.config.critic_every_n:
-            return False
-        return True
+        # Trigger on every established result, no delay constraint
+        return self._state.last_verified_review_iteration == self.iteration
 
     def _should_force_periodic_critic(self) -> bool:
-        """Force critic if it hasn't run in 2× critic_every_n iterations.
+        """Force critic if it hasn't run in critic_every_n iterations.
 
         Safeguard against runs where no VERIFIED review happens for a long
         time — the critic still gets to review strategy and research direction.
         """
         gap = self.iteration - self.metrics.last_critic_iteration
-        return gap >= 2 * self.config.critic_every_n
+        return gap >= self.config.critic_every_n
 
     # ------------------------------------------------------------------
     # Critique routing (synchronous, between iterations)

@@ -624,18 +624,18 @@ class TestShouldTriggerCritic:
         return engine
 
     def test_trigger_after_verified_review(self):
-        """Triggers when latest iteration is a VERIFIED review and interval exceeded."""
+        """Triggers on every VERIFIED review, regardless of interval."""
         engine = self._make_engine(
             last_critic_iteration=0, last_verified_review_iteration=5,
             current_iteration=5, critic_every_n=4,
         )
         assert engine._should_trigger_critic() is True
 
-    def test_first_critic_always_fires(self):
-        """First critic fires on first ER even when iteration < critic_every_n."""
+    def test_trigger_even_when_critic_recent(self):
+        """Triggers even when critic ran recently — no delay constraint."""
         engine = self._make_engine(
-            last_critic_iteration=0, last_verified_review_iteration=2,
-            current_iteration=2, critic_every_n=4,
+            last_critic_iteration=4, last_verified_review_iteration=5,
+            current_iteration=5, critic_every_n=4,
         )
         assert engine._should_trigger_critic() is True
 
@@ -646,22 +646,6 @@ class TestShouldTriggerCritic:
             current_iteration=5, critic_every_n=4,
         )
         assert engine._should_trigger_critic() is False
-
-    def test_no_trigger_when_critic_recent(self):
-        """Does not trigger when critic ran within the last critic_every_n iterations."""
-        engine = self._make_engine(
-            last_critic_iteration=3, last_verified_review_iteration=5,
-            current_iteration=5, critic_every_n=4,
-        )
-        assert engine._should_trigger_critic() is False
-
-    def test_trigger_when_interval_exactly_reached(self):
-        """Triggers when exactly critic_every_n iterations since last critic."""
-        engine = self._make_engine(
-            last_critic_iteration=4, last_verified_review_iteration=8,
-            current_iteration=8, critic_every_n=4,
-        )
-        assert engine._should_trigger_critic() is True
 
     def test_last_content_tracked_in_dispatch(self):
         """_dispatch updates _last_content_iteration for research/compute tasks."""

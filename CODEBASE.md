@@ -20,7 +20,7 @@
 
 ## 1. Architecture Overview
 
-SciRalph is a multi-agent scaffolding system for autonomous scientific research in theoretical physics. Eight agent roles take turns in a main loop: researcher (analytical reasoning), computer (code execution), reviewer (adversarial review), deep critic (strategy review), surveyor, planner, compressor, and formatter. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. LLM calls go through a provider abstraction layer supporting Anthropic, OpenAI, Google Gemini, and HuggingFace.
+SciRalph is a multi-agent scaffolding system for autonomous scientific research in theoretical physics. Nine agent roles take turns in a main loop: researcher (analytical reasoning), computer (code execution), reviewer (adversarial review), deep critic (strategic audit), adjudicator (ER challenge evaluation), surveyor, planner (initial strategy + revision), and formatter. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots and agent context. LLM calls go through a provider abstraction layer supporting Anthropic, OpenAI, Google Gemini, and HuggingFace.
 
 ```
                         ┌──────────────────┐
@@ -46,7 +46,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
      │                   Agents                     │
      │  orchestrator    researcher                  │
      │  computer        reviewer                    │
-     │  critic          compressor                  │
+     │  critic          adjudicator                 │
      │  formatter       surveyor                    │
      │  planner                                     │
      └─────────────────────────────────────────────┘
@@ -83,7 +83,7 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 - **Three specialized work agents.** Researcher (analytical, no code), Computer (code execution), and Reviewer (adversarial review, no code). Each has a focused prompt, tool set, and context view.
 - **Evidence inlined on entities.** Rather than a separate `Computation` entity, evidence is inlined as `Evidence` on `Hypothesis` and `ResearchQuestion`, and review is inlined as `ReviewResult` on `Hypothesis`.
 - **Mandatory critic passes.** The scaffold forces critic reviews every N iterations, regardless of agent judgment.
-- **Tool-based state mutation.** Two agents are agentic — orchestrator (10 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with dynamic tool switching via `active_tools`). Three agents use one-shot structured JSON output — researcher (`_parse_researcher_json()` in `agents/researcher.py`), reviewer (`_parse_review_json()` in `agents/reviewer.py`), and critic (`_parse_critic_json()` in `agents/critic.py`). Tool calls use the `stop_after_round` mechanism to signal completion.
+- **Tool-based state mutation.** Two agents are agentic — orchestrator (9 tools via `OrchestratorToolExecutor`) and computer (4 tools via `ToolExecutor`, with dynamic tool switching via `active_tools`). Four agents use one-shot structured JSON output — researcher (`_parse_researcher_json()` in `agents/researcher.py`), reviewer (`_parse_review_json()` in `agents/reviewer.py`), critic (`_parse_critic_json()` in `agents/critic.py`), and adjudicator (`_parse_adjudication_json()` in `agents/adjudicator.py`). Tool calls use the `stop_after_round` mechanism to signal completion.
 - **Provider-agnostic.** LLM calls go through a `providers/` abstraction layer. Model selection is resolved via `models.yaml` registry (friendly key → provider + model_id + env_key + cost). The `verify.py` script is Anthropic-only.
 
 ### Source file map
@@ -91,10 +91,10 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | File | Lines | Purpose |
 |------|------:|---------|
 | `main.py` | 82 | CLI entry point, arg parsing, workspace naming (includes model label in dir name) |
-| `engine.py` | 758 | `SciRalph` class, `LoopState` dataclass: main loop, dispatch, `_render_files_for_git()`, compression, scaffolding log events |
+| `engine.py` | ~1100 | `SciRalph` class, `LoopState` dataclass: main loop, dispatch, `_route_critiques()`, `_auto_promote()`, `_render_files_for_git()`, scaffolding log events |
 | `research_state.py` | 480 | `ResearchState` dataclass: authoritative structured state (hypotheses with evidence/review, research_questions, critiques, failed_approaches), query/mutation methods, JSON serialization |
 | `renderers.py` | 351 | Snapshot renderers (state → `RESEARCH_STATE.md`, `EVIDENCE_LOG.md`, `CRITIQUE_LOG.md`) + `render_background_survey()` + `render_critic_context()` helpers |
-| `orchestrator_tools.py` | 912 | `OrchestratorToolExecutor`: 11 state-mutation tools for orchestrator agent |
+| `orchestrator_tools.py` | ~750 | `OrchestratorToolExecutor`: 9 tools for orchestrator agent (6 mutation + 3 dispatch) |
 | `tools.py` | 478 | `ToolExecutor`, `ToolCall`, `execute_python` + `document_approach` + `submit_result` + `report_progress` tool schemas; `tools_for_task_type()`; `active_tools` property for dynamic tool switching |
 | `categories.py` | 10 | `CompensationCategory` enum (call_reliability, state_invariants, loop_control, output_normalization) |
 | `validation.py` | 312 | Post-integration checks (4 checks on ResearchState), `can_terminate()` gates, `Violation` dataclass |
@@ -114,10 +114,10 @@ SciRalph is a multi-agent scaffolding system for autonomous scientific research 
 | `agents/computer.py` | 118 | Agentic: code execution via `ToolExecutor` (document_approach + execute_python + submit_result + report_progress); writes `Evidence` on target entity |
 | `agents/reviewer.py` | 157 | One-shot: adversarial review via `_parse_review_json()`; writes `ReviewResult` on target hypothesis |
 | `agents/critic.py` | 174 | One-shot: strategy/direction review via `_parse_critic_json()`, writes `Critique` objects to `ResearchState` |
-| `agents/compressor.py` | 27 | One-shot: file size management |
+| `agents/adjudicator.py` | ~120 | One-shot: independent ER challenge evaluation via `_parse_adjudication_json()`; demotes ER or dismisses critique |
 | `agents/formatter.py` | 43 | One-shot: produces `ANSWER.md` from final research state |
 | `agents/surveyor.py` | 45 | One-shot: produces background survey notes |
-| `agents/planner.py` | — | Planner agent: produces initial research strategy from problem + background survey (one-shot) |
+| `agents/planner.py` | ~130 | Planner agent: initial strategy + revision mode (one-shot); dual prompts (planner.md / planner_revise.md) |
 | `providers/__init__.py` | 24 | `create_provider()` factory + re-exports |
 | `providers/base.py` | 83 | `LLMProvider` ABC + `ProviderResponse` dataclass |
 | `providers/anthropic.py` | 159 | Anthropic Claude adapter |
@@ -174,7 +174,13 @@ Before the main loop begins, two agents run at iteration 0: the **surveyor** pro
 │        non-VERIFIED → pending_compute_verdicts                       │
 │     └─ _record_agent_failures(): max_tokens/max_rounds detection     │
 │                                                                      │
-│  8. RENDER + COMPRESSION + METRICS + STATE SYNC + GIT COMMIT         │
+│  8. CRITIQUE ROUTING (synchronous, after dispatch)                    │
+│     └─ _route_critiques(): two-phase critique resolution             │
+│        Phase 1: Adjudicate ER-targeted critiques via adjudicator     │
+│        Phase 2: Strategy revision via planner (if demotions or       │
+│                 strategy/coordination critiques exist)                │
+│                                                                      │
+│  9. RENDER + METRICS + STATE SYNC + GIT COMMIT                       │
 │     └─ _render_files_for_git(): render MD files from state for git   │
 │     └─ _sync_research_state(): normalize references, save JSON       │
 │                                                                      │
@@ -217,6 +223,8 @@ Dispatch follows `TASK_TYPE_AGENT_MAP` (in `task.py`):
 | `compute` | `computer` | Computational work via code; stores `Evidence` on target entity |
 | `review` | `reviewer` | Adversarial review; stores `ReviewResult` on target hypothesis |
 | `critique` | `deep_critic` | Strategy/direction review; post-dispatch: `_no_critiques_filed` detection |
+| `adjudicate` | `adjudicator` | Independent ER challenge evaluation; dispatched by `_route_critiques()` |
+| `plan_revise` | `planner` | Strategy revision after demotions/critiques; dispatched by `_route_critiques()` |
 | `format` | `formatter` | Dispatched automatically on successful termination |
 | `terminate` | `orchestrator` | Handled by engine termination gate |
 | `survey` | `surveyor` | Background survey / mid-loop resurvey |
@@ -247,9 +255,9 @@ The `run()` template method:
    - **Non-empty** → `_call_with_tools()` → `run_agent_loop()` → returns `AgentResult`
 3. Calls `process_response()` (subclass writes files)
 
-The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Two agents are agentic: orchestrator (13 tools via `OrchestratorToolExecutor`: 9 mutation + 4 dispatch) and computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching). Seven agents are one-shot: researcher (structured JSON via `_parse_researcher_json()`), reviewer (structured JSON via `_parse_review_json()`), critic (structured JSON via `_parse_critic_json()`), surveyor, planner, compressor, and formatter.
+The `tools` class attribute is the **single switch** between one-shot and agentic behavior. Two agents are agentic: orchestrator (9 tools via `OrchestratorToolExecutor`: 6 mutation + 3 dispatch) and computer (4 tools via `ToolExecutor`, with `active_tools` dynamic switching). Seven agents are one-shot: researcher (structured JSON via `_parse_researcher_json()`), reviewer (structured JSON via `_parse_review_json()`), critic (structured JSON via `_parse_critic_json()`), adjudicator (structured JSON via `_parse_adjudication_json()`), surveyor, planner, and formatter.
 
-All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (dispatch tools for the orchestrator, `submit_result` for the computer) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`. The orchestrator has four dispatch tools (`dispatch_researcher`, `dispatch_computer`, `dispatch_reviewer`, `request_termination`), each with tailored parameters. (Only the computer agent now uses `submit_result` via this mechanism; the researcher uses one-shot JSON output instead.)
+All agentic tool executors use the `stop_after_round` mechanism: a terminal tool (dispatch tools for the orchestrator, `submit_result` for the computer) sets `stop_after_round = True`, which the agent loop detects and returns with `stop_reason="executor_stop"`. The orchestrator has three dispatch tools (`dispatch_researcher`, `dispatch_computer`, `request_termination`) plus `add_hypothesis` (which also triggers `stop_after_round` and auto-dispatches the reviewer). (Only the computer agent now uses `submit_result` via this mechanism; the researcher uses one-shot JSON output instead.)
 
 **No retry on truncation:** `_call_with_retry` returns immediately when `stop_reason == "max_tokens"` (no retries). The engine's `_record_agent_failures()` detects the truncation and injects a CAPACITY EXCEEDED banner into the orchestrator's next context via `_build_context_prefix()`, prompting task decomposition.
 
@@ -262,10 +270,10 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `ReviewResult` — `verdict` (VERIFIED/REFUTED/INCONCLUSIVE), `summary`, `details`, `iteration`. Inlined on `Hypothesis`.
 - `Hypothesis` — `id`, `statement`, `status` (`HypothesisStatus`: WORKING/ESTABLISHED/REFUTED/ABANDONED), `derivation`, `critiques` (list of CRIT IDs), `iteration_created`, `iteration_modified`, `depends_on` (list of hypothesis IDs), `promotion_justification`, `evidence: Evidence | None`, `review: ReviewResult | None`
 - `ResearchQuestion` — `id` (RQ-NNN), `question`, `context`, `resolved_to` (list of hypothesis IDs), `status` (`RQStatus`: OPEN/RESOLVED/ABANDONED), `iteration_created`, `iteration_resolved`, `resolution_reason`, `evidence: Evidence | None`
-- `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW — kept for backward compat with existing JSON, no longer used for gating), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `iteration_filed`, `iteration_resolved`
+- `Critique` — `id`, `targets`, `severity` (`Severity`: HIGH/MEDIUM/LOW), `argument`, `status` (`CritiqueStatus`: ACTIVE/RESOLVED/WITHDRAWN), `resolution`, `resolution_type` ("dismissed" or "accepted"), `target_type` ("er", "strategy", or "coordination" — determines routing), `iteration_filed`, `iteration_resolved`, `evidence`
 - `FailedApproach` — `description`, `reason`, `related_entities`, `iteration`, `derivation_excerpt`
 
-**ResearchState fields:** `hypotheses` (dict by ID), `research_questions` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `critic_clean_reviews` (list), `iteration`, `problem_statement`, `conventions`, `strategy`, `situation_assessment`, `research_notes` (list of dicts), `status`, `title`, `background_survey` (BackgroundSurvey | None)
+**ResearchState fields:** `hypotheses` (dict by ID), `research_questions` (dict by ID), `critiques` (dict by ID), `failed_approaches` (list), `critic_clean_reviews` (list), `iteration`, `problem_statement`, `conventions`, `strategy`, `situation_assessment`, `research_notes` (list of dicts), `status`, `title`, `background_survey` (BackgroundSurvey | None), `sanity_checks` (list of dicts, planner-owned)
 
 **Key query methods:** `has_verified_evidence()`, `hypotheses_with_evidence()`, `active_critiques_for()`, `established_hypotheses()`, `working_hypotheses()`, `abandoned_hypotheses()`, `failures_for_hypothesis()`, `open_research_questions()`
 
@@ -280,7 +288,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 - `render_evidence_log_md(state)` → `EVIDENCE_LOG.md` (evidence and review on hypotheses, sorted by iteration)
 - `render_critique_log_md(state)` → `CRITIQUE_LOG.md` (active/resolved/withdrawn sections with frontmatter counts)
 
-**Helpers:** `render_background_survey(state)` — returns the background survey section as a string. `render_critic_context(state, iteration)` — returns a high-level strategic view for the deep critic (strategy, conventions, situation assessment, research notes, RQ list, hypothesis summaries with evidence/review one-liners, dead ends, background survey, previous critiques — no derivations, scripts, reasoning, or approach text).
+**Helpers:** `render_background_survey(state)` — returns the background survey section as a string. `render_critic_context(state, iteration)` — returns a high-level strategic view for the deep critic (strategy, conventions, situation assessment, research notes, RQ list, hypothesis summaries with evidence/review one-liners, dead ends, background survey, sanity checks, previous critiques — no derivations, scripts, reasoning, or approach text). `render_orchestrator_slim_state(state)` — compact ~8K token state for orchestrator context (one-liner entity summaries, full conventions and strategy). `render_planner_revise_context(state, trigger_text)` — enriched context for planner revision mode (problem, background, current strategy, entity descriptions with evidence summaries/dependencies/review verdicts, dead ends, research notes, conventions).
 
 ### Agent-by-agent summary
 
@@ -288,20 +296,18 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **Role:** Planning and state mutation. Mutates `ResearchState` via tools, emits `CURRENT_TASK.md`. (MD files are rendered centrally by the engine.)
 
-**Tools** (10, via `OrchestratorToolExecutor`):
-- `add_hypothesis` — creates new WH-NNN in state, auto-assigns ID; optional `from_rq` param links to originating RQ (copies evidence from RQ)
-- `update_hypothesis` — updates statement/derivation for existing WH/ER
+**Tools** (9, via `OrchestratorToolExecutor`):
+- `add_hypothesis` — creates new WH-NNN in state, auto-assigns ID; requires `from_rq` param linking to originating RQ (copies evidence from RQ); also an exit tool (triggers `stop_after_round` and auto-dispatches reviewer for the new WH)
 - `abandon_hypothesis` — marks as ABANDONED, records in `failed_approaches`
-- `dismiss_critique` — dismisses a critique as wrong/inapplicable, marks as RESOLVED
-- `accept_critique` — accepts a critique as valid, marks as RESOLVED; optionally creates an RQ from the findings with carried-over evidence
-- `update_section` — replaces content of Conventions, Situation Assessment, or Strategy
+- `append_convention` — adds new convention entries
 - `append_note` — appends a research note to `research_notes` list
 - `add_research_question` — creates new RQ-NNN for open-ended exploration targets
 - `abandon_research_question` — marks RQ as abandoned (dead end); reason required
 - `dispatch_researcher` — dispatches researcher with target_claim (required), description, background, method_hints, assumptions, relevant_results; triggers `stop_after_round`
 - `dispatch_computer` — dispatches computer with same params as researcher; triggers `stop_after_round`
-- `dispatch_reviewer` — dispatches reviewer with target_claim (WH-only, required), description, background; triggers `stop_after_round`
 - `request_termination` — requests loop termination with optional reason; triggers `stop_after_round`
+
+Removed tools (now automatic): `promote_hypothesis` (auto-promotion by engine), `update_hypothesis`, `dispatch_reviewer` (auto-triggered by `add_hypothesis` and engine re-review), `dismiss_critique`/`accept_critique` (handled by adjudicator/planner), `update_section` (strategy updated by planner revision; conventions via `append_convention`).
 
 **Context (largest in the system):**
 - `context_prefix` from engine — violations, termination blockers, evidence results, verified hypotheses, review results, agent failures (6 consumed-once banners)
@@ -310,7 +316,7 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **Output processing:** Only processes if `_tool_executor.mutations_applied` is true. Writes `CURRENT_TASK.md` from dispatch tool data. (MD files are rendered centrally by the engine's `_render_files_for_git()`, not by individual agents.)
 
-**Prompt rules (key):** COMPUTE-FIRST (new hypotheses get review before critique); converged derivation → move to review; stall loops → escalate or downgrade; critiques don't block promotion (severity is informational only).
+**Prompt rules (key):** COMPUTE-FIRST; converged derivation → formulate WH (auto-dispatches review); stall loops → escalate or downgrade; critique resolution handled automatically by adjudicator/planner (not orchestrator).
 
 #### Researcher (`agents/researcher.py`)
 
@@ -357,35 +363,40 @@ The authoritative source of truth for all research state. Agents mutate it via t
 
 **3-valued verdict system:** VERIFIED / REFUTED / INCONCLUSIVE
 
-#### Deep Critic (`agents/critic.py`)
+#### Deep Critic / Strategic Auditor (`agents/critic.py`)
 
-**Role:** Strategy and direction review via one-shot structured JSON output. Refocused on **strategy/direction only**, not per-claim review (which is handled by the reviewer). Files structured critiques, never suggests fixes.
+**Role:** Strategic audit via one-shot structured JSON output. Balanced: identifies problems AND opportunities. Refocused on **strategy/direction only**, not per-claim review (which is handled by the reviewer). Files typed critiques with `target_type` that determines routing. ERs are protected — only critique for logical impossibility or inter-result contradiction. Max 2 critiques per pass.
 
 **Tools:** None (`tools = []`). One-shot structured JSON output.
 
-**Context:** `render_critic_context(self.research_state, iteration)` from `renderers.py` — a high-level strategic view: strategy, conventions, situation assessment, research notes, RQ list, hypothesis summaries (evidence/review one-liners), dead ends, background survey, and previous critiques. No derivations, scripts, reasoning, or approach text.
+**Context:** `render_critic_context(self.research_state, iteration)` from `renderers.py` — a high-level strategic view: strategy, conventions, situation assessment, research notes, RQ list, hypothesis summaries (evidence/review one-liners), dead ends, background survey, sanity checks, and previous critiques. No derivations, scripts, reasoning, or approach text.
 
-**Output processing:** Calls `_parse_critic_json(text)` to extract `{summary, details, critiques}` JSON from response text (tries fenced ```json blocks first, falls back to brace-counting for bare JSON with nested objects). Each critique entry has `target_id` and `argument` fields (plus `severity` for backward compat, no longer used for gating).
+**Output processing:** Calls `_parse_critic_json(text)` to extract `{summary, critiques}` JSON from response text (tries fenced ```json blocks first, falls back to brace-counting for bare JSON with nested objects). Each critique entry has `target_id`, `argument`, `severity`, and `target_type` ("er", "strategy", or "coordination") fields.
 - CRIT-NNN numbering via `self.research_state.next_critique_num()`
 - Invalid severity defaults to MEDIUM
-- If critiques present: creates `Critique` objects with `CritiqueStatus.ACTIVE` in `research_state.critiques`, links to target hypotheses
+- If critiques present: creates `Critique` objects with `CritiqueStatus.ACTIVE` in `research_state.critiques`, links to target hypotheses; `target_type` determines routing in `_route_critiques()`
 - If no critiques present: records clean review in `research_state.critic_clean_reviews`, sets `_no_critiques_filed` flag (clean review signal to orchestrator via engine)
 - Parse failure: treats as clean review, logs `critic_json_parse_failure` scaffold event
 
-**Severity rules (informational only, severity no longer gates promotion or termination):**
-- HIGH: only for specific wrong steps (sign error, dropped term)
-- MEDIUM: forced cap when objection rests on intuition, or when only INCONCLUSIVE evidence exists, or when a VERIFIED result exists
-- LOW: stylistic
+**Critique routing (by `target_type`):**
+- `"er"` → adjudicator evaluates independently
+- `"strategy"` / `"coordination"` → planner revision mode
 
-#### Compressor (`agents/compressor.py`)
+**Severity rules:**
+- HIGH: only for specific wrong steps (sign error, dropped term); blocks WH/RQ creation
+- MEDIUM/LOW: auto-expire after `auto_expire_iterations` (default 3) iterations
 
-**Role:** Shrink files exceeding size thresholds. LLM output IS the compressed file. One-shot (no tools).
+#### Adjudicator (`agents/adjudicator.py`)
 
-**Context:** The target file's content with a one-line header.
+**Role:** Independent neutral judge for ER-targeted critiques. One-shot (no tools). Invoked synchronously by `_route_critiques()`.
 
-**Processing:** Archives original (timestamped copy in `archive/`), writes compressed version back.
+**Context:** Problem statement, full claim details (derivation, evidence with scripts/outputs, original review), challenge argument, conventions, other established results, planner's sanity checks.
 
-**Rules:** Preserve ERs and unresolved critiques verbatim. Collapse resolved critiques to one-line summaries. Drop abandoned hypotheses. Never discard "what didn't work" information.
+**Output processing:** Calls `_parse_adjudication_json(text)` to extract `{adjudication, reasoning, ...}` JSON. Three verdicts:
+- `valid` → demotes ER → WH, auto-abandons it, cascades demotion to dependents
+- `invalid` → dismisses critique with counter-argument
+- `needs_evidence` → routes for further investigation
+- Parse failure: logs `adjudication_error`, critique remains active
 
 #### Formatter (`agents/formatter.py`)
 
@@ -430,7 +441,7 @@ Four adapters: `AnthropicProvider`, `OpenAIProvider`, `GoogleProvider`, `Hugging
 
 Two calling patterns:
 
-**`call_llm`** — stateless one-shot. Uses `_call_provider_with_retry()` for API resilience. Returns `LLMResponse(text, input_tokens, output_tokens, stop_reason, duration)`. Used by reviewer, critic, surveyor, compressor, formatter.
+**`call_llm`** — stateless one-shot. Uses `_call_provider_with_retry()` for API resilience. Returns `LLMResponse(text, input_tokens, output_tokens, stop_reason, duration)`. Used by reviewer, critic, adjudicator, surveyor, planner, formatter.
 
 **`run_agent_loop`** — stateful multi-turn. Maintains a growing `messages` list across rounds. Each round: LLM response → tool extraction → tool executor's `execute()` → tool result fed back. Checks `tool_executor.active_tools` each round for dynamic tool switching (used by computer agent to remove `document_approach` after first call). Returns `AgentResult(text, tool_calls, total_input/output_tokens, rounds, truncated, duration, stop_reason)`. Used by orchestrator and computer. On `max_rounds` exhaustion or `tool_call_failure`, forces a single text-only final call via agent-agnostic user message (system prompt unchanged); empty text is honest failure (no synthesis fallback). Agent-agnostic warnings at `max_rounds-2` and `max_rounds-1` (no agent-specific format references).
 
@@ -452,22 +463,18 @@ For `COMPUTE`:
 3. **`submit_result`** — structured exit. Params: `target_id`, `description`, `method`, `result`, `confidence` (exact/approximate/partial), `notes`. Sets `stop_after_round = True`.
 4. **`report_progress`** — progress check. Params: `findings_so_far`, `remaining_questions`, `ready_to_conclude`. Does NOT stop.
 
-**`OrchestratorToolExecutor`** (orchestrator) — 9 state-mutation tools:
-1. **`add_hypothesis`** — creates new WH-NNN in `ResearchState`; optional `from_rq` links to originating RQ (copies evidence)
-2. **`update_hypothesis`** — updates statement/derivation
-3. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
-4. **`dismiss_critique`** — dismisses a critique as wrong/inapplicable
-5. **`accept_critique`** — accepts a critique as valid; optionally creates an RQ with carried-over evidence
-6. **`update_section`** — replaces Conventions, Situation Assessment, or Strategy content
-7. **`append_note`** — appends to `research_notes` list
-8. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
-9. **`abandon_research_question`** — marks RQ as abandoned (dead end); reason required
-10. **`dispatch_researcher`** — dispatches researcher; sets `stop_after_round = True`
-11. **`dispatch_computer`** — dispatches computer; sets `stop_after_round = True`
-12. **`dispatch_reviewer`** — dispatches reviewer (WH-only target); sets `stop_after_round = True`
-13. **`request_termination`** — requests loop termination; sets `stop_after_round = True`
+**`OrchestratorToolExecutor`** (orchestrator) — 9 tools (6 mutation + 3 dispatch):
+1. **`add_hypothesis`** — creates new WH-NNN in `ResearchState`; requires `from_rq` linking to originating RQ (copies evidence); also exit tool (sets `stop_after_round = True`, auto-dispatches reviewer)
+2. **`abandon_hypothesis`** — marks ABANDONED, records `FailedApproach`
+3. **`append_convention`** — adds new convention entries
+4. **`append_note`** — appends to `research_notes` list
+5. **`add_research_question`** — creates new RQ-NNN for open-ended exploration targets
+6. **`abandon_research_question`** — marks RQ as abandoned (dead end); reason required
+7. **`dispatch_researcher`** — dispatches researcher; sets `stop_after_round = True`
+8. **`dispatch_computer`** — dispatches computer; sets `stop_after_round = True`
+9. **`request_termination`** — requests loop termination; sets `stop_after_round = True`
 
-Tracks `mutations_applied` (bool) and `resolved_critique_ids` (set) for `process_response` to use.
+Tracks `mutations_applied` (bool) for `process_response` to use. Scope caps: WH creation blocked when >= 2 working WHs; RQ creation blocked when >= 3 open RQs; both blocked when HIGH-severity unresolved critiques exist; dispatch blocked when any open RQ has >= `rq_evidence_cap` non-refuted evidence items; dispatch blocked on immutable entities (ERs, resolved/abandoned RQs).
 
 The `ToolExecutor` class:
 - Writes each script to `computations/tool_exec_NNN.py` (monotonic counter per instance)
@@ -486,7 +493,6 @@ All file I/O goes through `WorkspaceManager`. Agents never touch the filesystem 
 
 - `init(problem)` — creates workspace structure, initial Markdown files with frontmatter, `git init`
 - `read_file` / `write_file` / `append_file` — defensive (missing files return `""`, never raise)
-- `archive_file` — timestamped copy to `archive/` before compression
 - `git_commit(message)` — `git add -A` + `git commit --allow-empty` every iteration
 - `log_scaffold_event(workspace_dir, iteration, category, event, detail)` — free function; appends one JSONL line to `EVENT_LOG.jsonl` with `kind: "scaffold"` (see §7). Never raises (bare `except OSError: pass`). Called from engine, agents, validation, and llm modules
 - `log_llm_call(workspace_dir, ...)` — free function; appends one JSONL line to `EVENT_LOG.jsonl` with `kind: "llm_call"` (metadata: agent, model, tokens, cost, round number). Never raises. Called from `llm.py` after every provider call
@@ -533,7 +539,6 @@ workspaces/<run>/
   METRICS.md             ← Engine writes every iteration
   EVENT_LOG.jsonl        ← Append-only events: scaffolding interventions (kind: "scaffold") + LLM call metadata (kind: "llm_call")
   computations/          ← Python scripts from tool execution (tool_exec_NNN.py)
-  archive/               ← Pre-compression file copies
   logs/                  ← Full conversation logs (iter{NNN}_{agent}_{seq}.md)
   .git/                  ← One commit per iteration
 ```
@@ -594,13 +599,13 @@ A claim advances through this lifecycle:
 | `computation_token_alert` | 150000 | Cumulative input tokens before firing alert |
 | `stall_recompute_limit` | 2 | Max consecutive non-VERIFIED verdicts before orchestrator sees "STALLED" warning |
 | `min_er_for_completion` | 3 | ERs needed before orchestrator sees completion analysis hints |
-| `compress_threshold` | RS: 50K, CL: 30K, EL: 40K | File size thresholds (chars) |
+| `rq_evidence_cap` | 3 | Max non-refuted evidence items on RQ before dispatch blocked |
+| `auto_expire_iterations` | 3 | Iterations before MEDIUM/LOW critiques auto-expire (HIGH never expire; 0 disables) |
 | `api_retry_max` | 3 | Max retry attempts on transient API errors |
 | `api_retry_initial_delay` | 2.0 | Initial retry delay (seconds) |
 | `api_retry_max_delay` | 30.0 | Max retry delay (seconds) |
 | `api_timeout` | 120.0 | Per-API-call timeout (seconds) |
 
-Compression: alert at 1x, compress at `compress_soft_multiplier` (default 1.5x).
 
 ---
 
@@ -635,7 +640,7 @@ Common fields: `kind` (`"scaffold"` or `"llm_call"`), `ts` (UTC ISO-8601), `iter
 |----------|-----------|
 | `call_reliability` | `api_retry`, `tool_call_failure_fallback`, `progress_check`, `forced_final_call`, `forced_final_call_failed`, `forced_exit_tool_retry`, `empty_end_turn_recovery`, `tool_timeout`, `tool_output_truncation` |
 | `state_invariants` | All `Violation.check` values from validation checks (e.g. `er_demotion_safety`, `phantom_labels`, `stale_unverified_labels`, `critique_resolution_consistency`) |
-| `loop_control` | `forced_critic`, `compute_enrichment`, `termination_blocked`, `dispatch_failure`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry` |
+| `loop_control` | `forced_critic`, `compute_enrichment`, `termination_blocked`, `dispatch_failure`, `routing_conflict_corrected`, `no_critiques_filed`, `status_field_exit`, `compute_verdict_failed`, `agent_failure_max_tokens`, `agent_failure_max_rounds`, `max_tokens_no_retry`, `auto_promote`, `er_demotion`, `adjudication_error`, `strategy_revision`, `failed_claim`, `abandon_research_question` |
 | `output_normalization` | `problem_statement_enforced`, `header_normalized`, `critique_resolved`, `bracket_flattened`, `preamble_stripped`, `critique_self_retracted`, `empty_response_stub`, `header_injected`, `claim_id_injected`, `submit_review_text_extracted` |
 
 **Quick analysis:**
@@ -728,7 +733,10 @@ Non-VERIFIED review verdicts go to `pending_compute_verdicts` in `LoopState` (wi
 | Dispatch-level result tracking | `_track_agent_result()` | For RESEARCH/COMPUTE: checks evidence on target entity → `pending_explore_results`; for REVIEW: checks h.review → VERIFIED → `pending_verified_results` (clears failure count), non-VERIFIED → `pending_compute_verdicts` with notes/failure_detail | Orchestrator unaware of agent results |
 | Agent failure routing | `_record_agent_failures()` + `_build_context_prefix()` | Records max_tokens truncation, max_rounds exhaustion, and non-VERIFIED verdicts; shows "AGENT FAILURES" banner to orchestrator on next pass | Orchestrator re-issuing identical failing tasks without awareness of prior failures |
 | Violations/blockers/evidence/verified/verdicts/failures as context prefix | `_build_context_prefix()` | 6 sections: violations, termination blockers, evidence results, verified hypotheses, review results (with notes/failure_detail and stall warnings at limit), agent failures — serialised into orchestrator's next user message; all consumed-once (cleared after read) | Orchestrator ignoring validation failures or agent results |
-| Compression at soft threshold | `_check_compression()` | Compresses files exceeding `compress_soft_multiplier` × threshold (single tier) | Runaway file growth crashing context window |
+| Critique routing | `_route_critiques()` | Phase 1: adjudicates ER-targeted critiques; Phase 2: planner revision on demotions/strategy critiques | Critiques languishing without resolution |
+| Auto-abandon on REFUTED | `_track_agent_result()` | REFUTED review → auto-abandon WH, log as failed approach | Orchestrator failing to abandon refuted claims |
+| Immutable ER protection | `_validate_target_claim()` | Blocks dispatch to ER targets; only adjudicator can change ERs | Orchestrator re-dispatching to settled results |
+| Critique auto-expiry | `_route_critiques()` | MEDIUM/LOW critiques auto-expire after `auto_expire_iterations` | Stale critiques blocking progress indefinitely |
 
 ### output_normalization — Agent-level corrections and parsing tolerance
 
@@ -804,12 +812,12 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 
 ## 9. Testing
 
-**827 tests** across 28 test files. Run with `uv run python -m pytest -v`.
+**~1090 tests** across 32 test files. Run with `uv run python -m pytest -v`.
 
 | Test file | Lines | What it covers |
 |-----------|------:|----------------|
 | `test_engine.py` | 1490 | Main loop, termination gates, compression, budget, stalls, dispatch, context prefix, result tracking |
-| `test_orchestrator_tools.py` | 1150 | OrchestratorToolExecutor: add/update/abandon/promote hypothesis, resolve critique, dispatch tools, append_note, update_section |
+| `test_orchestrator_tools.py` | ~1100 | OrchestratorToolExecutor: add/abandon hypothesis, append_convention, append_note, add/abandon RQ, dispatch tools, scope caps |
 | `test_tools.py` | 1060 | ToolExecutor, submit_result, document_approach, run_agent_loop, truncation, token accumulation, active_tools |
 | `test_markdown.py` | 972 | Frontmatter, sections, critique lifecycle, header normalisation |
 | `test_research_state.py` | 929 | ResearchState dataclass, query methods, promote/demote, normalize_references, Evidence/ReviewResult, serialization |
@@ -839,7 +847,7 @@ Output: `VERIFICATION.md` written to workspace (when `--write-report`).
 **Notable coverage gaps:**
 - `call_llm` one-shot path (only `run_agent_loop` is tested via `test_tools.py`)
 - BaseAgent retry logic directly
-- Compressor, formatter `process_response` methods
+- Formatter `process_response` method
 - Workspace git operations
 - End-to-end `main.py` run path
 - Reviewer `_parse_review_json()` edge cases (partial JSON, deeply nested)
@@ -864,12 +872,16 @@ The `messages` list grows unboundedly across rounds. Large tool outputs can push
 
 ## 11. Documentation Status
 
-All documentation was synced with the codebase on 2026-03-19.
+All documentation was synced with the codebase on 2026-03-27.
 
-- **ResearchState as source of truth** — `research_state.py` (480 lines) provides authoritative structured state; agents mutate via tools, Markdown rendered from state for git snapshots only
-- **Two agentic agents** — orchestrator (10 tools via `OrchestratorToolExecutor`), computer (4 tools via `ToolExecutor` with `active_tools` dynamic switching); both use `stop_after_round` mechanism. **Three one-shot structured JSON agents** — researcher (`_parse_researcher_json()`), reviewer (`_parse_review_json()`), and critic (`_parse_critic_json()` + `render_critic_context()`)
+- **ResearchState as source of truth** — `research_state.py` provides authoritative structured state (including `sanity_checks`); agents mutate via tools, Markdown rendered from state for git snapshots only
+- **Two agentic agents** — orchestrator (9 tools via `OrchestratorToolExecutor`), computer (4 tools via `ToolExecutor` with `active_tools` dynamic switching); both use `stop_after_round` mechanism. **Four one-shot structured JSON agents** — researcher (`_parse_researcher_json()`), reviewer (`_parse_review_json()`), critic (`_parse_critic_json()` + `render_critic_context()`), and adjudicator (`_parse_adjudication_json()`)
 - **Three specialized work agents** — researcher (analytical), computer (code), reviewer (adversarial review); each has focused prompt, tool set, and context view; evidence inlined on entities as `Evidence` and `ReviewResult`
-- **Renderers** — `renderers.py` produces Markdown snapshot files from ResearchState; agents render context from `self.research_state` via renderers; MD files rendered centrally by engine's `_render_files_for_git()`
+- **Critique routing** — deep critic files typed critiques (`target_type`: er/strategy/coordination); `_route_critiques()` sends ER critiques to adjudicator and strategy/coordination critiques to planner revision; MEDIUM/LOW critiques auto-expire after `auto_expire_iterations`
+- **Auto-promotion** — `_auto_promote()` promotes WH → ER after VERIFIED review when dependencies met; cascades to other VERIFIED WHs
+- **Auto-abandon** — REFUTED WHs are immediately abandoned; ERs are immutable (only adjudicator can demote)
+- **Planner revision mode** — `TaskType.PLAN_REVISE` invoked after ER demotions or strategy critiques; updates strategy, entity actions, sanity checks
+- **Renderers** — `renderers.py` produces Markdown snapshot files from ResearchState; agents render context from `self.research_state` via renderers; MD files rendered centrally by engine's `_render_files_for_git()`; `render_orchestrator_slim_state()` for compact orchestrator context; `render_planner_revise_context()` for planner revision
 - **Formatter agent** — `agents/formatter.py` produces `ANSWER.md` on successful termination
 - Multi-provider support (Anthropic, OpenAI, Google Gemini, HuggingFace) fully implemented with `models.yaml` registry
 - API retry with exponential backoff implemented (transient errors + tool-call failures)

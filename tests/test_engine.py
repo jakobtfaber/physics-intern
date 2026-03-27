@@ -1610,21 +1610,18 @@ class TestRedundantCriticPassFix:
         return engine
 
     def test_should_trigger_critic_after_verified_review(self):
-        """_should_trigger_critic returns True after a VERIFIED review when interval exceeded."""
+        """_should_trigger_critic returns True after any VERIFIED review."""
         engine = self._make_engine()
         engine.metrics.last_critic_iteration = 0
-        engine.config.critic_every_n = 4
         engine._state.last_verified_review_iteration = 5
 
         assert engine._should_trigger_critic() is True
 
-    def test_should_trigger_critic_first_er_regardless_of_interval(self):
-        """First critic always fires on first ER, even if iteration < critic_every_n."""
+    def test_should_trigger_critic_even_when_recent(self):
+        """Critic fires on every ER — no delay constraint."""
         engine = self._make_engine()
-        engine.metrics.last_critic_iteration = 0
-        engine.config.critic_every_n = 4
-        engine.iteration = 2  # only 2 iterations in, well below critic_every_n
-        engine._state.last_verified_review_iteration = 2
+        engine.metrics.last_critic_iteration = 4  # ran just 1 iteration ago
+        engine._state.last_verified_review_iteration = 5
 
         assert engine._should_trigger_critic() is True
 
@@ -1632,7 +1629,6 @@ class TestRedundantCriticPassFix:
         """_should_trigger_critic returns False when no verified review this iteration."""
         engine = self._make_engine()
         engine.metrics.last_critic_iteration = 0
-        engine.config.critic_every_n = 4
         engine._state.last_verified_review_iteration = 3  # different from current iteration
 
         assert engine._should_trigger_critic() is False

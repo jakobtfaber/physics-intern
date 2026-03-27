@@ -791,8 +791,11 @@ class OrchestratorToolExecutor:
             ids = ", ".join(rq.id for rq in open_rqs)
             return (
                 f"Error: already {len(open_rqs)} open RQs ({ids}). "
-                "Resolve or abandon existing RQs before creating new ones. "
-                "Dispatch research/compute tasks on existing RQs first."
+                "You should first take care of them."
+                "You can either :"
+                " - Turn an existing RQ into a Working Hypothesis using `add_hypothesis`, provided the RQ has at least 1 evidence."
+                " - Abandon an RQ using `abandon_research_question`."
+                " - Keep working on an existing RQ by using `dispatch_researcher` or `dispatch_computer` to gather more evidence on it."
             )
         if blocking:
             crit_ids = ", ".join(c.id for c in blocking)
