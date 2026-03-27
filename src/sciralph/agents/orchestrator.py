@@ -8,7 +8,7 @@ from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..orchestrator_tools import OrchestratorToolExecutor
 from ..renderers import (
     render_orchestrator_critique_log,
-    render_orchestrator_research_state,
+    render_orchestrator_slim_state,
 )
 from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from ..tools import ToolCall
@@ -30,16 +30,11 @@ class OrchestratorAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         parts = []
-        # Problem statement and background survey at the top of user message
+        # Problem statement at the top of user message
         if self.research_state:
             if self.research_state.problem_statement:
                 parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>\n")
-            if self.research_state.background_survey:
-                from ..renderers import render_survey_sections_xml
-                survey_xml = render_survey_sections_xml(self.research_state.background_survey)
-                if survey_xml:
-                    parts.append(survey_xml + "\n")
-        state_text = render_orchestrator_research_state(self.research_state) if self.research_state else ""
+        state_text = render_orchestrator_slim_state(self.research_state) if self.research_state else ""
         if iteration >= 3 and self.research_state and not self.research_state.conventions:
             parts.append(
                 ">>> REMINDER: The '# Conventions' section is still empty. "

@@ -106,16 +106,16 @@ class TestProblemStatementInContext:
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
         assert "<problem-statement>" not in context
 
-    def test_problem_statement_before_background_survey(self, orchestrator):
+    def test_problem_statement_present_with_survey(self, orchestrator):
         from sciralph.research_state import BackgroundSurvey
         orchestrator.research_state = ResearchState(
             problem_statement="Test problem.",
             background_survey=BackgroundSurvey(raw_notes="Some survey notes."),
         )
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
-        ps_pos = context.index("<problem-statement>")
-        bg_pos = context.index("<survey-background>")
-        assert ps_pos < bg_pos
+        assert "<problem-statement>" in context
+        # Survey is no longer rendered in orchestrator context (slim mode)
+        assert "<survey-background>" not in context
 
 
 class TestNoMetricsInContext:
@@ -137,10 +137,10 @@ class TestSuffixPlacement:
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
 
         assert "EVIDENCE RESULTS" in context
-        # Suffix must appear after the hypotheses section
-        hyp_pos = context.index("</hypotheses>")
+        # Suffix must appear after the strategy section (slim state)
+        strat_pos = context.index("</strategy>")
         suffix_pos = context.index("EVIDENCE RESULTS")
-        assert suffix_pos > hyp_pos
+        assert suffix_pos > strat_pos
 
     def test_suffix_consumed_after_use(self, orchestrator):
         """context_suffix is cleared after build_context consumes it."""
