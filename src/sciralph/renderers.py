@@ -159,8 +159,6 @@ def _research_state_body(state: ResearchState) -> str:
         parts.append(f"## {h.id}{statement_part}\n")
         if h.depends_on:
             parts.append(f"**Depends on:** {', '.join(h.depends_on)}\n")
-        if h.promotion_justification:
-            parts.append(f"**Promotion justification:** {h.promotion_justification}\n")
         if h.derivation:
             parts.append(h.derivation)
             parts.append("")
@@ -197,8 +195,6 @@ def _research_state_body(state: ResearchState) -> str:
         parts.append(f"## {h.id}{statement_part}\n")
         if h.depends_on:
             parts.append(f"**Depends on:** {', '.join(h.depends_on)}\n")
-        if h.promotion_justification:
-            parts.append(f"**Promotion justification:** {h.promotion_justification}\n")
         if h.derivation:
             parts.append(h.derivation)
             parts.append("")
@@ -438,8 +434,6 @@ def _render_hypothesis_parts(h: Hypothesis) -> list[str]:
         h_parts.append(f"Statement: {h.statement}")
     if h.depends_on:
         h_parts.append(f"Depends on: {', '.join(h.depends_on)}")
-    if h.promotion_justification:
-        h_parts.append(f"Promotion justification: {h.promotion_justification}")
     if h.derivation:
         h_parts.append(f"<derivation>\n{h.derivation}\n</derivation>")
     if h.evidence:
@@ -696,8 +690,6 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
             h_parts.append(f"Statement: {h.statement}")
         if h.depends_on:
             h_parts.append(f"Depends on: {', '.join(h.depends_on)}")
-        if h.promotion_justification:
-            h_parts.append(f"Promotion justification: {h.promotion_justification}")
         if h.evidence:
             for ev in h.evidence:
                 result_short = (ev.result[:300] + "...") if ev.result and len(ev.result) > 300 else (ev.result or "")

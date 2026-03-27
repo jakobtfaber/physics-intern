@@ -150,7 +150,8 @@ class TestAddHypothesis:
         tc = ex.execute("add_hypothesis", {
             "statement": "Blocked", "from_rq": "RQ-003",
         })
-        assert "unresolved HIGH-severity critique" in tc.output
+        assert "blocked" in tc.output
+        assert "strategic review" in tc.output
 
 
 # ---------------------------------------------------------------------------
@@ -688,7 +689,8 @@ class TestResearchQuestionTools:
         )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("add_research_question", {"question": "Blocked?"})
-        assert "unresolved HIGH-severity critique" in tc.output
+        assert "blocked" in tc.output
+        assert "strategic review" in tc.output
 
     def test_add_hypothesis_not_blocked_by_medium_critique(self):
         """MEDIUM critique does not block WH creation (severity-gated)."""
@@ -1052,7 +1054,8 @@ class TestTargetClaimValidation:
         assert "Termination" in tc.output
         assert ex.stop_after_round
 
-    def test_valid_crit_target_passes(self):
+    def test_crit_target_passes_as_unknown_prefix(self):
+        """CRIT prefix is no longer recognized — passes through as unknown prefix."""
         ws = _make_workspace()
         state = _make_state()
         state.critiques["CRIT-001"] = Critique(
@@ -1067,7 +1070,8 @@ class TestTargetClaimValidation:
         assert "Dispatched" in tc.output
         assert ex.stop_after_round
 
-    def test_invalid_crit_target_rejected(self):
+    def test_crit_target_treated_as_unknown_prefix(self):
+        """CRIT targets are no longer recognized — they pass as unknown prefix."""
         ws = _make_workspace()
         state = _make_state()
         state.critiques["CRIT-001"] = Critique(
@@ -1079,10 +1083,9 @@ class TestTargetClaimValidation:
             "target_claim": "CRIT-099",
             "description": "Investigate critique.",
         })
-        assert "Error" in tc.output
-        assert "CRIT-099" in tc.output
-        assert "CRIT-001" in tc.output  # listed as valid
-        assert not ex.stop_after_round
+        # CRIT prefix is no longer in the regex — passes as unknown prefix
+        assert "Dispatched" in tc.output
+        assert ex.stop_after_round
 
     def test_skipped_when_research_state_is_none(self):
         ws = _make_workspace()
@@ -1093,3 +1096,200 @@ class TestTargetClaimValidation:
         })
         assert "Dispatched" in tc.output
         assert ex.stop_after_round
+
+
+# ---------------------------------------------------------------------------
+# Focus guard (_check_focus)
+# ---------------------------------------------------------------------------
+
+class TestFocusGuard:
+    """Tests for serial RQ focus, dangling WH blocking, and refuted retry cap."""
+
+    def test_dangling_refuted_wh_blocks_rq_dispatch(self):
+        """A REFUTED WH blocks dispatch to any RQ."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Claim",
+            status=HypothesisStatus.WORKING,
+            review=ReviewResult(verdict="REFUTED", summary="Wrong", iteration=2),
+            refuted_count=1,
+        )
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Q?", iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "RQ-001", "description": "Investigate.",
+        })
+        assert "Error" in tc.output
+        assert "WH-001" in tc.output
+        assert "unresolved WH" in tc.output
+        assert not ex.stop_after_round
+
+    def test_dangling_inconclusive_wh_blocks_rq_dispatch(self):
+        """An INCONCLUSIVE WH blocks dispatch to any RQ."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Claim",
+            status=HypothesisStatus.WORKING,
+            review=ReviewResult(verdict="INCONCLUSIVE", summary="Unclear", iteration=2),
+        )
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Q?", iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_computer", {
+            "target_claim": "RQ-001", "description": "Compute.",
+        })
+        assert "Error" in tc.output
+        assert "WH-001" in tc.output
+        assert not ex.stop_after_round
+
+    def test_dangling_wh_allows_wh_dispatch(self):
+        """A dangling WH does NOT block dispatch to that WH itself."""
+        ws = _make_workspace()
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Claim",
+            status=HypothesisStatus.WORKING,
+            review=ReviewResult(verdict="REFUTED", summary="Wrong", iteration=2),
+            refuted_count=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state,
+                                       max_refuted_retries=3)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "WH-001", "description": "Retry.",
+        })
+        assert "Dispatched" in tc.output
+        assert ex.stop_after_round
+
+    def test_serial_rq_blocks_second_rq_with_evidence(self):
+        """Cannot dispatch to RQ-002 when RQ-001 already has evidence."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = ResearchState()
+        rq1 = ResearchQuestion(id="RQ-001", question="Q1?", iteration_created=1)
+        rq1.evidence.append(Evidence(type="compute", result="r"))
+        state.research_questions["RQ-001"] = rq1
+        state.research_questions["RQ-002"] = ResearchQuestion(
+            id="RQ-002", question="Q2?", iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "RQ-002", "description": "Investigate.",
+        })
+        assert "Error" in tc.output
+        assert "serial RQ focus" in tc.output
+        assert "RQ-001" in tc.output
+        assert not ex.stop_after_round
+
+    def test_serial_rq_allows_same_rq(self):
+        """Dispatch to RQ-001 allowed when RQ-001 already has evidence."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = ResearchState()
+        rq1 = ResearchQuestion(id="RQ-001", question="Q1?", iteration_created=1)
+        rq1.evidence.append(Evidence(type="compute", result="r"))
+        state.research_questions["RQ-001"] = rq1
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "RQ-001", "description": "More evidence.",
+        })
+        assert "Dispatched" in tc.output
+        assert ex.stop_after_round
+
+    def test_serial_rq_allows_when_no_evidence(self):
+        """Two open RQs with no evidence — dispatch to either is fine."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = ResearchState()
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Q1?", iteration_created=1,
+        )
+        state.research_questions["RQ-002"] = ResearchQuestion(
+            id="RQ-002", question="Q2?", iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "RQ-002", "description": "Investigate.",
+        })
+        assert "Dispatched" in tc.output
+
+    def test_refuted_retry_cap_blocks_dispatch(self):
+        """WH at refuted_count >= max_refuted_retries blocks dispatch."""
+        ws = _make_workspace()
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Claim",
+            status=HypothesisStatus.WORKING,
+            review=ReviewResult(verdict="REFUTED", summary="Wrong", iteration=2),
+            refuted_count=2,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state,
+                                       max_refuted_retries=2)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "WH-001", "description": "Retry.",
+        })
+        assert "Error" in tc.output
+        assert "refuted" in tc.output
+        assert "abandon" in tc.output.lower()
+        assert not ex.stop_after_round
+
+    def test_refuted_retry_cap_allows_below_limit(self):
+        """WH with refuted_count < max_refuted_retries allows dispatch."""
+        ws = _make_workspace()
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Claim",
+            status=HypothesisStatus.WORKING,
+            review=ReviewResult(verdict="REFUTED", summary="Wrong", iteration=2),
+            refuted_count=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state,
+                                       max_refuted_retries=2)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "WH-001", "description": "Retry.",
+        })
+        assert "Dispatched" in tc.output
+        assert ex.stop_after_round
+
+    def test_verified_wh_does_not_block_rq_dispatch(self):
+        """VERIFIED WHs are not dangling — don't block RQ dispatch."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Claim",
+            status=HypothesisStatus.WORKING,
+            review=ReviewResult(verdict="VERIFIED", summary="Good", iteration=2),
+        )
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Q?", iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "RQ-001", "description": "Investigate.",
+        })
+        assert "Dispatched" in tc.output
+
+    def test_no_review_wh_does_not_block_rq_dispatch(self):
+        """WH without any review is not dangling — doesn't block RQ dispatch."""
+        from sciralph.research_state import ResearchQuestion
+        ws = _make_workspace()
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Claim",
+            status=HypothesisStatus.WORKING,
+        )
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Q?", iteration_created=1,
+        )
+        ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
+        tc = ex.execute("dispatch_researcher", {
+            "target_claim": "RQ-001", "description": "Investigate.",
+        })
+        assert "Dispatched" in tc.output

@@ -43,3 +43,7 @@ auto_expire_iterations: 3
 # Max non-refuted evidence items on an RQ before dispatch tools are blocked.
 # Forces the orchestrator to promote (add_hypothesis) or abandon the RQ.
 rq_evidence_cap: 3
+
+# --- Refuted retry cap ---
+# Max times a WH can be refuted before dispatch to it is blocked (forces abandon).
+max_refuted_retries: 2

@@ -207,8 +207,8 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "target_claim": {
                         "type": "string",
                         "description": (
-                            "The RQ, WH, or CRIT ID this task targets "
-                            "(e.g. 'RQ-001', 'WH-003', 'CRIT-001')."
+                            "The RQ or WH ID this task targets "
+                            "(e.g. 'RQ-001', 'WH-003')."
                         ),
                     },
                     "description": {
@@ -276,8 +276,8 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "target_claim": {
                         "type": "string",
                         "description": (
-                            "The RQ, WH, or CRIT ID this task targets "
-                            "(e.g. 'RQ-001', 'WH-003', 'CRIT-001')."
+                            "The RQ or WH ID this task targets "
+                            "(e.g. 'RQ-001', 'WH-003')."
                         ),
                     },
                     "description": {
@@ -385,6 +385,7 @@ class OrchestratorToolExecutor:
         max_iterations: int = 20,
         budget_synthesis_margin: int = 3,
         rq_evidence_cap: int = 3,
+        max_refuted_retries: int = 2,
     ):
         self.workspace = workspace
         self.iteration = iteration
@@ -398,6 +399,7 @@ class OrchestratorToolExecutor:
         self._max_iterations = max_iterations
         self._budget_synthesis_margin = budget_synthesis_margin
         self._rq_evidence_cap = rq_evidence_cap
+        self._max_refuted_retries = max_refuted_retries
 
     def begin_round(self) -> None:
         """Called at the start of each response's tool batch.
@@ -456,16 +458,11 @@ class OrchestratorToolExecutor:
                 for rq in open_rqs:
                     rq_items.append(f"{rq.id} ({f'{len(rq.evidence)} evidence' if rq.evidence else 'no evidence'})")
                 lines.append(f"  Open RQs: {', '.join(rq_items)}")
-            from .research_state import CritiqueStatus
-            unresolved = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
-            if unresolved:
-                crit_ids = ", ".join(c.id for c in unresolved)
-                lines.append(f"  Unresolved critiques: {crit_ids}")
 
             # Conditional guidance
             lines.append("")
             lines.append("Pending:")
-            guidance = self._build_guidance(state, ers, whs, open_rqs, unresolved)
+            guidance = self._build_guidance(state, ers, whs, open_rqs)
             for g in guidance:
                 lines.append(f"- {g}")
 
@@ -473,15 +470,14 @@ class OrchestratorToolExecutor:
         return "\n".join(lines)
 
     def _build_guidance(
-        self, state, ers: list, whs: list, open_rqs: list, unresolved_critiques: list,
+        self, state, ers: list, whs: list, open_rqs: list,
     ) -> list[str]:
         """Build conditional guidance lines for the state injection."""
-        from .research_state import CritiqueStatus, HypothesisStatus, Verdict
+        from .research_state import HypothesisStatus, Verdict
         guidance: list[str] = []
 
         er_count = len(ers)
         wh_count = len(whs)
-        active_critiques = len(unresolved_critiques)
 
         # Budget pressure
         budget_remaining = self._max_iterations - self.iteration
@@ -493,13 +489,13 @@ class OrchestratorToolExecutor:
             )
 
         # All resolved → may terminate
-        if er_count >= self._min_er_for_completion and wh_count == 0 and active_critiques == 0:
+        if er_count >= self._min_er_for_completion and wh_count == 0:
             open_rq_count = len(open_rqs)
             if open_rq_count == 0:
                 guidance.append("All entities resolved. You may terminate.")
             else:
                 guidance.append(
-                    f"All WHs promoted and critiques resolved. {open_rq_count} open RQ(s) remain — "
+                    f"All WHs promoted. {open_rq_count} open RQ(s) remain — "
                     "resolve or abandon them before terminating."
                 )
 
@@ -515,10 +511,18 @@ class OrchestratorToolExecutor:
                 else:
                     guidance.append(f"{h.id} is VERIFIED, pending auto-promotion.")
             elif h.review and h.review.verdict == Verdict.REFUTED:
-                guidance.append(
-                    f"{h.id} was REFUTED — dispatch researcher/computer with "
-                    "new evidence (auto-review will follow), or abandon."
-                )
+                rc = h.refuted_count
+                cap = self._max_refuted_retries
+                if rc >= cap:
+                    guidance.append(
+                        f"{h.id} REFUTED {rc} time(s) (limit reached) — "
+                        "you MUST abandon it (abandon_hypothesis)."
+                    )
+                else:
+                    guidance.append(
+                        f"{h.id} was REFUTED (attempt {rc}/{cap}) — "
+                        "dispatch new evidence or abandon."
+                    )
             elif h.evidence and not h.review:
                 guidance.append(f"{h.id} awaiting auto-review.")
 
@@ -526,10 +530,6 @@ class OrchestratorToolExecutor:
         for rq in open_rqs:
             if rq.evidence:
                 guidance.append(f"{rq.id} has evidence — formulate a WH (add_hypothesis with from_rq).")
-
-        # Unresolved critiques
-        if active_critiques:
-            guidance.append(f"{active_critiques} unresolved critique(s) to address.")
 
         # Default closing
         guidance.append("When ready, call a dispatch tool (dispatch_researcher, dispatch_computer, or request_termination) — or add_hypothesis to formulate a WH (auto-triggers review).")
@@ -601,10 +601,9 @@ class OrchestratorToolExecutor:
         blocking = [c for c in state.critiques.values()
                     if c.status == CritiqueStatus.ACTIVE and c.severity == Severity.HIGH]
         if blocking:
-            crit_ids = ", ".join(c.id for c in blocking)
             return (
-                f"Error: {len(blocking)} unresolved HIGH-severity critique(s) ({crit_ids}). "
-                "Address HIGH critiques before creating new WHs."
+                f"Error: blocked — {len(blocking)} pending strategic review(s). "
+                "Wait for the system to resolve them before creating new WHs."
             )
 
         statement = args.get("statement", "Untitled")
@@ -798,10 +797,9 @@ class OrchestratorToolExecutor:
                 " - Keep working on an existing RQ by using `dispatch_researcher` or `dispatch_computer` to gather more evidence on it."
             )
         if blocking:
-            crit_ids = ", ".join(c.id for c in blocking)
             return (
-                f"Error: {len(blocking)} unresolved HIGH-severity critique(s) ({crit_ids}). "
-                "Address HIGH critiques before creating new RQs."
+                f"Error: blocked — {len(blocking)} pending strategic review(s). "
+                "Wait for the system to resolve them before creating new RQs."
             )
 
         num = state.next_entity_num()
@@ -860,6 +858,9 @@ class OrchestratorToolExecutor:
             err = self._validate_target_claim(target)
             if err is not None:
                 return err
+            err = self._check_focus(target)
+            if err is not None:
+                return err
             err = self._check_saturated_rqs()
             if err is not None:
                 return err
@@ -871,6 +872,9 @@ class OrchestratorToolExecutor:
         target = args["target_claim"]
         if self.research_state:
             err = self._validate_target_claim(target)
+            if err is not None:
+                return err
+            err = self._check_focus(target)
             if err is not None:
                 return err
             err = self._check_saturated_rqs()
@@ -894,7 +898,7 @@ class OrchestratorToolExecutor:
     def _validate_target_claim(self, target_claim: str) -> str | None:
         """Validate target_claim exists and is a valid dispatch target.
 
-        Valid targets: open RQs, working WHs (including refuted), CRITs.
+        Valid targets: open RQs, working WHs (including refuted).
         Blocked: ERs (immutable), resolved/abandoned RQs.
         Returns error string or None if valid.
         """
@@ -902,7 +906,7 @@ class OrchestratorToolExecutor:
         state = self.research_state
         assert state is not None
 
-        match = re.match(r"^(RQ|WH|ER|CRIT)-(\d+)$", target_claim)
+        match = re.match(r"^(RQ|WH|ER)-(\d+)$", target_claim)
         if not match:
             # Unknown prefix — allow through
             return None
@@ -925,9 +929,6 @@ class OrchestratorToolExecutor:
                         "further investigation is needed."
                     )
                 return None
-        elif prefix == "CRIT":
-            if target_claim in state.critiques:
-                return None
         else:
             # WH — always valid if it exists (including refuted WHs awaiting new evidence)
             if target_claim in state.hypotheses:
@@ -937,7 +938,6 @@ class OrchestratorToolExecutor:
         valid_rqs = sorted(state.research_questions.keys())
         valid_whs = sorted(h for h in state.hypotheses if h.startswith("WH-"))
         valid_ers = sorted(h for h in state.hypotheses if h.startswith("ER-"))
-        valid_crits = sorted(state.critiques.keys())
         entity_list = []
         if valid_rqs:
             entity_list.append(f"RQs: {', '.join(valid_rqs)}")
@@ -945,8 +945,6 @@ class OrchestratorToolExecutor:
             entity_list.append(f"WHs: {', '.join(valid_whs)}")
         if valid_ers:
             entity_list.append(f"ERs: {', '.join(valid_ers)}")
-        if valid_crits:
-            entity_list.append(f"CRITs: {', '.join(valid_crits)}")
         listing = "; ".join(entity_list) if entity_list else "none"
 
         log_scaffold_event(
@@ -983,3 +981,60 @@ class OrchestratorToolExecutor:
             "Either promote to a Working Hypothesis (add_hypothesis) for adversarial review, "
             "or abandon (abandon_research_question) if the evidence is inconclusive."
         )
+
+    def _check_focus(self, target: str) -> str | None:
+        """Enforce serial RQ focus and dangling WH resolution.
+
+        Rule 1: Block dispatch to a WH that exceeded the refuted retry cap.
+        Rule 2: Dangling WHs (REFUTED/INCONCLUSIVE) block dispatch to any RQ.
+        Rule 3: Serial RQ focus — only one RQ may have evidence at a time.
+
+        Returns error string or None if valid.
+        """
+        from .research_state import Verdict
+
+        state = self.research_state
+        if state is None:
+            return None
+
+        # Rule 1: refuted retry cap
+        if target.startswith("WH-"):
+            h = state.hypotheses.get(target)
+            if h and h.refuted_count >= self._max_refuted_retries:
+                return (
+                    f"Error: dispatch blocked — {target} has been refuted "
+                    f"{h.refuted_count} time(s) (limit={self._max_refuted_retries}). "
+                    f"You must abandon it: call abandon_hypothesis(id=\"{target}\", reason=\"...\")."
+                )
+
+        # Rules 2 & 3 apply only to RQ targets
+        if target.startswith("RQ-"):
+            # Rule 2: dangling WHs block RQ dispatch
+            dangling = []
+            for h in state.working_hypotheses():
+                if h.review and h.review.verdict in (Verdict.REFUTED, Verdict.INCONCLUSIVE):
+                    dangling.append(f"{h.id} ({h.review.verdict})")
+            if dangling:
+                listing = ", ".join(dangling)
+                return (
+                    f"Error: dispatch to {target} blocked — unresolved WH(s) need "
+                    f"attention first: {listing}. "
+                    "Dispatch evidence to them or abandon them before working on RQs."
+                )
+
+            # Rule 3: serial RQ focus
+            other_with_evidence = []
+            for rq in state.open_research_questions():
+                if rq.id != target and rq.evidence:
+                    other_with_evidence.append(
+                        f"{rq.id} ({len(rq.evidence)} evidence)"
+                    )
+            if other_with_evidence:
+                listing = ", ".join(other_with_evidence)
+                return (
+                    f"Error: dispatch to {target} blocked — serial RQ focus: "
+                    f"finish {listing} first "
+                    "(promote to WH or abandon) before dispatching to another RQ."
+                )
+
+        return None

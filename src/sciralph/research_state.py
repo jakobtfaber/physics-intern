@@ -94,9 +94,9 @@ class Hypothesis:
     iteration_created: int = 0
     iteration_modified: int = 0
     depends_on: list[str] = field(default_factory=list)
-    promotion_justification: str = ""
     evidence: list[Evidence] = field(default_factory=list)
     review: ReviewResult | None = None
+    refuted_count: int = 0
 
 
 @dataclass
@@ -414,9 +414,9 @@ class ResearchState:
                 iteration_created=hdata.get("iteration_created", 0),
                 iteration_modified=hdata.get("iteration_modified", 0),
                 depends_on=hdata.get("depends_on", []),
-                promotion_justification=hdata.get("promotion_justification", ""),
                 evidence=evidence,
                 review=review,
+                refuted_count=hdata.get("refuted_count", 0),
             )
         for crid, crdata in data.get("critiques", {}).items():
             crit_evidence = _parse_evidence_list(crdata.get("evidence"))

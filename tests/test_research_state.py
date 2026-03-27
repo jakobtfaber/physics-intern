@@ -548,6 +548,27 @@ class TestEvidenceOnHypothesis:
         assert vr.details == "Minor notation issue noted but not blocking."
         assert vr.iteration == 5
 
+    def test_refuted_count_json_round_trip(self):
+        """refuted_count on Hypothesis survives serialization."""
+        state = ResearchState()
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", refuted_count=2,
+            review=ReviewResult(verdict="REFUTED", summary="Wrong", iteration=3),
+        )
+        restored = ResearchState.from_json(state.to_json())
+        assert restored.hypotheses["WH-001"].refuted_count == 2
+
+    def test_refuted_count_backward_compat(self):
+        """Old JSON without refuted_count defaults to 0."""
+        old_json = json.dumps({
+            "iteration": 1,
+            "hypotheses": {
+                "WH-001": {"id": "WH-001", "status": "working"},
+            },
+        })
+        restored = ResearchState.from_json(old_json)
+        assert restored.hypotheses["WH-001"].refuted_count == 0
+
     def test_hypothesis_without_evidence_or_review(self):
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
@@ -792,28 +813,22 @@ Nothing yet.
 # ---------------------------------------------------------------------------
 
 class TestHypothesisDependsOn:
-    """Tests for depends_on and promotion_justification fields."""
+    """Tests for depends_on field."""
 
     def test_json_round_trip_new_fields(self):
-        """New fields survive JSON serialization round-trip."""
+        """depends_on survives JSON serialization round-trip."""
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", statement="A depends on B",
             depends_on=["ER-001", "WH-002"],
         )
-        state.hypotheses["ER-002"] = Hypothesis(
-            id="ER-002", statement="Promoted result",
-            status=HypothesisStatus.ESTABLISHED,
-            promotion_justification="Verified by verifier.",
-        )
         json_str = state.to_json()
         restored = ResearchState.from_json(json_str)
 
         assert restored.hypotheses["WH-001"].depends_on == ["ER-001", "WH-002"]
-        assert restored.hypotheses["ER-002"].promotion_justification == "Verified by verifier."
 
     def test_json_backward_compat_missing_fields(self):
-        """Old JSON without depends_on/promotion_justification loads with defaults."""
+        """Old JSON without depends_on loads with defaults."""
         data = {
             "hypotheses": {
                 "WH-001": {"id": "WH-001", "statement": "Old hypothesis"},
@@ -821,7 +836,6 @@ class TestHypothesisDependsOn:
         }
         state = ResearchState.from_json(json.dumps(data))
         assert state.hypotheses["WH-001"].depends_on == []
-        assert state.hypotheses["WH-001"].promotion_justification == ""
 
 
 class TestNormalizeReferencesDependsOn:

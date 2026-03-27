@@ -295,9 +295,6 @@ class SciRalph:
             else:
                 self._state.consecutive_termination_blocks = 0
 
-            # 4b. Auto-redirect CRIT targets to the underlying entity
-            self._resolve_critique_target(task)
-
             # 5. Dispatch to agent
             try:
                 agent_name, agent_result = self._dispatch(task)
@@ -671,8 +668,8 @@ class SciRalph:
         return "\n".join(lines)
 
     def _render_pending_work(self) -> str:
-        """Render a summary of open RQs, non-reviewed WHs, and unresolved critiques."""
-        from .research_state import CritiqueStatus
+        """Render a summary of open RQs, working WHs, and dangling WHs."""
+        from .research_state import Verdict
 
         state = self.research_state
         if not state:
@@ -690,6 +687,20 @@ class SciRalph:
                 wh_items.append(f"{h.id} ({status})")
             lines.append(f"  WH: {', '.join(wh_items)}")
 
+            # Dangling WHs: REFUTED or INCONCLUSIVE, still WORKING
+            dangling = [
+                h for h in whs
+                if h.review and h.review.verdict in (Verdict.REFUTED, Verdict.INCONCLUSIVE)
+            ]
+            if dangling:
+                lines.append("  >>> ATTENTION: resolve these WHs before dispatching to RQs <<<")
+                for h in dangling:
+                    rc_note = f", refuted {h.refuted_count}x" if h.refuted_count else ""
+                    lines.append(
+                        f"    {h.id}: {h.review.verdict}{rc_note}"
+                        " — gather new evidence or abandon"
+                    )
+
         open_rqs = state.open_research_questions()
         if open_rqs:
             rq_items = []
@@ -697,11 +708,6 @@ class SciRalph:
                 ev = f"{len(rq.evidence)} evidence" if rq.evidence else "no evidence"
                 rq_items.append(f"{rq.id} ({ev})")
             lines.append(f"  Open RQs: {', '.join(rq_items)}")
-
-        unresolved = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
-        if unresolved:
-            crit_items = [f"{c.id} ({c.severity})" for c in unresolved]
-            lines.append(f"  Unresolved critiques: {', '.join(crit_items)}")
 
         if not lines:
             return ""
@@ -1069,7 +1075,6 @@ class SciRalph:
             er_id = f"ER-{num}"
             h.id = er_id
             h.status = HypothesisStatus.ESTABLISHED
-            h.promotion_justification = "Auto-promoted after VERIFIED review"
             h.iteration_modified = self.iteration
             state.hypotheses[er_id] = h
             state.normalize_references()
@@ -1173,37 +1178,6 @@ class SciRalph:
         )
         self.workspace.write_file("CURRENT_TASK.md", task_text + addendum)
 
-    def _resolve_critique_target(self, task: Task):
-        """If task targets a CRIT that points to WH/ER entities, redirect to the entity.
-
-        Keeps the critique reference in task.blocking_critiques so agents see it.
-        STRATEGY critiques (no WH/ER targets) are left untouched.
-        """
-        if task.task_type not in (TaskType.RESEARCH, TaskType.COMPUTE):
-            return
-        target = task.target_claim
-        if not target or not target.startswith("CRIT-"):
-            return
-        crit = self.research_state.critiques.get(target)
-        if not crit:
-            return
-        # Find first WH/ER target (skip STRATEGY or non-entity targets)
-        entity_targets = [
-            t for t in crit.targets
-            if t.startswith(("WH-", "ER-"))
-        ]
-        if not entity_targets:
-            return
-        redirected_to = entity_targets[0]
-        task.target_claim = redirected_to
-        if target not in task.blocking_critiques:
-            task.blocking_critiques.append(target)
-        log_scaffold_event(
-            self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-            "critique_redirect", f"{target} -> {redirected_to}",
-        )
-        console.print(f"  [yellow]Redirected {target} -> {redirected_to}[/yellow]")
-
     def _track_agent_result(self, task: Task):
         """After researcher/computer/reviewer runs, track results for orchestrator banners."""
         tt = task.task_type
@@ -1276,10 +1250,10 @@ class SciRalph:
                     if er_id in self.research_state.hypotheses:
                         self._state.pending_verified_results[-1]["claim"] = er_id
             elif verdict == Verdict.REFUTED:
-                from .research_state import FailedApproach, HypothesisStatus
-                # Mark existing evidence as refuted
+                # Mark existing evidence as refuted (specific evidence was challenged)
                 for ev in h.evidence:
                     ev.refuted = True
+                h.refuted_count += 1
                 count = self._state.claim_failure_count.get(target_id, 0) + 1
                 self._state.claim_failure_count[target_id] = count
                 self._state.pending_compute_verdicts.append({
@@ -1290,18 +1264,8 @@ class SciRalph:
                     "details": h.review.details or "",
                     "task_id": task.task_id,
                 })
-                # Auto-abandon: REFUTED claim is closed
-                h.status = HypothesisStatus.ABANDONED
-                h.iteration_modified = self.iteration
-                self.research_state.failed_approaches.append(FailedApproach(
-                    description=f"Refuted {target_id} — {h.statement}",
-                    reason=h.review.summary or "Refuted by reviewer",
-                    related_entities=[target_id],
-                    derivation_excerpt=(h.derivation[:300] if h.derivation else ""),
-                    iteration=self.iteration,
-                ))
                 detail = h.review.summary[:120].replace("\n", " ") if h.review.summary else ""
-                console.print(f"  [red]{target_id} REFUTED (auto-abandoned)[/red] — {detail}")
+                console.print(f"  [red]{target_id} REFUTED[/red] — {detail}")
             else:
                 # INCONCLUSIVE: keep existing evidence (not wrong, just insufficient)
                 count = self._state.claim_failure_count.get(target_id, 0) + 1

@@ -71,6 +71,7 @@ class OrchestratorAgent(BaseAgent):
             max_iterations=self.config.max_iterations,
             budget_synthesis_margin=self.config.budget_synthesis_margin,
             rq_evidence_cap=self.config.rq_evidence_cap,
+            max_refuted_retries=self.config.max_refuted_retries,
         )
         result = run_agent_loop(
             system=self.system_prompt,

@@ -60,7 +60,7 @@ When evidence comes back from the researcher or computer, it appears in the EVID
 
 When review results appear in the VERIFICATION RESULTS banner:
 - **VERIFIED** — Confirmed. The system auto-promotes to ER if dependencies are met. If a dependency is still a WH, promotion is deferred — it will cascade automatically once that dependency is itself promoted.
-- **REFUTED** — The claim was wrong. The system has auto-abandoned the WH and moved it to dead ends. Examine the reviewer's reasoning, then decide your next step: create a new RQ with a refined question, try a different approach, or move on.
+- **REFUTED** — The reviewer challenged this claim. The WH remains open. Dispatch a researcher or computer to gather new evidence (auto-review will follow), or abandon with `abandon_hypothesis` if you agree it's wrong. After repeated refutations, the system will require you to abandon.
 - **INCONCLUSIVE** — Could not verify. NOT evidence against the claim. Dispatch a researcher or computer to gather additional evidence on the WH — the reviewer will be re-triggered automatically when new evidence arrives. After 2+ INCONCLUSIVE verdicts, consider abandoning with `abandon_hypothesis`.
 
 ### Hypothesis management
@@ -108,6 +108,8 @@ Use these tools to maintain shared context that all agents read:
 Every turn MUST end with exactly one dispatch/exit tool call (`dispatch_researcher`, `dispatch_computer`, `add_hypothesis`, or `request_termination`). This is the last thing you do — finish all state mutations first, then dispatch.
 
 Each task targets EXACTLY ONE entity via the `target_claim` parameter (required for researcher and computer). Valid targets are **open RQs** and **working WHs** (including refuted WHs awaiting new evidence). ERs are immutable — if you suspect one is wrong, note your concern in research notes. Resolved or abandoned RQs cannot receive new evidence — create a new RQ instead.
+
+**Serial RQ focus:** You may open multiple RQs, but evidence gathering is sequential — dispatch to only one RQ at a time. Promote it to WH or abandon it before dispatching to another.
 
 ### Structured dispatch
 

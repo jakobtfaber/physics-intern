@@ -309,16 +309,6 @@ class TestRenderResearchStateMd:
         md = render_research_state_md(empty_state)
         assert "# Research Questions" not in md
 
-    def test_promotion_justification_rendered(self):
-        state = ResearchState(problem_statement="Test")
-        state.hypotheses["ER-001"] = Hypothesis(
-            id="ER-001", statement="Established result",
-            status=HypothesisStatus.ESTABLISHED,
-            promotion_justification="Verified by verifier.",
-        )
-        md = render_research_state_md(state)
-        assert "**Promotion justification:** Verified by verifier." in md
-
     def test_evidence_summary_rendered(self, populated_state):
         """Evidence summary appears in the research state output."""
         md = render_research_state_md(populated_state)
