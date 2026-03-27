@@ -25,6 +25,7 @@ from .agents.critic import CriticAgent
 from .agents.formatter import FormatterAgent
 from .agents.surveyor import SurveyorAgent
 from .agents.planner import PlannerAgent
+from .agents.adjudicator import AdjudicatorAgent
 
 console = Console()
 
@@ -62,6 +63,7 @@ class LoopState:
     pending_critic_result: dict | None = None
     pending_accepted_critiques: set[str] = field(default_factory=set)
     last_verified_review_iteration: int = 0
+    pending_system_events: list[str] = field(default_factory=list)
     # Persistent dispatch history (never cleared)
     dispatch_history: list[DispatchRecord] = field(default_factory=list)
 
@@ -102,6 +104,7 @@ class SciRalph:
         self.formatter = FormatterAgent(self.config, self.workspace, self.metrics, answer_template)
         self.surveyor = SurveyorAgent(self.config, self.workspace, self.metrics)
         self.planner = PlannerAgent(self.config, self.workspace, self.metrics)
+        self.adjudicator = AdjudicatorAgent(self.config, self.workspace, self.metrics)
 
     @classmethod
     def resume(cls, workspace_path: Path | str,
@@ -159,6 +162,7 @@ class SciRalph:
         engine.formatter = FormatterAgent(config, engine.workspace, engine.metrics, answer_template)
         engine.surveyor = SurveyorAgent(config, engine.workspace, engine.metrics)
         engine.planner = PlannerAgent(config, engine.workspace, engine.metrics)
+        engine.adjudicator = AdjudicatorAgent(config, engine.workspace, engine.metrics)
 
         console.print(Panel(
             f"Resuming from iteration {engine.iteration}",
@@ -384,6 +388,9 @@ class SciRalph:
                 agent_name_c, result_c = self._dispatch(critic_task)
                 self._record_agent_failures(critic_task, agent_name_c, result_c)
                 self._append_dispatch_record(critic_task)
+
+            # 6e. Route critic findings to specialist agents
+            self._route_critiques()
 
             # 7. Metrics, structured state snapshot, render files, git
             self._update_metrics()
@@ -694,6 +701,13 @@ class SciRalph:
             lines.append("- update_strategy if the research direction needs to change")
             lines.append(">>> END ACCEPTED CRITIQUE <<<\n")
             self._state.pending_accepted_critiques.clear()
+        # System events from critique routing (ER demotions, strategy revisions, etc.)
+        if self._state.pending_system_events:
+            lines.append(">>> SYSTEM EVENTS (between iterations) <<<")
+            for event in self._state.pending_system_events:
+                lines.append(f"- {event}")
+            lines.append(">>> END SYSTEM EVENTS <<<\n")
+            self._state.pending_system_events.clear()
         # Pending work summary — always present so the orchestrator sees current state
         pending = self._render_pending_work()
         if pending:
@@ -825,6 +839,230 @@ class SciRalph:
         """
         gap = self.iteration - self.metrics.last_critic_iteration
         return gap >= 2 * self.config.critic_every_n
+
+    # ------------------------------------------------------------------
+    # Critique routing (synchronous, between iterations)
+    # ------------------------------------------------------------------
+
+    def _route_critiques(self) -> None:
+        """Route critic findings to specialist agents (synchronous).
+
+        Phase 1: Adjudicate ER-targeted critiques via the adjudicator.
+        Phase 2: Route strategy/coordination critiques (and any ER demotions
+                 from phase 1) to the planner for strategy revision.
+        """
+        from .research_state import CritiqueStatus, HypothesisStatus, RQStatus, ResearchQuestion
+
+        new_critiques = [
+            c for c in self.research_state.critiques.values()
+            if c.iteration_filed == self.iteration and c.status == CritiqueStatus.ACTIVE
+        ]
+        if not new_critiques:
+            return
+
+        # Separate by target_type
+        er_critiques = [c for c in new_critiques if c.target_type == "er"]
+        strategy_critiques = [c for c in new_critiques if c.target_type in ("strategy", "coordination")]
+        untyped = [c for c in new_critiques if c.target_type not in ("er", "strategy", "coordination")]
+
+        # Warn and auto-resolve untyped critiques
+        for c in untyped:
+            console.print(f"  [yellow]{c.id} has no target_type — auto-resolving[/yellow]")
+            c.status = CritiqueStatus.RESOLVED
+            c.resolution = "Auto-resolved: missing target_type in critic output"
+            c.resolution_type = "dismissed"
+            c.iteration_resolved = self.iteration
+
+        # Phase 1: Adjudicate ER-targeted critiques
+        er_demotions: list[dict] = []
+        for crit in er_critiques:
+            try:
+                result = self._adjudicate_er_critique(crit)
+                if result and result.get("demoted"):
+                    er_demotions.append(result)
+            except Exception as exc:
+                console.print(f"  [red]Adjudication failed for {crit.id}: {exc}[/red]")
+                log_scaffold_event(
+                    self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+                    "adjudication_error", f"{crit.id}: {exc}",
+                )
+
+        # Phase 2: Strategy assessment (if demotions or strategy critiques)
+        if er_demotions or strategy_critiques:
+            try:
+                self._invoke_planner_revision(strategy_critiques, er_demotions)
+            except Exception as exc:
+                console.print(f"  [red]Planner revision failed: {exc}[/red]")
+                log_scaffold_event(
+                    self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+                    "planner_revision_error", str(exc),
+                )
+
+    def _adjudicate_er_critique(self, crit) -> dict | None:
+        """Invoke the adjudicator to evaluate an ER-targeted critique.
+
+        Returns dict with demotion info if ER was overturned, else None.
+        """
+        from .research_state import CritiqueStatus, HypothesisStatus, RQStatus, ResearchQuestion
+
+        target_id = crit.targets[0] if crit.targets else None
+        if not target_id or target_id not in self.research_state.hypotheses:
+            console.print(f"  [dim]{crit.id} targets unknown entity {target_id} — dismissing[/dim]")
+            crit.status = CritiqueStatus.RESOLVED
+            crit.resolution = f"Target {target_id} not found"
+            crit.resolution_type = "dismissed"
+            crit.iteration_resolved = self.iteration
+            return None
+
+        console.print(f"  [cyan]Adjudicator[/cyan] evaluating {crit.id} against {target_id}...")
+        adjud_task = Task(
+            task_id=f"ADJUD-{self.iteration:03d}-{crit.id}",
+            task_type=TaskType.ADJUDICATE,
+            assigned_to="adjudicator",
+            iteration=self.iteration,
+            target_claim=target_id,
+            critique_argument=crit.argument,
+        )
+        self.adjudicator.research_state = self.research_state
+        self.adjudicator.run(adjud_task, self.iteration, on_round=self._on_agent_round)
+        result = self.adjudicator.adjudication_result
+
+        if not result:
+            console.print(f"  [yellow]{crit.id}: adjudicator returned no result[/yellow]")
+            return None
+
+        adjudication = result.get("adjudication", "needs_evidence")
+        reasoning = result.get("reasoning", "")[:200]
+
+        if adjudication == "valid":
+            # Demote ER → WH
+            console.print(f"  [red]{crit.id} VALID — demoting {target_id}[/red]")
+            self.research_state.demote_hypothesis(target_id)
+            # Also demote dependent ERs
+            for hid, h in list(self.research_state.hypotheses.items()):
+                if (h.status == HypothesisStatus.ESTABLISHED
+                        and target_id in h.depends_on):
+                    console.print(f"  [red]Cascade: demoting {hid} (depends on {target_id})[/red]")
+                    self.research_state.demote_hypothesis(hid)
+                    self._state.pending_system_events.append(
+                        f"{hid} DEMOTED (depends on overturned {target_id})"
+                    )
+            crit.status = CritiqueStatus.RESOLVED
+            crit.resolution = f"Adjudicator ruled valid: {reasoning}"
+            crit.resolution_type = "accepted"
+            crit.iteration_resolved = self.iteration
+            self._state.pending_system_events.append(
+                f"{target_id} DEMOTED to WH (REFUTED): {crit.id} ruled valid by adjudicator."
+            )
+            log_scaffold_event(
+                self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+                "er_demotion", f"{target_id} overturned by {crit.id}",
+            )
+            return {"demoted": target_id, "critique": crit.id, "reasoning": reasoning}
+
+        elif adjudication == "invalid":
+            console.print(f"  [green]{crit.id} INVALID — {target_id} stands[/green]")
+            counter = result.get("counter_argument", "")[:200]
+            crit.status = CritiqueStatus.RESOLVED
+            crit.resolution = f"Adjudicator ruled invalid: {counter}"
+            crit.resolution_type = "dismissed"
+            crit.iteration_resolved = self.iteration
+            self._state.pending_system_events.append(
+                f"{crit.id} against {target_id} DISMISSED by adjudicator."
+            )
+            return None
+
+        else:  # needs_evidence
+            console.print(f"  [yellow]{crit.id} NEEDS EVIDENCE — creating RQ[/yellow]")
+            scope = result.get("investigation_scope", "Investigate the disputed claim.")
+            num = self.research_state.next_entity_num()
+            rq_id = f"RQ-{num:03d}"
+            self.research_state.research_questions[rq_id] = ResearchQuestion(
+                id=rq_id,
+                question=scope,
+                context=f"Created by adjudicator for {crit.id} targeting {target_id}.",
+                iteration_created=self.iteration,
+            )
+            self._state.pending_system_events.append(
+                f"{crit.id}: adjudicator needs evidence — created {rq_id}."
+            )
+            return None
+
+    def _invoke_planner_revision(self, strategy_critiques, er_demotions):
+        """Invoke the planner in revise mode to assess strategy after critiques/demotions."""
+        from .research_state import CritiqueStatus, HypothesisStatus
+
+        # Build trigger text
+        trigger_parts: list[str] = []
+        for d in er_demotions:
+            trigger_parts.append(
+                f"ER {d['demoted']} was overturned by critique {d['critique']}. "
+                f"Adjudicator reasoning: {d['reasoning']}"
+            )
+        for c in strategy_critiques:
+            trigger_parts.append(
+                f"Critique {c.id} [{c.severity}] targeting {c.target_type}: {c.argument}"
+            )
+        trigger_text = "\n\n".join(trigger_parts)
+
+        console.print(f"  [cyan]Planner[/cyan] revising strategy...")
+        revise_task = Task(
+            task_id=f"PLAN-REVISE-{self.iteration:03d}",
+            task_type=TaskType.PLAN_REVISE,
+            assigned_to="planner",
+            iteration=self.iteration,
+            body=trigger_text,
+        )
+        self.planner.research_state = self.research_state
+        self.planner.run(revise_task, self.iteration, on_round=self._on_agent_round)
+
+        # Apply results
+        if self.planner.parsed_strategy:
+            self.research_state.strategy = self.planner.parsed_strategy
+            console.print("  [green]Strategy updated[/green]")
+
+        if self.planner.parsed_sanity_checks:
+            self.research_state.sanity_checks = self.planner.parsed_sanity_checks
+            console.print(f"  [dim]Sanity checks updated ({len(self.planner.parsed_sanity_checks)} checks)[/dim]")
+
+        if self.planner.parsed_entity_actions:
+            for action in self.planner.parsed_entity_actions:
+                eid = action.get("id", "")
+                act = action.get("action", "keep")
+                reason = action.get("reason", "")
+                if act == "abandon" and eid in self.research_state.hypotheses:
+                    h = self.research_state.hypotheses[eid]
+                    h.status = HypothesisStatus.ABANDONED
+                    self._state.pending_system_events.append(
+                        f"{eid} ABANDONED by planner revision: {reason}"
+                    )
+                    console.print(f"  [red]{eid} abandoned: {reason[:60]}[/red]")
+                elif act == "re-review" and eid in self.research_state.hypotheses:
+                    h = self.research_state.hypotheses[eid]
+                    if h.status == HypothesisStatus.ESTABLISHED:
+                        self.research_state.demote_hypothesis(eid)
+                    h.review = None  # clear review to trigger re-review
+                    self._state.pending_system_events.append(
+                        f"{eid} queued for RE-REVIEW by planner: {reason}"
+                    )
+                    console.print(f"  [yellow]{eid} queued for re-review: {reason[:60]}[/yellow]")
+
+        rationale = self.planner.parsed_revision_rationale or "No rationale provided."
+        self._state.pending_system_events.append(
+            f"STRATEGY REVISED: {rationale}"
+        )
+
+        # Resolve strategy/coordination critiques
+        for c in strategy_critiques:
+            c.status = CritiqueStatus.RESOLVED
+            c.resolution = f"Addressed in strategy revision: {rationale[:120]}"
+            c.resolution_type = "accepted"
+            c.iteration_resolved = self.iteration
+
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
+            "strategy_revision", rationale[:200],
+        )
 
     def _auto_promote(self, wh_id: str):
         """Auto-promote a VERIFIED WH to ER if dependencies are satisfied.
