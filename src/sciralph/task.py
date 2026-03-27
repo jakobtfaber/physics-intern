@@ -17,8 +17,10 @@ class TaskType(StrEnum):
     CRITIQUE = "critique"
     TERMINATE = "terminate"
     FORMAT = "format"
+    ADJUDICATE = "adjudicate"
     SURVEY = "survey"
     PLAN = "plan"
+    PLAN_REVISE = "plan_revise"
 
 
 TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
@@ -29,7 +31,9 @@ TASK_TYPE_AGENT_MAP: dict[TaskType, str] = {
     TaskType.TERMINATE: "orchestrator",
     TaskType.FORMAT: "formatter",
     TaskType.SURVEY: "surveyor",
+    TaskType.ADJUDICATE: "adjudicator",
     TaskType.PLAN: "planner",
+    TaskType.PLAN_REVISE: "planner",
 }
 
 
@@ -44,6 +48,7 @@ class Task:
     iteration: int = 0
     blocking_critiques: list[str] = field(default_factory=list)
     target_claim: str = ""
+    critique_argument: str = ""
     body: str = ""
     # Structured dispatch context (populated by orchestrator dispatch tools)
     background: str = ""

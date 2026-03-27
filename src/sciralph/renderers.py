@@ -838,6 +838,79 @@ def render_formatter_context(
     return "\n\n".join(parts)
 
 
+def render_planner_revise_context(state: ResearchState, trigger_text: str) -> str:
+    """Render context for the planner's strategy-revision mode.
+
+    Provides: problem statement, background survey, current strategy,
+    revision trigger, entity one-liners, dead ends, research notes,
+    and conventions.
+    """
+    parts: list[str] = []
+
+    # Problem Statement
+    parts.append(f"<problem-statement>\n{state.problem_statement or '(No problem statement.)'}\n</problem-statement>")
+
+    # Background Survey
+    if state.background_survey:
+        survey_text = render_survey_sections_text(state.background_survey)
+        if survey_text:
+            parts.append(f"<background-survey>\n{survey_text}\n</background-survey>")
+
+    # Current Strategy
+    strat = state.strategy or "(No strategy set.)"
+    parts.append(f"<current-strategy>\n{strat}\n</current-strategy>")
+
+    # Revision Trigger
+    parts.append(f"<revision-trigger>\n{trigger_text}\n</revision-trigger>")
+
+    # Entities — one-liner per active entity
+    entity_lines: list[str] = []
+    for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
+        if h.status == HypothesisStatus.ESTABLISHED:
+            entity_lines.append(f"{h.id}: {h.statement}, VERIFIED")
+    for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
+        if h.status == HypothesisStatus.WORKING:
+            review_tag = h.review.verdict if h.review else "PENDING REVIEW"
+            entity_lines.append(f"{h.id}: {h.statement}, {review_tag}")
+    for rq in sorted(state.research_questions.values(), key=lambda r: r.id):
+        if rq.status == RQStatus.OPEN:
+            n_ev = len(rq.evidence)
+            entity_lines.append(f"{rq.id}: {rq.question}, OPEN, {n_ev} evidence item{'s' if n_ev != 1 else ''}")
+    if entity_lines:
+        parts.append("<entities>\n" + "\n".join(entity_lines) + "\n</entities>")
+
+    # Dead Ends
+    de_lines: list[str] = []
+    for fa in state.failed_approaches:
+        line = f"- {fa.description}"
+        if fa.reason:
+            line += f" (Reason: {fa.reason})"
+        de_lines.append(line)
+    fa_descriptions = {fa.description for fa in state.failed_approaches}
+    for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
+        if h.status == HypothesisStatus.ABANDONED:
+            desc = f"Abandoned {h.id} — {h.statement}"
+            if desc not in fa_descriptions:
+                de_lines.append(f"- {desc}")
+    if de_lines:
+        parts.append("<dead-ends>\n" + "\n".join(de_lines) + "\n</dead-ends>")
+
+    # Research Notes
+    if state.research_notes:
+        note_lines: list[str] = []
+        for n in state.research_notes:
+            it = n.get("iteration", "?")
+            text = n.get("text", "")
+            note_lines.append(f"[iter {it}] {text}")
+        parts.append("<research-notes>\n" + "\n".join(note_lines) + "\n</research-notes>")
+
+    # Conventions
+    if state.conventions:
+        parts.append(f"<conventions>\n{state.conventions}\n</conventions>")
+
+    return "\n\n".join(parts)
+
+
 def render_orchestrator_critique_log(state: ResearchState) -> str:
     """Render critique log for orchestrator context using XML tags.
 
