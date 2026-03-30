@@ -414,6 +414,19 @@ class TestSurveyFieldSerialization:
         assert state.survey_methods == ""
         assert state.known_pitfalls == ""
 
+    def test_problem_summary_round_trip(self):
+        state = ResearchState(iteration=1)
+        state.problem_summary = "Derive the Hawking temperature for a Schwarzschild black hole."
+        json_str = state.to_json()
+        restored = ResearchState.from_json(json_str)
+        assert restored.problem_summary == "Derive the Hawking temperature for a Schwarzschild black hole."
+
+    def test_missing_problem_summary_loads_as_empty(self):
+        """JSON without problem_summary loads fine with empty default."""
+        old_json = json.dumps({"iteration": 5, "hypotheses": {}, "critiques": {}, "failed_approaches": []})
+        state = ResearchState.from_json(old_json)
+        assert state.problem_summary == ""
+
     def test_survey_fields_serialize_as_strings(self):
         state = ResearchState()
         data = json.loads(state.to_json())

@@ -150,6 +150,42 @@ def test_surveyor_fallback_on_no_json():
     assert "background" not in survey  # no structured sections
 
 
+def test_surveyor_parses_problem_summary():
+    """Surveyor extracts problem_summary from JSON block."""
+    from sciralph.agents.surveyor import SurveyorAgent
+    from unittest.mock import MagicMock
+    from sciralph.llm import LLMResponse
+
+    agent = SurveyorAgent.__new__(SurveyorAgent)
+    agent.research_state = None
+
+    response = LLMResponse(
+        text='Analysis.\n\n```json\n{"background": "Context", "problem_summary": "Derive the Hawking temperature for a Schwarzschild black hole."}\n```',
+        stop_reason="end_turn", input_tokens=100, output_tokens=200, duration=0.5,
+    )
+    task = MagicMock()
+    agent.process_response(response, task, iteration=0)
+
+    assert agent.parsed_survey["problem_summary"] == "Derive the Hawking temperature for a Schwarzschild black hole."
+
+
+def test_build_context_replan_uses_slim_state():
+    """Re-survey (iteration > 0) uses slim state (one-liners, no derivations)."""
+    agent = _make_agent()
+    agent.research_state = ResearchState(
+        problem_statement="Derive the Hawking temperature.",
+        conventions="Natural units.",
+        strategy="Use surface gravity method.",
+    )
+    context = agent.build_context(_make_task(), iteration=5)
+    assert "<current-research-state>" in context
+    # Slim state renders conventions and strategy
+    assert "<conventions>" in context
+    assert "<strategy>" in context
+    # Slim state does NOT produce derivation XML tags (those are full-state only)
+    assert "<derivation>" not in context
+
+
 def test_surveyor_fallback_on_malformed_json():
     """Surveyor falls back when JSON is malformed."""
     from sciralph.agents.surveyor import SurveyorAgent

@@ -5,9 +5,12 @@ import pytest
 from sciralph.markdown import parse_frontmatter
 from sciralph.renderers import (
     render_critique_log_md,
+    render_critic_context,
     render_evidence_log_md,
+    render_formatter_context,
     render_orchestrator_critique_log,
     render_orchestrator_research_state,
+    render_orchestrator_slim_state,
     render_background_survey,
     render_planner_revise_context,
     render_research_state_md,
@@ -810,3 +813,97 @@ class TestPlannerReviseEnrichedContext:
         )
         text = render_planner_revise_context(state, "trigger")
         assert "WH-003" not in text.split("<entities>")[0] if "<entities>" in text else True
+
+    def test_critic_clean_reviews_included(self):
+        state = ResearchState(problem_statement="Test")
+        state.critic_clean_reviews = [
+            {"iteration": 3, "summary": "All results consistent"},
+            {"iteration": 7, "summary": "No issues found"},
+        ]
+        text = render_planner_revise_context(state, "trigger")
+        assert "<critic-clean-reviews>" in text
+        assert "Iteration 3: All results consistent" in text
+        assert "Iteration 7: No issues found" in text
+
+    def test_no_critic_clean_reviews_when_empty(self):
+        state = ResearchState(problem_statement="Test")
+        text = render_planner_revise_context(state, "trigger")
+        assert "<critic-clean-reviews>" not in text
+
+
+# ===========================================================================
+# render_critic_context — sanity checks
+# ===========================================================================
+
+class TestRenderCriticContextSanityChecks:
+
+    def test_sanity_checks_included(self):
+        state = ResearchState(problem_statement="Test", strategy="Do X")
+        state.sanity_checks = ["T -> 0 as M -> inf", "Result must be positive"]
+        text = render_critic_context(state, iteration=3)
+        assert "<sanity-checks>" in text
+        assert "T -> 0 as M -> inf" in text
+        assert "Result must be positive" in text
+
+    def test_no_sanity_checks_when_empty(self):
+        state = ResearchState(problem_statement="Test", strategy="Do X")
+        text = render_critic_context(state, iteration=3)
+        assert "<sanity-checks>" not in text
+
+
+# ===========================================================================
+# render_orchestrator_slim_state — sanity checks + known pitfalls
+# ===========================================================================
+
+class TestRenderOrchestratorSlimState:
+
+    def test_sanity_checks_included(self):
+        state = ResearchState(conventions="Natural units")
+        state.sanity_checks = ["T -> 0 as M -> inf"]
+        text = render_orchestrator_slim_state(state)
+        assert "<sanity-checks>" in text
+        assert "T -> 0 as M -> inf" in text
+
+    def test_known_pitfalls_included(self):
+        state = ResearchState(conventions="Natural units")
+        state.known_pitfalls = "Sign conventions for metric signature"
+        text = render_orchestrator_slim_state(state)
+        assert "<known-pitfalls>" in text
+        assert "Sign conventions" in text
+
+    def test_no_sanity_checks_when_empty(self):
+        state = ResearchState(conventions="Natural units")
+        text = render_orchestrator_slim_state(state)
+        assert "<sanity-checks>" not in text
+
+    def test_no_known_pitfalls_when_empty(self):
+        state = ResearchState(conventions="Natural units")
+        text = render_orchestrator_slim_state(state)
+        assert "<known-pitfalls>" not in text
+
+    def test_ordering_strategy_before_sanity_checks(self):
+        state = ResearchState(conventions="Natural units", strategy="Use surface gravity")
+        state.sanity_checks = ["T > 0"]
+        state.known_pitfalls = "Sign errors"
+        text = render_orchestrator_slim_state(state)
+        assert text.index("<strategy>") < text.index("<sanity-checks>")
+        assert text.index("<sanity-checks>") < text.index("<known-pitfalls>")
+
+
+# ===========================================================================
+# render_formatter_context — sanity checks
+# ===========================================================================
+
+class TestRenderFormatterContextSanityChecks:
+
+    def test_sanity_checks_included(self):
+        state = ResearchState(problem_statement="Test", conventions="Natural units")
+        state.sanity_checks = ["Result must be dimensionless"]
+        text = render_formatter_context(state)
+        assert "<sanity-checks>" in text
+        assert "Result must be dimensionless" in text
+
+    def test_no_sanity_checks_when_empty(self):
+        state = ResearchState(problem_statement="Test")
+        text = render_formatter_context(state)
+        assert "<sanity-checks>" not in text

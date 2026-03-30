@@ -540,6 +540,15 @@ def render_orchestrator_slim_state(state: ResearchState) -> str:
     strat = state.strategy or "(No strategy set.)"
     parts.append(f"<strategy>\n{strat}\n</strategy>")
 
+    # Sanity checks
+    if state.sanity_checks:
+        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
+        parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
+
+    # Known pitfalls
+    if state.known_pitfalls:
+        parts.append(f"<known-pitfalls>\n{state.known_pitfalls}\n</known-pitfalls>")
+
     # Established Results — one-liner per ER
     ers = sorted(
         [h for h in state.hypotheses.values() if h.status == HypothesisStatus.ESTABLISHED],
@@ -726,6 +735,11 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
     if survey_ctx:
         parts.append(f"<background-survey>\n{survey_ctx}\n</background-survey>")
 
+    # Sanity checks
+    if state.sanity_checks:
+        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
+        parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
+
     # Previous Critiques (reuse existing XML renderer)
     critique_xml = render_orchestrator_critique_log(state)
     parts.append(f"<previous-critiques>\n{critique_xml}\n</previous-critiques>")
@@ -754,6 +768,11 @@ def render_formatter_context(
     # Conventions
     if state.conventions:
         parts.append(f"<conventions>\n{state.conventions}\n</conventions>")
+
+    # Sanity checks (coherence guardrails for the final answer)
+    if state.sanity_checks:
+        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
+        parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
 
     # Answer structure hint from orchestrator
     if answer_ers:
@@ -908,6 +927,13 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
     if state.sanity_checks:
         checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
         parts.append(f"<current-sanity-checks>\n{checks_text}\n</current-sanity-checks>")
+
+    # Critic clean reviews (trajectory signal: which iterations passed without issues)
+    if state.critic_clean_reviews:
+        review_lines: list[str] = []
+        for rev in sorted(state.critic_clean_reviews, key=lambda r: r.get("iteration", 0)):
+            review_lines.append(f"Iteration {rev.get('iteration', '?')}: {rev.get('summary', '')}")
+        parts.append("<critic-clean-reviews>\n" + "\n".join(review_lines) + "\n</critic-clean-reviews>")
 
     return "\n\n".join(parts)
 

@@ -125,6 +125,10 @@ class AdjudicatorAgent(BaseAgent):
         if self.research_state.conventions:
             parts.append(f"\n<conventions>\n{self.research_state.conventions}\n</conventions>")
 
+        # Known pitfalls from survey
+        if self.research_state.known_pitfalls:
+            parts.append(f"\n<known-pitfalls>\n{self.research_state.known_pitfalls}\n</known-pitfalls>")
+
         # Other established results (excluding the challenged one)
         ers = self.research_state.established_hypotheses()
         other_ers = [er for er in ers if er.id != target_id]

@@ -298,6 +298,24 @@ class TestAdjudicatorBuildContext:
         assert "<suggested-sanity-checks" in ctx
         assert "M -> inf limit" in ctx
 
+    def test_includes_known_pitfalls(self):
+        root = Path(tempfile.mkdtemp())
+        agent = _make_adjudicator(root)
+        agent.research_state.known_pitfalls = "Coordinate singularity confusion at the horizon"
+        task = Task(task_id="T1", task_type=TaskType.ADJUDICATE, assigned_to="adjudicator",
+                    target_claim="ER-001", critique_argument="Wrong.")
+        ctx = agent.build_context(task, iteration=2)
+        assert "<known-pitfalls>" in ctx
+        assert "Coordinate singularity confusion" in ctx
+
+    def test_no_known_pitfalls_when_empty(self):
+        root = Path(tempfile.mkdtemp())
+        agent = _make_adjudicator(root)
+        task = Task(task_id="T1", task_type=TaskType.ADJUDICATE, assigned_to="adjudicator",
+                    target_claim="ER-001", critique_argument="Wrong.")
+        ctx = agent.build_context(task, iteration=2)
+        assert "<known-pitfalls>" not in ctx
+
     def test_empty_research_state(self):
         root = Path(tempfile.mkdtemp())
         config = MagicMock()

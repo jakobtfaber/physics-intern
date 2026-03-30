@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 from ..llm import LLMResponse
-from ..renderers import render_orchestrator_research_state
+from ..renderers import render_orchestrator_slim_state
 from .base import BaseAgent
 from .parsing import JSON_FENCE_RE, try_json_loads
 
@@ -14,6 +14,7 @@ from .parsing import JSON_FENCE_RE, try_json_loads
 TEXT_SECTION_FIELDS = (
     "background", "key_insights", "known_methods",
     "known_pitfalls", "conventions_and_definitions",
+    "problem_summary",
 )
 
 if TYPE_CHECKING:
@@ -44,7 +45,7 @@ class SurveyorAgent(BaseAgent):
         # On re-survey (iteration > 0), include current state + previous survey
         if iteration > 0 and self.research_state:
             parts.append("\n<current-research-state>\n")
-            parts.append(render_orchestrator_research_state(self.research_state))
+            parts.append(render_orchestrator_slim_state(self.research_state))
             parts.append("\n</current-research-state>")
         return "\n".join(parts)
 

@@ -168,6 +168,7 @@ class ResearchState:
     survey_background: str = ""   # §1+§2: background context + key insights
     survey_methods: str = ""      # §3: known methods and techniques
     known_pitfalls: str = ""      # §4: known pitfalls
+    problem_summary: str = ""     # §7: one-sentence problem summary
 
     # --- Query methods ---
 
@@ -442,6 +443,7 @@ class ResearchState:
         state.survey_background = data.get("survey_background", "")
         state.survey_methods = data.get("survey_methods", "")
         state.known_pitfalls = data.get("known_pitfalls", "")
+        state.problem_summary = data.get("problem_summary", "")
         # Backward compat: migrate old nested background_survey to flat fields
         survey_data = data.get("background_survey")
         if survey_data and isinstance(survey_data, dict):

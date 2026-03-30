@@ -451,6 +451,8 @@ class SciRalph:
             self.research_state.conventions = survey["conventions_and_definitions"].strip()
         if survey.get("sanity_checks") and not self.research_state.sanity_checks:
             self.research_state.sanity_checks = list(survey["sanity_checks"])
+        if survey.get("problem_summary"):
+            self.research_state.problem_summary = survey["problem_summary"].strip()
 
     def _run_planner(self):
         """Run planner agent to produce an initial research strategy."""
