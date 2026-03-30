@@ -113,7 +113,19 @@ Each task targets EXACTLY ONE entity via the `target_claim` parameter (required 
 
 ### Structured dispatch
 
-**IMPORTANT — `background` is critical for `dispatch_researcher` and `dispatch_computer`.** The researcher and computer agents have NO access to the background survey, research notes, or strategy — they see only what you put in the dispatch fields plus conventions and established results. Always provide `background` summarizing the problem setup, key definitions, and any prior context the agent needs. Do not assume the agent can infer context from entity labels alone.
+The researcher and computer agents automatically receive from the system (do NOT repeat in `background`):
+- Problem summary (one-liner)
+- Conventions and definitions
+- All established results (one-liner each)
+- Known pitfalls
+- Sanity checks
+
+They do NOT see and you MUST relay via `background` when relevant:
+- Survey background and key insights (select the parts relevant to the task)
+- Known methods and techniques from the survey
+- Strategic context — why this task matters and how it fits the plan
+- Relevant research notes or observations from prior iterations
+- Inter-entity connections or dependencies the agent should know about
 
 ### Writing effective task descriptions
 

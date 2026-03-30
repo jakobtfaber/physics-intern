@@ -228,10 +228,16 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "background": {
                         "type": "string",
                         "description": (
-                            "Background context for the task: relevant prior results, "
-                            "established conventions, domain knowledge. CRITICAL: the "
-                            "researcher has NO access to background survey, research "
-                            "notes, or strategy — provide all needed context here."
+                            "Task-specific context the agent cannot see on its own. "
+                            "The agent already receives: problem summary, conventions, "
+                            "all established results, known pitfalls, and sanity checks. "
+                            "Do NOT repeat those. Instead provide: (1) relevant parts of "
+                            "the survey background or known methods, (2) strategic context — "
+                            "why this task matters and how it fits the plan, (3) relevant "
+                            "research notes or observations from prior iterations, "
+                            "(4) inter-entity connections the agent should be aware of. "
+                            "The agent has NO access to strategy, research notes, or "
+                            "survey — relay the relevant parts here."
                         ),
                     },
                     "method_hints": {
@@ -297,10 +303,16 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                     "background": {
                         "type": "string",
                         "description": (
-                            "Background context for the task: relevant prior results, "
-                            "established conventions, domain knowledge. CRITICAL: the "
-                            "computer has NO access to background survey, research "
-                            "notes, or strategy — provide all needed context here."
+                            "Task-specific context the agent cannot see on its own. "
+                            "The agent already receives: problem summary, conventions, "
+                            "all established results, known pitfalls, and sanity checks. "
+                            "Do NOT repeat those. Instead provide: (1) relevant parts of "
+                            "the survey background or known methods, (2) strategic context — "
+                            "why this task matters and how it fits the plan, (3) relevant "
+                            "research notes or observations from prior iterations, "
+                            "(4) inter-entity connections the agent should be aware of. "
+                            "The agent has NO access to strategy, research notes, or "
+                            "survey — relay the relevant parts here."
                         ),
                     },
                     "method_hints": {

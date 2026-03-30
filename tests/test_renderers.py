@@ -889,6 +889,26 @@ class TestRenderOrchestratorSlimState:
         assert text.index("<strategy>") < text.index("<sanity-checks>")
         assert text.index("<sanity-checks>") < text.index("<known-pitfalls>")
 
+    def test_survey_background_included(self):
+        state = ResearchState(conventions="Natural units")
+        state.survey_background = "## Background\n\nBlack hole thermodynamics overview"
+        text = render_orchestrator_slim_state(state)
+        assert "<survey-background>" in text
+        assert "Black hole thermodynamics overview" in text
+
+    def test_survey_methods_included(self):
+        state = ResearchState(conventions="Natural units")
+        state.survey_methods = "Euclidean path integral method"
+        text = render_orchestrator_slim_state(state)
+        assert "<survey-methods>" in text
+        assert "Euclidean path integral method" in text
+
+    def test_no_survey_when_empty(self):
+        state = ResearchState(conventions="Natural units")
+        text = render_orchestrator_slim_state(state)
+        assert "<survey-background>" not in text
+        assert "<survey-methods>" not in text
+
 
 # ===========================================================================
 # render_formatter_context — sanity checks

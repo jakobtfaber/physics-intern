@@ -549,6 +549,12 @@ def render_orchestrator_slim_state(state: ResearchState) -> str:
     if state.known_pitfalls:
         parts.append(f"<known-pitfalls>\n{state.known_pitfalls}\n</known-pitfalls>")
 
+    # Survey landscape (so orchestrator can relay relevant parts to agents)
+    if state.survey_background:
+        parts.append(f"<survey-background>\n{state.survey_background}\n</survey-background>")
+    if state.survey_methods:
+        parts.append(f"<survey-methods>\n{state.survey_methods}\n</survey-methods>")
+
     # Established Results — one-liner per ER
     ers = sorted(
         [h for h in state.hypotheses.values() if h.status == HypothesisStatus.ESTABLISHED],
