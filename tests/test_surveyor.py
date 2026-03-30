@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock
 
 from sciralph.agents.surveyor import SurveyorAgent
-from sciralph.research_state import ResearchState, BackgroundSurvey
+from sciralph.research_state import ResearchState
 from sciralph.task import Task, TaskType
 from sciralph.llm import LLMResponse
 
@@ -65,7 +65,7 @@ Euclidean section at the horizon fixes the periodicity of imaginary time.
 
 
 def test_process_response_stores_survey():
-    """process_response stores the raw text as a BackgroundSurvey."""
+    """process_response stores the raw text as a dict."""
     agent = _make_agent()
     response = LLMResponse(
         text=STRATEGY_TEXT, input_tokens=100, output_tokens=200,
@@ -74,22 +74,8 @@ def test_process_response_stores_survey():
     agent.process_response(response, _make_task(), iteration=0)
 
     assert agent.parsed_survey is not None
-    assert isinstance(agent.parsed_survey, BackgroundSurvey)
-    assert "Euclidean" in agent.parsed_survey.raw_notes
-    assert agent.parsed_survey.iteration_created == 0
-
-
-def test_process_response_sets_iteration():
-    """iteration parameter is stored in the survey."""
-    agent = _make_agent()
-    response = LLMResponse(
-        text="Re-plan notes.", input_tokens=50, output_tokens=50,
-        stop_reason="end_turn", duration=0.3,
-    )
-    agent.process_response(response, _make_task(), iteration=7)
-
-    assert agent.parsed_survey.iteration_created == 7
-    assert agent.parsed_survey.iteration_updated == 7
+    assert isinstance(agent.parsed_survey, dict)
+    assert "Euclidean" in agent.parsed_survey["raw_notes"]
 
 
 def test_process_response_empty_text():
@@ -102,7 +88,7 @@ def test_process_response_empty_text():
     agent.process_response(response, _make_task(), iteration=0)
 
     assert agent.parsed_survey is not None
-    assert agent.parsed_survey.raw_notes == ""
+    assert agent.parsed_survey["raw_notes"] == ""
 
 
 def test_process_response_strips_whitespace():
@@ -114,7 +100,7 @@ def test_process_response_strips_whitespace():
     )
     agent.process_response(response, _make_task(), iteration=0)
 
-    assert agent.parsed_survey.raw_notes == "Some notes here."
+    assert agent.parsed_survey["raw_notes"] == "Some notes here."
 
 
 # ---------- JSON parsing tests ----------
@@ -122,7 +108,6 @@ def test_process_response_strips_whitespace():
 def test_surveyor_parses_json_sections():
     """Surveyor extracts structured sections from JSON block."""
     from sciralph.agents.surveyor import SurveyorAgent
-    from sciralph.research_state import BackgroundSurvey
     from unittest.mock import MagicMock
     from sciralph.llm import LLMResponse
 
@@ -137,12 +122,11 @@ def test_surveyor_parses_json_sections():
     agent.process_response(response, task, iteration=0)
 
     survey = agent.parsed_survey
-    assert survey.raw_notes.startswith("Some prose")
-    assert survey.background == "Physical context here"
-    assert survey.known_pitfalls == "Watch for sign errors"
-    assert survey.sanity_checks == "Result must be positive"
-    assert survey.key_insights == ""  # not provided
-    assert survey.has_structured_sections is True
+    assert survey["raw_notes"].startswith("Some prose")
+    assert survey["background"] == "Physical context here"
+    assert survey["known_pitfalls"] == "Watch for sign errors"
+    assert survey["sanity_checks"] == ["Result must be positive"]  # str fallback → list
+    assert "key_insights" not in survey  # not provided
 
 
 def test_surveyor_fallback_on_no_json():
@@ -162,8 +146,8 @@ def test_surveyor_fallback_on_no_json():
     agent.process_response(response, task, iteration=0)
 
     survey = agent.parsed_survey
-    assert survey.raw_notes == "Just plain prose analysis with no JSON."
-    assert survey.has_structured_sections is False
+    assert survey["raw_notes"] == "Just plain prose analysis with no JSON."
+    assert "background" not in survey  # no structured sections
 
 
 def test_surveyor_fallback_on_malformed_json():
@@ -183,5 +167,5 @@ def test_surveyor_fallback_on_malformed_json():
     agent.process_response(response, task, iteration=0)
 
     survey = agent.parsed_survey
-    assert survey.raw_notes.startswith("Analysis.")
-    assert survey.has_structured_sections is False
+    assert survey["raw_notes"].startswith("Analysis.")
+    assert "background" not in survey  # no structured sections

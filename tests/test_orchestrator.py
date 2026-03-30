@@ -107,10 +107,9 @@ class TestProblemStatementInContext:
         assert "<problem-statement>" not in context
 
     def test_problem_statement_present_with_survey(self, orchestrator):
-        from sciralph.research_state import BackgroundSurvey
         orchestrator.research_state = ResearchState(
             problem_statement="Test problem.",
-            background_survey=BackgroundSurvey(raw_notes="Some survey notes."),
+            survey_background="Some survey notes.",
         )
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
         assert "<problem-statement>" in context

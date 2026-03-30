@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 from sciralph.agents.adjudicator import AdjudicatorAgent, _parse_adjudication_json
 from sciralph.llm import LLMResponse
 from sciralph.research_state import (
-    BackgroundSurvey,
     Evidence,
     Hypothesis,
     HypothesisStatus,

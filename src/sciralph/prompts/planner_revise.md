@@ -42,7 +42,8 @@ Produce a JSON block:
     {"id": "RQ-004", "action": "keep"}
   ],
   "sanity_checks": [
-    {"id": "SC-1", "check": "If lambda+ = lambda- = lambda, then Lambda = lambda", "type": "constraint", "rationale": "Constant growth rate must give trivial result"}
+    "If X=0, then Y = 1.",
+    "The result must have dimensions of [T]^{-1}."
   ],
   "revision_rationale": "Brief explanation of what changed and why"
 }

@@ -1176,8 +1176,8 @@ class TestProblemStatementPopulated:
             assert engine.research_state.problem_statement == "Derive the Hawking temperature."
             assert engine.research_state.title == "20260316_test_run"
 
-    def test_problem_statement_includes_answer_template(self):
-        """When answer_template is appended, problem_statement includes it."""
+    def test_answer_template_stored_separately(self):
+        """answer_template is stored as a separate field, not embedded in problem_statement."""
         with patch("sciralph.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
@@ -1189,8 +1189,8 @@ class TestProblemStatementPopulated:
             from sciralph.engine import SciRalph
             engine = SciRalph("Derive T_H.", Config(), answer_template="## Answer\n\nT_H = ?")
 
-            assert "Expected answer format" in engine.research_state.problem_statement
-            assert "T_H = ?" in engine.research_state.problem_statement
+            assert engine.research_state.problem_statement == "Derive T_H."
+            assert engine.research_state.answer_template == "## Answer\n\nT_H = ?"
 
 
 class TestSyncOnTermination:
@@ -1491,25 +1491,21 @@ class TestSurveyorEngine:
         return engine
 
     def test_apply_survey_stores_survey(self):
-        from sciralph.research_state import BackgroundSurvey
         engine = self._make_engine()
 
-        survey = BackgroundSurvey(
-            raw_notes="Derive kappa via Killing vectors first.",
-            iteration_created=0,
-            iteration_updated=0,
-        )
-        engine.surveyor.parsed_survey = survey
+        engine.surveyor.parsed_survey = {
+            "raw_notes": "Derive kappa via Killing vectors first.",
+        }
         engine._apply_survey()
 
-        assert engine.research_state.background_survey is not None
-        assert "Killing vectors" in engine.research_state.background_survey.raw_notes
+        assert engine.research_state.survey_background != ""
+        assert "Killing vectors" in engine.research_state.survey_background
 
     def test_apply_survey_none_does_nothing(self):
         engine = self._make_engine()
         engine.surveyor.parsed_survey = None
         engine._apply_survey()
-        assert engine.research_state.background_survey is None
+        assert engine.research_state.survey_background == ""
 
 class TestTerminationCircuitBreaker:
     """Test the circuit breaker that auto-abandons WHs after repeated termination blocks."""

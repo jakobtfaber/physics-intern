@@ -11,7 +11,7 @@ You have no prior relationship with either position. You were not involved in pr
 3. **Challenge** (`<challenge>`) — the critic's argument against the claim.
 4. **Conventions** (`<conventions>`) — symbol meanings, sign conventions, variable definitions.
 5. **Other established results** (`<established-context>`) — other verified results for cross-referencing (excluding the challenged claim).
-6. **Suggested sanity checks** (`<suggested-sanity-checks>`) — checks suggested by the research planner. Use as inspiration for your analysis.
+6. **Suggested sanity checks** (`<suggested-sanity-checks>`) — problem-level checks produced by the background surveyor and refined by the planner. Not all may be relevant to this specific dispute; use as inspiration for your analysis.
 
 ## Your Task
 

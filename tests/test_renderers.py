@@ -11,7 +11,6 @@ from sciralph.renderers import (
     render_background_survey,
     render_planner_revise_context,
     render_research_state_md,
-    render_survey_sections_xml,
     render_task_md,
 )
 from sciralph.research_state import (
@@ -22,7 +21,6 @@ from sciralph.research_state import (
     Hypothesis,
     HypothesisStatus,
     ResearchState,
-    BackgroundSurvey,
     Severity,
     Verdict,
     ReviewResult,
@@ -690,68 +688,33 @@ class TestRenderBackgroundSurvey:
 
     def _make_survey_state(self):
         state = ResearchState(problem_statement="Test problem")
-        state.background_survey = BackgroundSurvey(
-            raw_notes="Derive Hawking temperature via surface gravity.\n\nUse Killing vector method first.",
-            iteration_created=0,
-            iteration_updated=0,
-        )
+        state.survey_background = "## Background\n\nDerive Hawking temperature via surface gravity.\n\n## Key Insights\n\nUse Killing vector method first."
+        state.survey_methods = "Method A."
+        state.known_pitfalls = "Pitfall B."
+        state.conventions = "Some conventions."
+        state.sanity_checks = ["Check C."]
         return state
 
-    def test_render_background_survey_with_notes(self):
+    def test_render_background_survey_with_sections(self):
         state = self._make_survey_state()
         text = render_background_survey(state)
         assert "# Background Survey" in text
         assert "Derive Hawking temperature via surface gravity." in text
         assert "Killing vector method" in text
+        assert "Method A." in text
+        assert "Pitfall B." in text
+        assert "Check C." in text
 
-    def test_background_survey_none_renders_no_survey(self):
+    def test_background_survey_empty_renders_no_survey(self):
         state = ResearchState(problem_statement="Test")
         text = render_background_survey(state)
         assert text == "(No background survey.)"
 
     def test_background_survey_not_in_orchestrator_research_state(self):
-        """Background survey is now rendered in build_context, not render_orchestrator_research_state."""
+        """Background survey is not in render_orchestrator_research_state."""
         state = self._make_survey_state()
         text = render_orchestrator_research_state(state)
         assert "<background-survey>" not in text
-
-
-# ===========================================================================
-# render_survey_sections_xml
-# ===========================================================================
-
-class TestRenderSurveySectionsXml:
-
-    def test_structured_sections_render_as_xml_tags(self):
-        survey = BackgroundSurvey(
-            raw_notes="full text",
-            background="Physics context.",
-            key_insights="Core principles.",
-            known_methods="Method A.",
-            known_pitfalls="Pitfall B.",
-            conventions_and_definitions="Some conventions.",
-            sanity_checks="Check C.",
-        )
-        text = render_survey_sections_xml(survey)
-        assert "<survey-background>" in text
-        assert "Physics context." in text
-        assert "<survey-key-insights>" in text
-        assert "<survey-known-methods>" in text
-        assert "<survey-known-pitfalls>" in text
-        assert "<survey-sanity-checks>" in text
-        # conventions_and_definitions must be SKIPPED (rendered in <conventions>)
-        assert "conventions_and_definitions" not in text
-        assert "Some conventions." not in text
-
-    def test_raw_notes_fallback(self):
-        survey = BackgroundSurvey(raw_notes="Just raw notes here.")
-        text = render_survey_sections_xml(survey)
-        assert text == "<survey-background>\nJust raw notes here.\n</survey-background>"
-
-    def test_empty_survey(self):
-        survey = BackgroundSurvey()
-        text = render_survey_sections_xml(survey)
-        assert text == ""
 
 
 # ===========================================================================

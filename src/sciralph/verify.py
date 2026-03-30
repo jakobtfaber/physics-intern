@@ -214,7 +214,7 @@ def load_workspace(workspace_dir: str, *, include_process_data: bool = False) ->
             try:
                 from .research_state import ResearchState
                 state = ResearchState.from_json(state_path.read_text())
-                if state.background_survey and state.background_survey.raw_notes:
+                if state.survey_background:
                     contents.background_survey = render_background_survey(state)
             except Exception:
                 pass  # Non-critical — proceed without survey

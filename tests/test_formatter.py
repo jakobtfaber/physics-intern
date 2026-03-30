@@ -13,7 +13,6 @@ from sciralph.research_state import (
     Hypothesis,
     HypothesisStatus,
     ResearchState,
-    BackgroundSurvey,
     ResearchQuestion,
     ReviewResult,
     RQStatus,
@@ -79,7 +78,7 @@ def state_with_er_and_wh():
         description="Euclidean path integral",
         reason="Regularization issues",
     ))
-    state.background_survey = BackgroundSurvey(raw_notes="Some background.")
+    state.survey_background = "Some background."
     return state
 
 

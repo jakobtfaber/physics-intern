@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 from ..llm import LLMResponse
-from ..renderers import render_planner_revise_context, render_survey_sections_text
+from ..renderers import render_planner_revise_context, _render_survey_context
 from ..task import TaskType
 from .base import BaseAgent
 from .parsing import JSON_FENCE_RE, try_json_loads
@@ -43,7 +43,7 @@ class PlannerAgent(BaseAgent):
         self.parsed_strategy: str | None = None
         # Revise mode outputs
         self.parsed_entity_actions: list[dict] | None = None
-        self.parsed_sanity_checks: list[dict] | None = None
+        self.parsed_sanity_checks: list[str] | None = None
         self.parsed_revision_rationale: str | None = None
 
     def _is_revise_mode(self, task: Task) -> bool:
@@ -72,16 +72,18 @@ class PlannerAgent(BaseAgent):
                 )
             return ""
 
-        # Initial mode (unchanged)
+        # Initial mode
         parts = [
             "<problem-statement>\n",
             self.research_state.problem_statement if self.research_state else "",
             "\n</problem-statement>",
         ]
-        if self.research_state and self.research_state.background_survey:
-            survey_text = render_survey_sections_text(self.research_state.background_survey)
-            if survey_text:
-                parts.append(f"\n<background-survey>\n{survey_text}\n</background-survey>")
+        if self.research_state:
+            if self.research_state.answer_template:
+                parts.append(f"\n<answer-template>\n{self.research_state.answer_template}\n</answer-template>")
+            survey_ctx = _render_survey_context(self.research_state)
+            if survey_ctx:
+                parts.append(f"\n<background-survey>\n{survey_ctx}\n</background-survey>")
         return "\n".join(parts)
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
@@ -100,7 +102,15 @@ class PlannerAgent(BaseAgent):
         if parsed:
             self.parsed_strategy = parsed.get("revised_strategy")
             self.parsed_entity_actions = parsed.get("entity_actions")
-            self.parsed_sanity_checks = parsed.get("sanity_checks")
+            raw_sc = parsed.get("sanity_checks")
+            if isinstance(raw_sc, list):
+                # Accept list[str] or legacy list[dict] (extract "check" field)
+                self.parsed_sanity_checks = [
+                    c.get("check", str(c)) if isinstance(c, dict) else str(c)
+                    for c in raw_sc if c
+                ]
+            else:
+                self.parsed_sanity_checks = None
             self.parsed_revision_rationale = parsed.get("revision_rationale")
         else:
             # Fallback: treat entire response as strategy text

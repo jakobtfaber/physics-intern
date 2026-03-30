@@ -12,7 +12,7 @@ from sciralph.engine import (
 from sciralph.workspace import WorkspaceManager
 from sciralph.research_state import (
     ResearchState, Hypothesis, HypothesisStatus, Evidence, ReviewResult,
-    Verdict, ResearchQuestion, RQStatus, BackgroundSurvey,
+    Verdict, ResearchQuestion, RQStatus,
 )
 
 
@@ -231,7 +231,7 @@ class TestEngineResume:
             status="in_progress",
             title="test-run",
             problem_statement="Derive the Hawking temperature.",
-            background_survey=BackgroundSurvey(raw_notes="Survey done."),
+            survey_background="Survey done.",
         )
         state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", statement="T_H = 1/(8*pi*M)",
@@ -290,7 +290,7 @@ class TestEngineResume:
 class TestRunSurveyorSkip:
 
     def test_run_skips_surveyor_on_resume(self, tmp_path):
-        """With existing background_survey, surveyor should not be called."""
+        """With existing survey_background, surveyor should not be called."""
         engine = SciRalph.__new__(SciRalph)
         engine.config = Config(workspace_dir=str(tmp_path), max_iterations=0)
         engine.workspace = MagicMock()
@@ -305,7 +305,7 @@ class TestRunSurveyorSkip:
         engine._state = LoopState()
         engine.research_state = ResearchState(
             problem_statement="test",
-            background_survey=BackgroundSurvey(raw_notes="Already surveyed."),
+            survey_background="Already surveyed.",
         )
         engine.problem_meta = {}
         engine.surveyor = MagicMock()
@@ -358,7 +358,7 @@ class TestRunSurveyorSkip:
         engine.research_state = ResearchState(
             problem_statement="test",
             status="completed",
-            background_survey=BackgroundSurvey(raw_notes="Done."),
+            survey_background="Done.",
         )
         engine.problem_meta = {}
         engine.surveyor = MagicMock()

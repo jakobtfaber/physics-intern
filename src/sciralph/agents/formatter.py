@@ -31,8 +31,9 @@ class FormatterAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [render_formatter_context(self.research_state, answer_ers=task.answer_ers)]
-        if self.answer_template:
-            parts.append(f"<answer-template>\n{self.answer_template}\n</answer-template>")
+        template = self.answer_template or (self.research_state.answer_template if self.research_state else "")
+        if template:
+            parts.append(f"<answer-template>\n{template}\n</answer-template>")
         return "\n\n".join(parts)
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):

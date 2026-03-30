@@ -7,7 +7,6 @@ from sciralph.config import Config
 from sciralph.engine import LoopState
 from sciralph.llm import LLMResponse
 from sciralph.research_state import (
-    BackgroundSurvey,
     Evidence,
     FailedApproach,
     Hypothesis,
@@ -44,11 +43,7 @@ class TestPlannerBuildContext:
 
     def test_includes_background_survey(self):
         agent = self._make_agent()
-        agent.research_state.background_survey = BackgroundSurvey(
-            raw_notes="Surface gravity via Killing vectors.",
-            iteration_created=0,
-            iteration_updated=0,
-        )
+        agent.research_state.survey_background = "Surface gravity via Killing vectors."
         task = Task(task_id="PLAN-000", task_type=TaskType.PLAN, assigned_to="planner")
         ctx = agent.build_context(task, iteration=0)
         assert "<background-survey>" in ctx
@@ -156,11 +151,7 @@ class TestPlannerReviseContext:
             FailedApproach(description="Naive WKB method", reason="Divergent at horizon")
         )
         # Add background survey
-        state.background_survey = BackgroundSurvey(
-            raw_notes="Black hole thermodynamics fundamentals.",
-            iteration_created=0,
-            iteration_updated=0,
-        )
+        state.survey_background = "Black hole thermodynamics fundamentals."
         agent.research_state = state
         return agent
 
@@ -358,7 +349,7 @@ class TestPlannerReviseProcessResponse:
         assert agent.parsed_entity_actions[0] == {"id": "ER-001", "action": "keep", "concern": "may need re-examination"}
         assert agent.parsed_entity_actions[1] == {"id": "WH-002", "action": "abandon", "reason": "premise invalidated"}
         assert len(agent.parsed_sanity_checks) == 1
-        assert agent.parsed_sanity_checks[0]["check"] == "T -> 0 as M -> inf"
+        assert agent.parsed_sanity_checks[0] == "T -> 0 as M -> inf"
         assert agent.parsed_revision_rationale == "ER-001 demotion invalidates downstream results."
 
     def test_fallback_on_malformed_json(self):

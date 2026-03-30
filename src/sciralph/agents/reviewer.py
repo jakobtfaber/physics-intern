@@ -175,13 +175,14 @@ class ReviewerAgent(BaseAgent):
             if self.research_state.conventions:
                 parts.append(f"\n<conventions>\n{self.research_state.conventions}\n</conventions>")
 
-            # Planner-provided sanity checks (suggested, not binding)
+            # Known pitfalls from survey
+            if self.research_state.known_pitfalls:
+                parts.append(f"\n<known-pitfalls>\n{self.research_state.known_pitfalls}\n</known-pitfalls>")
+
+            # Sanity checks (suggested, not binding)
             if self.research_state.sanity_checks:
-                checks_text = "\n".join(
-                    f"- [{c.get('id', '?')}] {c.get('check', '')} ({c.get('type', '?')}): {c.get('rationale', '')}"
-                    for c in self.research_state.sanity_checks
-                )
-                parts.append(f'\n<suggested-sanity-checks source="planner">\n{checks_text}\n</suggested-sanity-checks>')
+                checks_text = "\n".join(f"- {c}" for c in self.research_state.sanity_checks)
+                parts.append(f'\n<suggested-sanity-checks>\n{checks_text}\n</suggested-sanity-checks>')
 
         return "\n".join(parts)
 

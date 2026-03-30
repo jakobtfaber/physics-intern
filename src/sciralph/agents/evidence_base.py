@@ -118,7 +118,7 @@ class EvidenceAgent(BaseAgent):
         if task_parts:
             parts.append("<task>\n" + "\n\n".join(task_parts) + "\n</task>")
 
-        # 4. Research context — conventions and established results only
+        # 4. Research context — conventions, established results, pitfalls, sanity checks
         #    (no strategy, no open questions — those are orchestrator concerns)
         if self.research_state:
             rc_parts: list[str] = []
@@ -128,6 +128,11 @@ class EvidenceAgent(BaseAgent):
             if ers:
                 er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
                 rc_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+            if self.research_state.known_pitfalls:
+                rc_parts.append(f"<known-pitfalls>\n{self.research_state.known_pitfalls}\n</known-pitfalls>")
+            if self.research_state.sanity_checks:
+                checks_text = "\n".join(f"- {c}" for c in self.research_state.sanity_checks)
+                rc_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
             if rc_parts:
                 parts.append("<research-context>\n" + "\n".join(rc_parts) + "\n</research-context>")
 

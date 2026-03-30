@@ -75,21 +75,13 @@ class SciRalph:
         self.config = config or Config()
         self.metrics = MetricsTracker()
         self.workspace = WorkspaceManager(self.config)
-        # Append answer template to problem so all agents see the expected output format
-        if answer_template:
-            problem = (problem.rstrip()
-                       + "\n\n# Expected answer format\n\n" + answer_template.strip()
-                       + "\n\n**Note:** Not every parameter in the template necessarily belongs"
-                       " in the final answer. Some may be zero, absent, or irrelevant"
-                       " depending on the problem."
-                       " Determine which quantities are actually needed from the physics,"
-                       " not from the template or from how the question is phrased.")
         self.workspace.init(problem)
         self.config.logs_dir = str(self.workspace.logs_dir)
         self.iteration = 0
         self._state = LoopState()
         self.research_state = ResearchState()
         self.research_state.problem_statement = problem.strip()
+        self.research_state.answer_template = answer_template.strip() if answer_template else ""
         self.research_state.title = self.workspace.root.name
         self.problem_meta = problem_meta or {}
 
@@ -144,6 +136,9 @@ class SciRalph:
         # 4. Load research state
         engine.research_state = ResearchState.load(workspace_path)
         engine.iteration = engine.research_state.iteration
+        # Ensure answer_template is populated (backward compat: old states lack this field)
+        if not engine.research_state.answer_template and answer_template:
+            engine.research_state.answer_template = answer_template.strip()
 
         # 5. Reconstruct loop state
         engine._state = _reconstruct_loop_state(engine.research_state)
@@ -172,8 +167,8 @@ class SciRalph:
         """Main loop: survey → orchestrate → validate → override → dispatch → git."""
         console.print(Panel("SciRalph Research System", style="bold blue"))
 
-        # Skip surveyor if background survey already exists (e.g. on resume)
-        if self.research_state.background_survey is None:
+        # Skip surveyor if survey fields already populated (e.g. on resume)
+        if not self.research_state.survey_background:
             self._run_surveyor()
         else:
             console.print("[dim]Surveyor skipped (background survey already exists)[/dim]")
@@ -431,15 +426,31 @@ class SciRalph:
         self.workspace.git_commit("Iteration 0: surveyor — background survey")
 
     def _apply_survey(self):
-        """Store the surveyor's parsed survey in research state."""
+        """Distribute the surveyor's parsed survey into research state fields."""
         survey = self.surveyor.parsed_survey
-        if survey is None:
+        if not survey:
             return
 
-        self.research_state.background_survey = survey
-        # Seed conventions from surveyor's conventions section
-        if survey.conventions_and_definitions and not self.research_state.conventions:
-            self.research_state.conventions = survey.conventions_and_definitions.strip()
+        # Merge §1 (background) + §2 (key insights) into survey_background
+        bg_parts = []
+        if survey.get("background"):
+            bg_parts.append(f"## Background\n\n{survey['background']}")
+        if survey.get("key_insights"):
+            bg_parts.append(f"## Key Insights\n\n{survey['key_insights']}")
+        if bg_parts:
+            self.research_state.survey_background = "\n\n".join(bg_parts)
+        elif survey.get("raw_notes"):
+            # Fallback: no structured sections, use raw text
+            self.research_state.survey_background = survey["raw_notes"]
+
+        if survey.get("known_methods"):
+            self.research_state.survey_methods = survey["known_methods"]
+        if survey.get("known_pitfalls"):
+            self.research_state.known_pitfalls = survey["known_pitfalls"]
+        if survey.get("conventions_and_definitions") and not self.research_state.conventions:
+            self.research_state.conventions = survey["conventions_and_definitions"].strip()
+        if survey.get("sanity_checks") and not self.research_state.sanity_checks:
+            self.research_state.sanity_checks = list(survey["sanity_checks"])
 
     def _run_planner(self):
         """Run planner agent to produce an initial research strategy."""

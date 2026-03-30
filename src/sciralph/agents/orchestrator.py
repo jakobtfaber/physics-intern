@@ -33,6 +33,8 @@ class OrchestratorAgent(BaseAgent):
         if self.research_state:
             if self.research_state.problem_statement:
                 parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>\n")
+            if self.research_state.answer_template:
+                parts.append(f"<answer-template>\n{self.research_state.answer_template}\n</answer-template>\n")
         state_text = render_orchestrator_slim_state(self.research_state) if self.research_state else ""
         if iteration >= 3 and self.research_state and not self.research_state.conventions:
             parts.append(

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 from .markdown import render_frontmatter
 from .research_state import (
-    BackgroundSurvey,
     CritiqueStatus,
     Hypothesis,
     HypothesisStatus,
@@ -29,72 +28,39 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 def render_background_survey(state: ResearchState) -> str:
-    """Render the background survey section from ResearchState."""
-    survey = state.background_survey
-    if survey is None:
+    """Render background survey as a Markdown section (for git snapshots)."""
+    has_content = state.survey_background or state.survey_methods or state.known_pitfalls
+    if not has_content:
         return "(No background survey.)"
 
     parts: list[str] = ["# Background Survey\n"]
-    if survey.has_structured_sections:
-        for label, field_name in [
-            ("Background", "background"),
-            ("Key Insights", "key_insights"),
-            ("Known Methods and Techniques", "known_methods"),
-            ("Known Pitfalls", "known_pitfalls"),
-            ("Conventions and Definitions", "conventions_and_definitions"),
-            ("Sanity Checks", "sanity_checks"),
-        ]:
-            content = getattr(survey, field_name, "")
-            if content:
-                parts.append(f"### {label}\n\n{content}\n")
-    elif survey.raw_notes:
-        parts.append(survey.raw_notes)
-        parts.append("")
-
+    if state.survey_background:
+        parts.append(f"{state.survey_background}\n")
+    if state.survey_methods:
+        parts.append(f"### Known Methods and Techniques\n\n{state.survey_methods}\n")
+    if state.known_pitfalls:
+        parts.append(f"### Known Pitfalls\n\n{state.known_pitfalls}\n")
+    if state.conventions:
+        parts.append(f"### Conventions and Definitions\n\n{state.conventions}\n")
+    if state.sanity_checks:
+        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
+        parts.append(f"### Sanity Checks\n\n{checks_text}\n")
     return "\n".join(parts)
 
 
-def render_survey_sections_text(survey: BackgroundSurvey) -> str:
-    """Render survey as plain text sections for embedding in XML contexts.
+def _render_survey_context(state: ResearchState) -> str:
+    """Render survey landscape sections for agent context.
 
-    Uses structured fields when available, otherwise falls back to raw_notes.
+    Includes survey_background, survey_methods, and known_pitfalls.
+    Does NOT include conventions or sanity_checks (rendered separately from state).
     """
-    if survey.has_structured_sections:
-        parts: list[str] = []
-        for label, field_name in [
-            ("Background", "background"),
-            ("Key Insights", "key_insights"),
-            ("Known Methods and Techniques", "known_methods"),
-            ("Known Pitfalls", "known_pitfalls"),
-            ("Conventions and Definitions", "conventions_and_definitions"),
-            ("Sanity Checks", "sanity_checks"),
-        ]:
-            content = getattr(survey, field_name, "")
-            if content:
-                parts.append(f"## {label}\n\n{content}")
-        return "\n\n".join(parts)
-    return survey.raw_notes or ""
-
-
-def render_survey_sections_xml(survey: BackgroundSurvey) -> str:
-    """Render survey as individual XML tags for orchestrator context.
-
-    Skips conventions_and_definitions (rendered separately in <conventions>).
-    """
-    if not survey.has_structured_sections:
-        return f"<survey-background>\n{survey.raw_notes}\n</survey-background>" if survey.raw_notes else ""
-    tag_map = [
-        ("survey-background", "background"),
-        ("survey-key-insights", "key_insights"),
-        ("survey-known-methods", "known_methods"),
-        ("survey-known-pitfalls", "known_pitfalls"),
-        ("survey-sanity-checks", "sanity_checks"),
-    ]
     parts: list[str] = []
-    for tag, field_name in tag_map:
-        content = getattr(survey, field_name, "")
-        if content:
-            parts.append(f"<{tag}>\n{content}\n</{tag}>")
+    if state.survey_background:
+        parts.append(state.survey_background)
+    if state.survey_methods:
+        parts.append(f"## Known Methods and Techniques\n\n{state.survey_methods}")
+    if state.known_pitfalls:
+        parts.append(f"## Known Pitfalls\n\n{state.known_pitfalls}")
     return "\n\n".join(parts)
 
 
@@ -106,6 +72,11 @@ def _research_state_body(state: ResearchState) -> str:
     parts.append("# Problem Statement\n")
     parts.append(state.problem_statement or "(No problem statement.)")
     parts.append("")
+
+    if state.answer_template:
+        parts.append("# Expected Answer Format\n")
+        parts.append(state.answer_template)
+        parts.append("")
 
     # Conventions
     parts.append("# Conventions\n")
@@ -644,6 +615,9 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
     # Problem Statement
     parts.append(f"<problem-statement>\n{state.problem_statement or '(No problem statement.)'}\n</problem-statement>")
 
+    if state.answer_template:
+        parts.append(f"<answer-template>\n{state.answer_template}\n</answer-template>")
+
     # Strategy
     strat = state.strategy or "(No strategy set.)"
     parts.append(f"<strategy>\n{strat}\n</strategy>")
@@ -747,11 +721,10 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
                     de_parts.append(f"- {desc}")
         parts.append("<dead-ends>\n" + "\n".join(de_parts) + "\n</dead-ends>")
 
-    # Background Survey
-    if state.background_survey:
-        survey_text = render_survey_sections_text(state.background_survey)
-        if survey_text:
-            parts.append(f"<background-survey>\n{survey_text}\n</background-survey>")
+    # Background Survey (landscape sections from state)
+    survey_ctx = _render_survey_context(state)
+    if survey_ctx:
+        parts.append(f"<background-survey>\n{survey_ctx}\n</background-survey>")
 
     # Previous Critiques (reuse existing XML renderer)
     critique_xml = render_orchestrator_critique_log(state)
@@ -876,11 +849,13 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
     # Problem Statement
     parts.append(f"<problem-statement>\n{state.problem_statement or '(No problem statement.)'}\n</problem-statement>")
 
-    # Background Survey
-    if state.background_survey:
-        survey_text = render_survey_sections_text(state.background_survey)
-        if survey_text:
-            parts.append(f"<background-survey>\n{survey_text}\n</background-survey>")
+    if state.answer_template:
+        parts.append(f"<answer-template>\n{state.answer_template}\n</answer-template>")
+
+    # Background Survey (excludes conventions and sanity checks — rendered separately)
+    survey_ctx = _render_survey_context(state)
+    if survey_ctx:
+        parts.append(f"<background-survey>\n{survey_ctx}\n</background-survey>")
 
     # Current Strategy
     strat = state.strategy or "(No strategy set.)"
@@ -928,6 +903,11 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
     # Conventions
     if state.conventions:
         parts.append(f"<conventions>\n{state.conventions}\n</conventions>")
+
+    # Current sanity checks (editable by the planner)
+    if state.sanity_checks:
+        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
+        parts.append(f"<current-sanity-checks>\n{checks_text}\n</current-sanity-checks>")
 
     return "\n\n".join(parts)
 

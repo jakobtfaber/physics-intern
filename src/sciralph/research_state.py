@@ -11,7 +11,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .workspace import WorkspaceManager
@@ -137,34 +137,6 @@ class ResearchQuestion:
     evidence: list[Evidence] = field(default_factory=list)  # evidence from researcher/computer
 
 
-@dataclass
-class BackgroundSurvey:
-    """Background notes produced by the surveyor agent.
-
-    ``raw_notes`` always holds the full surveyor output.  The six section
-    fields are populated when the surveyor outputs structured JSON; they
-    remain empty otherwise (graceful fallback).
-    """
-    raw_notes: str = ""                      # Full text (always populated)
-    background: str = ""                     # §1: Physical context
-    key_insights: str = ""                   # §2: Core principles
-    known_methods: str = ""                  # §3: Methods and techniques
-    known_pitfalls: str = ""                 # §4: Common errors, convention traps
-    conventions_and_definitions: str = ""    # §5: Symbol meanings, sign conventions
-    sanity_checks: str = ""                  # §6: Expected scaling, limiting behavior
-    iteration_created: int = 0
-    iteration_updated: int = 0
-
-    SECTION_FIELDS: ClassVar[tuple[str, ...]] = (
-        "background", "key_insights", "known_methods",
-        "known_pitfalls", "conventions_and_definitions", "sanity_checks",
-    )
-
-    @property
-    def has_structured_sections(self) -> bool:
-        """True if any structured section field is non-empty."""
-        return any(getattr(self, f) for f in self.SECTION_FIELDS)
-
 
 # ---------------------------------------------------------------------------
 # ResearchState
@@ -185,13 +157,17 @@ class ResearchState:
     critic_clean_reviews: list[dict[str, Any]] = field(default_factory=list)
     iteration: int = 0
     problem_statement: str = ""
+    answer_template: str = ""
     conventions: str = ""
     strategy: str = ""
     research_notes: list[dict] = field(default_factory=list)
     status: str = "in_progress"
     title: str = ""
-    background_survey: BackgroundSurvey | None = None
-    sanity_checks: list[dict] = field(default_factory=list)  # planner-owned
+    sanity_checks: list[str] = field(default_factory=list)  # seeded by surveyor, editable by planner
+    # Survey-produced fields (seeded by surveyor, immutable after)
+    survey_background: str = ""   # §1+§2: background context + key insights
+    survey_methods: str = ""      # §3: known methods and techniques
+    known_pitfalls: str = ""      # §4: known pitfalls
 
     # --- Query methods ---
 
@@ -362,6 +338,7 @@ class ResearchState:
         state = cls(
             iteration=data.get("iteration", 0),
             problem_statement=data.get("problem_statement", ""),
+            answer_template=data.get("answer_template", ""),
             conventions=data.get("conventions", ""),
             strategy=data.get("strategy", ""),
             research_notes=data.get("research_notes", []),
@@ -455,22 +432,40 @@ class ResearchState:
                 derivation_excerpt=fdata.get("derivation_excerpt", ""),
             ))
         state.critic_clean_reviews = data.get("critic_clean_reviews", [])
-        state.sanity_checks = data.get("sanity_checks", [])
+        # Backward compat: old sanity_checks format was list[dict], extract "check"
+        raw_checks = data.get("sanity_checks", [])
+        state.sanity_checks = [
+            c.get("check", str(c)) if isinstance(c, dict) else str(c)
+            for c in raw_checks
+        ]
+        # New flat fields
+        state.survey_background = data.get("survey_background", "")
+        state.survey_methods = data.get("survey_methods", "")
+        state.known_pitfalls = data.get("known_pitfalls", "")
+        # Backward compat: migrate old nested background_survey to flat fields
         survey_data = data.get("background_survey")
         if survey_data and isinstance(survey_data, dict):
-            # Backward compat: old files have "survey_notes", new have "raw_notes"
-            raw = survey_data.get("raw_notes") or survey_data.get("survey_notes", "")
-            state.background_survey = BackgroundSurvey(
-                raw_notes=raw,
-                background=survey_data.get("background", ""),
-                key_insights=survey_data.get("key_insights", ""),
-                known_methods=survey_data.get("known_methods", ""),
-                known_pitfalls=survey_data.get("known_pitfalls", ""),
-                conventions_and_definitions=survey_data.get("conventions_and_definitions", ""),
-                sanity_checks=survey_data.get("sanity_checks", ""),
-                iteration_created=survey_data.get("iteration_created", 0),
-                iteration_updated=survey_data.get("iteration_updated", 0),
-            )
+            bg = survey_data.get("background", "")
+            ki = survey_data.get("key_insights", "")
+            if not state.survey_background:
+                parts = []
+                if bg:
+                    parts.append(f"## Background\n\n{bg}")
+                if ki:
+                    parts.append(f"## Key Insights\n\n{ki}")
+                state.survey_background = "\n\n".join(parts)
+            if not state.survey_methods:
+                state.survey_methods = survey_data.get("known_methods", "")
+            if not state.known_pitfalls:
+                state.known_pitfalls = survey_data.get("known_pitfalls", "")
+            if not state.conventions:
+                state.conventions = survey_data.get("conventions_and_definitions", "")
+            if not state.sanity_checks:
+                raw_sc = survey_data.get("sanity_checks", [])
+                if isinstance(raw_sc, str):
+                    state.sanity_checks = [line.lstrip("- ").strip() for line in raw_sc.splitlines() if line.strip()] if raw_sc else []
+                elif isinstance(raw_sc, list):
+                    state.sanity_checks = [c.get("check", str(c)) if isinstance(c, dict) else str(c) for c in raw_sc]
         return state
 
     def save(self, workspace_root: Path) -> None:
