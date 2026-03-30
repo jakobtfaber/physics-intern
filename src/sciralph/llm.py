@@ -247,6 +247,28 @@ def run_agent_loop(
 
     all_tool_calls: list[ToolCall] = []
     round_log: list[dict] = []
+
+    # Pre-compute log filepath for progressive writing (increment seq exactly once)
+    _log_filepath: Path | None = None
+    if config.logs_dir:
+        _log_seq = _call_seq.get(iteration, 0) + 1
+        _call_seq[iteration] = _log_seq
+        _log_agent = agent_name or "unknown"
+        _log_filepath = Path(config.logs_dir, f"iter{iteration:03d}_{_log_seq:02d}_{_log_agent}.md")
+
+    def _flush_log() -> None:
+        """Rewrite the log file with current accumulated state."""
+        if _log_filepath is None:
+            return
+        content = _render_agent_conversation_log(system, user_content, round_log, tools)
+        try:
+            _log_filepath.write_text(content)
+        except OSError:
+            pass
+
+    # Write preamble (system + tools + user, no rounds yet)
+    _flush_log()
+
     total_input = 0
     total_output = 0
     total_reasoning = 0
@@ -435,7 +457,8 @@ def run_agent_loop(
             )
             _write_agent_conversation_log(
                 config, system, user_content, agent_name,
-                iteration, round_log, result, tools=tools)
+                iteration, round_log, result, tools=tools,
+                _filepath=_log_filepath)
             return result
 
         # max_tokens: truncated
@@ -455,7 +478,8 @@ def run_agent_loop(
             )
             _write_agent_conversation_log(
                 config, system, user_content, agent_name,
-                iteration, round_log, result, tools=tools)
+                iteration, round_log, result, tools=tools,
+                _filepath=_log_filepath)
             return result
 
         # tool_use: execute tools and continue
@@ -527,7 +551,8 @@ def run_agent_loop(
                 )
                 _write_agent_conversation_log(
                     config, system, user_content, agent_name,
-                    iteration, round_log, result, tools=tools)
+                    iteration, round_log, result, tools=tools,
+                    _filepath=_log_filepath)
                 return result
 
             # Track consecutive execute_python for progress check
@@ -590,6 +615,9 @@ def run_agent_loop(
                     "kind": "scaffold_injection", "round": round_num,
                     "label": "critical_warning", "content": _crit_msg,
                 })
+
+            # Progressive log: flush after each round that continues the loop
+            _flush_log()
 
     # --- Post-loop: forced final call(s) with exit tool ---
     _reasons_human = {
@@ -748,7 +776,8 @@ def run_agent_loop(
         )
         _write_agent_conversation_log(
             config, system, user_content, agent_name,
-            iteration, round_log, result, tools=tools)
+            iteration, round_log, result, tools=tools,
+            _filepath=_log_filepath)
         return result
 
     if on_round:
@@ -788,7 +817,8 @@ def run_agent_loop(
     )
     _write_agent_conversation_log(
         config, system, user_content, agent_name,
-        iteration, round_log, result, tools=tools)
+        iteration, round_log, result, tools=tools,
+        _filepath=_log_filepath)
     return result
 
 
@@ -804,17 +834,21 @@ def _write_conversation_log(config: Config, resp: LLMResponse,
 
     agent = agent_name or "unknown"
     filename = f"iter{iteration:03d}_{seq:02d}_{agent}.md"
-    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    content = f"""<SYSTEM_PROMPT>
+    resp_attrs = f"chars=\"{len(resp.text)}\" tokens_in=\"{resp.input_tokens}\" tokens_out=\"{resp.output_tokens}\""
+    if resp.reasoning_tokens and resp.reasoning_tokens > 0:
+        resp_attrs += f" reasoning=\"{resp.reasoning_tokens}\" answer=\"{resp.answer_tokens}\""
+    resp_attrs += f" duration=\"{resp.duration:.1f}s\" stop=\"{resp.stop_reason}\""
+
+    content = f"""<SYSTEM_PROMPT chars="{len(system)}">
 {system}
 </SYSTEM_PROMPT>
 
-<USER_MESSAGE>
+<USER_MESSAGE chars="{len(user_content)}">
 {user_content}
 </USER_MESSAGE>
 
-<LLM_RESPONSE>
+<LLM_RESPONSE {resp_attrs}>
 {resp.text}
 </LLM_RESPONSE>
 """
@@ -860,22 +894,12 @@ def _render_tools_block(tools: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _write_agent_conversation_log(
-    config: Config, system: str, user_content: str,
-    agent_name: str, iteration: int,
-    round_log: list[dict], result: AgentResult,
+def _render_agent_conversation_log(
+    system: str, user_content: str,
+    round_log: list[dict],
     tools: list[dict] | None = None,
-):
-    """Write a single comprehensive Markdown log for a tool-use agent invocation."""
-    if not config.logs_dir:
-        return
-
-    seq = _call_seq.get(iteration, 0) + 1
-    _call_seq[iteration] = seq
-
-    agent = agent_name or "unknown"
-    filename = f"iter{iteration:03d}_{seq:02d}_{agent}.md"
-
+) -> str:
+    """Render the full Markdown content for a tool-use agent conversation log."""
     lines: list[str] = []
 
     # System prompt
@@ -967,8 +991,28 @@ def _write_agent_conversation_log(
     if round_open:
         lines.append("</ROUND>\n")
 
-    content = "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n"
+
+
+def _write_agent_conversation_log(
+    config: Config, system: str, user_content: str,
+    agent_name: str, iteration: int,
+    round_log: list[dict], result: AgentResult,
+    tools: list[dict] | None = None,
+    _filepath: Path | None = None,
+):
+    """Write a single comprehensive Markdown log for a tool-use agent invocation."""
+    if not config.logs_dir:
+        return
+
+    if _filepath is None:
+        seq = _call_seq.get(iteration, 0) + 1
+        _call_seq[iteration] = seq
+        agent = agent_name or "unknown"
+        _filepath = Path(config.logs_dir, f"iter{iteration:03d}_{seq:02d}_{agent}.md")
+
+    content = _render_agent_conversation_log(system, user_content, round_log, tools)
     try:
-        Path(config.logs_dir, filename).write_text(content)
+        _filepath.write_text(content)
     except OSError:
         pass

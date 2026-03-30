@@ -3,8 +3,8 @@
 import sciralph.llm as llm_module
 from sciralph.config import Config
 from sciralph.llm import (
-    AgentResult, LLMResponse, _write_agent_conversation_log,
-    _write_conversation_log,
+    AgentResult, LLMResponse, _render_agent_conversation_log,
+    _write_agent_conversation_log, _write_conversation_log,
 )
 from sciralph.workspace import WorkspaceManager
 
@@ -38,14 +38,18 @@ def test_file_contains_expected_sections(tmp_path):
                             "orchestrator", 5)
 
     content = (tmp_path / "iter005_01_orchestrator.md").read_text()
-    assert "<SYSTEM_PROMPT>" in content
+    assert '<SYSTEM_PROMPT chars="15">' in content
     assert "sys prompt here" in content
-    assert "<USER_MESSAGE>" in content
+    assert '<USER_MESSAGE chars="17">' in content
     assert "user content here" in content
-    assert "<LLM_RESPONSE>" in content
+    assert '<LLM_RESPONSE chars="10"' in content
+    assert 'tokens_in="100"' in content
+    assert 'tokens_out="50"' in content
+    assert 'duration="1.2s"' in content
+    assert 'stop="end_turn"' in content
     assert "the answer" in content
     # Header table was removed; log starts directly with system prompt
-    assert content.startswith("<SYSTEM_PROMPT>")
+    assert content.startswith('<SYSTEM_PROMPT chars=')
 
 
 def test_seq_increments_for_same_iteration(tmp_path):
@@ -310,3 +314,74 @@ def test_agent_log_forced_final_call(tmp_path):
     content = (tmp_path / "iter001_01_computationalist.md").read_text()
     assert '<FORCED_FINAL_CALL reason="zero_text"' in content
     assert "*(no text output)*" in content
+
+
+# ---------------------------------------------------------------------------
+# Tests for one-shot log chars/token attributes
+# ---------------------------------------------------------------------------
+
+def test_one_shot_log_reasoning_tokens(tmp_path):
+    """Reasoning/answer tokens appear when non-zero, absent when zero."""
+    config = Config(logs_dir=str(tmp_path))
+    llm_module._call_seq.clear()
+
+    # With reasoning tokens
+    _write_conversation_log(
+        config, _make_response(text="x", reasoning_tokens=80, answer_tokens=20),
+        "sys", "user", "planner", 1)
+    content = (tmp_path / "iter001_01_planner.md").read_text()
+    assert 'reasoning="80"' in content
+    assert 'answer="20"' in content
+
+    # Without reasoning tokens
+    _write_conversation_log(
+        config, _make_response(text="x"),
+        "sys", "user", "surveyor", 1)
+    content = (tmp_path / "iter001_02_surveyor.md").read_text()
+    assert "reasoning=" not in content
+
+
+# ---------------------------------------------------------------------------
+# Tests for _render_agent_conversation_log
+# ---------------------------------------------------------------------------
+
+def test_render_preamble_only():
+    """Empty round_log produces system + user sections, no ROUND tags."""
+    content = _render_agent_conversation_log("system text", "user text", [])
+    assert '<SYSTEM_PROMPT chars="11">' in content
+    assert "system text" in content
+    assert '<USER_MESSAGE chars="9">' in content
+    assert "user text" in content
+    assert "<ROUND" not in content
+
+
+def test_render_with_tools():
+    """Tools block appears when tools are provided."""
+    tools = [{"function": {"name": "execute_python", "description": "Run code"}}]
+    content = _render_agent_conversation_log("sys", "user", [], tools=tools)
+    assert "<TOOLS>" in content
+    assert "execute_python" in content
+
+
+def test_render_accumulates_rounds():
+    """Rendering with 1 vs 2 rounds produces incremental content."""
+    round1 = [
+        {"kind": "llm_response", "round": 1, "text": "round1",
+         "tool_calls": None, "input_tokens": 100, "output_tokens": 50,
+         "reasoning_tokens": 0, "answer_tokens": 50,
+         "stop_reason": "end_turn", "duration": 1.0},
+    ]
+    content1 = _render_agent_conversation_log("sys", "user", round1)
+    assert '<ROUND n="1">' in content1
+    assert '<ROUND n="2">' not in content1
+
+    round2 = round1 + [
+        {"kind": "llm_response", "round": 2, "text": "round2",
+         "tool_calls": None, "input_tokens": 200, "output_tokens": 100,
+         "reasoning_tokens": 0, "answer_tokens": 100,
+         "stop_reason": "end_turn", "duration": 2.0},
+    ]
+    content2 = _render_agent_conversation_log("sys", "user", round2)
+    assert '<ROUND n="1">' in content2
+    assert '<ROUND n="2">' in content2
+    assert "round2" in content2
