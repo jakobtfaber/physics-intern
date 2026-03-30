@@ -891,6 +891,7 @@ class SciRalph:
             if new_id:
                 h = self.research_state.hypotheses[new_id]
                 h.status = HypothesisStatus.ABANDONED
+                h.review = None  # stale VERIFIED review must not trigger re-promotion
                 h.iteration_modified = self.iteration
                 self.research_state.failed_approaches.append(FailedApproach(
                     description=f"Overturned {target_id} — {h.statement}",
@@ -906,6 +907,7 @@ class SciRalph:
                 if dep_new_id:
                     dep_h = self.research_state.hypotheses[dep_new_id]
                     dep_h.status = HypothesisStatus.ABANDONED
+                    dep_h.review = None  # prevent stale re-promotion
                     dep_h.iteration_modified = self.iteration
                     self.research_state.failed_approaches.append(FailedApproach(
                         description=f"Cascade from overturned {target_id} — {dep_h.statement}",
@@ -1059,7 +1061,9 @@ class SciRalph:
             if current_id not in state.hypotheses:
                 continue
             h = state.hypotheses[current_id]
-            # Must be VERIFIED to promote
+            # Must be WORKING and VERIFIED to promote
+            if h.status != HypothesisStatus.WORKING:
+                continue
             if not h.review or h.review.verdict != Verdict.VERIFIED:
                 continue
             unestablished = state.unestablished_dependencies(current_id)
