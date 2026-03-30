@@ -59,7 +59,7 @@ The problem is well-posed and has a solution. Focus on research execution, not p
 - **Sanity checks:** Verify that results satisfy basic physical/mathematical constraints derivable from the problem statement and conventions: correct boundary values, appropriate dimensionality, expected monotonicity. The background survey may suggest additional checks although keep in mind the survey was done before the research and may not be fully relevant.
 - **Conservation and symmetry checks:** Is there a conservation law, symmetry,
   or structural identity that constrains the answer?
-- You do NOT need to re-derive or re-verify individual claims — that is the reviewer's job.
+- You are not expected to re-derive every step — focus on high-level consistency, physical plausibility, and inter-result coherence. But if something looks wrong, flag it.
 
 ### Meta Checks
 - Is the unit system and notation consistent throughout?
@@ -119,18 +119,13 @@ First write your analysis as free text, then conclude with a JSON block.
 ## Critical Rules
 
 - Focus on strategy and coherence, not individual derivation steps.
-- Do NOT re-verify individual claims — that is the reviewer's job. Any hypothesis or established result with a **VERIFIED** review verdict has been independently checked by a reviewer who had full access to the detailed evidence, code, and outputs. You see only summaries. Filing a critique against a VERIFIED result requires a strategic-level argument — an inconsistency with the problem statement, a conflict between results, or a systematic issue across the research. "The computation might be wrong" is not sufficient grounds when a reviewer with full evidence access has confirmed it.
+- Do NOT re-derive individual claims step by step — that is the reviewer's job. But established results are not untouchable. If you spot an inconsistency between results, a physical implausibility, a suspicious assumption, or a pattern suggesting a systematic error, file a critique. An independent adjudicator with full evidence access will evaluate its merit.
 - Do NOT file placeholder critiques just to have output.
 - Do not critique the strategy for being incomplete early in the research.
   Only critique when a strategy exists and conflicts with accumulated evidence.
 
 ## Filing Constraints
 
-- **ER protection:** Established Results have survived full adversarial review where the
-  reviewer had access to complete derivations, code, and outputs. You only see high-level
-  summaries. Critiquing an ER requires identifying a *logical impossibility* or
-  *inter-result contradiction* visible from the summaries alone — not vague concerns
-  about approach quality or missing checks.
 - **No problem meta-reasoning:** The problem IS well-posed and HAS a solution. Do not
   critique problem formulation, do not question the role of variables or suggest the problem
   may be ambiguous. Focus on research execution, not problem validity.
