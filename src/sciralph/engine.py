@@ -1039,16 +1039,35 @@ class SciRalph:
 
         rationale = self.planner.parsed_revision_rationale or "No rationale provided."
 
-        # Resolve strategy/coordination critiques
-        for c in strategy_critiques:
-            c.status = CritiqueStatus.RESOLVED
-            c.resolution = f"Addressed in strategy revision: {rationale[:120]}"
-            c.resolution_type = "accepted"
-            c.iteration_resolved = self.iteration
-            console.print(f"  [green]{c.id} resolved by strategy revision[/green]")
+        # Resolve strategy/coordination critiques using planner's assessments
+        assessments_by_id: dict[str, dict] = {}
+        if self.planner.parsed_critique_assessments:
+            for a in self.planner.parsed_critique_assessments:
+                assessments_by_id[a.get("id", "")] = a
 
-        crit_ids = ", ".join(c.id for c in strategy_critiques)
-        event_label = f"STRATEGY REVISED ({crit_ids})" if crit_ids else "STRATEGY REVISED"
+        for c in strategy_critiques:
+            assessment = assessments_by_id.get(c.id)
+            c.status = CritiqueStatus.RESOLVED
+            c.iteration_resolved = self.iteration
+
+            if assessment and assessment.get("verdict") == "dismiss":
+                dismiss_reason = assessment.get("reason", "Dismissed by planner")[:200]
+                c.resolution = f"Dismissed by planner: {dismiss_reason}"
+                c.resolution_type = "dismissed"
+                console.print(f"  [yellow]{c.id} dismissed by planner: {dismiss_reason[:60]}[/yellow]")
+            else:
+                c.resolution = f"Addressed in strategy revision: {rationale[:120]}"
+                c.resolution_type = "accepted"
+                console.print(f"  [green]{c.id} accepted by planner[/green]")
+
+        accepted_ids = [c.id for c in strategy_critiques if c.resolution_type == "accepted"]
+        dismissed_ids = [c.id for c in strategy_critiques if c.resolution_type == "dismissed"]
+        label_parts: list[str] = []
+        if accepted_ids:
+            label_parts.append(f"accepted: {', '.join(accepted_ids)}")
+        if dismissed_ids:
+            label_parts.append(f"dismissed: {', '.join(dismissed_ids)}")
+        event_label = f"STRATEGY REVISED ({'; '.join(label_parts)})" if label_parts else "STRATEGY REVISED"
         self._state.pending_system_events.append(
             f"{event_label}: {rationale}"
         )

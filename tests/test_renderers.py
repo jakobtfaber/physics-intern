@@ -6,6 +6,7 @@ from sciralph.markdown import parse_frontmatter
 from sciralph.renderers import (
     render_critique_log_md,
     render_critic_context,
+    render_critic_previous_critiques,
     render_evidence_log_md,
     render_formatter_context,
     render_orchestrator_critique_log,
@@ -649,6 +650,83 @@ class TestRenderOrchestratorCritiqueLog:
 
 
 # ===========================================================================
+# render_critic_previous_critiques
+# ===========================================================================
+
+class TestRenderCriticPreviousCritiques:
+
+    def test_empty_returns_empty(self, empty_state):
+        text = render_critic_previous_critiques(empty_state)
+        assert text == ""
+
+    def test_includes_active_critiques(self, populated_state):
+        text = render_critic_previous_critiques(populated_state)
+        assert "CRIT-001" in text
+        assert 'status="UNRESOLVED"' in text
+
+    def test_includes_resolved_critiques(self, populated_state):
+        text = render_critic_previous_critiques(populated_state)
+        assert "CRIT-002" in text
+        assert 'status="RESOLVED"' in text
+
+    def test_resolved_shows_resolution_type(self):
+        state = ResearchState()
+        state.critiques["CRIT-010"] = Critique(
+            id="CRIT-010",
+            targets=["ER-001"],
+            severity=Severity.LOW,
+            argument="Issue.",
+            status=CritiqueStatus.RESOLVED,
+            resolution_type="dismissed",
+            resolution="Not a real issue.",
+        )
+        text = render_critic_previous_critiques(state)
+        assert 'resolution-type="dismissed"' in text
+
+    def test_resolved_shows_resolution_text(self):
+        state = ResearchState()
+        state.critiques["CRIT-010"] = Critique(
+            id="CRIT-010",
+            targets=["ER-001"],
+            severity=Severity.LOW,
+            argument="Notation issue.",
+            status=CritiqueStatus.RESOLVED,
+            resolution_type="dismissed",
+            resolution="Notation is consistent with conventions.",
+        )
+        text = render_critic_previous_critiques(state)
+        assert "Resolution: Notation is consistent with conventions." in text
+
+    def test_no_resolution_line_when_empty(self):
+        state = ResearchState()
+        state.critiques["CRIT-010"] = Critique(
+            id="CRIT-010",
+            targets=["ER-001"],
+            severity=Severity.LOW,
+            argument="Something.",
+            status=CritiqueStatus.RESOLVED,
+            resolution_type="accepted",
+            resolution="",
+        )
+        text = render_critic_previous_critiques(state)
+        assert "Resolution:" not in text
+
+    def test_clean_reviews_included(self, populated_state):
+        populated_state.critic_clean_reviews = [
+            {"iteration": 5, "summary": "All checks pass."},
+        ]
+        text = render_critic_previous_critiques(populated_state)
+        assert "<clean-reviews>" in text
+        assert "Iteration 5: All checks pass." in text
+
+    def test_critic_context_uses_new_renderer(self, populated_state):
+        """render_critic_context should show resolved critiques."""
+        text = render_critic_context(populated_state, iteration=5)
+        assert "CRIT-002" in text
+        assert 'status="RESOLVED"' in text
+
+
+# ===========================================================================
 # Snapshot regression: helpers don't break existing renderers
 # ===========================================================================
 
@@ -771,6 +849,7 @@ class TestPlannerReviseEnrichedContext:
             review=ReviewResult(verdict="VERIFIED", summary="Independent derivation confirms", iteration=3),
         )
         text = render_planner_revise_context(state, "ER-002 was overturned")
+        assert "## Established Results (ERs)" in text
         assert "ER-001: F(p) is a rational function, VERIFIED" in text
         assert "depends_on: none" in text
         assert "evidence: [E-001] compute" in text
@@ -829,6 +908,76 @@ class TestPlannerReviseEnrichedContext:
         state = ResearchState(problem_statement="Test")
         text = render_planner_revise_context(state, "trigger")
         assert "<critic-clean-reviews>" not in text
+
+    def test_entities_grouped_by_type(self):
+        from sciralph.research_state import ResearchQuestion, RQStatus
+        state = ResearchState(problem_statement="Test")
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", statement="Established claim",
+            status=HypothesisStatus.ESTABLISHED,
+            review=ReviewResult(verdict="VERIFIED", summary="OK", iteration=2),
+        )
+        state.hypotheses["WH-002"] = Hypothesis(
+            id="WH-002", statement="Working claim",
+            status=HypothesisStatus.WORKING,
+        )
+        state.research_questions["RQ-001"] = ResearchQuestion(
+            id="RQ-001", question="Open question", status=RQStatus.OPEN,
+        )
+        text = render_planner_revise_context(state, "trigger")
+        er_pos = text.index("## Established Results (ERs)")
+        wh_pos = text.index("## Working Hypotheses (WHs)")
+        rq_pos = text.index("## Research Questions (RQs)")
+        assert er_pos < wh_pos < rq_pos
+
+    def test_er_shows_derivation_excerpt(self):
+        state = ResearchState(problem_statement="Test")
+        derivation_text = "Starting from the Einstein field equations, we contract with g^{mu nu} to obtain the trace R = -8 pi G T."
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", statement="Trace relation",
+            status=HypothesisStatus.ESTABLISHED,
+            derivation=derivation_text,
+            review=ReviewResult(verdict="VERIFIED", summary="Confirmed", iteration=2),
+        )
+        text = render_planner_revise_context(state, "trigger")
+        assert "derivation (excerpt):" in text
+        assert "Einstein field equations" in text
+
+    def test_er_uses_longer_summary_limit(self):
+        state = ResearchState(problem_statement="Test")
+        long_summary = "A" * 250
+        state.hypotheses["ER-001"] = Hypothesis(
+            id="ER-001", statement="Claim",
+            status=HypothesisStatus.ESTABLISHED,
+            evidence=[Evidence(id="E-001", type="compute", summary=long_summary, iteration=2)],
+            review=ReviewResult(verdict="VERIFIED", summary="OK", iteration=3),
+        )
+        text = render_planner_revise_context(state, "trigger")
+        # ER uses 300-char limit, so 250-char summary is not truncated
+        assert long_summary in text
+
+    def test_wh_truncates_summary_at_150(self):
+        state = ResearchState(problem_statement="Test")
+        long_summary = "B" * 200
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Working claim",
+            status=HypothesisStatus.WORKING,
+            evidence=[Evidence(id="E-002", type="research", summary=long_summary, iteration=2)],
+        )
+        text = render_planner_revise_context(state, "trigger")
+        # WH uses 150-char limit
+        assert "B" * 150 in text
+        assert "B" * 151 not in text
+
+    def test_wh_has_no_derivation_excerpt(self):
+        state = ResearchState(problem_statement="Test")
+        state.hypotheses["WH-001"] = Hypothesis(
+            id="WH-001", statement="Working claim",
+            status=HypothesisStatus.WORKING,
+            derivation="Some derivation that should not appear",
+        )
+        text = render_planner_revise_context(state, "trigger")
+        assert "derivation (excerpt):" not in text
 
 
 # ===========================================================================

@@ -761,8 +761,8 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
         checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
         parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
 
-    # Previous Critiques (reuse existing XML renderer)
-    critique_xml = render_orchestrator_critique_log(state)
+    # Previous Critiques (critic needs both active AND resolved to avoid re-filing)
+    critique_xml = render_critic_previous_critiques(state)
     parts.append(f"<previous-critiques>\n{critique_xml}\n</previous-critiques>")
 
     return "\n\n".join(parts)
@@ -850,19 +850,22 @@ def render_formatter_context(
     return "\n\n".join(parts)
 
 
-def _render_entity_detail(h: Hypothesis) -> str:
+def _render_entity_detail(h: Hypothesis, is_er: bool = False) -> str:
     """Render enriched entity description for planner revision context."""
+    summary_limit = 300 if is_er else 150
     status_tag = "VERIFIED" if h.status == HypothesisStatus.ESTABLISHED else (
         h.review.verdict if h.review else "PENDING REVIEW"
     )
     lines = [f"{h.id}: {h.statement}, {status_tag}"]
     deps = ", ".join(h.depends_on) if h.depends_on else "none"
     lines.append(f"  depends_on: {deps}")
+    if is_er and h.derivation:
+        lines.append(f"  derivation (excerpt): {h.derivation[:300]}")
     for ev in h.evidence:
-        summary = (ev.summary or "")[:150]
+        summary = (ev.summary or "")[:summary_limit]
         lines.append(f"  evidence: [{ev.id}] {ev.type} — {summary}")
     if h.review:
-        review_summary = (h.review.summary or "")[:150]
+        review_summary = (h.review.summary or "")[:summary_limit]
         lines.append(f"  review: {h.review.verdict} — {review_summary}")
     return "\n".join(lines)
 
@@ -904,16 +907,27 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
     # Revision Trigger
     parts.append(f"<revision-trigger>\n{trigger_text}\n</revision-trigger>")
 
-    # Entities — enriched descriptions for planner revision
-    entity_lines: list[str] = []
+    # Entities — grouped by type for clarity
+    er_lines: list[str] = []
+    wh_lines: list[str] = []
+    rq_lines: list[str] = []
     for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
-        if h.status in (HypothesisStatus.ESTABLISHED, HypothesisStatus.WORKING):
-            entity_lines.append(_render_entity_detail(h))
+        if h.status == HypothesisStatus.ESTABLISHED:
+            er_lines.append(_render_entity_detail(h, is_er=True))
+        elif h.status == HypothesisStatus.WORKING:
+            wh_lines.append(_render_entity_detail(h, is_er=False))
     for rq in sorted(state.research_questions.values(), key=lambda r: r.id):
         if rq.status == RQStatus.OPEN:
-            entity_lines.append(_render_rq_detail(rq))
-    if entity_lines:
-        parts.append("<entities>\n" + "\n\n".join(entity_lines) + "\n</entities>")
+            rq_lines.append(_render_rq_detail(rq))
+    entity_parts: list[str] = []
+    if er_lines:
+        entity_parts.append("## Established Results (ERs) — verified foundations\n" + "\n\n".join(er_lines))
+    if wh_lines:
+        entity_parts.append("## Working Hypotheses (WHs) — under review\n" + "\n\n".join(wh_lines))
+    if rq_lines:
+        entity_parts.append("## Research Questions (RQs) — open investigations\n" + "\n\n".join(rq_lines))
+    if entity_parts:
+        parts.append("<entities>\n" + "\n\n".join(entity_parts) + "\n</entities>")
 
     # Dead Ends
     de_lines: list[str] = []
@@ -975,6 +989,50 @@ def render_orchestrator_critique_log(state: ResearchState) -> str:
         content = c.argument or ""
         parts.append(f'<critique id="{c.id}" severity="{c.severity}" blocking="{blocking}" status="UNRESOLVED" target="{target_str}">\n{content}\n</critique>')
 
+    if state.critic_clean_reviews:
+        review_lines: list[str] = []
+        for rev in sorted(state.critic_clean_reviews, key=lambda r: r.get("iteration", 0)):
+            review_lines.append(f"Iteration {rev.get('iteration', '?')}: {rev.get('summary', '')}")
+        parts.append("<clean-reviews>\n" + "\n".join(review_lines) + "\n</clean-reviews>")
+
+    return "\n".join(parts)
+
+
+def render_critic_previous_critiques(state: ResearchState) -> str:
+    """Render previous critiques for the deep critic context.
+
+    Unlike the orchestrator version, includes RESOLVED critiques so the
+    critic can see what was already filed and avoid re-filing.
+    """
+    parts: list[str] = []
+
+    # Active critiques first
+    active = [c for c in state.critiques.values() if c.status == CritiqueStatus.ACTIVE]
+    for c in sorted(active, key=lambda c: c.id):
+        target_str = ", ".join(c.targets) if c.targets else "general"
+        blocking = "true" if c.severity == Severity.HIGH else "false"
+        content = c.argument or ""
+        parts.append(
+            f'<critique id="{c.id}" severity="{c.severity}" blocking="{blocking}"'
+            f' status="UNRESOLVED" target="{target_str}">\n{content}\n</critique>'
+        )
+
+    # Resolved/withdrawn critiques — concise, with resolution
+    resolved = [c for c in state.critiques.values() if c.status != CritiqueStatus.ACTIVE]
+    for c in sorted(resolved, key=lambda c: c.id):
+        target_str = ", ".join(c.targets) if c.targets else "general"
+        res_type = c.resolution_type or "unknown"
+        resolution = c.resolution or ""
+        content = c.argument or ""
+        parts.append(
+            f'<critique id="{c.id}" severity="{c.severity}"'
+            f' status="RESOLVED" resolution-type="{res_type}" target="{target_str}">'
+            f"\n{content}"
+            + (f"\nResolution: {resolution}" if resolution else "")
+            + "\n</critique>"
+        )
+
+    # Clean reviews
     if state.critic_clean_reviews:
         review_lines: list[str] = []
         for rev in sorted(state.critic_clean_reviews, key=lambda r: r.get("iteration", 0)):

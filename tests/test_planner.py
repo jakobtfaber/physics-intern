@@ -351,6 +351,8 @@ class TestPlannerReviseProcessResponse:
         assert len(agent.parsed_sanity_checks) == 1
         assert agent.parsed_sanity_checks[0] == "T -> 0 as M -> inf"
         assert agent.parsed_revision_rationale == "ER-001 demotion invalidates downstream results."
+        # No critique_assessments in JSON → None
+        assert agent.parsed_critique_assessments is None
 
     def test_fallback_on_malformed_json(self):
         agent = self._make_agent()
@@ -366,6 +368,7 @@ class TestPlannerReviseProcessResponse:
         assert agent.parsed_strategy == "The strategy looks fine. No JSON here, just plain text analysis."
         assert agent.parsed_entity_actions is None
         assert agent.parsed_sanity_checks is None
+        assert agent.parsed_critique_assessments is None
         # Rationale is truncated to 200 chars
         assert agent.parsed_revision_rationale is not None
         assert len(agent.parsed_revision_rationale) <= 200
@@ -444,6 +447,85 @@ Actually, corrected:
         agent.process_response(response, task, iteration=5)
         assert agent.parsed_strategy == "correct strategy"
         assert agent.parsed_revision_rationale == "corrected"
+
+
+    def test_parses_critique_assessments(self):
+        agent = self._make_agent()
+        response = MagicMock(spec=LLMResponse)
+        response.text = """```json
+{
+  "critique_assessments": [
+    {"id": "CRIT-001", "verdict": "accept", "reason": "Valid concern about sign convention"},
+    {"id": "CRIT-002", "verdict": "dismiss", "reason": "Critique assumes Euclidean signature but we use Lorentzian"}
+  ],
+  "revised_strategy": "Updated strategy",
+  "entity_actions": [],
+  "sanity_checks": [],
+  "revision_rationale": "Accepted one critique, dismissed another."
+}
+```"""
+        task = Task(
+            task_id="PLAN-REV-001",
+            task_type=TaskType.PLAN_REVISE,
+            assigned_to="planner",
+        )
+        agent.process_response(response, task, iteration=5)
+        assert agent.parsed_critique_assessments is not None
+        assert len(agent.parsed_critique_assessments) == 2
+        assert agent.parsed_critique_assessments[0]["id"] == "CRIT-001"
+        assert agent.parsed_critique_assessments[0]["verdict"] == "accept"
+        assert agent.parsed_critique_assessments[1]["id"] == "CRIT-002"
+        assert agent.parsed_critique_assessments[1]["verdict"] == "dismiss"
+
+    def test_critique_assessments_filters_invalid_entries(self):
+        agent = self._make_agent()
+        response = MagicMock(spec=LLMResponse)
+        response.text = """```json
+{
+  "critique_assessments": [
+    {"id": "CRIT-001", "verdict": "accept", "reason": "Valid"},
+    {"id": "CRIT-002"},
+    {"verdict": "dismiss"},
+    "not a dict",
+    {"id": "CRIT-003", "verdict": "dismiss", "reason": "Invalid assumption"}
+  ],
+  "revised_strategy": "Same strategy",
+  "entity_actions": [],
+  "sanity_checks": [],
+  "revision_rationale": "Filtered."
+}
+```"""
+        task = Task(
+            task_id="PLAN-REV-001",
+            task_type=TaskType.PLAN_REVISE,
+            assigned_to="planner",
+        )
+        agent.process_response(response, task, iteration=5)
+        assert agent.parsed_critique_assessments is not None
+        # Only entries with both "id" and "verdict" survive
+        assert len(agent.parsed_critique_assessments) == 2
+        assert agent.parsed_critique_assessments[0]["id"] == "CRIT-001"
+        assert agent.parsed_critique_assessments[1]["id"] == "CRIT-003"
+
+    def test_critique_assessments_not_a_list(self):
+        agent = self._make_agent()
+        response = MagicMock(spec=LLMResponse)
+        response.text = """```json
+{
+  "critique_assessments": "should be a list",
+  "revised_strategy": "Same",
+  "entity_actions": [],
+  "sanity_checks": [],
+  "revision_rationale": "Bad format."
+}
+```"""
+        task = Task(
+            task_id="PLAN-REV-001",
+            task_type=TaskType.PLAN_REVISE,
+            assigned_to="planner",
+        )
+        agent.process_response(response, task, iteration=5)
+        assert agent.parsed_critique_assessments is None
 
 
 class TestParsePlannerJson:

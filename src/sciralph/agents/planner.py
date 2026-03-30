@@ -45,6 +45,7 @@ class PlannerAgent(BaseAgent):
         self.parsed_entity_actions: list[dict] | None = None
         self.parsed_sanity_checks: list[str] | None = None
         self.parsed_revision_rationale: str | None = None
+        self.parsed_critique_assessments: list[dict] | None = None
 
     def _is_revise_mode(self, task: Task) -> bool:
         return task.task_type == TaskType.PLAN_REVISE
@@ -112,6 +113,14 @@ class PlannerAgent(BaseAgent):
             else:
                 self.parsed_sanity_checks = None
             self.parsed_revision_rationale = parsed.get("revision_rationale")
+            raw_ca = parsed.get("critique_assessments")
+            if isinstance(raw_ca, list):
+                self.parsed_critique_assessments = [
+                    a for a in raw_ca
+                    if isinstance(a, dict) and "id" in a and "verdict" in a
+                ]
+            else:
+                self.parsed_critique_assessments = None
         else:
             # Fallback: treat entire response as strategy text
             stripped = text.strip()
@@ -119,3 +128,4 @@ class PlannerAgent(BaseAgent):
             self.parsed_entity_actions = None
             self.parsed_sanity_checks = None
             self.parsed_revision_rationale = stripped[:200] if stripped else None
+            self.parsed_critique_assessments = None
