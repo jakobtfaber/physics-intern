@@ -608,7 +608,7 @@ class SciRalph:
                 provenance = f"  [from {r['task_id']}: {r['task_type']} on {r['target_id']}]"
                 lines.append(f"-{ev_label} {r['target_id']}: {r['description']}  [{r['confidence']}]{provenance}")
                 if r.get("result"):
-                    lines.append(f"  Result: {r['result'][:800]}")
+                    lines.append(f"  Result: {r['result']}")
                 _is_failure = r.get("result", "").startswith(("Agent produced no exit tool call", "Failed to parse structured"))
                 if _is_failure:
                     lines.append("  NOTE: This evidence is from a failed agent run — do NOT treat it as usable evidence.")
@@ -1225,7 +1225,7 @@ class SciRalph:
                 self._state.pending_explore_results.append({
                     "target_id": target_id,
                     "description": description,
-                    "result": ev.result[:500],
+                    "result": ev.result,
                     "confidence": ev.confidence or "partial",
                     "task_id": task.task_id,
                     "task_type": task.task_type.value,
