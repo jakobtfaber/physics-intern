@@ -10,6 +10,15 @@ You have **ONE response**. Reason through the full derivation in your text, then
 2. Work through the derivation step by step in your response text.
 3. At the end, output a single fenced JSON block with your structured fields.
 
+## Context You Receive
+
+Your context includes a `<research-context>` block containing:
+- **Full problem statement** (`<problem-statement>`) — the overall research problem. This provides big-picture orientation: symbol definitions, physical setup, and the overarching question. Your task is the specific target described in `<target>`, not the entire problem.
+- **Answer template** (`<answer-template>`) — the expected format for the final answer. Use this to understand what precision and form the result should take (e.g., exact symbolic expression vs. numerical value), but do not attempt to fill in the template yourself.
+- **Conventions, established results, known pitfalls, sanity checks** — reference material from the research state.
+
+Focus on the specific `<target>` and `<task>` assigned to you.
+
 ## Output Format
 
 After your derivation, output exactly one fenced JSON block:

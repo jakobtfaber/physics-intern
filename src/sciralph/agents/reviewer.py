@@ -95,11 +95,12 @@ class ReviewerAgent(BaseAgent):
 
         parts = [f"<task>\n{auto_desc}\n</task>"]
 
-        # Problem context — prefer compact summary; fall back to full statement
+        # Problem context — full statement + answer template for big-picture orientation
         if self.research_state:
-            ps_text = self.research_state.problem_summary or self.research_state.problem_statement
-            if ps_text:
-                parts.append(f"\n<problem-statement>\n{ps_text}\n</problem-statement>")
+            if self.research_state.problem_statement:
+                parts.append(f"\n<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>")
+            if self.research_state.answer_template:
+                parts.append(f"\n<answer-template>\n{self.research_state.answer_template}\n</answer-template>")
 
         if self.research_state and task.target_claim:
             target_id = task.target_claim

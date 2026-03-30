@@ -56,6 +56,8 @@ class AdjudicatorAgent(BaseAgent):
         # Problem statement
         if self.research_state.problem_statement:
             parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>")
+        if self.research_state.answer_template:
+            parts.append(f"<answer-template>\n{self.research_state.answer_template}\n</answer-template>")
 
         # The claim being challenged — full details
         target_id = task.target_claim

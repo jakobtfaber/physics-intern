@@ -122,8 +122,10 @@ class EvidenceAgent(BaseAgent):
         #    (no strategy, no open questions — those are orchestrator concerns)
         if self.research_state:
             rc_parts: list[str] = []
-            if self.research_state.problem_summary:
-                rc_parts.append(f"<problem-summary>\n{self.research_state.problem_summary}\n</problem-summary>")
+            if self.research_state.problem_statement:
+                rc_parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>")
+            if self.research_state.answer_template:
+                rc_parts.append(f"<answer-template>\n{self.research_state.answer_template}\n</answer-template>")
             if self.research_state.conventions:
                 rc_parts.append(f"<conventions>\n{self.research_state.conventions}\n</conventions>")
             ers = self.research_state.established_hypotheses()

@@ -288,12 +288,12 @@ class TestReviewerBuildContext:
 
 
 # ---------------------------------------------------------------------------
-# ReviewerAgent.build_context — problem_summary preference
+# ReviewerAgent.build_context — problem statement & answer template
 # ---------------------------------------------------------------------------
 
 
-class TestReviewerProblemSummary:
-    def test_uses_problem_summary_when_available(self):
+class TestReviewerProblemContext:
+    def test_always_uses_full_problem_statement(self):
         root = Path(tempfile.mkdtemp())
         agent = _make_reviewer(root)
         agent.research_state.problem_summary = "Derive T_H for Schwarzschild BH."
@@ -301,10 +301,9 @@ class TestReviewerProblemSummary:
         task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
                     body="Review WH-001", target_claim="WH-001")
         ctx = agent.build_context(task, iteration=1)
-        assert "Derive T_H for Schwarzschild BH." in ctx
-        assert "Full lengthy problem statement..." not in ctx
+        assert "Full lengthy problem statement..." in ctx
 
-    def test_falls_back_to_problem_statement(self):
+    def test_uses_problem_statement_when_summary_empty(self):
         root = Path(tempfile.mkdtemp())
         agent = _make_reviewer(root)
         agent.research_state.problem_summary = ""
@@ -313,6 +312,27 @@ class TestReviewerProblemSummary:
                     body="Review WH-001", target_claim="WH-001")
         ctx = agent.build_context(task, iteration=1)
         assert "Full lengthy problem statement..." in ctx
+
+    def test_includes_answer_template(self):
+        root = Path(tempfile.mkdtemp())
+        agent = _make_reviewer(root)
+        agent.research_state.problem_statement = "Test problem"
+        agent.research_state.answer_template = "F(p) = <sympy expression>"
+        task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
+                    body="Review WH-001", target_claim="WH-001")
+        ctx = agent.build_context(task, iteration=1)
+        assert "<answer-template>" in ctx
+        assert "F(p) = <sympy expression>" in ctx
+
+    def test_no_answer_template_when_empty(self):
+        root = Path(tempfile.mkdtemp())
+        agent = _make_reviewer(root)
+        agent.research_state.problem_statement = "Test problem"
+        agent.research_state.answer_template = ""
+        task = Task(task_id="T1", task_type=TaskType.REVIEW, assigned_to="reviewer",
+                    body="Review WH-001", target_claim="WH-001")
+        ctx = agent.build_context(task, iteration=1)
+        assert "<answer-template>" not in ctx
 
 
 # ---------------------------------------------------------------------------
