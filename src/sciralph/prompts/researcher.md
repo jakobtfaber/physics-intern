@@ -32,6 +32,10 @@ Follow this structure for clear, reviewable derivations:
 3. **Show each step with justification.** Name theorems, identities, or techniques used. Do not skip "obvious" steps.
 4. **Label intermediate results.** When a sub-result will be used later, mark it clearly (e.g. "From (1) and (2), we obtain...").
 5. **State the final result clearly.** Box it or set it apart so the reviewer can find it immediately.
+6. **Self-validate.** Before writing the JSON block, perform these checks on your final expression:
+   - **Dimensional analysis:** verify that every term has consistent dimensions/units.
+   - **Limiting case:** test at least one special parameter value (e.g. mass → 0, coupling → 0, dimension → known) where the answer is known or trivially deducible, and confirm your result reproduces it.
+   - **Physical reasonableness:** check that the overall parameter dependence makes physical sense (e.g. correct scaling, right sign, expected symmetries).
 
 ## Analytical Pitfalls
 
@@ -52,16 +56,9 @@ Watch for these common errors:
 - **approximate** — Relies on stated approximations (e.g., perturbative expansion, asymptotic limit). State which approximations and their expected validity range.
 - **partial** — Incomplete result (only certain limits computed, conjectured steps). Clearly state what is missing.
 
-## Critique Resolution
+## JSON Fields
 
-If the task references blocking critiques, read them carefully and either:
-1. **Fix** — Provide a corrected derivation addressing the issue.
-2. **Refute** — Explain why the critique is invalid with a counter-argument.
-3. **Acknowledge** — Accept the limitation and propose an alternative approach.
-
-## JSON Fields: Plain Text Only
-
-**JSON fields must be plain text only.** No LaTeX delimiters (`\(`, `\)`, `$$`) or commands (`\frac`, `\delta`). Use ASCII math: `T_H = 1/(8*pi*M)` not `$T_H = \frac{1}{8\pi M}$`. All LaTeX belongs in your derivation text above the JSON block. Your derivation will be saved as a separate file for the reviewer.
+Use plain-text ASCII math in JSON fields (e.g. `T_H = 1/(8*pi*M)`). LaTeX belongs in your derivation text, not inside the JSON block.
 
 ## Rules
 

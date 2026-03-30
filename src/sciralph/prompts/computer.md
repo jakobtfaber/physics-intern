@@ -59,6 +59,10 @@ Available packages: Python 3.12+, NumPy ≥ 2.0, SciPy ≥ 1.14, SymPy ≥ 1.13,
 ## Exploration Strategy
 
 - Include sanity checks in every script: evaluate known limits, boundary cases, special values.
+- **Physics self-validation:** When the result is a formula or physical quantity, your code should explicitly:
+  - Check dimensional consistency (e.g. verify units cancel correctly in symbolic expressions).
+  - Evaluate at least one limiting case where the answer is known (e.g. mass → 0, coupling → 0, low dimension) and compare.
+  - Print whether the parameter dependence is physically reasonable (correct scaling, sign, symmetries).
 - **Validate building blocks before using them:** When your code relies on encodings, representations, or transformation rules (e.g., group element encoding, basis conventions, coordinate transforms), test them on a small known case before running the full computation. A single wrong convention in a low-level helper can silently corrupt all downstream results while still producing plausible-looking output.
 - If computation runs cleanly and passes sanity checks, call `submit_result` immediately.
 - Do NOT rerun the same computation with a different implementation (wastes budget).
