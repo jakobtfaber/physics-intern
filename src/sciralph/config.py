@@ -51,6 +51,7 @@ class Config:
     budget_synthesis_margin: int = DEFAULTS["budget_synthesis_margin"]
     orchestrator_comp_log_tail: int = DEFAULTS["orchestrator_comp_log_tail"]
     prior_failure_excerpt_chars: int = DEFAULTS["prior_failure_excerpt_chars"]
+    max_open_rqs: int = DEFAULTS["max_open_rqs"]
     rq_evidence_cap: int = DEFAULTS["rq_evidence_cap"]
     max_refuted_retries: int = DEFAULTS["max_refuted_retries"]
     auto_expire_iterations: int = DEFAULTS["auto_expire_iterations"]
@@ -133,6 +134,7 @@ _YAML_CONFIG_FIELDS = frozenset({
     "budget_synthesis_margin",
     "orchestrator_comp_log_tail",
     "prior_failure_excerpt_chars",
+    "max_open_rqs",
     "rq_evidence_cap",
     "max_refuted_retries",
     "auto_expire_iterations",

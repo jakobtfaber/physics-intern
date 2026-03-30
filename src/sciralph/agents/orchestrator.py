@@ -35,7 +35,9 @@ class OrchestratorAgent(BaseAgent):
                 parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>\n")
             if self.research_state.answer_template:
                 parts.append(f"<answer-template>\n{self.research_state.answer_template}\n</answer-template>\n")
-        state_text = render_orchestrator_slim_state(self.research_state) if self.research_state else ""
+        state_text = render_orchestrator_slim_state(
+            self.research_state, max_open_rqs=self.config.max_open_rqs,
+        ) if self.research_state else ""
         if iteration >= 3 and self.research_state and not self.research_state.conventions:
             parts.append(
                 ">>> REMINDER: The '# Conventions' section is still empty. "
@@ -72,6 +74,7 @@ class OrchestratorAgent(BaseAgent):
             min_er_for_completion=self.config.min_er_for_completion,
             max_iterations=self.config.max_iterations,
             budget_synthesis_margin=self.config.budget_synthesis_margin,
+            max_open_rqs=self.config.max_open_rqs,
             rq_evidence_cap=self.config.rq_evidence_cap,
             max_refuted_retries=self.config.max_refuted_retries,
         )

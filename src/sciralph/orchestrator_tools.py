@@ -396,6 +396,7 @@ class OrchestratorToolExecutor:
         min_er_for_completion: int = 3,
         max_iterations: int = 20,
         budget_synthesis_margin: int = 3,
+        max_open_rqs: int = 1,
         rq_evidence_cap: int = 3,
         max_refuted_retries: int = 2,
     ):
@@ -410,6 +411,7 @@ class OrchestratorToolExecutor:
         self._min_er_for_completion = min_er_for_completion
         self._max_iterations = max_iterations
         self._budget_synthesis_margin = budget_synthesis_margin
+        self._max_open_rqs = max_open_rqs
         self._rq_evidence_cap = rq_evidence_cap
         self._max_refuted_retries = max_refuted_retries
 
@@ -798,15 +800,15 @@ class OrchestratorToolExecutor:
         open_rqs = state.open_research_questions()
         blocking = [c for c in state.critiques.values()
                     if c.status == CritiqueStatus.ACTIVE and c.severity == Severity.HIGH]
-        if len(open_rqs) >= 3:
+        if len(open_rqs) >= self._max_open_rqs:
             ids = ", ".join(rq.id for rq in open_rqs)
             return (
-                f"Error: already {len(open_rqs)} open RQs ({ids}). "
-                "You should first take care of them."
-                "You can either :"
-                " - Turn an existing RQ into a Working Hypothesis using `add_hypothesis`, provided the RQ has at least 1 evidence."
-                " - Abandon an RQ using `abandon_research_question`."
-                " - Keep working on an existing RQ by using `dispatch_researcher` or `dispatch_computer` to gather more evidence on it."
+                f"Error: already {len(open_rqs)} open RQ(s) ({ids}), limit is {self._max_open_rqs}. "
+                "You should first take care of them. "
+                "You can either: "
+                "- Turn an existing RQ into a Working Hypothesis using `add_hypothesis`, provided the RQ has at least 1 evidence. "
+                "- Abandon an RQ using `abandon_research_question`. "
+                "- Keep working on an existing RQ by using `dispatch_researcher` or `dispatch_computer` to gather more evidence on it."
             )
         if blocking:
             return (

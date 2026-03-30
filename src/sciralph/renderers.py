@@ -524,11 +524,18 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
     return "\n\n".join(parts)
 
 
-def render_orchestrator_slim_state(state: ResearchState) -> str:
+def render_orchestrator_slim_state(
+    state: ResearchState,
+    *,
+    max_open_rqs: int | None = None,
+) -> str:
     """Render compact one-liner research state for the orchestrator.
 
     Target ~8K tokens.  Keeps conventions and strategy in full; renders
     entities as one-liners (no derivations, evidence details, or review text).
+
+    If *max_open_rqs* is given, a cap annotation is added to the
+    ``<research-questions>`` section so the orchestrator knows the limit.
     """
     parts: list[str] = []
 
@@ -582,10 +589,12 @@ def render_orchestrator_slim_state(state: ResearchState) -> str:
         parts.append("<hypotheses>\n" + "\n".join(wh_lines) + "\n</hypotheses>")
 
     # Research Questions — one-liner per RQ (omit resolved→ER, already in established-results)
+    rq_lines: list[str] = []
+    n_open_rqs = 0
     if state.research_questions:
-        rq_lines: list[str] = []
         for rq in sorted(state.research_questions.values(), key=lambda r: r.id):
             if rq.status == RQStatus.OPEN:
+                n_open_rqs += 1
                 n_ev = len(rq.evidence)
                 ev_note = f", {n_ev} evidence item{'s' if n_ev != 1 else ''}" if n_ev else ""
                 rq_lines.append(f"- {rq.id}: {rq.question}, OPEN{ev_note}")
@@ -595,8 +604,14 @@ def render_orchestrator_slim_state(state: ResearchState) -> str:
                 rq_lines.append(f"- {rq.id}: {rq.question}, RESOLVED → {', '.join(rq.resolved_to)}")
             else:
                 rq_lines.append(f"- {rq.id}: {rq.question}, {rq.status.upper()}")
-        if rq_lines:
-            parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
+    if max_open_rqs is not None:
+        cap_note = f"Open RQ cap: {max_open_rqs} (currently {n_open_rqs} open"
+        if n_open_rqs >= max_open_rqs:
+            cap_note += " — limit reached, resolve existing RQs before creating new ones"
+        cap_note += ")"
+        rq_lines.insert(0, cap_note)
+    if rq_lines:
+        parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
 
     # Dead Ends — one-liner per entry
     dead_lines: list[str] = []

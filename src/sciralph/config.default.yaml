@@ -39,6 +39,11 @@ prior_failure_excerpt_chars: 3000
 # Iterations before MEDIUM/LOW critiques auto-expire (HIGH never expire; 0 disables)
 auto_expire_iterations: 3
 
+# --- Open RQ cap ---
+# Max open research questions at a time. Forces the orchestrator to resolve
+# existing RQs (promote to WH or abandon) before creating new ones.
+max_open_rqs: 1
+
 # --- Evidence pile-up cap ---
 # Max non-refuted evidence items on an RQ before dispatch tools are blocked.
 # Forces the orchestrator to promote (add_hypothesis) or abandon the RQ.

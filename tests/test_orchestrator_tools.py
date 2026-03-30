@@ -665,7 +665,7 @@ class TestResearchQuestionTools:
         assert not ex.mutations_applied
 
     def test_add_rq_blocked_by_cap(self):
-        """Cannot create RQ when >= 3 open RQs exist."""
+        """Cannot create RQ when >= max_open_rqs open RQs exist."""
         from sciralph.research_state import ResearchQuestion
         ws = _make_workspace()
         state = _make_state()
@@ -676,7 +676,8 @@ class TestResearchQuestionTools:
             )
         ex = OrchestratorToolExecutor(ws, iteration=3, research_state=state)
         tc = ex.execute("add_research_question", {"question": "One more?"})
-        assert "already 3 open RQs" in tc.output
+        assert "already 3 open RQ(s)" in tc.output
+        assert "limit is 1" in tc.output
 
     def test_add_rq_blocked_by_unresolved_critiques(self):
         """Cannot create RQ when unresolved critiques exist."""
