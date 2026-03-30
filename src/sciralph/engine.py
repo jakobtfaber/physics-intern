@@ -1236,7 +1236,8 @@ class SciRalph:
                 })
                 snippet = (ev.summary or ev.result[:120]).replace("\n", " ")
                 conf = f", {ev.confidence}" if ev.confidence else ""
-                console.print(f"  [blue]Evidence for {target_id}[/blue]{conf}: {snippet}")
+                ev_tag = f" [{ev.id}]" if ev.id else ""
+                console.print(f"  [blue]Evidence for {target_id}[/blue]{ev_tag}{conf}: {snippet}")
             else:
                 log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
                                    "evidence_suppressed", f"target={target_id}")
