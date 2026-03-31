@@ -891,10 +891,6 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
     if survey_ctx:
         parts.append(f"<background-survey>\n{survey_ctx}\n</background-survey>")
 
-    # Current Strategy
-    strat = state.strategy or "(No strategy set.)"
-    parts.append(f"<current-strategy>\n{strat}\n</current-strategy>")
-
     # Research state — conventions, established results (enriched), dead ends
     rs_parts: list[str] = []
     if state.conventions:
