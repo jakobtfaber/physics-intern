@@ -33,6 +33,8 @@ def fix_invalid_json_escapes(s: str) -> str:
     protected = s.replace("\\\\", _PLACEHOLDER)
     # Step 2: fix lone backslashes that aren't valid JSON escapes
     fixed = re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", protected)
+    # Step 2b: fix malformed \uXXXX sequences (\u not followed by 4 hex digits)
+    fixed = re.sub(r"\\u(?![0-9a-fA-F]{4})", r"\\\\u", fixed)
     # Step 3: restore protected pairs
     return fixed.replace(_PLACEHOLDER, "\\\\")
 

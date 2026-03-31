@@ -70,6 +70,29 @@ class TestFixInvalidJsonEscapes:
         s = '{"x": "hello world"}'
         assert fix_invalid_json_escapes(s) == s
 
+    def test_malformed_unicode_u0delta(self):
+        r"""\u0delta — malformed \uXXXX (not 4 hex digits) → \\u0delta."""
+        s = r'{"x": "\u0delta"}'
+        fixed = fix_invalid_json_escapes(s)
+        assert fixed == r'{"x": "\\u0delta"}'
+
+    def test_malformed_unicode_u2propto(self):
+        r"""\u2propto — malformed \uXXXX → \\u2propto."""
+        s = r'{"x": "\u2propto"}'
+        fixed = fix_invalid_json_escapes(s)
+        assert fixed == r'{"x": "\\u2propto"}'
+
+    def test_valid_unicode_preserved(self):
+        r"""\u03b2 (valid 4-hex unicode for β) should be unchanged."""
+        s = r'{"x": "\u03b2"}'
+        assert fix_invalid_json_escapes(s) == s
+
+    def test_malformed_unicode_mixed_with_valid(self):
+        r"""Mix of valid \u03b2 and malformed \u0delta."""
+        s = r'{"x": "\u03b2 and \u0delta"}'
+        fixed = fix_invalid_json_escapes(s)
+        assert fixed == r'{"x": "\u03b2 and \\u0delta"}'
+
 
 # ---------------------------------------------------------------------------
 # try_json_loads
@@ -107,3 +130,17 @@ class TestTryJsonLoads:
         s = '{"x": "line1\\nline2"}'
         parsed = try_json_loads(s)
         assert parsed["x"] == "line1\nline2"
+
+    def test_malformed_unicode_fixed_and_parsed(self):
+        r"""JSON with malformed \u0delta should be fixed and parsed."""
+        s = r'{"verdict": "VERIFIED", "details": "scaling \u0delta^{-4}"}'
+        parsed = try_json_loads(s)
+        assert parsed["verdict"] == "VERIFIED"
+        assert "\\u0delta" in parsed["details"]
+
+    def test_mixed_valid_and_malformed_unicode_parsed(self):
+        r"""JSON with valid \u03b2 and malformed \u2propto should parse."""
+        s = r'{"verdict": "VERIFIED", "details": "\u03b2 \u2propto"}'
+        parsed = try_json_loads(s)
+        assert parsed["verdict"] == "VERIFIED"
+        assert "\u03b2" in parsed["details"]  # β character

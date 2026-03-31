@@ -7,12 +7,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar, TYPE_CHECKING
 
+from rich.console import Console
+
 from ..config import Config
 from ..llm import AgentResult, LLMResponse, call_llm, run_agent_loop
 from ..metrics import MetricsTracker
 from ..tools import ToolCall, ToolExecutor
 from ..categories import CompensationCategory as CC
 from ..workspace import WorkspaceManager, log_scaffold_event
+
+console = Console()
 
 if TYPE_CHECKING:
     from ..task import Task
@@ -28,6 +32,7 @@ class BaseAgent(ABC):
     prompt_file: str = ""
     tools: ClassVar[list[dict]] = []
     max_tool_rounds: ClassVar[int | None] = None
+    parse_retries: ClassVar[int] = 0  # one-shot agents can override to retry on parse failure
 
     def __init__(self, config: Config, workspace: WorkspaceManager, metrics: MetricsTracker):
         self.config = config
@@ -125,40 +130,71 @@ class BaseAgent(ABC):
 
         return result
 
+    def _validate_response(self, response: LLMResponse) -> bool:
+        """Check whether the one-shot response is parseable.
+
+        Override in subclasses to enable parse-failure retry. Return False
+        to trigger a retry (up to ``parse_retries`` additional attempts).
+        """
+        return True
+
     def _call_with_retry(self, context: str, iteration: int) -> LLMResponse:
-        """Call LLM once. On max_tokens, return immediately (no retry).
+        """Call LLM for one-shot agents, with optional parse-failure retry.
+
+        On max_tokens, returns immediately (no retry). If the subclass
+        overrides ``_validate_response`` and ``parse_retries > 0``, retries
+        the call when validation fails.
 
         The engine's _record_agent_failures() detects stop_reason='max_tokens'
         and injects a CAPACITY EXCEEDED banner into the orchestrator's next
         context, prompting task decomposition.
         """
-        response = call_llm(self.system_prompt, context, self.config,
-                           agent_name=self.name, iteration=iteration)
+        max_attempts = 1 + self.parse_retries
+        response: LLMResponse | None = None
 
-        self.metrics.record_call(
-            iteration=iteration,
-            agent=self.name,
-            input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens,
-            duration=response.duration,
-            max_tokens_hit=(response.stop_reason == "max_tokens"),
-            reasoning_tokens=response.reasoning_tokens,
-            answer_tokens=response.answer_tokens,
-        )
+        for attempt in range(max_attempts):
+            response = call_llm(self.system_prompt, context, self.config,
+                               agent_name=self.name, iteration=iteration)
 
-        if response.stop_reason == "max_tokens":
-            self.metrics.alert(
-                iteration,
-                f"max_tokens_reached on {self.name} "
-                f"(input={response.input_tokens}, output={response.output_tokens})"
+            self.metrics.record_call(
+                iteration=iteration,
+                agent=self.name,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                duration=response.duration,
+                max_tokens_hit=(response.stop_reason == "max_tokens"),
+                reasoning_tokens=response.reasoning_tokens,
+                answer_tokens=response.answer_tokens,
+            )
+
+            if response.stop_reason == "max_tokens":
+                self.metrics.alert(
+                    iteration,
+                    f"max_tokens_reached on {self.name} "
+                    f"(input={response.input_tokens}, output={response.output_tokens})"
+                )
+                log_scaffold_event(
+                    self.workspace.root, iteration,
+                    category=CC.LOOP_CONTROL, event="max_tokens_no_retry",
+                    detail=(
+                        f"agent={self.name}, "
+                        f"output_tokens={response.output_tokens}"
+                    ),
+                )
+                return response
+
+            if self._validate_response(response) or attempt == max_attempts - 1:
+                return response
+
+            # Parse validation failed — retry
+            console.print(
+                f"[yellow]{self.name}: parse validation failed, "
+                f"retrying ({attempt + 1}/{self.parse_retries})...[/yellow]"
             )
             log_scaffold_event(
                 self.workspace.root, iteration,
-                category=CC.LOOP_CONTROL, event="max_tokens_no_retry",
-                detail=(
-                    f"agent={self.name}, "
-                    f"output_tokens={response.output_tokens}"
-                ),
+                category=CC.OUTPUT_NORMALIZATION, event="parse_retry",
+                detail=f"agent={self.name}, attempt={attempt + 1}",
             )
 
-        return response
+        return response  # type: ignore[return-value]

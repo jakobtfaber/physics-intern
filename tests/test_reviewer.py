@@ -85,6 +85,26 @@ def _make_reviewer(workspace_root: Path) -> ReviewerAgent:
     return agent
 
 
+class TestReviewerValidateResponse:
+    def test_valid_response_passes(self):
+        root = Path(tempfile.mkdtemp())
+        agent = _make_reviewer(root)
+        text = '```json\n{"verdict": "VERIFIED", "summary": "ok", "details": "d"}\n```'
+        response = LLMResponse(text=text, input_tokens=100, output_tokens=50,
+                               stop_reason="end_turn", duration=0.1)
+        assert agent._validate_response(response) is True
+
+    def test_unparseable_response_fails(self):
+        root = Path(tempfile.mkdtemp())
+        agent = _make_reviewer(root)
+        response = LLMResponse(text="No JSON here", input_tokens=100,
+                               output_tokens=50, stop_reason="end_turn", duration=0.1)
+        assert agent._validate_response(response) is False
+
+    def test_parse_retries_set(self):
+        assert ReviewerAgent.parse_retries == 1
+
+
 class TestReviewerProcessResponse:
     def test_parses_verified(self):
         root = Path(tempfile.mkdtemp())

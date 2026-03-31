@@ -81,6 +81,10 @@ class ResearcherAgent(EvidenceAgent):
     name = "researcher"
     prompt_file = "researcher.md"
     tools = []  # one-shot: no tools
+    parse_retries = 1
+
+    def _validate_response(self, response: LLMResponse) -> bool:
+        return _parse_researcher_json(response.text or "") is not None
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
         """Parse structured JSON from one-shot response text and build Evidence."""
