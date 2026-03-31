@@ -7,7 +7,7 @@
 # Anthropic
 # ============================================================================
 
-claude-opus-4.6:
+claude-4.6-opus:
   provider: anthropic
   model_id: claude-opus-4-6
   env_key: ANTHROPIC_API_KEY
@@ -17,7 +17,7 @@ claude-opus-4.6:
   thinking: true
   effort: high
 
-claude-sonnet-4.6:
+claude-4.6-sonnet:
   provider: anthropic
   model_id: claude-sonnet-4-6
   env_key: ANTHROPIC_API_KEY
