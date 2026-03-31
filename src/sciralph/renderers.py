@@ -69,11 +69,26 @@ def render_background_survey_xml(state: ResearchState) -> str:
     return "\n".join(parts)
 
 
+def _problem_guidelines() -> str:
+    """Return the <problem-guidelines> block shared by all agent contexts."""
+    return (
+        "<problem-guidelines>\n"
+        "- The problem statement is correct and well-posed. Do not question "
+        "whether the problem contains errors or is ill-defined.\n"
+        "- The answer template suggests a format, but do not infer that the "
+        "final answer must depend on every parameter appearing in the template. "
+        "A parameter's presence in the template does not guarantee it survives "
+        "in the final expression.\n"
+        "</problem-guidelines>"
+    )
+
+
 def render_research_context_xml(state: ResearchState) -> str:
     """Render <research-context> wrapper: problem-statement + answer-template."""
     parts = [f"<problem-statement>\n{state.problem_statement}\n</problem-statement>"]
     if state.answer_template:
         parts.append(f"<answer-template>\n{state.answer_template}\n</answer-template>")
+    parts.append(_problem_guidelines())
     return "<research-context>\n" + "\n".join(parts) + "\n</research-context>"
 
 
@@ -758,6 +773,7 @@ def render_formatter_context(
 
     if state.answer_template:
         parts.append(f"<answer-template>\n{state.answer_template}\n</answer-template>")
+    parts.append(_problem_guidelines())
 
     # Research state — conventions + sanity checks
     rs_parts: list[str] = []
@@ -868,6 +884,7 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
 
     if state.answer_template:
         parts.append(f"<answer-template>\n{state.answer_template}\n</answer-template>")
+    parts.append(_problem_guidelines())
 
     # Background Survey (excludes conventions and sanity checks — rendered separately)
     survey_ctx = render_background_survey_xml(state)

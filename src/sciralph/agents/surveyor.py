@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 from ..llm import LLMResponse
-from ..renderers import render_background_survey_xml
+from ..renderers import _problem_guidelines, render_background_survey_xml
 from .base import BaseAgent
 from .parsing import JSON_FENCE_RE, try_json_loads
 
@@ -42,6 +42,7 @@ class SurveyorAgent(BaseAgent):
         ]
         if self.research_state and self.research_state.answer_template:
             parts.append(f"<answer-template>\n{self.research_state.answer_template}\n</answer-template>")
+        parts.append(_problem_guidelines())
         # On re-survey (iteration > 0), include current background survey + research state
         if iteration > 0 and self.research_state:
             survey_ctx = render_background_survey_xml(self.research_state)
