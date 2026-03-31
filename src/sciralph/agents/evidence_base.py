@@ -124,6 +124,9 @@ class EvidenceAgent(BaseAgent):
         if task.relevant_results:
             items = render_relevant_results(task.relevant_results, self.research_state)
             task_parts.append(f"<relevant-results>\n{items}\n</relevant-results>")
+        if task.recommended_sanity_checks:
+            items = "\n".join(f"- {c}" for c in task.recommended_sanity_checks)
+            task_parts.append(f"<recommended-sanity-checks>\n{items}\n</recommended-sanity-checks>")
         if task_parts:
             parts.append("<task>\n" + "\n\n".join(task_parts) + "\n</task>")
 

@@ -230,7 +230,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         "description": (
                             "Task-specific context the agent cannot see on its own. "
                             "The agent already receives: problem summary, conventions, "
-                            "all established results, known pitfalls, and sanity checks. "
+                            "and all established results. "
                             "Do NOT repeat those. Instead provide: (1) relevant parts of "
                             "the survey background or known methods, (2) strategic context — "
                             "why this task matters and how it fits the plan, (3) relevant "
@@ -260,6 +260,15 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         "description": (
                             "References to established results or prior evidence "
                             "that are relevant to this task (e.g. 'ER-001', 'WH-003')."
+                        ),
+                    },
+                    "recommended_sanity_checks": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Sanity checks the agent should verify its result against. "
+                            "Pick from the global sanity-checks list or write task-specific "
+                            "ones (e.g. 'result must reduce to X in the Y limit')."
                         ),
                     },
                 },
@@ -305,7 +314,7 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         "description": (
                             "Task-specific context the agent cannot see on its own. "
                             "The agent already receives: problem summary, conventions, "
-                            "all established results, known pitfalls, and sanity checks. "
+                            "and all established results. "
                             "Do NOT repeat those. Instead provide: (1) relevant parts of "
                             "the survey background or known methods, (2) strategic context — "
                             "why this task matters and how it fits the plan, (3) relevant "
@@ -335,6 +344,15 @@ ORCHESTRATOR_TOOL_DEFINITIONS: list[dict] = [
                         "description": (
                             "References to established results or prior evidence "
                             "that are relevant to this task (e.g. 'ER-001', 'WH-003')."
+                        ),
+                    },
+                    "recommended_sanity_checks": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Sanity checks the agent should verify its result against. "
+                            "Pick from the global sanity-checks list or write task-specific "
+                            "ones (e.g. 'result must reduce to X in the Y limit')."
                         ),
                     },
                 },

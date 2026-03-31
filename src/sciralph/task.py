@@ -55,6 +55,7 @@ class Task:
     method_hints: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     relevant_results: list[str] = field(default_factory=list)
+    recommended_sanity_checks: list[str] = field(default_factory=list)
     # Termination context (populated by request_termination)
     answer_ers: list[str] = field(default_factory=list)
 
@@ -79,6 +80,8 @@ class Task:
             meta["assumptions"] = self.assumptions
         if self.relevant_results:
             meta["relevant_results"] = self.relevant_results
+        if self.recommended_sanity_checks:
+            meta["recommended_sanity_checks"] = self.recommended_sanity_checks
         yaml_str = yaml.dump(meta, default_flow_style=False, sort_keys=False).strip()
         return f"---\n{yaml_str}\n---\n\n{self.body}"
 
@@ -104,6 +107,9 @@ class Task:
             if self.relevant_results:
                 items = "\n".join(f"- {r}" for r in self.relevant_results)
                 parts.append(f"<relevant-results>\n{items}\n</relevant-results>")
+            if self.recommended_sanity_checks:
+                items = "\n".join(f"- {c}" for c in self.recommended_sanity_checks)
+                parts.append(f"<recommended-sanity-checks>\n{items}\n</recommended-sanity-checks>")
         else:
             # Reviewer: include background only (orchestrator doubt context)
             if self.background:
@@ -133,4 +139,5 @@ class Task:
             method_hints=meta.get("method_hints", []),
             assumptions=meta.get("assumptions", []),
             relevant_results=meta.get("relevant_results", []),
+            recommended_sanity_checks=meta.get("recommended_sanity_checks", []),
         )

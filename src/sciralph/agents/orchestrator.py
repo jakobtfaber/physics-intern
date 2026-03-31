@@ -152,6 +152,7 @@ class OrchestratorAgent(BaseAgent):
             method_hints=data.get("method_hints", []),
             assumptions=data.get("assumptions", []),
             relevant_results=data.get("relevant_results", []),
+            recommended_sanity_checks=data.get("recommended_sanity_checks", []),
             answer_ers=data.get("answer_ers", []),
         )
 
