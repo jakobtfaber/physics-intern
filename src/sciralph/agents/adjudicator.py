@@ -134,7 +134,7 @@ class AdjudicatorAgent(BaseAgent):
                         )
                     label = f' n="{ev_idx}/{len(h.evidence)}"' if len(h.evidence) > 1 else ""
                     ev_parts_str = "\n".join(ev_parts)
-                    parts.append(f'<evidence type="{ev.type}"{label}>\n{ev_parts_str}\n</evidence>')
+                    claim_parts.append(f'<evidence type="{ev.type}"{label}>\n{ev_parts_str}\n</evidence>')
             if h.review:
                 claim_parts.append(f"Original review verdict: {h.review.verdict}")
                 if h.review.summary:
