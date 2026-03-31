@@ -15,7 +15,7 @@ claude-4.6-opus:
   output_cost: 25.00
   max_output_tokens: 128000
   thinking: true
-  effort: high
+  effort: medium
 
 claude-4.6-sonnet:
   provider: anthropic
