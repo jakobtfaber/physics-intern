@@ -49,6 +49,22 @@ class ReviewerAgent(BaseAgent):
     def _validate_response(self, response: LLMResponse) -> bool:
         return _parse_review_json(response.text or "") is not None
 
+    def _parse_retry_hint(self) -> str:
+        return (
+            "Recall the required output format and provide it now:\n\n"
+            "```json\n"
+            "{\n"
+            '  "verdict": "VERIFIED|REFUTED|INCONCLUSIVE",\n'
+            '  "summary": "1-3 sentence summary of the review outcome.",\n'
+            '  "details": "Detailed reasoning for your verdict.",\n'
+            '  "sanity_checks": [\n'
+            '    {"check": "...", "type": "constraint|conjecture", '
+            '"outcome": "PASS|FAIL|N/A", "reasoning": "..."}\n'
+            "  ]\n"
+            "}\n"
+            "```"
+        )
+
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
         self.research_state: ResearchState | None = None

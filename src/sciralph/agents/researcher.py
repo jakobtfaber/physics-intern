@@ -86,6 +86,19 @@ class ResearcherAgent(EvidenceAgent):
     def _validate_response(self, response: LLMResponse) -> bool:
         return _parse_researcher_json(response.text or "") is not None
 
+    def _parse_retry_hint(self) -> str:
+        return (
+            "Recall the required output format and provide it now:\n\n"
+            "```json\n"
+            "{\n"
+            '  "result": "Compact conclusion (quotable in one paragraph)",\n'
+            '  "method": "Analytical approach name",\n'
+            '  "confidence": "exact|approximate|partial",\n'
+            '  "summary": "One-sentence summary"\n'
+            "}\n"
+            "```"
+        )
+
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
         """Parse structured JSON from one-shot response text and build Evidence."""
         text = response.text or ""

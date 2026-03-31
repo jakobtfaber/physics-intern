@@ -40,11 +40,29 @@ class AdjudicatorAgent(BaseAgent):
     name = "adjudicator"
     prompt_file = "adjudicator.md"
     tools = []  # one-shot: no tools
+    parse_retries = 1
 
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
         self.research_state: ResearchState | None = None
         self.adjudication_result: dict | None = None
+
+    def _validate_response(self, response) -> bool:
+        return _parse_adjudication_json(response.text or "") is not None
+
+    def _parse_retry_hint(self) -> str:
+        return (
+            "Recall the required output format and provide it now:\n\n"
+            "```json\n"
+            "{\n"
+            '  "adjudication": "valid|invalid|needs_evidence",\n'
+            '  "reasoning": "Detailed explanation of your ruling.",\n'
+            '  "revised_verdict": "REFUTED (only if adjudication=valid)",\n'
+            '  "counter_argument": "Why the critique fails (only if adjudication=invalid).",\n'
+            '  "investigation_scope": "What evidence is needed (only if adjudication=needs_evidence)."\n'
+            "}\n"
+            "```"
+        )
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build neutral adjudication context."""

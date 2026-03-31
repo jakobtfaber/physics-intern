@@ -78,6 +78,24 @@ class CriticAgent(BaseAgent):
     def _validate_response(self, response: LLMResponse) -> bool:
         return _parse_critic_json(response.text or "") is not None
 
+    def _parse_retry_hint(self) -> str:
+        return (
+            "Recall the required output format and provide it now:\n\n"
+            "```json\n"
+            "{\n"
+            '  "summary": "Concise audit trail.",\n'
+            '  "critiques": [\n'
+            "    {\n"
+            '      "target_id": "STRATEGY or WH-NNN or ER-NNN",\n'
+            '      "target_type": "er|strategy|coordination",\n'
+            '      "severity": "HIGH|MEDIUM|LOW",\n'
+            '      "argument": "What is wrong and why it matters."\n'
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            "```"
+        )
+
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
         self._no_critiques_filed: bool = False
