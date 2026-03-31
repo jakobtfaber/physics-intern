@@ -30,11 +30,11 @@ class FormatterAgent(BaseAgent):
         self.rejection_reason: str | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
-        parts = [render_formatter_context(self.research_state, answer_ers=task.answer_ers)]
-        template = self.answer_template or (self.research_state.answer_template if self.research_state else "")
-        if template:
-            parts.append(f"<answer-template>\n{template}\n</answer-template>")
-        return "\n\n".join(parts)
+        # If instance-level template override exists, temporarily set on research_state
+        # so the renderer emits it (renderer reads state.answer_template)
+        if self.answer_template and self.research_state and not self.research_state.answer_template:
+            self.research_state.answer_template = self.answer_template
+        return render_formatter_context(self.research_state, answer_ers=task.answer_ers)
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
         """Write ANSWER.md, checking for LLM-emitted rejection marker."""

@@ -114,7 +114,8 @@ class TestProblemStatementInContext:
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)
         assert "<problem-statement>" in context
         # Survey is now included so orchestrator can relay relevant parts to agents
-        assert "<survey-background>" in context
+        assert "<background-survey>" in context
+        assert "<background>" in context
 
 
 class TestNoMetricsInContext:

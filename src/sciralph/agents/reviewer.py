@@ -88,20 +88,47 @@ class ReviewerAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build focused verification context: WH + evidence + light state."""
-        if self.research_state and task.target_claim:
-            auto_desc = self._auto_review_description(task.target_claim)
-        else:
-            auto_desc = task.render_agent_context(include_structured=False)
+        from ..renderers import render_research_context_xml
 
-        parts = [f"<task>\n{auto_desc}\n</task>"]
+        parts: list[str] = []
 
-        # Problem context — full statement + answer template for big-picture orientation
+        # 1. Research context — problem statement + answer template
         if self.research_state:
-            if self.research_state.problem_statement:
-                parts.append(f"\n<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>")
-            if self.research_state.answer_template:
-                parts.append(f"\n<answer-template>\n{self.research_state.answer_template}\n</answer-template>")
+            parts.append(render_research_context_xml(self.research_state))
 
+        # 2. Background survey — known pitfalls only
+        if self.research_state and self.research_state.known_pitfalls:
+            parts.append(
+                f"<background-survey>\n"
+                f"<known-pitfalls>\n{self.research_state.known_pitfalls}\n</known-pitfalls>\n"
+                f"</background-survey>"
+            )
+
+        # 3. Research state — conventions, established results, sanity checks
+        if self.research_state:
+            rs_parts: list[str] = []
+            if self.research_state.conventions:
+                rs_parts.append(f"<conventions>\n{self.research_state.conventions}\n</conventions>")
+            ers = self.research_state.established_hypotheses()
+            if ers:
+                er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
+                rs_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+            if self.research_state.sanity_checks:
+                checks_text = "\n".join(f"- {c}" for c in self.research_state.sanity_checks)
+                rs_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
+            if rs_parts:
+                parts.append("<research-state>\n" + "\n".join(rs_parts) + "\n</research-state>")
+
+        # 4. Original question (before claim, for context)
+        if self.research_state and task.target_claim:
+            target_id = task.target_claim
+            for rq in self.research_state.research_questions.values():
+                if target_id in rq.resolved_to:
+                    rq_content = f"{rq.id}: {rq.question}"
+                    parts.append(f'<original-question id="{rq.id}">\n{rq_content}\n</original-question>')
+                    break
+
+        # 5. Claim + evidence
         if self.research_state and task.target_claim:
             target_id = task.target_claim
             h = self.research_state.hypotheses.get(target_id)
@@ -109,7 +136,7 @@ class ReviewerAgent(BaseAgent):
                 claim_parts: list[str] = [f"Statement: {h.statement}"]
                 if h.derivation:
                     claim_parts.append(f"<derivation>\n{h.derivation}\n</derivation>")
-                parts.append(f'\n<claim id="{target_id}">\n' + "\n".join(claim_parts) + "\n</claim>")
+                parts.append(f'<claim id="{target_id}">\n' + "\n".join(claim_parts) + "\n</claim>")
 
                 # Evidence (iterate over all items)
                 if h.evidence:
@@ -122,16 +149,13 @@ class ReviewerAgent(BaseAgent):
                             ev_parts.append(f"<method>{ev.method}</method>")
                         if ev.result:
                             ev_parts.append(f"<result>{ev.result}</result>")
-                        # Per-script computation blocks (evidence scripts only)
                         if ev.scripts:
                             for script_name in ev.scripts:
                                 purpose = ev.script_purposes.get(script_name, "")
-                                # Read full script code
                                 try:
                                     code = self.workspace.read_file(f"computations/{script_name}")
                                 except Exception:
                                     code = "[not found]"
-                                # Read full output from companion .output file
                                 stem = Path(script_name).stem
                                 try:
                                     output = self.workspace.read_file(f"computations/{stem}.output")
@@ -161,33 +185,16 @@ class ReviewerAgent(BaseAgent):
                         if ev.confidence:
                             ev_parts.append(f"<confidence>{ev.confidence}</confidence>")
                         label = f' n="{ev_idx}/{len(h.evidence)}"' if multi else ""
-                        parts.append(f'\n<evidence type="{ev.type}"{label}>\n' + "\n".join(ev_parts) + "\n</evidence>")
+                        parts.append(f'<evidence type="{ev.type}"{label}>\n' + "\n".join(ev_parts) + "\n</evidence>")
 
-                # Find originating RQ
-                for rq in self.research_state.research_questions.values():
-                    if target_id in rq.resolved_to:
-                        rq_content = f"{rq.id}: {rq.question}"
-                        parts.append(f'\n<original-question id="{rq.id}">\n{rq_content}\n</original-question>')
-                        break
+        # 6. Instructions (task description, at the end)
+        if self.research_state and task.target_claim:
+            auto_desc = self._auto_review_description(task.target_claim)
+        else:
+            auto_desc = task.render_agent_context(include_structured=False)
+        parts.append(f"<instructions>\n{auto_desc}\n</instructions>")
 
-            # Light established context
-            ers = self.research_state.established_hypotheses()
-            if ers:
-                er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
-                parts.append("\n<established-context>\n" + "\n".join(er_lines) + "\n</established-context>")
-            if self.research_state.conventions:
-                parts.append(f"\n<conventions>\n{self.research_state.conventions}\n</conventions>")
-
-            # Known pitfalls from survey
-            if self.research_state.known_pitfalls:
-                parts.append(f"\n<known-pitfalls>\n{self.research_state.known_pitfalls}\n</known-pitfalls>")
-
-            # Sanity checks (suggested, not binding)
-            if self.research_state.sanity_checks:
-                checks_text = "\n".join(f"- {c}" for c in self.research_state.sanity_checks)
-                parts.append(f'\n<suggested-sanity-checks>\n{checks_text}\n</suggested-sanity-checks>')
-
-        return "\n".join(parts)
+        return "\n\n".join(parts)
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
         """Parse structured JSON verdict from one-shot response text."""

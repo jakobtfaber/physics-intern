@@ -190,17 +190,16 @@ class TestPlannerReviseContext:
             body="Trigger text",
         )
         ctx = agent.build_context(task, iteration=5)
-        assert "<entities>" in ctx
-        # ER
+        # <entities> tag removed; ERs are now in <established-results> inside <research-state>
+        assert "<entities>" not in ctx
+        assert "<research-state>" in ctx
+        assert "<established-results>" in ctx
+        # ER still shown
         assert "ER-001: kappa = 1/(4M), VERIFIED" in ctx
-        # WH with review
-        assert "WH-002: T_H = kappa/(2 pi), REFUTED" in ctx
-        # WH without review
-        assert "WH-003: Alternative via Unruh effect, PENDING REVIEW" in ctx
-        # Abandoned WH should NOT appear in entities (only in dead-ends)
-        assert "WH-004" not in ctx.split("<entities>")[1].split("</entities>")[0]
-        # Open RQ
-        assert "RQ-001: What is the surface gravity?, OPEN, 2 evidence items" in ctx
+        # WHs and RQs are no longer shown in revise context
+        assert "WH-002" not in ctx.split("<dead-ends>")[0] if "<dead-ends>" in ctx else "WH-002" not in ctx
+        assert "WH-003" not in ctx.split("<dead-ends>")[0] if "<dead-ends>" in ctx else "WH-003" not in ctx
+        assert "RQ-001" not in ctx
 
     def test_revise_context_includes_dead_ends(self):
         agent = self._make_agent_with_entities()
@@ -217,7 +216,7 @@ class TestPlannerReviseContext:
         # Abandoned hypothesis in dead ends
         assert "WH-004" in ctx.split("<dead-ends>")[1].split("</dead-ends>")[0]
 
-    def test_revise_context_includes_research_notes(self):
+    def test_revise_context_excludes_research_notes(self):
         agent = self._make_agent_with_entities()
         task = Task(
             task_id="PLAN-REV-001",
@@ -226,8 +225,8 @@ class TestPlannerReviseContext:
             body="Trigger text",
         )
         ctx = agent.build_context(task, iteration=5)
-        assert "<research-notes>" in ctx
-        assert "Surface gravity kappa identified" in ctx
+        # Research notes dropped from revise context
+        assert "<research-notes>" not in ctx
 
     def test_revise_context_includes_conventions(self):
         agent = self._make_agent_with_entities()
@@ -282,8 +281,8 @@ class TestPlannerReviseContext:
         ctx = agent.build_context(task, iteration=5)
         assert ctx == ""
 
-    def test_revise_context_singular_evidence(self):
-        """RQ with 1 evidence item uses singular 'item'."""
+    def test_revise_context_excludes_rqs(self):
+        """RQs are no longer shown in revise context."""
         config = Config()
         ws = MagicMock()
         ws.root = MagicMock()
@@ -304,8 +303,7 @@ class TestPlannerReviseContext:
             body="Trigger",
         )
         ctx = agent.build_context(task, iteration=5)
-        assert "1 evidence item" in ctx
-        assert "1 evidence items" not in ctx
+        assert "RQ-001" not in ctx
 
 
 class TestPlannerReviseProcessResponse:

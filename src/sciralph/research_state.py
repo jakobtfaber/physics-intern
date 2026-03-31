@@ -165,7 +165,8 @@ class ResearchState:
     title: str = ""
     sanity_checks: list[str] = field(default_factory=list)  # seeded by surveyor, editable by planner
     # Survey-produced fields (seeded by surveyor, immutable after)
-    survey_background: str = ""   # §1+§2: background context + key insights
+    survey_background: str = ""   # §1: background context
+    key_insights: str = ""        # §2: key insights
     survey_methods: str = ""      # §3: known methods and techniques
     known_pitfalls: str = ""      # §4: known pitfalls
     problem_summary: str = ""     # §7: one-sentence problem summary
@@ -441,21 +442,26 @@ class ResearchState:
         ]
         # New flat fields
         state.survey_background = data.get("survey_background", "")
+        state.key_insights = data.get("key_insights", "")
         state.survey_methods = data.get("survey_methods", "")
         state.known_pitfalls = data.get("known_pitfalls", "")
         state.problem_summary = data.get("problem_summary", "")
+        # Backward compat: split merged survey_background containing ## Key Insights
+        if state.survey_background and not state.key_insights and "## Key Insights" in state.survey_background:
+            parts = state.survey_background.split("## Key Insights", 1)
+            bg = parts[0].replace("## Background", "").strip()
+            ki = parts[1].strip() if len(parts) > 1 else ""
+            state.survey_background = bg
+            state.key_insights = ki
         # Backward compat: migrate old nested background_survey to flat fields
         survey_data = data.get("background_survey")
         if survey_data and isinstance(survey_data, dict):
             bg = survey_data.get("background", "")
             ki = survey_data.get("key_insights", "")
-            if not state.survey_background:
-                parts = []
-                if bg:
-                    parts.append(f"## Background\n\n{bg}")
-                if ki:
-                    parts.append(f"## Key Insights\n\n{ki}")
-                state.survey_background = "\n\n".join(parts)
+            if not state.survey_background and bg:
+                state.survey_background = bg
+            if not state.key_insights and ki:
+                state.key_insights = ki
             if not state.survey_methods:
                 state.survey_methods = survey_data.get("known_methods", "")
             if not state.known_pitfalls:

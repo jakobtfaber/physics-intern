@@ -1648,20 +1648,23 @@ class TestDispatchHistory:
             engine.iteration = 3
             engine._state = LoopState()
             engine.research_state = ResearchState()
+            engine.orchestrator = MagicMock()
+            engine.orchestrator.dispatch_history_text = ""
         return engine
 
-    def test_dispatch_history_renders_in_context_suffix(self):
-        """DispatchRecords render in the DISPATCH HISTORY section."""
+    def test_dispatch_history_renders_on_orchestrator(self):
+        """DispatchRecords render in orchestrator.dispatch_history_text."""
         engine = self._make_engine()
         engine._state.dispatch_history = [
             DispatchRecord(iteration=1, task_type="compute", target="RQ-001", outcome="evidence (exact)"),
             DispatchRecord(iteration=2, task_type="review", target="WH-001", outcome="REFUTED"),
         ]
-        suffix = engine._build_context_suffix()
-        assert "<tasks_dispatch_history>" in suffix
-        assert "Iter 1: compute → RQ-001 | evidence (exact)" in suffix
-        assert "Iter 2: review → WH-001 | REFUTED" in suffix
-        assert "</tasks_dispatch_history>" in suffix
+        engine._build_context_suffix()
+        dh = engine.orchestrator.dispatch_history_text
+        assert "<tasks_dispatch_history>" in dh
+        assert "Iter 1: compute → RQ-001 | evidence (exact)" in dh
+        assert "Iter 2: review → WH-001 | REFUTED" in dh
+        assert "</tasks_dispatch_history>" in dh
 
     def test_dispatch_history_persists_across_calls(self):
         """Dispatch history is NOT consumed — persists across _build_context_suffix calls."""
@@ -1669,17 +1672,19 @@ class TestDispatchHistory:
         engine._state.dispatch_history = [
             DispatchRecord(iteration=1, task_type="compute", target="RQ-001", outcome="evidence (exact)"),
         ]
-        suffix1 = engine._build_context_suffix()
-        suffix2 = engine._build_context_suffix()
-        assert "tasks_dispatch_history" in suffix1
-        assert "tasks_dispatch_history" in suffix2
+        engine._build_context_suffix()
+        dh1 = engine.orchestrator.dispatch_history_text
+        engine._build_context_suffix()
+        dh2 = engine.orchestrator.dispatch_history_text
+        assert "tasks_dispatch_history" in dh1
+        assert "tasks_dispatch_history" in dh2
         assert len(engine._state.dispatch_history) == 1
 
     def test_dispatch_history_empty_no_section(self):
-        """No dispatch history → no DISPATCH HISTORY section."""
+        """No dispatch history → no dispatch_history_text set."""
         engine = self._make_engine()
-        suffix = engine._build_context_suffix()
-        assert "tasks_dispatch_history" not in suffix
+        engine._build_context_suffix()
+        assert engine.orchestrator.dispatch_history_text == ""
 
     def test_dispatch_history_no_target_omits_arrow(self):
         """Records with no target omit the arrow."""
@@ -1687,9 +1692,10 @@ class TestDispatchHistory:
         engine._state.dispatch_history = [
             DispatchRecord(iteration=4, task_type="critique", target=None, outcome="3 critique(s)"),
         ]
-        suffix = engine._build_context_suffix()
-        assert "Iter 4: critique | 3 critique(s)" in suffix
-        assert "→" not in suffix.split("Iter 4:")[1].split("|")[0]
+        engine._build_context_suffix()
+        dh = engine.orchestrator.dispatch_history_text
+        assert "Iter 4: critique | 3 critique(s)" in dh
+        assert "→" not in dh.split("Iter 4:")[1].split("|")[0]
 
     def test_append_dispatch_record_compute_with_evidence(self):
         """Compute task with evidence on target RQ records confidence."""
@@ -1832,8 +1838,8 @@ class TestDispatchHistory:
 
         assert engine._state.dispatch_history[0].outcome == "completed"
 
-    def test_dispatch_history_before_violations(self):
-        """Dispatch history appears before violation banners."""
+    def test_dispatch_history_separate_from_violations(self):
+        """Dispatch history is set on orchestrator, not in suffix with violations."""
         engine = self._make_engine()
         engine._state.dispatch_history = [
             DispatchRecord(iteration=1, task_type="compute", target="RQ-001", outcome="evidence (exact)"),
@@ -1842,9 +1848,12 @@ class TestDispatchHistory:
             Violation(check="test", severity=ViolationSeverity.WARNING, message="oops"),
         ]
         suffix = engine._build_context_suffix()
-        history_pos = suffix.index("tasks_dispatch_history")
-        violations_pos = suffix.index("POST-INTEGRATION VIOLATIONS")
-        assert history_pos < violations_pos
+        # Dispatch history is NOT in the suffix anymore
+        assert "tasks_dispatch_history" not in suffix
+        # But IS set on the orchestrator
+        assert "tasks_dispatch_history" in engine.orchestrator.dispatch_history_text
+        # Violations are still in the suffix
+        assert "POST-INTEGRATION VIOLATIONS" in suffix
 
 
 

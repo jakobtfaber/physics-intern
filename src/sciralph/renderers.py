@@ -29,13 +29,15 @@ if TYPE_CHECKING:
 
 def render_background_survey(state: ResearchState) -> str:
     """Render background survey as a Markdown section (for git snapshots)."""
-    has_content = state.survey_background or state.survey_methods or state.known_pitfalls
+    has_content = state.survey_background or state.key_insights or state.survey_methods or state.known_pitfalls
     if not has_content:
         return "(No background survey.)"
 
     parts: list[str] = ["# Background Survey\n"]
     if state.survey_background:
-        parts.append(f"{state.survey_background}\n")
+        parts.append(f"### Background\n\n{state.survey_background}\n")
+    if state.key_insights:
+        parts.append(f"### Key Insights\n\n{state.key_insights}\n")
     if state.survey_methods:
         parts.append(f"### Known Methods and Techniques\n\n{state.survey_methods}\n")
     if state.known_pitfalls:
@@ -48,20 +50,31 @@ def render_background_survey(state: ResearchState) -> str:
     return "\n".join(parts)
 
 
-def _render_survey_context(state: ResearchState) -> str:
-    """Render survey landscape sections for agent context.
+def render_background_survey_xml(state: ResearchState) -> str:
+    """Render survey data as XML sub-tags for agent context.
 
-    Includes survey_background, survey_methods, and known_pitfalls.
-    Does NOT include conventions or sanity_checks (rendered separately from state).
+    Returns inner content (background, key-insights, known-methods, known-pitfalls)
+    without an outer wrapper — callers wrap in <background-survey> or
+    <current-background-survey> as appropriate.
     """
     parts: list[str] = []
     if state.survey_background:
-        parts.append(state.survey_background)
+        parts.append(f"<background>\n{state.survey_background}\n</background>")
+    if state.key_insights:
+        parts.append(f"<key-insights>\n{state.key_insights}\n</key-insights>")
     if state.survey_methods:
-        parts.append(f"## Known Methods and Techniques\n\n{state.survey_methods}")
+        parts.append(f"<known-methods>\n{state.survey_methods}\n</known-methods>")
     if state.known_pitfalls:
-        parts.append(f"## Known Pitfalls\n\n{state.known_pitfalls}")
-    return "\n\n".join(parts)
+        parts.append(f"<known-pitfalls>\n{state.known_pitfalls}\n</known-pitfalls>")
+    return "\n".join(parts)
+
+
+def render_research_context_xml(state: ResearchState) -> str:
+    """Render <research-context> wrapper: problem-statement + answer-template."""
+    parts = [f"<problem-statement>\n{state.problem_statement}\n</problem-statement>"]
+    if state.answer_template:
+        parts.append(f"<answer-template>\n{state.answer_template}\n</answer-template>")
+    return "<research-context>\n" + "\n".join(parts) + "\n</research-context>"
 
 
 def _research_state_body(state: ResearchState) -> str:
@@ -552,16 +565,6 @@ def render_orchestrator_slim_state(
         checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
         parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
 
-    # Known pitfalls
-    if state.known_pitfalls:
-        parts.append(f"<known-pitfalls>\n{state.known_pitfalls}\n</known-pitfalls>")
-
-    # Survey landscape (so orchestrator can relay relevant parts to agents)
-    if state.survey_background:
-        parts.append(f"<survey-background>\n{state.survey_background}\n</survey-background>")
-    if state.survey_methods:
-        parts.append(f"<survey-methods>\n{state.survey_methods}\n</survey-methods>")
-
     # Established Results — one-liner per ER
     ers = sorted(
         [h for h in state.hypotheses.values() if h.status == HypothesisStatus.ESTABLISHED],
@@ -633,45 +636,39 @@ def render_orchestrator_slim_state(
 def render_critic_context(state: ResearchState, iteration: int) -> str:
     """Render strategic context for the deep critic using XML tags.
 
-    Provides: problem statement, strategy, conventions, research notes,
-    RQ list, hypothesis summaries (evidence/review one-liners), dead ends,
-    background survey, and previous critiques.  No derivations, scripts,
-    reasoning, or approach text.
+    Provides: problem statement, strategy, conventions, RQ list,
+    hypothesis summaries (evidence/review one-liners), background survey,
+    and previous critiques.  No derivations, scripts, reasoning, or approach text.
     """
     parts: list[str] = []
 
-    parts.append(f"<iteration>{iteration}</iteration>")
+    # 1. Research context — problem statement + answer template
+    parts.append(render_research_context_xml(state))
 
-    # Problem Statement
-    parts.append(f"<problem-statement>\n{state.problem_statement or '(No problem statement.)'}\n</problem-statement>")
+    # 2. Background survey
+    survey_ctx = render_background_survey_xml(state)
+    if survey_ctx:
+        parts.append(f"<background-survey>\n{survey_ctx}\n</background-survey>")
 
-    if state.answer_template:
-        parts.append(f"<answer-template>\n{state.answer_template}\n</answer-template>")
+    # 3. Research state — strategy, conventions, sanity checks, entities
+    rs_parts: list[str] = []
 
-    # Strategy
-    strat = state.strategy or "(No strategy set.)"
-    parts.append(f"<strategy>\n{strat}\n</strategy>")
-
-    # Conventions
     conv = state.conventions or "(No conventions set.)"
-    parts.append(f"<conventions>\n{conv}\n</conventions>")
+    rs_parts.append(f"<conventions>\n{conv}\n</conventions>")
 
-    # Research Notes (last 10)
-    if state.research_notes:
-        notes = state.research_notes[-10:]
-        note_lines = []
-        for n in notes:
-            it = n.get("iteration", "?")
-            text = n.get("text", "")
-            note_lines.append(f'<note iteration="{it}">{text}</note>')
-        parts.append("<research-notes>\n" + "\n".join(note_lines) + "\n</research-notes>")
+    strat = state.strategy or "(No strategy set.)"
+    rs_parts.append(f"<strategy>\n{strat}\n</strategy>")
+
+    if state.sanity_checks:
+        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
+        rs_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
 
     # Research Questions
     if state.research_questions:
         rq_lines: list[str] = []
         for rq in sorted(state.research_questions.values(), key=lambda r: r.id):
             rq_lines.append(f'<rq id="{rq.id}" status="{rq.status.upper()}">{rq.question}</rq>')
-        parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
+        rs_parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
 
     # Compute last critic iteration from clean reviews and filed critiques
     last_critic_iter = 0
@@ -710,6 +707,17 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
                 h_parts.append(f"Review details: {details_truncated}")
         return h_parts
 
+    # Hypotheses (working)
+    whs = sorted(
+        [h for h in state.hypotheses.values() if h.status == HypothesisStatus.WORKING],
+        key=lambda h: h.id,
+    )
+    if whs:
+        hyp_lines: list[str] = []
+        for h in whs:
+            hyp_lines.append(f'<hypothesis id="{h.id}">\n' + "\n".join(_critic_hyp_parts(h)) + "\n</hypothesis>")
+        rs_parts.append("<hypotheses>\n" + "\n".join(hyp_lines) + "\n</hypotheses>")
+
     # Established Results
     ers = sorted(
         [h for h in state.hypotheses.values() if h.status == HypothesisStatus.ESTABLISHED],
@@ -719,49 +727,11 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
         er_lines: list[str] = []
         for h in ers:
             er_lines.append(f'<result id="{h.id}">\n' + "\n".join(_critic_hyp_parts(h)) + "\n</result>")
-        parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+        rs_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
 
-    # Working Hypotheses
-    whs = sorted(
-        [h for h in state.hypotheses.values() if h.status == HypothesisStatus.WORKING],
-        key=lambda h: h.id,
-    )
-    if whs:
-        hyp_lines: list[str] = []
-        for h in whs:
-            hyp_lines.append(f'<hypothesis id="{h.id}">\n' + "\n".join(_critic_hyp_parts(h)) + "\n</hypothesis>")
-        parts.append("<hypotheses>\n" + "\n".join(hyp_lines) + "\n</hypotheses>")
+    parts.append("<research-state>\n" + "\n\n".join(rs_parts) + "\n</research-state>")
 
-    # Dead Ends
-    has_dead_ends = bool(state.failed_approaches) or any(
-        h.status == HypothesisStatus.ABANDONED for h in state.hypotheses.values()
-    )
-    if has_dead_ends:
-        de_parts: list[str] = []
-        for fa in state.failed_approaches:
-            line = f"- {fa.description}"
-            if fa.reason:
-                line += f" (Reason: {fa.reason})"
-            de_parts.append(line)
-        fa_descriptions = {fa.description for fa in state.failed_approaches}
-        for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
-            if h.status == HypothesisStatus.ABANDONED:
-                desc = f"Abandoned {h.id} — {h.statement}"
-                if desc not in fa_descriptions:
-                    de_parts.append(f"- {desc}")
-        parts.append("<dead-ends>\n" + "\n".join(de_parts) + "\n</dead-ends>")
-
-    # Background Survey (landscape sections from state)
-    survey_ctx = _render_survey_context(state)
-    if survey_ctx:
-        parts.append(f"<background-survey>\n{survey_ctx}\n</background-survey>")
-
-    # Sanity checks
-    if state.sanity_checks:
-        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
-        parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
-
-    # Previous Critiques (critic needs both active AND resolved to avoid re-filing)
+    # 4. Previous Critiques (critic needs both active AND resolved to avoid re-filing)
     critique_xml = render_critic_previous_critiques(state)
     parts.append(f"<previous-critiques>\n{critique_xml}\n</previous-critiques>")
 
@@ -786,14 +756,18 @@ def render_formatter_context(
     # Problem Statement
     parts.append(f"<problem-statement>\n{state.problem_statement or '(No problem statement.)'}\n</problem-statement>")
 
-    # Conventions
-    if state.conventions:
-        parts.append(f"<conventions>\n{state.conventions}\n</conventions>")
+    if state.answer_template:
+        parts.append(f"<answer-template>\n{state.answer_template}\n</answer-template>")
 
-    # Sanity checks (coherence guardrails for the final answer)
+    # Research state — conventions + sanity checks
+    rs_parts: list[str] = []
+    if state.conventions:
+        rs_parts.append(f"<conventions>\n{state.conventions}\n</conventions>")
     if state.sanity_checks:
         checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
-        parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
+        rs_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
+    if rs_parts:
+        parts.append("<research-state>\n" + "\n".join(rs_parts) + "\n</research-state>")
 
     # Answer structure hint from orchestrator
     if answer_ers:
@@ -896,7 +870,7 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
         parts.append(f"<answer-template>\n{state.answer_template}\n</answer-template>")
 
     # Background Survey (excludes conventions and sanity checks — rendered separately)
-    survey_ctx = _render_survey_context(state)
+    survey_ctx = render_background_survey_xml(state)
     if survey_ctx:
         parts.append(f"<background-survey>\n{survey_ctx}\n</background-survey>")
 
@@ -904,30 +878,18 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
     strat = state.strategy or "(No strategy set.)"
     parts.append(f"<current-strategy>\n{strat}\n</current-strategy>")
 
-    # Revision Trigger
-    parts.append(f"<revision-trigger>\n{trigger_text}\n</revision-trigger>")
+    # Research state — conventions, established results (enriched), dead ends
+    rs_parts: list[str] = []
+    if state.conventions:
+        rs_parts.append(f"<conventions>\n{state.conventions}\n</conventions>")
 
-    # Entities — grouped by type for clarity
+    # Established Results only (enriched detail, not one-liner)
     er_lines: list[str] = []
-    wh_lines: list[str] = []
-    rq_lines: list[str] = []
     for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
         if h.status == HypothesisStatus.ESTABLISHED:
             er_lines.append(_render_entity_detail(h, is_er=True))
-        elif h.status == HypothesisStatus.WORKING:
-            wh_lines.append(_render_entity_detail(h, is_er=False))
-    for rq in sorted(state.research_questions.values(), key=lambda r: r.id):
-        if rq.status == RQStatus.OPEN:
-            rq_lines.append(_render_rq_detail(rq))
-    entity_parts: list[str] = []
     if er_lines:
-        entity_parts.append("## Established Results (ERs) — verified foundations\n" + "\n\n".join(er_lines))
-    if wh_lines:
-        entity_parts.append("## Working Hypotheses (WHs) — under review\n" + "\n\n".join(wh_lines))
-    if rq_lines:
-        entity_parts.append("## Research Questions (RQs) — open investigations\n" + "\n\n".join(rq_lines))
-    if entity_parts:
-        parts.append("<entities>\n" + "\n\n".join(entity_parts) + "\n</entities>")
+        rs_parts.append("<established-results>\n" + "\n\n".join(er_lines) + "\n</established-results>")
 
     # Dead Ends
     de_lines: list[str] = []
@@ -943,32 +905,22 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
             if desc not in fa_descriptions:
                 de_lines.append(f"- {desc}")
     if de_lines:
-        parts.append("<dead-ends>\n" + "\n".join(de_lines) + "\n</dead-ends>")
+        rs_parts.append("<dead-ends>\n" + "\n".join(de_lines) + "\n</dead-ends>")
 
-    # Research Notes
-    if state.research_notes:
-        note_lines: list[str] = []
-        for n in state.research_notes:
-            it = n.get("iteration", "?")
-            text = n.get("text", "")
-            note_lines.append(f"[iter {it}] {text}")
-        parts.append("<research-notes>\n" + "\n".join(note_lines) + "\n</research-notes>")
+    if rs_parts:
+        parts.append("<research-state>\n" + "\n\n".join(rs_parts) + "\n</research-state>")
 
-    # Conventions
-    if state.conventions:
-        parts.append(f"<conventions>\n{state.conventions}\n</conventions>")
+    # Current strategy (top-level, planner's own output being revised)
+    strat = state.strategy or "(No strategy set.)"
+    parts.append(f"<current-strategy>\n{strat}\n</current-strategy>")
 
     # Current sanity checks (editable by the planner)
     if state.sanity_checks:
         checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
         parts.append(f"<current-sanity-checks>\n{checks_text}\n</current-sanity-checks>")
 
-    # Critic clean reviews (trajectory signal: which iterations passed without issues)
-    if state.critic_clean_reviews:
-        review_lines: list[str] = []
-        for rev in sorted(state.critic_clean_reviews, key=lambda r: r.get("iteration", 0)):
-            review_lines.append(f"Iteration {rev.get('iteration', '?')}: {rev.get('summary', '')}")
-        parts.append("<critic-clean-reviews>\n" + "\n".join(review_lines) + "\n</critic-clean-reviews>")
+    # Revision Trigger
+    parts.append(f"<revision-trigger>\n{trigger_text}\n</revision-trigger>")
 
     return "\n\n".join(parts)
 

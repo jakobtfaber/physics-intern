@@ -391,13 +391,14 @@ class TestSurveyFieldSerialization:
 
     def test_survey_fields_json_round_trip(self):
         state = ResearchState(iteration=1)
-        state.survey_background = "## Background\n\nHawking temperature via surface gravity.\n\n## Key Insights\n\nUse Killing vector method."
+        state.survey_background = "Hawking temperature via surface gravity."
+        state.key_insights = "Use Killing vector method."
         state.survey_methods = "Euclidean path integral, Bogoliubov transformations"
         state.known_pitfalls = "Sign conventions for metric signature"
         json_str = state.to_json()
         restored = ResearchState.from_json(json_str)
         assert "Hawking temperature" in restored.survey_background
-        assert "Killing vector" in restored.survey_background
+        assert "Killing vector" in restored.key_insights
         assert "Euclidean path integral" in restored.survey_methods
         assert "Sign conventions" in restored.known_pitfalls
 
@@ -454,7 +455,7 @@ class TestSurveyFieldSerialization:
         }
         state = ResearchState.from_json(json.dumps(old_data))
         assert "Black hole thermodynamics" in state.survey_background
-        assert "Surface gravity is key" in state.survey_background
+        assert "Surface gravity is key" in state.key_insights
         assert state.survey_methods == "Euclidean method, WKB"
         assert state.known_pitfalls == "Coordinate singularity confusion"
         assert state.conventions == "Natural units"

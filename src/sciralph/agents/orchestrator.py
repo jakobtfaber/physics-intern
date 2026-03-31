@@ -8,6 +8,8 @@ from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..orchestrator_tools import OrchestratorToolExecutor
 from ..renderers import (
     render_orchestrator_slim_state,
+    render_research_context_xml,
+    render_background_survey_xml,
 )
 from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from ..tools import ToolCall
@@ -24,41 +26,54 @@ class OrchestratorAgent(BaseAgent):
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)
         self.context_suffix: str = ""
+        self.dispatch_history_text: str = ""
         self._tool_executor: OrchestratorToolExecutor | None = None
         self.research_state: ResearchState | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
-        parts = []
-        # Problem statement at the top of user message
+        parts: list[str] = []
+
+        # 1. Research context — problem statement + answer template
         if self.research_state:
-            if self.research_state.problem_statement:
-                parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>\n")
-            if self.research_state.answer_template:
-                parts.append(f"<answer-template>\n{self.research_state.answer_template}\n</answer-template>\n")
-        state_text = render_orchestrator_slim_state(
-            self.research_state, max_open_rqs=self.config.max_open_rqs,
-        ) if self.research_state else ""
+            parts.append(render_research_context_xml(self.research_state))
+
+        # 2. Background survey — survey data with known pitfalls
+        if self.research_state:
+            survey_ctx = render_background_survey_xml(self.research_state)
+            if survey_ctx:
+                parts.append(f"<background-survey>\n{survey_ctx}\n</background-survey>")
+
+        # 3. Conventions reminder
         if iteration >= 3 and self.research_state and not self.research_state.conventions:
             parts.append(
                 ">>> REMINDER: The '# Conventions' section is still empty. "
                 "Consider populating it with the unit system, sign conventions, "
-                "and variable definitions being used. <<<\n"
+                "and variable definitions being used. <<<"
             )
-        parts.extend([
-            state_text,
-            "\n",
-        ])
-        # Research notes
+
+        # 4. Research state — conventions, strategy, entities, research notes, dispatch history
+        state_text = render_orchestrator_slim_state(
+            self.research_state, max_open_rqs=self.config.max_open_rqs,
+        ) if self.research_state else ""
+        rs_inner_parts: list[str] = []
+        if state_text:
+            rs_inner_parts.append(state_text)
         if self.research_state and self.research_state.research_notes:
             note_lines = []
-            for note in self.research_state.research_notes[-10:]:  # show last 10
+            for note in self.research_state.research_notes[-10:]:
                 note_lines.append(f"- [iter {note.get('iteration', '?')}] {note.get('text', '')}")
-            parts.append("\n<research-notes>\n" + "\n".join(note_lines) + "\n</research-notes>\n")
-        # Inter-iteration banners (evidence results, verified hypotheses, etc.) at the end
+            rs_inner_parts.append("<research-notes>\n" + "\n".join(note_lines) + "\n</research-notes>")
+        if self.dispatch_history_text:
+            rs_inner_parts.append(self.dispatch_history_text)
+            self.dispatch_history_text = ""
+        if rs_inner_parts:
+            parts.append("<research-state>\n" + "\n\n".join(rs_inner_parts) + "\n</research-state>")
+
+        # 5. Inter-iteration banners (evidence results, verified hypotheses, etc.)
         if self.context_suffix:
             parts.append(self.context_suffix)
-            self.context_suffix = ""  # consume after use
-        return "\n".join(parts)
+            self.context_suffix = ""
+        return "\n\n".join(parts)
 
     def _call_with_tools(
         self,

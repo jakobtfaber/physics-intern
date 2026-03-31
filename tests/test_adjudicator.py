@@ -208,7 +208,7 @@ class TestAdjudicatorBuildContext:
         ctx = agent.build_context(task, iteration=2)
         assert "<problem-statement>" in ctx
         assert "Derive the Hawking temperature" in ctx
-        assert '<claim-under-review id="ER-001">' in ctx
+        assert '<claim id="ER-001">' in ctx
         assert "T_H = 1/(8*pi*M)" in ctx
         assert "<challenge>" in ctx
         assert "The sign is wrong in step 3." in ctx
@@ -235,12 +235,12 @@ class TestAdjudicatorBuildContext:
         task = Task(task_id="T1", task_type=TaskType.ADJUDICATE, assigned_to="adjudicator",
                     target_claim="ER-001", critique_argument="Wrong.")
         ctx = agent.build_context(task, iteration=2)
-        assert "<established-context>" in ctx
+        assert "<established-results>" in ctx
         assert "ER-002" in ctx
-        # ER-001 should NOT appear in established-context (it's the challenged claim)
-        # It does appear in <claim-under-review>, but not in established-context
-        ec_start = ctx.index("<established-context>")
-        ec_end = ctx.index("</established-context>")
+        # ER-001 should NOT appear in established-results (it's the challenged claim)
+        # It does appear in <claim>, but not in established-results
+        ec_start = ctx.index("<established-results>")
+        ec_end = ctx.index("</established-results>")
         ec_section = ctx[ec_start:ec_end]
         assert "ER-001" not in ec_section
 
@@ -250,8 +250,8 @@ class TestAdjudicatorBuildContext:
         task = Task(task_id="T1", task_type=TaskType.ADJUDICATE, assigned_to="adjudicator",
                     target_claim="ER-001", critique_argument="Wrong.")
         ctx = agent.build_context(task, iteration=2)
-        # Only ER is the target itself, so no established-context section
-        assert "<established-context>" not in ctx
+        # Only ER is the target itself, so no established-results section
+        assert "<established-results>" not in ctx
 
     def test_includes_review_info(self):
         root = Path(tempfile.mkdtemp())
@@ -283,7 +283,7 @@ class TestAdjudicatorBuildContext:
                     target_claim="ER-001", critique_argument="Calculation is wrong.")
         ctx = agent.build_context(task, iteration=2)
         assert '<computation name="001_calc.py">' in ctx
-        assert "Purpose: Compute the answer" in ctx
+        assert "<purpose>Compute the answer</purpose>" in ctx
         assert "import numpy as np" in ctx
 
     def test_includes_sanity_checks_from_planner(self):
@@ -295,7 +295,7 @@ class TestAdjudicatorBuildContext:
         task = Task(task_id="T1", task_type=TaskType.ADJUDICATE, assigned_to="adjudicator",
                     target_claim="ER-001", critique_argument="Wrong.")
         ctx = agent.build_context(task, iteration=2)
-        assert "<suggested-sanity-checks" in ctx
+        assert "<sanity-checks>" in ctx
         assert "M -> inf limit" in ctx
 
     def test_includes_known_pitfalls(self):

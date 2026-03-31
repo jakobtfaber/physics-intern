@@ -849,7 +849,9 @@ class TestPlannerReviseEnrichedContext:
             review=ReviewResult(verdict="VERIFIED", summary="Independent derivation confirms", iteration=3),
         )
         text = render_planner_revise_context(state, "ER-002 was overturned")
-        assert "## Established Results (ERs)" in text
+        # ERs are now in <established-results> inside <research-state>
+        assert "<established-results>" in text
+        assert "<research-state>" in text
         assert "ER-001: F(p) is a rational function, VERIFIED" in text
         assert "depends_on: none" in text
         assert "evidence: [E-001] compute" in text
@@ -857,7 +859,7 @@ class TestPlannerReviseEnrichedContext:
         assert "review: VERIFIED" in text
         assert "Independent derivation" in text
 
-    def test_enriched_wh_shows_pending_review(self):
+    def test_wh_not_shown_in_revise_context(self):
         state = ResearchState(problem_statement="Test")
         state.hypotheses["WH-002"] = Hypothesis(
             id="WH-002",
@@ -866,10 +868,10 @@ class TestPlannerReviseEnrichedContext:
             depends_on=["ER-001"],
         )
         text = render_planner_revise_context(state, "trigger")
-        assert "WH-002: X depends on Y, PENDING REVIEW" in text
-        assert "depends_on: ER-001" in text
+        # WHs are no longer shown in revise context
+        assert "WH-002" not in text
 
-    def test_enriched_rq_shows_evidence(self):
+    def test_rq_not_shown_in_revise_context(self):
         from sciralph.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -879,9 +881,8 @@ class TestPlannerReviseEnrichedContext:
             evidence=[Evidence(id="E-005", type="research", summary="Leading term is O(p^2)", iteration=4)],
         )
         text = render_planner_revise_context(state, "trigger")
-        assert "RQ-001: What is the leading term?, OPEN, 1 evidence item" in text
-        assert "evidence: [E-005] research" in text
-        assert "O(p^2)" in text
+        # RQs are no longer shown in revise context
+        assert "RQ-001" not in text
 
     def test_abandoned_entities_excluded(self):
         state = ResearchState(problem_statement="Test")
@@ -893,23 +894,22 @@ class TestPlannerReviseEnrichedContext:
         text = render_planner_revise_context(state, "trigger")
         assert "WH-003" not in text.split("<entities>")[0] if "<entities>" in text else True
 
-    def test_critic_clean_reviews_included(self):
+    def test_critic_clean_reviews_not_in_revise_context(self):
         state = ResearchState(problem_statement="Test")
         state.critic_clean_reviews = [
             {"iteration": 3, "summary": "All results consistent"},
             {"iteration": 7, "summary": "No issues found"},
         ]
         text = render_planner_revise_context(state, "trigger")
-        assert "<critic-clean-reviews>" in text
-        assert "Iteration 3: All results consistent" in text
-        assert "Iteration 7: No issues found" in text
+        # critic-clean-reviews dropped from revise context
+        assert "<critic-clean-reviews>" not in text
 
     def test_no_critic_clean_reviews_when_empty(self):
         state = ResearchState(problem_statement="Test")
         text = render_planner_revise_context(state, "trigger")
         assert "<critic-clean-reviews>" not in text
 
-    def test_entities_grouped_by_type(self):
+    def test_only_ers_in_research_state(self):
         from sciralph.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.hypotheses["ER-001"] = Hypothesis(
@@ -925,10 +925,13 @@ class TestPlannerReviseEnrichedContext:
             id="RQ-001", question="Open question", status=RQStatus.OPEN,
         )
         text = render_planner_revise_context(state, "trigger")
-        er_pos = text.index("## Established Results (ERs)")
-        wh_pos = text.index("## Working Hypotheses (WHs)")
-        rq_pos = text.index("## Research Questions (RQs)")
-        assert er_pos < wh_pos < rq_pos
+        # ERs shown in <established-results> inside <research-state>
+        assert "<research-state>" in text
+        assert "<established-results>" in text
+        assert "ER-001" in text
+        # WHs and RQs no longer shown
+        assert "WH-002" not in text
+        assert "RQ-001" not in text
 
     def test_er_shows_derivation_excerpt(self):
         state = ResearchState(problem_statement="Test")
@@ -956,7 +959,7 @@ class TestPlannerReviseEnrichedContext:
         # ER uses 300-char limit, so 250-char summary is not truncated
         assert long_summary in text
 
-    def test_wh_truncates_summary_at_150(self):
+    def test_wh_not_in_revise_context(self):
         state = ResearchState(problem_statement="Test")
         long_summary = "B" * 200
         state.hypotheses["WH-001"] = Hypothesis(
@@ -965,9 +968,8 @@ class TestPlannerReviseEnrichedContext:
             evidence=[Evidence(id="E-002", type="research", summary=long_summary, iteration=2)],
         )
         text = render_planner_revise_context(state, "trigger")
-        # WH uses 150-char limit
-        assert "B" * 150 in text
-        assert "B" * 151 not in text
+        # WHs are no longer shown in revise context
+        assert "WH-001" not in text
 
     def test_wh_has_no_derivation_excerpt(self):
         state = ResearchState(problem_statement="Test")
@@ -1013,47 +1015,29 @@ class TestRenderOrchestratorSlimState:
         assert "<sanity-checks>" in text
         assert "T -> 0 as M -> inf" in text
 
-    def test_known_pitfalls_included(self):
+    def test_known_pitfalls_not_in_slim_state(self):
+        """Known pitfalls are now in background-survey, not slim state."""
         state = ResearchState(conventions="Natural units")
         state.known_pitfalls = "Sign conventions for metric signature"
         text = render_orchestrator_slim_state(state)
-        assert "<known-pitfalls>" in text
-        assert "Sign conventions" in text
+        assert "<known-pitfalls>" not in text
 
     def test_no_sanity_checks_when_empty(self):
         state = ResearchState(conventions="Natural units")
         text = render_orchestrator_slim_state(state)
         assert "<sanity-checks>" not in text
 
-    def test_no_known_pitfalls_when_empty(self):
-        state = ResearchState(conventions="Natural units")
-        text = render_orchestrator_slim_state(state)
-        assert "<known-pitfalls>" not in text
-
     def test_ordering_strategy_before_sanity_checks(self):
         state = ResearchState(conventions="Natural units", strategy="Use surface gravity")
         state.sanity_checks = ["T > 0"]
-        state.known_pitfalls = "Sign errors"
         text = render_orchestrator_slim_state(state)
         assert text.index("<strategy>") < text.index("<sanity-checks>")
-        assert text.index("<sanity-checks>") < text.index("<known-pitfalls>")
 
-    def test_survey_background_included(self):
+    def test_survey_not_in_slim_state(self):
+        """Survey data is now in background-survey, not slim state."""
         state = ResearchState(conventions="Natural units")
-        state.survey_background = "## Background\n\nBlack hole thermodynamics overview"
-        text = render_orchestrator_slim_state(state)
-        assert "<survey-background>" in text
-        assert "Black hole thermodynamics overview" in text
-
-    def test_survey_methods_included(self):
-        state = ResearchState(conventions="Natural units")
+        state.survey_background = "Black hole thermodynamics overview"
         state.survey_methods = "Euclidean path integral method"
-        text = render_orchestrator_slim_state(state)
-        assert "<survey-methods>" in text
-        assert "Euclidean path integral method" in text
-
-    def test_no_survey_when_empty(self):
-        state = ResearchState(conventions="Natural units")
         text = render_orchestrator_slim_state(state)
         assert "<survey-background>" not in text
         assert "<survey-methods>" not in text

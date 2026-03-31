@@ -431,17 +431,14 @@ class SciRalph:
         if not survey:
             return
 
-        # Merge §1 (background) + §2 (key insights) into survey_background
-        bg_parts = []
+        # §1 (background) and §2 (key insights) stored as separate fields
         if survey.get("background"):
-            bg_parts.append(f"## Background\n\n{survey['background']}")
-        if survey.get("key_insights"):
-            bg_parts.append(f"## Key Insights\n\n{survey['key_insights']}")
-        if bg_parts:
-            self.research_state.survey_background = "\n\n".join(bg_parts)
+            self.research_state.survey_background = survey["background"]
         elif survey.get("raw_notes"):
             # Fallback: no structured sections, use raw text
             self.research_state.survey_background = survey["raw_notes"]
+        if survey.get("key_insights"):
+            self.research_state.key_insights = survey["key_insights"]
 
         if survey.get("known_methods"):
             self.research_state.survey_methods = survey["known_methods"]
@@ -571,13 +568,15 @@ class SciRalph:
 
     def _build_context_suffix(self) -> str:
         """Build suffix for orchestrator context with violations, blockers, and agent failures."""
-        lines = []
+        # Dispatch history goes into research-state via dispatch_history_text
         if self._state.dispatch_history:
-            lines.append("<tasks_dispatch_history>")
+            dh_lines = ["<tasks_dispatch_history>"]
             for rec in self._state.dispatch_history:
                 target_str = f" → {rec.target}" if rec.target else ""
-                lines.append(f"Iter {rec.iteration}: {rec.task_type}{target_str} | {rec.outcome}")
-            lines.append("</tasks_dispatch_history>\n")
+                dh_lines.append(f"Iter {rec.iteration}: {rec.task_type}{target_str} | {rec.outcome}")
+            dh_lines.append("</tasks_dispatch_history>")
+            self.orchestrator.dispatch_history_text = "\n".join(dh_lines)
+        lines = []
         if self._state.pending_violations:
             lines.append(">>> POST-INTEGRATION VIOLATIONS <<<")
             for v in self._state.pending_violations:

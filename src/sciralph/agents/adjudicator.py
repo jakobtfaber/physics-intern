@@ -48,19 +48,41 @@ class AdjudicatorAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build neutral adjudication context."""
-        parts: list[str] = []
+        from ..renderers import render_research_context_xml
 
         if not self.research_state:
             return ""
 
-        # Problem statement
-        if self.research_state.problem_statement:
-            parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>")
-        if self.research_state.answer_template:
-            parts.append(f"<answer-template>\n{self.research_state.answer_template}\n</answer-template>")
-
-        # The claim being challenged — full details
+        parts: list[str] = []
         target_id = task.target_claim
+
+        # 1. Research context — problem statement + answer template
+        parts.append(render_research_context_xml(self.research_state))
+
+        # 2. Background survey — known pitfalls only
+        if self.research_state.known_pitfalls:
+            parts.append(
+                f"<background-survey>\n"
+                f"<known-pitfalls>\n{self.research_state.known_pitfalls}\n</known-pitfalls>\n"
+                f"</background-survey>"
+            )
+
+        # 3. Research state — conventions, established results, sanity checks
+        rs_parts: list[str] = []
+        if self.research_state.conventions:
+            rs_parts.append(f"<conventions>\n{self.research_state.conventions}\n</conventions>")
+        ers = self.research_state.established_hypotheses()
+        other_ers = [er for er in ers if er.id != target_id]
+        if other_ers:
+            er_lines = [f"- **{er.id}**: {er.statement}" for er in other_ers]
+            rs_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+        if self.research_state.sanity_checks:
+            checks_text = "\n".join(f"- {c}" for c in self.research_state.sanity_checks)
+            rs_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
+        if rs_parts:
+            parts.append("<research-state>\n" + "\n".join(rs_parts) + "\n</research-state>")
+
+        # 4. Claim being challenged — full details
         if target_id and target_id in self.research_state.hypotheses:
             h = self.research_state.hypotheses[target_id]
             claim_parts: list[str] = [f"ID: {h.id}", f"Statement: {h.statement}"]
@@ -70,16 +92,15 @@ class AdjudicatorAgent(BaseAgent):
                 for ev_idx, ev in enumerate(h.evidence, 1):
                     ev_parts: list[str] = []
                     if ev.approach:
-                        ev_parts.append(f"Approach: {ev.approach}")
+                        ev_parts.append(f"<approach>\n{ev.approach}\n</approach>")
                     if ev.method:
-                        ev_parts.append(f"Method: {ev.method}")
+                        ev_parts.append(f"<method>{ev.method}</method>")
                     if ev.result:
-                        ev_parts.append(f"Result: {ev.result}")
+                        ev_parts.append(f"<result>{ev.result}</result>")
                     if ev.reasoning:
-                        ev_parts.append(f"Reasoning: {ev.reasoning}")
+                        ev_parts.append(f"<reasoning>\n{ev.reasoning}\n</reasoning>")
                     if ev.confidence:
-                        ev_parts.append(f"Confidence: {ev.confidence}")
-                    # Include computation scripts if available
+                        ev_parts.append(f"<confidence>{ev.confidence}</confidence>")
                     if ev.scripts:
                         for script_name in ev.scripts:
                             purpose = ev.script_purposes.get(script_name, "")
@@ -94,7 +115,7 @@ class AdjudicatorAgent(BaseAgent):
                                 output = "[not found]"
                             comp_parts = []
                             if purpose:
-                                comp_parts.append(f"  Purpose: {purpose}")
+                                comp_parts.append(f"  <purpose>{purpose}</purpose>")
                             comp_parts.append(f'  <code language="python">\n{code}\n  </code>')
                             comp_parts.append(f"  <output>\n{output}\n  </output>")
                             ev_parts.append(
@@ -112,38 +133,19 @@ class AdjudicatorAgent(BaseAgent):
                             f"{content or ev.reasoning}\n</derivation>"
                         )
                     label = f' n="{ev_idx}/{len(h.evidence)}"' if len(h.evidence) > 1 else ""
-                    parts.append(f'\n<evidence type="{ev.type}"{label}>\n' + "\n".join(ev_parts) + "\n</evidence>")
+                    ev_parts_str = "\n".join(ev_parts)
+                    parts.append(f'<evidence type="{ev.type}"{label}>\n{ev_parts_str}\n</evidence>')
             if h.review:
                 claim_parts.append(f"Original review verdict: {h.review.verdict}")
                 if h.review.summary:
                     claim_parts.append(f"Original review summary: {h.review.summary}")
-            parts.insert(1, f'\n<claim-under-review id="{target_id}">\n' + "\n".join(claim_parts) + "\n</claim-under-review>")
+            parts.append(f'<claim id="{target_id}">\n' + "\n".join(claim_parts) + "\n</claim>")
 
-        # The critique's argument
+        # 5. Challenge (critique argument)
         if task.critique_argument:
-            parts.append(f"\n<challenge>\n{task.critique_argument}\n</challenge>")
+            parts.append(f"<challenge>\n{task.critique_argument}\n</challenge>")
 
-        # Conventions
-        if self.research_state.conventions:
-            parts.append(f"\n<conventions>\n{self.research_state.conventions}\n</conventions>")
-
-        # Known pitfalls from survey
-        if self.research_state.known_pitfalls:
-            parts.append(f"\n<known-pitfalls>\n{self.research_state.known_pitfalls}\n</known-pitfalls>")
-
-        # Other established results (excluding the challenged one)
-        ers = self.research_state.established_hypotheses()
-        other_ers = [er for er in ers if er.id != target_id]
-        if other_ers:
-            er_lines = [f"- **{er.id}**: {er.statement}" for er in other_ers]
-            parts.append("\n<established-context>\n" + "\n".join(er_lines) + "\n</established-context>")
-
-        # Sanity checks (indicative, not all may be relevant to this dispute)
-        if self.research_state.sanity_checks:
-            checks_text = "\n".join(f"- {c}" for c in self.research_state.sanity_checks)
-            parts.append(f'\n<suggested-sanity-checks>\n{checks_text}\n</suggested-sanity-checks>')
-
-        return "\n".join(parts)
+        return "\n\n".join(parts)
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
         """Parse adjudication JSON from one-shot response."""

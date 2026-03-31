@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 from ..llm import LLMResponse
-from ..renderers import render_planner_revise_context, _render_survey_context
+from ..renderers import render_planner_revise_context, render_background_survey_xml
 from ..task import TaskType
 from .base import BaseAgent
 from .parsing import JSON_FENCE_RE, try_json_loads
@@ -82,7 +82,7 @@ class PlannerAgent(BaseAgent):
         if self.research_state:
             if self.research_state.answer_template:
                 parts.append(f"\n<answer-template>\n{self.research_state.answer_template}\n</answer-template>")
-            survey_ctx = _render_survey_context(self.research_state)
+            survey_ctx = render_background_survey_xml(self.research_state)
             if survey_ctx:
                 parts.append(f"\n<background-survey>\n{survey_ctx}\n</background-survey>")
         return "\n".join(parts)

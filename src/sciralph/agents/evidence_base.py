@@ -86,26 +86,35 @@ class EvidenceAgent(BaseAgent):
         self.research_state: ResearchState | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
+        from ..renderers import render_research_context_xml
+
         parts: list[str] = []
 
-        # 1. Background — domain context first
-        if task.background:
-            parts.append(f"<background>\n{task.background}\n</background>")
+        # 1. Research context — problem statement + answer template
+        if self.research_state:
+            parts.append(render_research_context_xml(self.research_state))
 
-        # 2. Target question/statement — what the agent is answering
+        # 2. Research state — conventions, established results
+        if self.research_state:
+            rs_parts: list[str] = []
+            if self.research_state.conventions:
+                rs_parts.append(f"<conventions>\n{self.research_state.conventions}\n</conventions>")
+            ers = self.research_state.established_hypotheses()
+            if ers:
+                er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
+                rs_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+            if rs_parts:
+                parts.append("<research-state>\n" + "\n".join(rs_parts) + "\n</research-state>")
+
+        # 3. Task — target, background, instructions, method hints, assumptions, relevant results
+        task_parts: list[str] = []
         target_text = self._resolve_target_text(task.target_claim)
         if target_text:
-            parts.append(f"<target>\n{task.target_claim}: {target_text}\n</target>")
-
-        # 2b. Active critiques targeting this entity
-        critique_block = self._render_active_critiques(task)
-        if critique_block:
-            parts.append(critique_block)
-
-        # 3. Task description + method hints + assumptions
-        task_parts: list[str] = []
+            task_parts.append(f"<target>\n{task.target_claim}: {target_text}\n</target>")
+        if task.background:
+            task_parts.append(f"<background>\n{task.background}\n</background>")
         if task.body:
-            task_parts.append(task.body)
+            task_parts.append(f"<instructions>\n{task.body}\n</instructions>")
         if task.method_hints:
             hints = "\n".join(f"- {h}" for h in task.method_hints)
             task_parts.append(f"<method-hints>\n{hints}\n</method-hints>")
@@ -117,28 +126,6 @@ class EvidenceAgent(BaseAgent):
             task_parts.append(f"<relevant-results>\n{items}\n</relevant-results>")
         if task_parts:
             parts.append("<task>\n" + "\n\n".join(task_parts) + "\n</task>")
-
-        # 4. Research context — conventions, established results, pitfalls, sanity checks
-        #    (no strategy, no open questions — those are orchestrator concerns)
-        if self.research_state:
-            rc_parts: list[str] = []
-            if self.research_state.problem_statement:
-                rc_parts.append(f"<problem-statement>\n{self.research_state.problem_statement}\n</problem-statement>")
-            if self.research_state.answer_template:
-                rc_parts.append(f"<answer-template>\n{self.research_state.answer_template}\n</answer-template>")
-            if self.research_state.conventions:
-                rc_parts.append(f"<conventions>\n{self.research_state.conventions}\n</conventions>")
-            ers = self.research_state.established_hypotheses()
-            if ers:
-                er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
-                rc_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
-            if self.research_state.known_pitfalls:
-                rc_parts.append(f"<known-pitfalls>\n{self.research_state.known_pitfalls}\n</known-pitfalls>")
-            if self.research_state.sanity_checks:
-                checks_text = "\n".join(f"- {c}" for c in self.research_state.sanity_checks)
-                rc_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
-            if rc_parts:
-                parts.append("<research-context>\n" + "\n".join(rc_parts) + "\n</research-context>")
 
         return "\n\n".join(parts)
 

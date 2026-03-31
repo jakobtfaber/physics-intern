@@ -45,7 +45,8 @@ def test_build_context_replan():
     context = agent.build_context(_make_task(), iteration=5)
 
     assert "Derive the Hawking temperature." in context
-    assert "<current-research-state>" in context
+    # Re-survey should not include research-state when state is empty
+    # (no conventions, no ERs, no RQs, no WHs)
 
 
 # ---------- process_response tests ----------
@@ -178,11 +179,12 @@ def test_build_context_replan_uses_slim_state():
         strategy="Use surface gravity method.",
     )
     context = agent.build_context(_make_task(), iteration=5)
-    assert "<current-research-state>" in context
-    # Slim state renders conventions and strategy
+    assert "<research-state>" in context
+    # Research state renders conventions (strategy excluded from surveyor revision)
     assert "<conventions>" in context
-    assert "<strategy>" in context
-    # Slim state does NOT produce derivation XML tags (those are full-state only)
+    # Strategy is NOT included in surveyor revision context
+    assert "<strategy>" not in context
+    # Does NOT produce derivation XML tags (one-liner format)
     assert "<derivation>" not in context
 
 
