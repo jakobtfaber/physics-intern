@@ -1,0 +1,9 @@
+problem : |
+  Consider the digraph with $m^3$ vertices ijk for 0 ≤ i, j, k < m, and three arcs from
+  each vertex, namely to i+jk, ij+k, and ijk+, where i+ = (i+1) mod m. Try to find
+  a general decomposition of the arcs into three directed m^3-cycles, for all m > 2.
+
+answer: |
+
+answer_template: |
+  Sketch of a proof.

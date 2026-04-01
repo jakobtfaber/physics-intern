@@ -100,7 +100,7 @@ class TestProblemStatementInContext:
             problem_statement="Derive the Hawking temperature for a Schwarzschild black hole.",
         )
         prompt = orchestrator.system_prompt
-        assert "<problem-statement>" not in prompt
+        assert "Derive the Hawking temperature" not in prompt
 
     def test_no_problem_statement_without_research_state(self, orchestrator):
         context = orchestrator.build_context(_EMPTY_TASK, iteration=1)

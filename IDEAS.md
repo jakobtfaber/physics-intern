@@ -1,18 +1,37 @@
 # SciRalph — Task List
 
-## OTHER IDEAS
+## LLM
+- strengthen token count, reasoning storage, etc. per provider
 
+## Code audit
+- clean codebase.md
+- clean tests
+- clean engine
+- improve structure : utils, etc.
+- what to do with dead ends ?
+
+## Agents improvements
+
+### Surveyor
+- 
+- create some warm up problems
+- remove re-surveyor
 
 ### Improve orchestrator
 
-- prompt the orchestrator for better problem decomposition
-- create some warm up problems
-- Add a more open ended "brainstorm" task and maybe a dedicated section in the research state for ideas, possible routes, alternatives, etc.
-- brainstorm internal consistency checks ?
-- open questions and dead ends ??
+- orchestrator to better document its thoughts ?
+- orchestrator context rot ?
+- unique orchestrator call ?
 
 ### Improve computationalist
 - to improve token efficiency, should we strip the previous code from the conversation
+
+### Improve critic
+- should we call a deep critic after refutation ?
+
+
+
+## LONGER TERM
 
 ### Problem YAML features
 
@@ -30,9 +49,7 @@
 
 - **Librarian agent** — an agent with web search access that can verify results against known literature, find relevant papers when the system gets stuck, and check whether a "novel" result is actually already known.
 
-### Workspace management
-
-- **Workspace resume** — `--resume <workspace-dir>` to continue a previous run. Skip `init()` if `.git` exists, load iteration from METRICS.md, handle partial state (corrupted state, version mismatches).
-
 ### Human-in-the-loop breakpoints
+
 - allow the operator to pause the loop, inspect state, and intervene
+- add a "user guidelines" file ? resume the process with a planner if user guidelines are added ?
