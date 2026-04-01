@@ -756,6 +756,8 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
 def render_formatter_context(
     state: ResearchState,
     answer_ers: list[str] | None = None,
+    *,
+    best_effort: bool = False,
 ) -> str:
     """Render focused context for the formatter agent using XML tags.
 
@@ -825,6 +827,42 @@ def render_formatter_context(
         parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
     else:
         parts.append("<established-results>\n(No established results.)\n</established-results>")
+
+    # Best-effort: include working hypotheses with full evidence so the
+    # formatter can attempt an answer even without full ER coverage.
+    if best_effort:
+        working_whs_full = sorted(
+            [h for h in state.hypotheses.values() if h.status == HypothesisStatus.WORKING],
+            key=lambda h: h.id,
+        )
+        if working_whs_full:
+            wh_lines: list[str] = []
+            for h in working_whs_full:
+                h_parts_w: list[str] = []
+                if h.statement:
+                    h_parts_w.append(f"Statement: {h.statement}")
+                if h.derivation:
+                    h_parts_w.append(f"Derivation: {h.derivation}")
+                if h.evidence:
+                    for ev in h.evidence:
+                        ev_parts_w: list[str] = []
+                        if ev.method:
+                            ev_parts_w.append(f"Method: {ev.method}")
+                        if ev.result:
+                            ev_parts_w.append(f"Result: {ev.result}")
+                        if ev.confidence:
+                            ev_parts_w.append(f"Confidence: {ev.confidence}")
+                        h_parts_w.append("<evidence>\n" + "\n".join(ev_parts_w) + "\n</evidence>")
+                if h.review:
+                    h_parts_w.append(f"Review verdict: {h.review.verdict}")
+                wh_lines.append(f'<working-hypothesis id="{h.id}">\n' + "\n".join(h_parts_w) + "\n</working-hypothesis>")
+            parts.append(
+                "<unverified-results>\n"
+                "The following working hypotheses have NOT been fully verified but may "
+                "contain useful partial results:\n"
+                + "\n".join(wh_lines)
+                + "\n</unverified-results>"
+            )
 
     # Unresolved items warning
     open_rqs = [rq for rq in state.research_questions.values() if rq.status == RQStatus.OPEN]

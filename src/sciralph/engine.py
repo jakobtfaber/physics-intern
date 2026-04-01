@@ -390,6 +390,35 @@ class SciRalph:
                 console.print("[green]Research completed or abandoned.[/green]")
                 break
 
+        # Best-effort formatter when loop exhausted without completion
+        if (self.iteration > 0
+                and self.research_state.status not in ("completed", "partially_complete", "abandoned")):
+            console.print(
+                "[yellow]Max iterations reached without completion — "
+                "attempting best-effort formatter.[/yellow]"
+            )
+            self._set_research_status("partially_complete")
+            self.formatter.best_effort = True
+            try:
+                rejection = self._run_formatter(answer_ers=None)
+                if rejection:
+                    console.print(
+                        f"[yellow]Best-effort formatter rejected: {rejection}[/yellow]"
+                    )
+            except Exception as exc:
+                console.print(
+                    f"[yellow]Best-effort formatter failed: "
+                    f"{type(exc).__name__}: {exc}[/yellow]"
+                )
+            finally:
+                self.formatter.best_effort = False
+            self._render_files_for_git()
+            self._sync_research_state()
+            self.workspace.git_commit(
+                f"Iteration {self.iteration}: best-effort formatter "
+                "(max iterations reached)"
+            )
+
         self._final_report()
 
     def _run_orchestrator(self) -> Task:
