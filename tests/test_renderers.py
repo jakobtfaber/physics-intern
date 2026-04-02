@@ -1042,6 +1042,47 @@ class TestRenderOrchestratorSlimState:
         assert "<survey-background>" not in text
         assert "<survey-methods>" not in text
 
+    def test_dead_end_description_truncated(self):
+        """Long dead-end descriptions are truncated in slim state."""
+        long_desc = "Abandoned WH-001 — " + "x" * 200
+        state = ResearchState(conventions="c=1")
+        state.failed_approaches = [FailedApproach(description=long_desc, reason="bad")]
+        text = render_orchestrator_slim_state(state)
+        assert long_desc not in text
+        assert "\u2026" in text  # ellipsis present
+        assert long_desc[:100] in text  # beginning preserved
+
+    def test_dead_end_reason_truncated(self):
+        """Long dead-end reasons are truncated in slim state."""
+        long_reason = "R" * 200
+        state = ResearchState(conventions="c=1")
+        state.failed_approaches = [FailedApproach(description="WH-001", reason=long_reason)]
+        text = render_orchestrator_slim_state(state)
+        assert long_reason not in text
+        assert long_reason[:100] in text
+
+    def test_dead_end_short_strings_not_truncated(self):
+        """Short dead-end entries appear in full without ellipsis."""
+        state = ResearchState(conventions="c=1")
+        state.failed_approaches = [FailedApproach(description="Abandoned WH-001 — short", reason="nope")]
+        text = render_orchestrator_slim_state(state)
+        assert "Abandoned WH-001 — short" in text
+        assert "(nope)" in text
+        assert "\u2026" not in text
+
+    def test_abandoned_hypothesis_fallback_truncated(self):
+        """Abandoned WH not in failed_approaches is truncated via fallback."""
+        state = ResearchState(conventions="c=1")
+        state.hypotheses["WH-099"] = Hypothesis(
+            id="WH-099",
+            statement="A" * 200,
+            status=HypothesisStatus.ABANDONED,
+        )
+        text = render_orchestrator_slim_state(state)
+        assert "A" * 200 not in text
+        assert "Abandoned WH-099" in text
+        assert "\u2026" in text
+
 
 # ===========================================================================
 # render_formatter_context — sanity checks

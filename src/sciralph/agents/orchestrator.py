@@ -59,10 +59,13 @@ class OrchestratorAgent(BaseAgent):
         if state_text:
             rs_inner_parts.append(state_text)
         if self.research_state and self.research_state.research_notes:
-            note_lines = []
-            for note in self.research_state.research_notes[-10:]:
-                note_lines.append(f"- [iter {note.get('iteration', '?')}] {note.get('text', '')}")
-            rs_inner_parts.append("<research-notes>\n" + "\n".join(note_lines) + "\n</research-notes>")
+            cutoff = max(iteration - 4, 0)
+            recent = [n for n in self.research_state.research_notes if n.get("iteration", 0) >= cutoff]
+            if recent:
+                note_lines = []
+                for note in recent:
+                    note_lines.append(f"- [iter {note.get('iteration', '?')}] {note.get('text', '')}")
+                rs_inner_parts.append("<research-notes>\n" + "\n".join(note_lines) + "\n</research-notes>")
         if self.dispatch_history_text:
             rs_inner_parts.append(self.dispatch_history_text)
             self.dispatch_history_text = ""

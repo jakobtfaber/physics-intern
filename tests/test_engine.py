@@ -1855,6 +1855,44 @@ class TestDispatchHistory:
         # Violations are still in the suffix
         assert "POST-INTEGRATION VIOLATIONS" in suffix
 
+    def test_dispatch_history_capped_to_recent_iterations(self):
+        """Old dispatch records are omitted, with a summary line."""
+        engine = self._make_engine()
+        engine.iteration = 10
+        engine._state.dispatch_history = [
+            DispatchRecord(iteration=1, task_type="compute", target="RQ-001", outcome="evidence (exact)"),
+            DispatchRecord(iteration=3, task_type="review", target="WH-001", outcome="VERIFIED"),
+            DispatchRecord(iteration=6, task_type="compute", target="RQ-002", outcome="evidence (approx)"),
+            DispatchRecord(iteration=8, task_type="review", target="WH-002", outcome="REFUTED"),
+            DispatchRecord(iteration=10, task_type="compute", target="RQ-003", outcome="evidence (exact)"),
+        ]
+        engine._build_context_suffix()
+        dh = engine.orchestrator.dispatch_history_text
+        # Recent records (iter >= 6) are present
+        assert "Iter 6" in dh
+        assert "Iter 8" in dh
+        assert "Iter 10" in dh
+        # Old records (iter < 6) are omitted
+        assert "Iter 1:" not in dh
+        assert "Iter 3:" not in dh
+        # Summary line present
+        assert "2 earlier dispatch(es) omitted" in dh
+
+    def test_dispatch_history_no_omission_early(self):
+        """At early iterations, all records are included without omission line."""
+        engine = self._make_engine()
+        engine.iteration = 3
+        engine._state.dispatch_history = [
+            DispatchRecord(iteration=1, task_type="compute", target="RQ-001", outcome="evidence"),
+            DispatchRecord(iteration=2, task_type="review", target="WH-001", outcome="VERIFIED"),
+            DispatchRecord(iteration=3, task_type="compute", target="RQ-002", outcome="evidence"),
+        ]
+        engine._build_context_suffix()
+        dh = engine.orchestrator.dispatch_history_text
+        assert "Iter 1" in dh
+        assert "Iter 2" in dh
+        assert "Iter 3" in dh
+        assert "omitted" not in dh
 
 
 class TestAutoPromoteCascade:

@@ -631,17 +631,21 @@ def render_orchestrator_slim_state(
     if rq_lines:
         parts.append("<research-questions>\n" + "\n".join(rq_lines) + "\n</research-questions>")
 
-    # Dead Ends — one-liner per entry
+    # Dead Ends — one-liner per entry (truncated for context budget)
+    def _trunc(s: str, cap: int) -> str:
+        return s if len(s) <= cap else s[: cap - 1] + "\u2026"
+
     dead_lines: list[str] = []
     for fa in state.failed_approaches:
-        reason = f" ({fa.reason})" if fa.reason else ""
-        dead_lines.append(f"- {fa.description}{reason}")
+        desc = _trunc(fa.description, 150)
+        reason = f" ({_trunc(fa.reason, 120)})" if fa.reason else ""
+        dead_lines.append(f"- {desc}{reason}")
     fa_descriptions = {fa.description for fa in state.failed_approaches}
     for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
         if h.status == HypothesisStatus.ABANDONED:
             desc = f"Abandoned {h.id} — {h.statement}"
             if desc not in fa_descriptions:
-                dead_lines.append(f"- {desc}")
+                dead_lines.append(f"- {_trunc(desc, 150)}")
     if dead_lines:
         parts.append("<dead-ends>\n" + "\n".join(dead_lines) + "\n</dead-ends>")
 

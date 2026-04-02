@@ -160,3 +160,47 @@ class TestSuffixPlacement:
         notes_pos = context.index("research-notes")
         suffix_pos = context.index("VERIFIED HYPOTHESES")
         assert suffix_pos > notes_pos
+
+
+class TestResearchNotesIteration:
+    """Research notes are filtered to the last 5 iterations."""
+
+    def test_old_notes_excluded(self, orchestrator):
+        """Notes from iterations older than the 5-iteration window are excluded."""
+        rs = ResearchState()
+        rs.research_notes = [
+            {"iteration": i, "text": f"Note from iter {i}"} for i in range(1, 11)
+        ]
+        orchestrator.research_state = rs
+        context = orchestrator.build_context(_EMPTY_TASK, iteration=10)
+        # cutoff = max(10-4, 0) = 6, so iters 6-10 included
+        for i in range(6, 11):
+            assert f"iter {i}" in context
+        for i in range(1, 6):
+            assert f"[iter {i}]" not in context
+
+    def test_early_iterations_include_all(self, orchestrator):
+        """At early iterations, all notes are included (cutoff floors at 0)."""
+        rs = ResearchState()
+        rs.research_notes = [
+            {"iteration": 0, "text": "Init note"},
+            {"iteration": 1, "text": "First iter note"},
+            {"iteration": 2, "text": "Second iter note"},
+        ]
+        orchestrator.research_state = rs
+        context = orchestrator.build_context(_EMPTY_TASK, iteration=2)
+        assert "Init note" in context
+        assert "First iter note" in context
+        assert "Second iter note" in context
+
+    def test_notes_without_iteration_excluded_late(self, orchestrator):
+        """Notes missing the iteration key default to 0 and are excluded late."""
+        rs = ResearchState()
+        rs.research_notes = [
+            {"text": "Old note without iteration"},
+            {"iteration": 10, "text": "Recent note"},
+        ]
+        orchestrator.research_state = rs
+        context = orchestrator.build_context(_EMPTY_TASK, iteration=10)
+        assert "Recent note" in context
+        assert "Old note without iteration" not in context

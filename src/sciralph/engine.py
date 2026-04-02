@@ -599,8 +599,13 @@ class SciRalph:
         """Build suffix for orchestrator context with violations, blockers, and agent failures."""
         # Dispatch history goes into research-state via dispatch_history_text
         if self._state.dispatch_history:
+            cutoff = max(self.iteration - 4, 0)
+            recent = [r for r in self._state.dispatch_history if r.iteration >= cutoff]
+            omitted = len(self._state.dispatch_history) - len(recent)
             dh_lines = ["<tasks_dispatch_history>"]
-            for rec in self._state.dispatch_history:
+            if omitted > 0:
+                dh_lines.append(f"(...{omitted} earlier dispatch(es) omitted)")
+            for rec in recent:
                 target_str = f" → {rec.target}" if rec.target else ""
                 dh_lines.append(f"Iter {rec.iteration}: {rec.task_type}{target_str} | {rec.outcome}")
             dh_lines.append("</tasks_dispatch_history>")
