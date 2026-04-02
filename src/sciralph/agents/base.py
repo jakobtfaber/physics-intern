@@ -14,7 +14,7 @@ from ..llm import AgentResult, LLMResponse, call_llm, run_agent_loop
 from ..metrics import MetricsTracker
 from ..tool_call import ToolCall
 from ..tools import ToolExecutor
-from ..categories import CompensationCategory as CC
+from ..utils.categories import CompensationCategory as CC
 from ..workspace import WorkspaceManager, log_scaffold_event
 
 console = Console()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from .markdown import parse_frontmatter
+from .utils.markdown import parse_frontmatter
 
 import yaml
 

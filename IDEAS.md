@@ -1,38 +1,18 @@
 # SciRalph — Task List
 
-## LLM
-- strengthen token count, reasoning storage, etc. per provider
-
-## Code audit
-- clean codebase.md
-- clean tests
+## Refactor
+- separer verifier
 - clean engine
-- improve structure : utils, etc.
-- what to do with dead ends ?
-
-## Agents improvements
-
-### Surveyor
-- 
-- create some warm up problems
-- remove re-surveyor
-
-### Improve orchestrator
-
-- orchestrator to better document its thoughts ?
-- orchestrator context rot ?
-- unique orchestrator call ?
-
-### Improve computationalist
-- to improve token efficiency, should we strip the previous code from the conversation
-
-### Improve critic
-- should we call a deep critic after refutation ?
+- improve structure : utils, scripts, petc.
+- each agent has its tools ?
 
 
 
 ## LONGER TERM
 
+### LLM
+- strengthen token count, reasoning storage, etc. per provider
+- 
 ### Problem YAML features
 
 - **External reference files** — allow problem YAML to specify a `files:` list. Copy into `workspace/references/`. Requires `read_file` tool for agents to access them. Useful for problems that need external papers or formula sheets.
@@ -53,3 +33,14 @@
 
 - allow the operator to pause the loop, inspect state, and intervene
 - add a "user guidelines" file ? resume the process with a planner if user guidelines are added ?
+
+### Improve computationalist
+- to improve token efficiency, should we strip the previous code from the conversation
+
+### Improve critic
+- should we call a deep critic after refutation ?
+
+### Improve orchestrator
+- create some warm up problems
+- orchestrator to better document its thoughts ?
+- unique orchestrator call ? 

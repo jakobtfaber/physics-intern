@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import ClassVar
 
-from .sandbox import execute_python
+from .utils.sandbox import execute_python
 from .task import TaskType
 from .tool_call import ToolCall  # noqa: F401 — re-export for backward compat
 

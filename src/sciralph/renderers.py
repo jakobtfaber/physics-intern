@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .markdown import render_frontmatter
+from .utils.markdown import render_frontmatter
 from .research_state import (
     CritiqueStatus,
     Hypothesis,

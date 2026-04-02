@@ -21,8 +21,8 @@ import yaml
 
 from .config import Config, DEFAULTS
 from .llm import LLMResponse  # noqa: F401 — reuse dataclass, call via streaming
-from .markdown import parse_frontmatter
-from .sandbox import ExecutionResult, execute_python
+from .utils.markdown import parse_frontmatter
+from .utils.sandbox import ExecutionResult, execute_python
 
 console = Console()
 

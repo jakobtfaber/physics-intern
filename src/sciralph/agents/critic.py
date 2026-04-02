@@ -12,7 +12,7 @@ from ..llm import LLMResponse
 from ..renderers import render_critic_context
 from ..research_state import Critique, CritiqueStatus, Severity
 from .base import BaseAgent
-from ..categories import CompensationCategory as CC
+from ..utils.categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event
 from .parsing import JSON_FENCE_RE, try_json_loads
 

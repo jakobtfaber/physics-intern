@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from .research_state import CritiqueStatus, HypothesisStatus, Verdict
-from .categories import CompensationCategory as CC
+from .utils.categories import CompensationCategory as CC
 from .workspace import log_scaffold_event
 
 if TYPE_CHECKING:
