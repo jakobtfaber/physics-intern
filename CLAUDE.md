@@ -18,7 +18,7 @@ These are non-obvious rules enforced by the scaffolding. Violating them will bre
 - **MD files are write-only snapshots** — `RESEARCH_STATE.md`, `EVIDENCE_LOG.md`, `CRITIQUE_LOG.md` are rendered once per iteration for git history and `verify.py`. Never read back by agents.
 - **Fresh context per call** — every agent gets a new context built from `ResearchState`. No conversation history carries over.
 - **Tool definitions use OpenAI canonical format** (`type: "function"`, `function: {name, description, parameters}`). The Anthropic adapter transforms to `input_schema` format.
-- **Agent prompts are static `.md` files** in `src/sciralph/prompts/` — no templating.
+- **Agent prompts are static `.md` files** co-located with each agent in `src/sciralph/agents/<name>/prompt.md` — no templating.
 - **YAML frontmatter parsing always falls back to regex** — never crash the loop on parse failure.
 - **Workspace git is managed by the scaffolding loop**, not by agents.
 - **ERs are immutable** — only the adjudicator can demote them (via valid critique). No direct dispatch to ERs.

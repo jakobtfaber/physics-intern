@@ -66,7 +66,7 @@ After a run completes, you can independently verify the scientific results using
 uv run python -m sciralph.verify workspaces/<run_dir>/
 
 # Run + verify in one command
-./run_and_verify.sh problems/tier1/hawking_temperature.yaml --max-iterations 10
+./scripts/run_and_verify.sh problems/tier1/hawking_temperature.yaml --max-iterations 10
 ```
 
 ```
@@ -242,50 +242,57 @@ src/sciralph/
   main.py              — Entry point, CLI argument parsing
   engine.py            — Main loop (LoopState): orchestrate → validate → enrich → dispatch → route critiques → git
   research_state.py    — ResearchState dataclass: authoritative structured state (hypotheses, evidence, critiques)
-  renderers.py         — Snapshot renderers (state → Markdown) + per-agent context renderers
-  orchestrator_tools.py — OrchestratorToolExecutor: 9 tools for orchestrator (6 mutation + 3 dispatch)
-  tools.py             — ToolExecutor + ToolCall for computer (document_approach, execute_python, submit_result, report_progress)
-  categories.py        — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
-  validation.py        — Post-integration checks (4 checks on ResearchState) + termination gates
-  verify.py            — Independent verification script (Claude Opus, streaming)
-  evaluate.py          — Answer evaluation: symbolic (SymPy) and numerical comparison for one-shot scoring
-  one_shot.py          — One-shot LLM baseline runner (no scaffolding, for benchmarking raw model capability)
+  tool_call.py         — ToolCall dataclass shared across agents and LLM layer
   config.py            — Config dataclass (model, provider, thresholds, timeouts)
   config.default.yaml  — Single source of truth for all default values
   llm.py               — Provider-agnostic LLM wrapper (call_llm, run_agent_loop) with retry + audit logging
   task.py              — Task dataclass + TaskType enum + TASK_TYPE_AGENT_MAP for typed task handling
+  validation.py        — Post-integration checks (4 checks on ResearchState) + termination gates
   workspace.py         — File I/O + git operations on workspace/ + log_scaffold_event() + log_llm_call()
-  markdown.py          — YAML frontmatter parsing, section extraction, critique helpers
-  sandbox.py           — Python script execution with timeout
   metrics.py           — MetricsTracker (token counts, alerts, Markdown rendering)
   agents/
     base.py            — BaseAgent ABC with template method + retry + tool-use dispatch
-    evidence_base.py   — EvidenceAgent base class shared by researcher and computer (context building, evidence storage)
-    orchestrator.py    — Plans tasks, mutates ResearchState via tools
-    researcher.py      — Analytical reasoning (one-shot structured JSON); writes Evidence to RQ/WH
-    computer.py        — Computational work via code (agentic); writes Evidence to RQ/WH
-    reviewer.py        — Adversarial review (one-shot structured JSON); writes ReviewResult to WH
-    critic.py          — Strategic review (one-shot structured JSON); writes Critique objects
-    adjudicator.py     — Independent ER challenge evaluation (one-shot)
-    formatter.py       — Produces ANSWER.md from final research state (one-shot)
-    planner.py         — Research strategy planner: initial strategy + revision mode (one-shot)
-    surveyor.py        — Background surveyor: maps the research landscape (one-shot)
-  prompts/             — Static .md system prompt files (one per agent)
+    evidence_base.py   — EvidenceAgent base class shared by researcher and computer
+    parsing.py         — JSON parsing utilities for structured agent output
+    orchestrator/      — Plans tasks, mutates ResearchState via tools (agent.py, tools.py, prompt.md)
+    computer/          — Computational work via code execution (agent.py, tools.py, prompt.md)
+    researcher/        — Analytical reasoning, one-shot structured JSON (agent.py, prompt.md)
+    reviewer/          — Adversarial review, one-shot structured JSON (agent.py, prompt.md)
+    critic/            — Strategic audit, one-shot structured JSON (agent.py, prompt.md)
+    adjudicator/       — Independent ER challenge evaluation (agent.py, prompt.md)
+    formatter/         — Produces ANSWER.md from final research state (agent.py, prompt.md)
+    planner/           — Research strategy: initial + revision mode (agent.py, prompt.md, prompt_revise.md)
+    surveyor/          — Background surveyor: maps the research landscape (agent.py, prompt.md)
+  rendering/
+    snapshots.py       — Snapshot renderers: state → Markdown (RESEARCH_STATE, EVIDENCE_LOG, CRITIQUE_LOG)
+    contexts.py        — Per-agent context renderers (orchestrator, critic, formatter, planner, etc.)
+  verification/
+    verify.py          — Independent verification script (Claude Opus, streaming)
+    evaluate.py        — Answer evaluation: symbolic (SymPy) and numerical comparison
+    verifier.md        — Verification prompt
+    process_auditor.md — Process audit prompt
+  one_shot/
+    runner.py          — One-shot LLM baseline runner (no scaffolding, for benchmarking)
   providers/
     base.py            — LLMProvider ABC + ProviderResponse dataclass
     anthropic.py       — Anthropic Claude adapter
     openai.py          — OpenAI adapter
     google.py          — Google Gemini adapter
     huggingface.py     — HuggingFace Inference Providers adapter
+  utils/
+    markdown.py        — YAML frontmatter parsing, section extraction, critique helpers
+    sandbox.py         — Python script execution with timeout
+    categories.py      — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
   models.yaml          — Model registry (friendly keys → provider + model_id + env_key + cost)
-tests/                 — pytest tests across 32 files
+scripts/
+  run_and_verify.sh    — Run a problem then verify results in one command
+  one_shot_batch.sh    — Batch-run one-shot baseline across multiple problems
+tests/                 — pytest tests
 problems/
   tier1/               — 10 core problems
   tier2/               — 12 advanced problems
-  critpt/              — Critical-path problems (quantum error correction decomposition)
+  critpt/              — Critical-path problems
   cfg/                 — CFG/combinatorics problems
-run_and_verify.sh      — Run a problem then verify results in one command
-one_shot_batch.sh      — Batch-run one-shot baseline across multiple problems
 ```
 
 ## Run tests
