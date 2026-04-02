@@ -63,14 +63,14 @@ After a run completes, you can independently verify the scientific results using
 
 ```bash
 # Verify a completed workspace
-uv run python -m sciralph.verify workspaces/<run_dir>/
+uv run python -m sciralph.verification workspaces/<run_dir>/
 
 # Run + verify in one command
 ./scripts/run_and_verify.sh problems/tier1/hawking_temperature.yaml --max-iterations 10
 ```
 
 ```
-python -m sciralph.verify <workspace_dir> [options]
+python -m sciralph.verification <workspace_dir> [options]
 
   --model MODEL              LLM model (default: claude-4.6-opus)
   --max-tokens N             Max output tokens (default: 65536)
