@@ -87,6 +87,8 @@ class ComputerAgent(EvidenceAgent):
                 output="\n---\n".join(exec_outputs) if exec_outputs else "",
                 method=params.get("method", ""),
                 result=params.get("result", ""),
+                description=params.get("description", ""),
+                notes=params.get("notes", ""),
                 confidence=params.get("confidence", "partial"),
                 iteration=iteration,
             )

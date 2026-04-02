@@ -68,6 +68,8 @@ class Evidence:
     output: str = ""         # Code execution output summary
     method: str = ""
     result: str = ""
+    description: str = ""    # What was computed (computer submit_result)
+    notes: str = ""          # Additional notes (computer submit_result)
     confidence: str = ""     # exact/approximate/partial
     summary: str = ""        # One-sentence summary for banners
     iteration: int | None = None
@@ -364,6 +366,8 @@ class ResearchState:
                     output=edata.get("output", ""),
                     method=edata.get("method", ""),
                     result=edata.get("result", ""),
+                    description=edata.get("description", ""),
+                    notes=edata.get("notes", ""),
                     confidence=edata.get("confidence", ""),
                     summary=edata.get("summary", ""),
                     iteration=edata.get("iteration"),

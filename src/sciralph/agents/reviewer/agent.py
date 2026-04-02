@@ -163,6 +163,10 @@ class ReviewerAgent(BaseAgent):
                     multi = len(h.evidence) > 1
                     for ev_idx, ev in enumerate(h.evidence, 1):
                         ev_parts: list[str] = []
+                        if ev.description:
+                            ev_parts.append(f"<description>{ev.description}</description>")
+                        if ev.summary:
+                            ev_parts.append(f"<summary>{ev.summary}</summary>")
                         if ev.approach:
                             ev_parts.append(f"<approach>\n{ev.approach}\n</approach>")
                         if ev.method:
@@ -202,6 +206,8 @@ class ReviewerAgent(BaseAgent):
                             )
                         elif ev.reasoning:
                             ev_parts.append(f"<reasoning>\n{ev.reasoning}\n</reasoning>")
+                        if ev.notes:
+                            ev_parts.append(f"<notes>{ev.notes}</notes>")
                         if ev.confidence:
                             ev_parts.append(f"<confidence>{ev.confidence}</confidence>")
                         label = f' n="{ev_idx}/{len(h.evidence)}"' if multi else ""
