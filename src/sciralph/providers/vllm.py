@@ -319,6 +319,7 @@ class VLLMProvider(LLMProvider):
 
         reasoning_tokens = 0
         answer_tokens = output_tokens
+        visible_text = text
         if fmt == "think_tags":
             match = re.search(r'<think>(.*?)</think>', text, re.DOTALL)
             if match:
@@ -332,7 +333,9 @@ class VLLMProvider(LLMProvider):
             reasoning_tokens = output_tokens - answer_tokens
 
         return ProviderResponse(
-            text=text,
+            # text is the visible answer only; thinking trace lives in
+            # reasoning_content and flows to LLMResponse.reasoning_content
+            text=visible_text,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             stop_reason=stop_reason,

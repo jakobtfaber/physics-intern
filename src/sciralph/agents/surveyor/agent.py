@@ -9,7 +9,7 @@ from sciralph.llm import LLMResponse
 from sciralph.rendering import _problem_guidelines, render_background_survey_xml
 
 from ..base import BaseAgent
-from ..parsing import JSON_FENCE_RE, try_json_loads
+from ..parsing import extract_json
 
 # Text-valued section fields (sanity_checks is list[str], handled separately)
 TEXT_SECTION_FIELDS = (
@@ -38,18 +38,12 @@ class SurveyorAgent(BaseAgent):
     def _validate_response(self, response: LLMResponse) -> bool:
         """Check that at least one structured section was extracted from JSON."""
         text = (response.text or "").strip()
-        fenced = list(JSON_FENCE_RE.finditer(text))
-        if not fenced:
-            return False
-        try:
-            parsed = try_json_loads(fenced[-1].group(1).strip())
-            if isinstance(parsed, dict):
-                return any(
-                    k in parsed and isinstance(parsed[k], str) and parsed[k].strip()
-                    for k in TEXT_SECTION_FIELDS
-                )
-        except (json.JSONDecodeError, ValueError, AttributeError):
-            pass
+        parsed = extract_json(text)
+        if isinstance(parsed, dict):
+            return any(
+                k in parsed and isinstance(parsed[k], str) and parsed[k].strip()
+                for k in TEXT_SECTION_FIELDS
+            )
         return False
 
     def _parse_retry_hint(self) -> str:
@@ -110,25 +104,18 @@ class SurveyorAgent(BaseAgent):
         sections: dict[str, str] = {}
         sanity_checks: list[str] = []
 
-        # Try to extract structured JSON block
-        fenced = list(JSON_FENCE_RE.finditer(text))
-        if fenced:
-            try:
-                parsed = try_json_loads(fenced[-1].group(1).strip())
-                if isinstance(parsed, dict):
-                    sections = {
-                        k: parsed[k].strip()
-                        for k in TEXT_SECTION_FIELDS
-                        if k in parsed and isinstance(parsed[k], str) and parsed[k].strip()
-                    }
-                    # sanity_checks: expect list[str], fallback from str
-                    raw_sc = parsed.get("sanity_checks")
-                    if isinstance(raw_sc, list):
-                        sanity_checks = [str(s).strip() for s in raw_sc if str(s).strip()]
-                    elif isinstance(raw_sc, str) and raw_sc.strip():
-                        sanity_checks = [line.lstrip("- ").strip() for line in raw_sc.splitlines() if line.strip()]
-            except (json.JSONDecodeError, ValueError, AttributeError):
-                pass
+        parsed = extract_json(text)
+        if isinstance(parsed, dict):
+            sections = {
+                k: parsed[k].strip()
+                for k in TEXT_SECTION_FIELDS
+                if k in parsed and isinstance(parsed[k], str) and parsed[k].strip()
+            }
+            raw_sc = parsed.get("sanity_checks")
+            if isinstance(raw_sc, list):
+                sanity_checks = [str(s).strip() for s in raw_sc if str(s).strip()]
+            elif isinstance(raw_sc, str) and raw_sc.strip():
+                sanity_checks = [line.lstrip("- ").strip() for line in raw_sc.splitlines() if line.strip()]
 
         self.parsed_survey = {
             "raw_notes": text,

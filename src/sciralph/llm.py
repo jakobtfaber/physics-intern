@@ -166,6 +166,7 @@ class LLMResponse:
     duration: float
     reasoning_tokens: int = 0
     answer_tokens: int = 0
+    reasoning_content: str = ""  # Parsed thinking trace (from <think> tags or separate field)
 
 
 @dataclass
@@ -213,6 +214,7 @@ def call_llm(system: str, user_content: str, config: Config,
         duration=duration,
         reasoning_tokens=resp.reasoning_tokens,
         answer_tokens=resp.answer_tokens,
+        reasoning_content=resp.reasoning_content,
     )
 
     if config.workspace_dir:

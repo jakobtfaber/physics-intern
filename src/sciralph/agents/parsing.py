@@ -52,3 +52,31 @@ def try_json_loads(s: str):
         if fixed != s:
             return json.loads(fixed)  # let caller handle if still bad
         raise
+
+
+# Regex for bare JSON object: first '{' to last '}'
+_BARE_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def extract_json(text: str):
+    """Extract and parse JSON from text, trying fenced blocks first then bare JSON.
+
+    Returns the parsed object, or None if no valid JSON found.
+    """
+    # Priority 1: fenced ```json ... ``` blocks (take the last one)
+    fenced = list(JSON_FENCE_RE.finditer(text))
+    if fenced:
+        try:
+            return try_json_loads(fenced[-1].group(1).strip())
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Priority 2: bare JSON object in text
+    m = _BARE_JSON_RE.search(text)
+    if m:
+        try:
+            return try_json_loads(m.group(0).strip())
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return None

@@ -10,7 +10,7 @@ from sciralph.rendering import _problem_guidelines, render_planner_revise_contex
 from sciralph.task import TaskType
 
 from ..base import BaseAgent
-from ..parsing import JSON_FENCE_RE, try_json_loads
+from ..parsing import extract_json
 
 if TYPE_CHECKING:
     from sciralph.config import Config
@@ -22,14 +22,9 @@ if TYPE_CHECKING:
 
 def _parse_planner_json(text: str) -> dict | None:
     """Extract the last JSON block from planner output."""
-    fenced = list(JSON_FENCE_RE.finditer(text))
-    if fenced:
-        try:
-            parsed = try_json_loads(fenced[-1].group(1).strip())
-            if isinstance(parsed, dict):
-                return parsed
-        except (json.JSONDecodeError, ValueError):
-            pass
+    parsed = extract_json(text)
+    if isinstance(parsed, dict):
+        return parsed
     return None
 
 
