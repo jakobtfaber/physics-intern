@@ -23,6 +23,9 @@ def create_provider(provider_name: str, api_key: str = "", **kwargs) -> LLMProvi
     elif provider_name == "huggingface":
         from .huggingface import HuggingFaceProvider
         return HuggingFaceProvider(api_key=api_key, **kwargs)
+    elif provider_name == "vllm":
+        from .vllm import VLLMProvider
+        return VLLMProvider(api_key=api_key, **kwargs)
     else:
         raise ValueError(f"Unknown provider: {provider_name}")
 

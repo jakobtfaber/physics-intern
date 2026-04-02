@@ -43,7 +43,7 @@ def make_provider(model_key: str):
         sys.exit(1)
 
     api_key = os.environ.get(info["env_key"], "")
-    if not api_key:
+    if not api_key and info["provider"] != "vllm":
         console.print(f"[red]Missing env var: {info['env_key']}[/]")
         sys.exit(1)
 

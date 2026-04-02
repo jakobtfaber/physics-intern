@@ -126,3 +126,17 @@ qwen-3.5-397B-A17B:
   input_cost: 0.60
   output_cost: 3.60
   reasoning_format: think_tags
+
+# ============================================================================
+# vLLM (local endpoints)
+# ============================================================================
+
+nemotron:
+  provider: vllm
+  model_id: nemotron3
+  env_key: VLLM_API_KEY
+  base_url: "http://localhost:8000/v1"
+  input_cost: 0.0
+  output_cost: 0.0
+  reasoning_format: think_tags
+  tool_mode: xml_text  # Nemotron emits <tool_call> XML tags in text
