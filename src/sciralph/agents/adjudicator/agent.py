@@ -50,7 +50,7 @@ class AdjudicatorAgent(BaseAgent):
     def _validate_response(self, response) -> bool:
         return _parse_adjudication_json(response.text or "") is not None
 
-    def _parse_retry_hint(self) -> str:
+    def _parse_retry_hint(self, parse_error: str | None = None) -> str:
         return (
             "Recall the required output format and provide it now:\n\n"
             "```json\n"

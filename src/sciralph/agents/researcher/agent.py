@@ -86,7 +86,7 @@ class ResearcherAgent(EvidenceAgent):
     def _validate_response(self, response: LLMResponse) -> bool:
         return _parse_researcher_json(response.text or "") is not None
 
-    def _parse_retry_hint(self) -> str:
+    def _parse_retry_hint(self, parse_error: str | None = None) -> str:
         return (
             "Recall the required output format and provide it now:\n\n"
             "```json\n"

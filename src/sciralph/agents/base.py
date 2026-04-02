@@ -10,7 +10,7 @@ from typing import ClassVar, TYPE_CHECKING
 from rich.console import Console
 
 from ..config import Config
-from ..llm import AgentResult, LLMResponse, call_llm, run_agent_loop
+from ..llm import AgentResult, LLMResponse, call_llm, call_llm_continuation, run_agent_loop
 from ..metrics import MetricsTracker
 from ..tool_call import ToolCall
 from .computer.tools import ToolExecutor
@@ -138,7 +138,7 @@ class BaseAgent(ABC):
         """
         return True
 
-    def _parse_retry_hint(self) -> str | None:
+    def _parse_retry_hint(self, parse_error: str | None = None) -> str | None:
         """Return a format reminder for the continuation retry, or None.
 
         Override in subclasses that produce structured JSON output to provide
@@ -150,20 +150,21 @@ class BaseAgent(ABC):
         return None
 
     def _call_with_retry(self, context: str, iteration: int) -> LLMResponse:
-        """Call LLM for one-shot agents, with continuation retry on parse failure.
+        """Call LLM for one-shot agents, with two-phase retry on parse failure.
 
-        If the subclass overrides ``_validate_response`` and
-        ``config.parse_retries > 0``, a failed parse (or a ``max_tokens``
-        truncation that left some text) triggers up to ``parse_retries``
-        *continuation* calls: the original context is re-sent with the model's
-        accumulated response appended and a JSON format reminder from
-        ``_parse_retry_hint()``.  On success the responses are merged so that
-        ``process_response`` sees derivation text + JSON in one pass.
+        Phase 1 — *in-conversation continuation*: sends the LLM's own response
+        back as an assistant turn, followed by a user message containing the
+        specific JSON parse error and the format hint.  This is cheap (prompt
+        caching) and lets the model see exactly what it produced.
 
-        The engine's ``_record_agent_failures()`` still detects
-        ``stop_reason='max_tokens'`` on the *returned* response and injects a
-        CAPACITY EXCEEDED banner when all continuations fail.
+        Phase 2 — *fresh call*: if the continuation didn't help, starts a clean
+        conversation with the error diagnostic embedded in the context.
+
+        Both phases use the JSON error from :func:`extract_json_with_error` so
+        the model knows *what* broke, not just that something was wrong.
         """
+        from .parsing import extract_json_with_error
+
         max_retries = self.config.parse_retries
 
         response = call_llm(self.system_prompt, context, self.config,
@@ -191,9 +192,9 @@ class BaseAgent(ABC):
         total_reasoning = response.reasoning_tokens
         total_answer = response.answer_tokens
 
-        attempted_continuation = False
+        attempted_retry = False
         for attempt in range(max_retries):
-            # Decide whether a continuation retry is needed
+            # Decide whether a retry is needed
             needs_retry = False
             if response.stop_reason == "max_tokens":
                 needs_retry = True
@@ -203,39 +204,71 @@ class BaseAgent(ABC):
             if not needs_retry:
                 return response  # valid — done
 
-            hint = self._parse_retry_hint()
-            if not hint or not accumulated_text.strip():
-                break  # no hint or empty text — can't continue
+            if not accumulated_text.strip():
+                break  # empty text — can't continue
 
-            attempted_continuation = True
+            # Get specific parse error for the feedback message
+            _, parse_error = extract_json_with_error(accumulated_text)
 
+            hint = self._parse_retry_hint(parse_error=parse_error)
+            if not hint:
+                break  # no hint available — can't continue
+
+            attempted_retry = True
+
+            # Truncate error for console display
+            error_short = (parse_error or "unknown")[:120]
+            phase = "in-conversation" if attempt == 0 else "fresh"
             console.print(
-                f"[yellow]{self.name}: structured output missing, "
-                f"attempting continuation ({attempt + 1}/{max_retries})...[/yellow]"
+                f"[yellow]{self.name}: parse error — {error_short}[/yellow]\n"
+                f"[yellow]          retrying {phase} ({attempt + 1}/{max_retries})...[/yellow]"
             )
             log_scaffold_event(
                 self.workspace.root, iteration,
-                category=CC.OUTPUT_NORMALIZATION, event="parse_continuation",
+                category=CC.OUTPUT_NORMALIZATION, event="parse_retry",
                 detail=(
                     f"agent={self.name}, trigger={response.stop_reason}, "
-                    f"attempt={attempt + 1}/{max_retries}"
+                    f"phase={phase}, attempt={attempt + 1}/{max_retries}, "
+                    f"error={error_short}"
                 ),
             )
 
-            retry_context = (
-                f"{context}\n\n"
-                "---\n\n"
-                "IMPORTANT: Your previous response to this task is shown below. "
-                "It did not contain the required structured JSON output "
-                "(the response may have been truncated). "
-                "Do not repeat the analysis. Output ONLY the required "
-                "fenced JSON block based on your work above.\n\n"
-                f"<previous-response>\n{accumulated_text}\n</previous-response>"
-                f"\n\n{hint}"
+            # Build the correction message
+            error_line = (
+                f"Your JSON output failed to parse: {parse_error}\n\n"
+                if parse_error else
+                "Your response did not contain valid structured JSON.\n\n"
+            )
+            correction = (
+                error_line
+                + "Do not repeat the analysis. Output ONLY the corrected "
+                "fenced ```json``` block.\n\n"
+                + hint
             )
 
-            retry = call_llm(self.system_prompt, retry_context, self.config,
-                             agent_name=self.name, iteration=iteration)
+            if attempt == 0:
+                # Phase 1: multi-turn continuation
+                messages = [
+                    {"role": "user", "content": context},
+                    {"role": "assistant", "content": accumulated_text},
+                    {"role": "user", "content": correction},
+                ]
+                retry = call_llm_continuation(
+                    self.system_prompt, messages, self.config,
+                    agent_name=self.name, iteration=iteration,
+                    append_to_log=response.log_path,
+                )
+            else:
+                # Phase 2: fresh call with error context
+                retry_context = (
+                    f"{context}\n\n"
+                    "---\n\n"
+                    + correction
+                )
+                retry = call_llm(
+                    self.system_prompt, retry_context, self.config,
+                    agent_name=self.name, iteration=iteration,
+                )
 
             self.metrics.record_call(
                 iteration=iteration,
@@ -268,21 +301,28 @@ class BaseAgent(ABC):
             )
 
             if self._validate_response(response):
-                console.print(f"[green]{self.name}: continuation succeeded[/green]")
+                console.print(
+                    f"[green]{self.name}: parse retry succeeded "
+                    f"(attempt {attempt + 1})[/green]"
+                )
                 log_scaffold_event(
                     self.workspace.root, iteration,
                     category=CC.OUTPUT_NORMALIZATION,
-                    event="parse_continuation_success",
-                    detail=f"agent={self.name}, attempt={attempt + 1}",
+                    event="parse_retry_success",
+                    detail=f"agent={self.name}, phase={phase}, attempt={attempt + 1}",
                 )
                 return response
 
         # All retries exhausted or no hint available
-        if attempted_continuation:
+        if attempted_retry:
+            console.print(
+                f"[red]{self.name}: parse retries exhausted "
+                f"({max_retries}/{max_retries})[/red]"
+            )
             log_scaffold_event(
                 self.workspace.root, iteration,
                 category=CC.OUTPUT_NORMALIZATION,
-                event="parse_continuation_failed",
+                event="parse_retry_failed",
                 detail=f"agent={self.name}",
             )
         if original_stop_reason == "max_tokens":

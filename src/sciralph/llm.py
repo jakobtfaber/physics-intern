@@ -167,6 +167,7 @@ class LLMResponse:
     reasoning_tokens: int = 0
     answer_tokens: int = 0
     reasoning_content: str = ""  # Parsed thinking trace (from <think> tags or separate field)
+    log_path: str = ""  # Path to conversation log file (set by call_llm)
 
 
 @dataclass
@@ -227,10 +228,151 @@ def call_llm(system: str, user_content: str, config: Config,
             answer_tokens=llm_response.answer_tokens,
         )
 
-    _write_conversation_log(config, llm_response, system, user_content,
-                            agent_name, iteration)
+    llm_response.log_path = _write_conversation_log(
+        config, llm_response, system, user_content, agent_name, iteration,
+    )
 
     return llm_response
+
+
+def call_llm_continuation(system: str, messages: list[dict], config: Config,
+                          agent_name: str = "", iteration: int = 0,
+                          append_to_log: str = "") -> LLMResponse:
+    """Continue a multi-turn conversation.
+
+    Like :func:`call_llm` but accepts a full ``messages`` list (e.g.
+    ``[user, assistant, user]``) and calls ``provider.prepare_messages()``
+    so provider-specific context optimizations (thinking-block stripping,
+    ``<think>`` tag removal) are applied to older turns.
+
+    If *append_to_log* is a path to an existing log file, the retry turn
+    (correction message + response) is appended there instead of creating
+    a new file.
+    """
+    if not messages:
+        raise ValueError(
+            f"Empty messages in call_llm_continuation (agent={agent_name}, iteration={iteration})"
+        )
+    provider = _get_provider(config)
+    prepared = provider.prepare_messages(list(messages))
+
+    start = time.time()
+    resp = _call_provider_with_retry(
+        provider, config,
+        workspace_dir=config.workspace_dir,
+        iteration=iteration,
+        model=config.model_id,
+        max_tokens=config.max_tokens,
+        system=system,
+        messages=prepared,
+    )
+    duration = time.time() - start
+
+    llm_response = LLMResponse(
+        text=resp.text,
+        input_tokens=resp.input_tokens,
+        output_tokens=resp.output_tokens,
+        stop_reason=resp.stop_reason,
+        duration=duration,
+        reasoning_tokens=resp.reasoning_tokens,
+        answer_tokens=resp.answer_tokens,
+        reasoning_content=resp.reasoning_content,
+    )
+
+    if config.workspace_dir:
+        last_user = next(
+            (m["content"] for m in reversed(messages) if m.get("role") == "user"),
+            "",
+        )
+        log_llm_call(
+            config.workspace_dir, agent_name, iteration, config.model,
+            llm_response.input_tokens, llm_response.output_tokens,
+            llm_response.stop_reason, _round_num(llm_response.duration, 2),
+            len(system), len(last_user) if isinstance(last_user, str) else 0,
+            len(llm_response.text),
+            reasoning_tokens=llm_response.reasoning_tokens,
+            answer_tokens=llm_response.answer_tokens,
+        )
+
+    # Append the retry turn to the original log file, or create a new one
+    _append_retry_to_log(config, llm_response, messages, agent_name,
+                         iteration, append_to_log)
+
+    return llm_response
+
+
+def _append_retry_to_log(config: Config, resp: LLMResponse,
+                         messages: list[dict], agent_name: str,
+                         iteration: int, append_to_log: str):
+    """Append the retry exchange (correction message + response) to a log file.
+
+    If *append_to_log* points to an existing file, appends only the new
+    turns (the last user message and the LLM response).  Otherwise falls
+    back to creating a new standalone log file.
+    """
+    if not config.logs_dir:
+        return
+
+    # Extract the correction message (last user message in the conversation)
+    correction = next(
+        (m["content"] for m in reversed(messages) if m.get("role") == "user"),
+        "",
+    )
+    if not isinstance(correction, str):
+        correction = str(correction)
+
+    resp_attrs = (
+        f'chars="{len(resp.text)}" tokens_in="{resp.input_tokens}" '
+        f'tokens_out="{resp.output_tokens}"'
+    )
+    if resp.reasoning_tokens and resp.reasoning_tokens > 0:
+        resp_attrs += f' reasoning="{resp.reasoning_tokens}" answer="{resp.answer_tokens}"'
+    resp_attrs += f' duration="{resp.duration:.1f}s" stop="{resp.stop_reason}"'
+
+    retry_section = (
+        f'\n\n<RETRY_MESSAGE chars="{len(correction)}">\n'
+        f'{correction}\n'
+        f'</RETRY_MESSAGE>\n\n'
+        f'<LLM_RESPONSE {resp_attrs}>\n'
+        f'{resp.text}\n'
+        f'</LLM_RESPONSE>\n'
+    )
+
+    # Try to append to existing log file
+    if append_to_log:
+        log_file = Path(append_to_log)
+        if log_file.is_file():
+            try:
+                with log_file.open("a") as f:
+                    f.write(retry_section)
+                return
+            except OSError:
+                pass
+
+    # Fallback: create a new log file with full context
+    seq = _call_seq.get(iteration, 0) + 1
+    _call_seq[iteration] = seq
+    agent = agent_name or "unknown"
+    filename = f"iter{iteration:03d}_{seq:02d}_{agent}.md"
+
+    parts: list[str] = []
+    for msg in messages:
+        role = msg.get("role", "unknown").upper()
+        content = msg.get("content", "")
+        if not isinstance(content, str):
+            content = str(content)
+        tag = "USER_MESSAGE" if role == "USER" else "ASSISTANT_RESPONSE"
+        parts.append(f'<{tag} chars="{len(content)}">\n{content}\n</{tag}>')
+    parts.append(
+        f'<LLM_RESPONSE {resp_attrs}>\n{resp.text}\n</LLM_RESPONSE>'
+    )
+
+    try:
+        Path(config.logs_dir, filename).write_text(
+            "\n\n".join(parts) + "\n"
+        )
+    except OSError:
+        pass
 
 
 def run_agent_loop(
@@ -827,10 +969,13 @@ def run_agent_loop(
 
 def _write_conversation_log(config: Config, resp: LLMResponse,
                             system: str, user_content: str,
-                            agent_name: str, iteration: int):
-    """Write a per-call Markdown file with full prompts and response."""
+                            agent_name: str, iteration: int) -> str:
+    """Write a per-call Markdown file with full prompts and response.
+
+    Returns the absolute path of the log file, or "" if not written.
+    """
     if not config.logs_dir:
-        return
+        return ""
 
     seq = _call_seq.get(iteration, 0) + 1
     _call_seq[iteration] = seq
@@ -855,10 +1000,12 @@ def _write_conversation_log(config: Config, resp: LLMResponse,
 {resp.text}
 </LLM_RESPONSE>
 """
+    log_file = Path(config.logs_dir, filename)
     try:
-        Path(config.logs_dir, filename).write_text(content)
+        log_file.write_text(content)
     except OSError:
-        pass
+        return ""
+    return str(log_file)
 
 
 def _render_tool_input(name: str, input_data) -> str:

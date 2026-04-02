@@ -52,7 +52,7 @@ class PlannerAgent(BaseAgent):
             return True  # initial mode: raw text, nothing to validate
         return _parse_planner_json(response.text or "") is not None
 
-    def _parse_retry_hint(self) -> str | None:
+    def _parse_retry_hint(self, parse_error: str | None = None) -> str | None:
         if not self._in_revise_mode:
             return None  # initial mode: no structured format
         return (

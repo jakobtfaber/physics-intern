@@ -63,20 +63,34 @@ def extract_json(text: str):
 
     Returns the parsed object, or None if no valid JSON found.
     """
+    result, _ = extract_json_with_error(text)
+    return result
+
+
+def extract_json_with_error(text: str) -> tuple:
+    """Extract and parse JSON from text, returning the parse error on failure.
+
+    Returns ``(parsed_object, None)`` on success, or
+    ``(None, error_description)`` on failure.
+    """
+    last_error: str | None = None
+
     # Priority 1: fenced ```json ... ``` blocks (take the last one)
     fenced = list(JSON_FENCE_RE.finditer(text))
     if fenced:
         try:
-            return try_json_loads(fenced[-1].group(1).strip())
-        except (json.JSONDecodeError, ValueError):
-            pass
+            return try_json_loads(fenced[-1].group(1).strip()), None
+        except (json.JSONDecodeError, ValueError) as exc:
+            last_error = str(exc)
 
     # Priority 2: bare JSON object in text
     m = _BARE_JSON_RE.search(text)
     if m:
         try:
-            return try_json_loads(m.group(0).strip())
-        except (json.JSONDecodeError, ValueError):
-            pass
+            return try_json_loads(m.group(0).strip()), None
+        except (json.JSONDecodeError, ValueError) as exc:
+            last_error = str(exc)
 
-    return None
+    if last_error:
+        return None, f"JSON parse error: {last_error}"
+    return None, "No JSON object found in response"

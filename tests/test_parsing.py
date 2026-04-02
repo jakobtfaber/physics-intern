@@ -4,7 +4,11 @@ import json
 
 import pytest
 
-from sciralph.agents.parsing import fix_invalid_json_escapes, try_json_loads
+from sciralph.agents.parsing import (
+    extract_json_with_error,
+    fix_invalid_json_escapes,
+    try_json_loads,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -144,3 +148,56 @@ class TestTryJsonLoads:
         parsed = try_json_loads(s)
         assert parsed["verdict"] == "VERIFIED"
         assert "\u03b2" in parsed["details"]  # β character
+
+
+# ---------------------------------------------------------------------------
+# extract_json_with_error
+# ---------------------------------------------------------------------------
+
+
+class TestExtractJsonWithError:
+    def test_valid_json_returns_parsed_and_no_error(self):
+        text = '```json\n{"key": "value"}\n```'
+        parsed, error = extract_json_with_error(text)
+        assert parsed == {"key": "value"}
+        assert error is None
+
+    def test_valid_bare_json(self):
+        text = 'Some preamble\n{"result": 42}\nsome trailing text'
+        parsed, error = extract_json_with_error(text)
+        assert parsed == {"result": 42}
+        assert error is None
+
+    def test_malformed_json_returns_error(self):
+        text = '```json\n{"key": broken}\n```'
+        parsed, error = extract_json_with_error(text)
+        assert parsed is None
+        assert error is not None
+        assert "JSON parse error" in error
+
+    def test_no_json_in_text(self):
+        text = "This is just plain text with no JSON at all."
+        parsed, error = extract_json_with_error(text)
+        assert parsed is None
+        assert error == "No JSON object found in response"
+
+    def test_nemotron_string_concatenation_reports_error(self):
+        r"""The \n    " pattern that breaks JSON array strings."""
+        text = (
+            '{"sanity_checks": ['
+            '"Check one.\\n    "Check two."'
+            ']}'
+        )
+        parsed, error = extract_json_with_error(text)
+        assert parsed is None
+        assert error is not None
+        assert "JSON parse error" in error
+
+    def test_fenced_preferred_over_bare(self):
+        text = (
+            '{"bare": true}\n\n'
+            '```json\n{"fenced": true}\n```'
+        )
+        parsed, error = extract_json_with_error(text)
+        assert parsed == {"fenced": True}
+        assert error is None

@@ -46,7 +46,7 @@ class SurveyorAgent(BaseAgent):
             )
         return False
 
-    def _parse_retry_hint(self) -> str:
+    def _parse_retry_hint(self, parse_error: str | None = None) -> str:
         return (
             "Recall the required output format and provide it now:\n\n"
             "```json\n"
