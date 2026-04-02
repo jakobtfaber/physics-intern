@@ -27,9 +27,9 @@ load_dotenv()
 import yaml
 
 from .config import Config
-from .evaluate import evaluate_response
+from .verification.evaluate import evaluate_response
 from .providers import create_provider, LLMProvider, ProviderResponse
-from .verify import load_reference_file
+from .verification.verify import load_reference_file
 
 # ---------------------------------------------------------------------------
 # System prompt — distilled from the one-shot/prompt_template_default.yaml

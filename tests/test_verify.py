@@ -859,7 +859,7 @@ def test_formal_eval_report_without_formal(tmp_path):
 
 def test_load_reference_file_with_python_tag(tmp_path, monkeypatch):
     """Reference file with ```python tag → extracts answer expression."""
-    monkeypatch.setattr("sciralph.verify.REFERENCES_DIR", tmp_path)
+    monkeypatch.setattr("sciralph.verification.verify.REFERENCES_DIR", tmp_path)
     ref = tmp_path / "my_problem.md"
     ref.write_text("```python\ndelta = 3 * x + y\n```\n\n# Typical Good Run\n...")
 
@@ -871,7 +871,7 @@ def test_load_reference_file_with_python_tag(tmp_path, monkeypatch):
 
 def test_load_reference_file_without_tag(tmp_path, monkeypatch):
     """Reference file with bare ``` block → still extracts answer."""
-    monkeypatch.setattr("sciralph.verify.REFERENCES_DIR", tmp_path)
+    monkeypatch.setattr("sciralph.verification.verify.REFERENCES_DIR", tmp_path)
     ref = tmp_path / "my_problem.md"
     ref.write_text("```\nF = 1 - p**2\n```\n\n# Run description")
 
@@ -882,7 +882,7 @@ def test_load_reference_file_without_tag(tmp_path, monkeypatch):
 
 def test_load_reference_file_not_found(tmp_path, monkeypatch):
     """No matching reference file → (None, None)."""
-    monkeypatch.setattr("sciralph.verify.REFERENCES_DIR", tmp_path)
+    monkeypatch.setattr("sciralph.verification.verify.REFERENCES_DIR", tmp_path)
 
     answer, content = load_reference_file(Path("problems/nonexistent.yaml"))
 
@@ -900,7 +900,7 @@ def test_load_reference_file_none_path():
 
 def test_load_reference_file_no_code_block(tmp_path, monkeypatch):
     """Reference file without code block → answer is None, content is returned."""
-    monkeypatch.setattr("sciralph.verify.REFERENCES_DIR", tmp_path)
+    monkeypatch.setattr("sciralph.verification.verify.REFERENCES_DIR", tmp_path)
     ref = tmp_path / "my_problem.md"
     ref.write_text("# Just a description\nNo code block here.")
 
@@ -926,7 +926,7 @@ def test_formal_eval_fallback_to_reference(tmp_path, monkeypatch):
     # Mock reference file to return the correct answer
     ref_answer = HAWKING_PROBLEM_DEF["answer"]
     monkeypatch.setattr(
-        "sciralph.verify.load_reference_file",
+        "sciralph.verification.verify.load_reference_file",
         lambda path: (ref_answer, "# reference content"),
     )
 
@@ -944,7 +944,7 @@ def test_formal_eval_no_fallback_when_answer_present(tmp_path, monkeypatch):
     # Track whether load_reference_file was called
     called = []
     monkeypatch.setattr(
-        "sciralph.verify.load_reference_file",
+        "sciralph.verification.verify.load_reference_file",
         lambda path: (called.append(1), None) or (None, None),
     )
 
