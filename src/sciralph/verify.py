@@ -1068,8 +1068,12 @@ def main():
             known_answer = str(answer_val)
             console.print(f"[bold]Known answer:[/] {known_answer}")
 
+    # Build a path with the original problem stem for reference file lookup
+    problem_name = problem_def.get("name") if problem_def else None
+    ref_lookup_path = Path(problem_name + ".yaml") if problem_name else None
+
     # Load reference file (if available)
-    ref_answer_expr, reference_content = load_reference_file(problem_path if problem_path.exists() else None)
+    ref_answer_expr, reference_content = load_reference_file(ref_lookup_path)
     if reference_content:
         console.print("[bold]Reference file:[/] loaded")
     if not known_answer and ref_answer_expr:
@@ -1078,7 +1082,7 @@ def main():
 
     # Phase 1: Formal answer evaluation (fast, deterministic)
     console.print(f"\n[bold]Phase 1: Formal answer evaluation...[/]")
-    formal_eval = run_formal_evaluation(workspace_dir, problem_def, problem_path=problem_path_for_ref)
+    formal_eval = run_formal_evaluation(workspace_dir, problem_def, problem_path=ref_lookup_path)
     render_formal_evaluation(formal_eval)
 
     # Build prompt and call LLM (science verification)

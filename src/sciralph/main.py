@@ -1,7 +1,6 @@
 """SciRalph entry point."""
 
 import argparse
-import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -98,8 +97,12 @@ def _main_fresh(args) -> None:
     engine = SciRalph(problem, config=config, problem_meta=problem_meta,
                        answer_template=answer_template)
 
-    # Persist problem.yaml and config.json for future resume
-    shutil.copy2(str(args.problem), str(engine.workspace.root / "problem.yaml"))
+    # Persist problem.yaml (with name field) and config.json for future resume
+    problem_raw = Path(args.problem).read_text()
+    problem_data = yaml.safe_load(problem_raw)
+    problem_data["name"] = Path(args.problem).stem
+    with open(engine.workspace.root / "problem.yaml", "w") as f:
+        yaml.dump(problem_data, f, default_flow_style=False, sort_keys=False)
     config.save(engine.workspace.root)
     engine.workspace.git_commit("Persist problem.yaml and config.json for resume")
 
