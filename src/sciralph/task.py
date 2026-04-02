@@ -59,6 +59,26 @@ class Task:
     # Termination context (populated by request_termination)
     answer_ers: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        """Normalize list fields that LLMs sometimes return as strings."""
+        for attr in (
+            "blocking_critiques",
+            "method_hints",
+            "assumptions",
+            "relevant_results",
+            "recommended_sanity_checks",
+            "answer_ers",
+        ):
+            val = getattr(self, attr)
+            if isinstance(val, str):
+                # Split on newlines, strip leading "- " bullets, drop blanks
+                lines = [
+                    line.lstrip("- ").strip()
+                    for line in val.splitlines()
+                    if line.strip()
+                ]
+                setattr(self, attr, lines if lines else [])
+
     def to_markdown(self) -> str:
         """Render as YAML frontmatter + body Markdown."""
         meta = {
