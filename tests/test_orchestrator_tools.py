@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from sciralph.orchestrator_tools import OrchestratorToolExecutor
+from sciralph.agents.orchestrator.tools import OrchestratorToolExecutor
 from sciralph.research_state import (
     ResearchState, Hypothesis, HypothesisStatus, Verdict,
     Critique, Severity, CritiqueStatus, FailedApproach,

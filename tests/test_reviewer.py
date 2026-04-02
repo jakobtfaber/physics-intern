@@ -380,7 +380,7 @@ class TestComputerEvidenceFiltering:
         return AgentResult(text="", tool_calls=tool_calls)
 
     def _make_tc(self, name, tool_input, output="ok", is_error=False):
-        from sciralph.tools import ToolCall
+        from sciralph.tool_call import ToolCall
         return ToolCall(tool_name=name, tool_input=tool_input,
                         output=output, is_error=is_error, duration=0.1)
 

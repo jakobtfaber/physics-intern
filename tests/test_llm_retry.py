@@ -513,7 +513,8 @@ class TestPenultimateRoundMessage:
     def test_critical_message_at_penultimate_round(self):
         """CRITICAL message appears at round max_rounds - 1 when max_rounds >= 4."""
         from sciralph.llm import run_agent_loop
-        from sciralph.tools import ToolExecutor, ToolCall
+        from sciralph.agents.computer.tools import ToolExecutor
+        from sciralph.tool_call import ToolCall
 
         max_rounds = 5
         provider = MagicMock()
@@ -565,7 +566,8 @@ class TestPenultimateRoundMessage:
     def test_critical_message_not_injected_when_max_rounds_too_small(self):
         """CRITICAL message does NOT appear when max_rounds < 4."""
         from sciralph.llm import run_agent_loop
-        from sciralph.tools import ToolExecutor, ToolCall
+        from sciralph.agents.computer.tools import ToolExecutor
+        from sciralph.tool_call import ToolCall
 
         max_rounds = 3
         provider = MagicMock()
@@ -613,7 +615,8 @@ class TestPenultimateRoundMessage:
     def test_forced_final_call_exception_returns_empty_text(self):
         """When the forced final call raises, result.text is empty (honest failure)."""
         from sciralph.llm import run_agent_loop
-        from sciralph.tools import ToolExecutor, ToolCall
+        from sciralph.agents.computer.tools import ToolExecutor
+        from sciralph.tool_call import ToolCall
 
         max_rounds = 3
         provider = MagicMock()
@@ -657,7 +660,8 @@ class TestPenultimateRoundMessage:
     def test_progress_check_does_not_break_loop(self):
         """Progress check injection does not break the agent loop."""
         from sciralph.llm import run_agent_loop
-        from sciralph.tools import ToolExecutor, ToolCall
+        from sciralph.agents.computer.tools import ToolExecutor
+        from sciralph.tool_call import ToolCall
 
         max_rounds = 5
         provider = MagicMock()
@@ -695,7 +699,8 @@ class TestPenultimateRoundMessage:
     def test_tool_call_failure_graceful_degradation(self):
         """run_agent_loop degrades to forced text-only call on tool_use_failed error."""
         from sciralph.llm import run_agent_loop
-        from sciralph.tools import ToolExecutor, ToolCall
+        from sciralph.agents.computer.tools import ToolExecutor
+        from sciralph.tool_call import ToolCall
 
         max_rounds = 5
         provider = MagicMock()
@@ -744,7 +749,8 @@ class TestPenultimateRoundMessage:
     def test_provider_side_400_graceful_degradation(self):
         """run_agent_loop degrades to forced text-only call on provider-side 400."""
         from sciralph.llm import run_agent_loop
-        from sciralph.tools import ToolExecutor, ToolCall
+        from sciralph.agents.computer.tools import ToolExecutor
+        from sciralph.tool_call import ToolCall
 
         max_rounds = 5
         provider = MagicMock()
@@ -796,7 +802,8 @@ class TestPenultimateRoundMessage:
     def test_forced_final_call_uses_user_message_not_system_mutation(self):
         """The forced text-only call uses a user message, not a mutated system prompt."""
         from sciralph.llm import run_agent_loop
-        from sciralph.tools import ToolExecutor, ToolCall
+        from sciralph.agents.computer.tools import ToolExecutor
+        from sciralph.tool_call import ToolCall
 
         max_rounds = 2
         provider = MagicMock()

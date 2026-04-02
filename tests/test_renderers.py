@@ -2,8 +2,8 @@
 
 import pytest
 
-from sciralph.markdown import parse_frontmatter
-from sciralph.renderers import (
+from sciralph.utils.markdown import parse_frontmatter
+from sciralph.rendering import (
     render_critique_log_md,
     render_critic_context,
     render_critic_previous_critiques,

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from sciralph.verify import (
+from sciralph.verification.verify import (
     WorkspaceContents,
     FormalEvalResult,
     ProcessEvent,
@@ -250,8 +250,8 @@ def test_build_prompt_not_terminated(tmp_path):
 
 
 def test_build_prompt_with_rerun_results(tmp_path):
-    from sciralph.sandbox import ExecutionResult
-    from sciralph.verify import RerunResult
+    from sciralph.utils.sandbox import ExecutionResult
+    from sciralph.verification.verify import RerunResult
 
     ws_dir = _make_workspace(tmp_path)
     contents = load_workspace(ws_dir)

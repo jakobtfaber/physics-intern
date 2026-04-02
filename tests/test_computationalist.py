@@ -8,7 +8,7 @@ for researcher, computer, and verifier will live in dedicated test files.
 import tempfile
 from unittest.mock import MagicMock
 
-from sciralph.sandbox import execute_python
+from sciralph.utils.sandbox import execute_python
 
 
 class TestSoftCheckPattern:
@@ -116,7 +116,7 @@ class TestComputerProcessResponse:
         return AgentResult(text="", tool_calls=tool_calls)
 
     def _make_tc(self, name, tool_input, output="ok", is_error=False):
-        from sciralph.tools import ToolCall
+        from sciralph.tool_call import ToolCall
         return ToolCall(tool_name=name, tool_input=tool_input, output=output, is_error=is_error, duration=0.1)
 
     def test_approach_includes_assumptions_and_expected_outcome(self):
@@ -250,13 +250,13 @@ class TestToolsForTaskType:
 
     def test_research_tools(self):
         from sciralph.task import TaskType
-        from sciralph.tools import ToolExecutor
+        from sciralph.agents.computer.tools import ToolExecutor
         names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.RESEARCH)}
         assert "submit_result" in names
 
     def test_compute_tools(self):
         from sciralph.task import TaskType
-        from sciralph.tools import ToolExecutor
+        from sciralph.agents.computer.tools import ToolExecutor
         names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.COMPUTE)}
         assert "execute_python" in names
         assert "submit_result" in names

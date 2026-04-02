@@ -189,7 +189,7 @@ class TestMainParser:
 
 class TestVerifyParser:
     def test_basic_args(self):
-        from sciralph.verify import build_verify_parser
+        from sciralph.verification.verify import build_verify_parser
         parser = build_verify_parser()
         args = parser.parse_args(["workspaces/run1"])
         assert args.workspace_dir == "workspaces/run1"
@@ -197,14 +197,14 @@ class TestVerifyParser:
         assert args.max_tokens == DEFAULTS["max_tokens"]
 
     def test_custom_values(self):
-        from sciralph.verify import build_verify_parser
+        from sciralph.verification.verify import build_verify_parser
         parser = build_verify_parser()
         args = parser.parse_args(["ws", "--model", "opus", "--max-tokens", "8192"])
         assert args.model == "opus"
         assert args.max_tokens == 8192
 
     def test_bad_int_exits(self):
-        from sciralph.verify import build_verify_parser
+        from sciralph.verification.verify import build_verify_parser
         parser = build_verify_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(["ws", "--max-tokens", "xyz"])

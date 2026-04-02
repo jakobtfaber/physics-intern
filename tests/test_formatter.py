@@ -6,7 +6,7 @@ import pytest
 
 from sciralph.agents.formatter import FormatterAgent
 from sciralph.llm import LLMResponse
-from sciralph.renderers import render_formatter_context
+from sciralph.rendering import render_formatter_context
 from sciralph.research_state import (
     Evidence,
     FailedApproach,

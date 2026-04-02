@@ -5,7 +5,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from sciralph.config import Config
-from sciralph.markdown import render_frontmatter
+from sciralph.utils.markdown import render_frontmatter
 from sciralph.task import Task, TaskType
 from sciralph.workspace import log_llm_call, log_scaffold_event
 

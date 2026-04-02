@@ -1,8 +1,8 @@
-"""Tests for sciralph.evaluate — answer evaluation module."""
+"""Tests for sciralph.verification.evaluate — answer evaluation module."""
 import pytest
 import sympy as sp
 
-from sciralph.evaluate import (
+from sciralph.verification.evaluate import (
     evaluate_response,
     extract_answer_code,
     _classify_answer_type,

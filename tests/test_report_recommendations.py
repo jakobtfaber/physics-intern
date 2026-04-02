@@ -20,7 +20,7 @@ from sciralph.research_state import (
     ReviewResult,
 )
 from sciralph.task import Task, TaskType
-from sciralph.tools import ToolExecutor
+from sciralph.agents.computer.tools import ToolExecutor
 from sciralph.validation import (
     Violation,
     ViolationSeverity,

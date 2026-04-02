@@ -7,7 +7,8 @@ from unittest.mock import MagicMock, patch
 from sciralph.config import Config
 from sciralph.llm import AgentResult, run_agent_loop
 from sciralph.providers.base import ProviderResponse
-from sciralph.tools import ToolExecutor, ToolCall
+from sciralph.agents.computer.tools import ToolExecutor
+from sciralph.tool_call import ToolCall
 
 
 def _make_executor(timeout: int = 60) -> ToolExecutor:
@@ -374,7 +375,7 @@ class TestExitToolName:
         assert executor.exit_tool_name == "submit_result"
 
     def test_orchestrator_exit_tools(self):
-        from sciralph.orchestrator_tools import OrchestratorToolExecutor
+        from sciralph.agents.orchestrator.tools import OrchestratorToolExecutor
         expected = {"add_hypothesis", "dispatch_researcher", "dispatch_computer", "request_termination"}
         assert OrchestratorToolExecutor.exit_tool_names == frozenset(expected)
 

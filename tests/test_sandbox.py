@@ -3,7 +3,7 @@
 import pytest
 import tempfile
 from pathlib import Path
-from sciralph.sandbox import execute_python
+from sciralph.utils.sandbox import execute_python
 
 
 def test_execute_simple_script():
