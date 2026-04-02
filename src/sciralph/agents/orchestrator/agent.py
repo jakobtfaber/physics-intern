@@ -4,23 +4,24 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ..llm import AgentResult, LLMResponse, run_agent_loop
-from ..orchestrator_tools import OrchestratorToolExecutor
-from ..rendering import (
+from sciralph.llm import AgentResult, LLMResponse, run_agent_loop
+from sciralph.rendering import (
     render_orchestrator_slim_state,
     render_research_context_xml,
     render_background_survey_xml,
 )
-from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
-from ..tool_call import ToolCall
-from .base import PROMPTS_DIR, BaseAgent
-from ..utils.categories import CompensationCategory as CC
-from ..workspace import log_scaffold_event
+from sciralph.task import Task, TaskType, TASK_TYPE_AGENT_MAP
+from sciralph.tool_call import ToolCall
+from sciralph.utils.categories import CompensationCategory as CC
+from sciralph.workspace import log_scaffold_event
+
+from ..base import BaseAgent
+from .tools import OrchestratorToolExecutor
 
 
 class OrchestratorAgent(BaseAgent):
     name = "orchestrator"
-    prompt_file = "orchestrator.md"
+    prompt_file = "prompt.md"
     tools = OrchestratorToolExecutor.TOOL_DEFINITIONS
 
     def __init__(self, config, workspace, metrics):

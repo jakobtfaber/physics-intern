@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..llm import LLMResponse
-from ..rendering import render_formatter_context
-from .base import BaseAgent
+from sciralph.llm import LLMResponse
+from sciralph.rendering import render_formatter_context
+
+from ..base import BaseAgent
 
 if TYPE_CHECKING:
-    from ..config import Config
-    from ..metrics import MetricsTracker
-    from ..research_state import ResearchState
-    from ..task import Task
-    from ..workspace import WorkspaceManager
+    from sciralph.config import Config
+    from sciralph.metrics import MetricsTracker
+    from sciralph.research_state import ResearchState
+    from sciralph.task import Task
+    from sciralph.workspace import WorkspaceManager
 
 _REJECTION_PREFIX = "FORMATTER_REJECTION:"
 
@@ -37,7 +38,7 @@ available value. Use comments to flag unverified placeholders.
 
 class FormatterAgent(BaseAgent):
     name = "formatter"
-    prompt_file = "formatter.md"
+    prompt_file = "prompt.md"
 
     def __init__(self, config: Config, workspace: WorkspaceManager,
                  metrics: MetricsTracker, answer_template: str = ""):

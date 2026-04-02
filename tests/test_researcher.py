@@ -575,4 +575,4 @@ class TestResearcherConfig:
         assert ResearcherAgent.name == "researcher"
 
     def test_prompt_file(self):
-        assert ResearcherAgent.prompt_file == "researcher.md"
+        assert ResearcherAgent.prompt_file == "prompt.md"

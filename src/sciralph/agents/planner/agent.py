@@ -5,18 +5,19 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from ..llm import LLMResponse
-from ..rendering import _problem_guidelines, render_planner_revise_context, render_background_survey_xml
-from ..task import TaskType
-from .base import BaseAgent
-from .parsing import JSON_FENCE_RE, try_json_loads
+from sciralph.llm import LLMResponse
+from sciralph.rendering import _problem_guidelines, render_planner_revise_context, render_background_survey_xml
+from sciralph.task import TaskType
+
+from ..base import BaseAgent
+from ..parsing import JSON_FENCE_RE, try_json_loads
 
 if TYPE_CHECKING:
-    from ..config import Config
-    from ..metrics import MetricsTracker
-    from ..research_state import ResearchState
-    from ..task import Task
-    from ..workspace import WorkspaceManager
+    from sciralph.config import Config
+    from sciralph.metrics import MetricsTracker
+    from sciralph.research_state import ResearchState
+    from sciralph.task import Task
+    from sciralph.workspace import WorkspaceManager
 
 
 def _parse_planner_json(text: str) -> dict | None:
@@ -34,7 +35,7 @@ def _parse_planner_json(text: str) -> dict | None:
 
 class PlannerAgent(BaseAgent):
     name = "planner"
-    prompt_file = "planner.md"
+    prompt_file = "prompt.md"
     tools = []
 
     def __init__(self, config: Config, workspace: WorkspaceManager, metrics: MetricsTracker):
@@ -79,7 +80,7 @@ class PlannerAgent(BaseAgent):
             original_prompt = self.prompt_file
             # Clear cached system prompt so the new prompt_file is loaded
             self._system_prompt = None
-            self.prompt_file = "planner_revise.md"
+            self.prompt_file = "prompt_revise.md"
             try:
                 return super().run(task, iteration, **kwargs)
             finally:

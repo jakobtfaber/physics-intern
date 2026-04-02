@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from ..llm import LLMResponse
-from ..rendering import _problem_guidelines, render_background_survey_xml
-from .base import BaseAgent
-from .parsing import JSON_FENCE_RE, try_json_loads
+from sciralph.llm import LLMResponse
+from sciralph.rendering import _problem_guidelines, render_background_survey_xml
+
+from ..base import BaseAgent
+from ..parsing import JSON_FENCE_RE, try_json_loads
 
 # Text-valued section fields (sanity_checks is list[str], handled separately)
 TEXT_SECTION_FIELDS = (
@@ -18,16 +19,16 @@ TEXT_SECTION_FIELDS = (
 )
 
 if TYPE_CHECKING:
-    from ..config import Config
-    from ..metrics import MetricsTracker
-    from ..research_state import ResearchState
-    from ..task import Task
-    from ..workspace import WorkspaceManager
+    from sciralph.config import Config
+    from sciralph.metrics import MetricsTracker
+    from sciralph.research_state import ResearchState
+    from sciralph.task import Task
+    from sciralph.workspace import WorkspaceManager
 
 
 class SurveyorAgent(BaseAgent):
     name = "surveyor"
-    prompt_file = "surveyor.md"
+    prompt_file = "prompt.md"
 
     def __init__(self, config: Config, workspace: WorkspaceManager, metrics: MetricsTracker):
         super().__init__(config, workspace, metrics)

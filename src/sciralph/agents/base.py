@@ -23,9 +23,6 @@ if TYPE_CHECKING:
     from ..task import Task
 
 
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
-
-
 class BaseAgent(ABC):
     """Abstract base for all SciRalph agents."""
 
@@ -45,7 +42,9 @@ class BaseAgent(ABC):
     @property
     def system_prompt(self) -> str:
         if self._system_prompt is None:
-            path = PROMPTS_DIR / self.prompt_file
+            import inspect
+            subclass_dir = Path(inspect.getfile(type(self))).parent
+            path = subclass_dir / self.prompt_file
             self._system_prompt = path.read_text()
         return self._system_prompt
 

@@ -7,14 +7,15 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..llm import LLMResponse
-from ..research_state import ReviewResult
-from .base import BaseAgent
-from .parsing import JSON_FENCE_RE, try_json_loads
+from sciralph.llm import LLMResponse
+from sciralph.research_state import ReviewResult
+
+from ..base import BaseAgent
+from ..parsing import JSON_FENCE_RE, try_json_loads
 
 if TYPE_CHECKING:
-    from ..research_state import ResearchState
-    from ..task import Task
+    from sciralph.research_state import ResearchState
+    from sciralph.task import Task
 
 
 # Match a bare top-level { ... } object containing "verdict"
@@ -42,7 +43,7 @@ def _parse_review_json(text: str) -> dict | None:
 
 class ReviewerAgent(BaseAgent):
     name = "reviewer"
-    prompt_file = "reviewer.md"
+    prompt_file = "prompt.md"
     tools = []  # one-shot: no tools
 
     def _validate_response(self, response: LLMResponse) -> bool:
@@ -107,7 +108,7 @@ class ReviewerAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build focused verification context: WH + evidence + light state."""
-        from ..rendering import render_research_context_xml
+        from sciralph.rendering import render_research_context_xml
 
         parts: list[str] = []
 

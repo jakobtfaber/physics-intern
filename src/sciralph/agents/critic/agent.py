@@ -8,19 +8,20 @@ from typing import TYPE_CHECKING
 
 from rich.console import Console
 
-from ..llm import LLMResponse
-from ..rendering import render_critic_context
-from ..research_state import Critique, CritiqueStatus, Severity
-from .base import BaseAgent
-from ..utils.categories import CompensationCategory as CC
-from ..workspace import log_scaffold_event
-from .parsing import JSON_FENCE_RE, try_json_loads
+from sciralph.llm import LLMResponse
+from sciralph.rendering import render_critic_context
+from sciralph.research_state import Critique, CritiqueStatus, Severity
+from sciralph.utils.categories import CompensationCategory as CC
+from sciralph.workspace import log_scaffold_event
+
+from ..base import BaseAgent
+from ..parsing import JSON_FENCE_RE, try_json_loads
 
 console = Console()
 
 if TYPE_CHECKING:
-    from ..research_state import ResearchState
-    from ..task import Task
+    from sciralph.research_state import ResearchState
+    from sciralph.task import Task
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +72,7 @@ def _parse_critic_json(text: str) -> dict | None:
 
 class CriticAgent(BaseAgent):
     name = "deep_critic"
-    prompt_file = "deep_critic.md"
+    prompt_file = "prompt.md"
     tools = []  # one-shot: no tools
 
     def _validate_response(self, response: LLMResponse) -> bool:

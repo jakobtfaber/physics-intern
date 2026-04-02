@@ -6,13 +6,14 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from ..llm import LLMResponse
-from ..research_state import Evidence
-from .evidence_base import ENTITY_ID_RE, EvidenceAgent
-from .parsing import JSON_FENCE_RE, try_json_loads
+from sciralph.llm import LLMResponse
+from sciralph.research_state import Evidence
+
+from ..evidence_base import ENTITY_ID_RE, EvidenceAgent
+from ..parsing import JSON_FENCE_RE, try_json_loads
 
 if TYPE_CHECKING:
-    from ..task import Task
+    from sciralph.task import Task
 
 # ---------------------------------------------------------------------------
 # JSON parsing
@@ -79,7 +80,7 @@ def _parse_researcher_json(text: str) -> dict | None:
 
 class ResearcherAgent(EvidenceAgent):
     name = "researcher"
-    prompt_file = "researcher.md"
+    prompt_file = "prompt.md"
     tools = []  # one-shot: no tools
 
     def _validate_response(self, response: LLMResponse) -> bool:

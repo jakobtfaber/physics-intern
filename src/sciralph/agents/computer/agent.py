@@ -4,18 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..llm import AgentResult
-from ..research_state import Evidence
-from ..tools import ToolExecutor
-from .evidence_base import ENTITY_ID_RE, EvidenceAgent
+from sciralph.llm import AgentResult
+from sciralph.research_state import Evidence
+
+from ..evidence_base import ENTITY_ID_RE, EvidenceAgent
+from .tools import ToolExecutor
 
 if TYPE_CHECKING:
-    from ..task import Task
+    from sciralph.task import Task
 
 
 class ComputerAgent(EvidenceAgent):
     name = "computer"
-    prompt_file = "computer.md"
+    prompt_file = "prompt.md"
     tools = ToolExecutor.COMPUTER_TOOLS
 
     def process_response(self, response: AgentResult, task: Task, iteration: int):

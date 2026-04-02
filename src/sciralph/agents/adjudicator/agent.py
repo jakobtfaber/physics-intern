@@ -7,13 +7,14 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..llm import LLMResponse
-from .base import BaseAgent
-from .parsing import JSON_FENCE_RE, try_json_loads
+from sciralph.llm import LLMResponse
+
+from ..base import BaseAgent
+from ..parsing import JSON_FENCE_RE, try_json_loads
 
 if TYPE_CHECKING:
-    from ..research_state import ResearchState
-    from ..task import Task
+    from sciralph.research_state import ResearchState
+    from sciralph.task import Task
 
 
 _BARE_ADJUDICATION_RE = re.compile(r'\{[^{}]*"adjudication"[^{}]*\}', re.DOTALL)
@@ -38,7 +39,7 @@ def _parse_adjudication_json(text: str) -> dict | None:
 
 class AdjudicatorAgent(BaseAgent):
     name = "adjudicator"
-    prompt_file = "adjudicator.md"
+    prompt_file = "prompt.md"
     tools = []  # one-shot: no tools
 
     def __init__(self, config, workspace, metrics):
@@ -65,7 +66,7 @@ class AdjudicatorAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build neutral adjudication context."""
-        from ..rendering import render_research_context_xml
+        from sciralph.rendering import render_research_context_xml
 
         if not self.research_state:
             return ""
