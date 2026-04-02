@@ -41,6 +41,22 @@ def _parse_review_json(text: str) -> dict | None:
     return None
 
 
+_CODE_CHAR_LIMIT = 5_000
+_OUTPUT_CHAR_LIMIT = 10_000
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Truncate *text* to *limit* chars, preserving head and tail."""
+    if len(text) <= limit:
+        return text
+    half = limit // 2
+    return (
+        text[:half]
+        + f"\n\n[... truncated {len(text) - limit} chars ...]\n\n"
+        + text[-half:]
+    )
+
+
 class ReviewerAgent(BaseAgent):
     name = "reviewer"
     prompt_file = "prompt.md"
@@ -177,12 +193,18 @@ class ReviewerAgent(BaseAgent):
                             for script_name in ev.scripts:
                                 purpose = ev.script_purposes.get(script_name, "")
                                 try:
-                                    code = self.workspace.read_file(f"computations/{script_name}")
+                                    code = _truncate(
+                                        self.workspace.read_file(f"computations/{script_name}"),
+                                        _CODE_CHAR_LIMIT,
+                                    )
                                 except Exception:
                                     code = "[not found]"
                                 stem = Path(script_name).stem
                                 try:
-                                    output = self.workspace.read_file(f"computations/{stem}.output")
+                                    output = _truncate(
+                                        self.workspace.read_file(f"computations/{stem}.output"),
+                                        _OUTPUT_CHAR_LIMIT,
+                                    )
                                 except Exception:
                                     output = "[not found]"
                                 comp_parts = []
@@ -197,7 +219,10 @@ class ReviewerAgent(BaseAgent):
                                 )
                         if ev.derivation_file:
                             try:
-                                content = self.workspace.read_file(f"derivations/{ev.derivation_file}")
+                                content = _truncate(
+                                    self.workspace.read_file(f"derivations/{ev.derivation_file}"),
+                                    _OUTPUT_CHAR_LIMIT,
+                                )
                             except Exception:
                                 content = ""
                             ev_parts.append(

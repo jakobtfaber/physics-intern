@@ -195,6 +195,11 @@ def call_llm(system: str, user_content: str, config: Config,
         )
     provider = _get_provider(config)
 
+    # Write preliminary log (system + user) before the API call so the
+    # prompt is preserved on disk even if the call fails.
+    log_path = _allocate_log_path(config, agent_name, iteration)
+    _write_preliminary_log(log_path, system, user_content)
+
     start = time.time()
     resp = _call_provider_with_retry(
         provider, config,
@@ -228,8 +233,10 @@ def call_llm(system: str, user_content: str, config: Config,
             answer_tokens=llm_response.answer_tokens,
         )
 
+    # Overwrite preliminary log with full version (system + user + response)
     llm_response.log_path = _write_conversation_log(
         config, llm_response, system, user_content, agent_name, iteration,
+        log_path=log_path,
     )
 
     return llm_response
@@ -444,6 +451,10 @@ def run_agent_loop(
         start = time.time()
         # Allow executor to dynamically switch tool set (e.g. after document_approach)
         active_tools = getattr(tool_executor, "active_tools", None) or tools
+        # Flush accumulated log state before each API call so the prompt
+        # is on disk even if the call fails (mirrors preliminary logging
+        # in call_llm).
+        _flush_log()
         try:
             resp = _call_provider_with_retry(
                 provider, config,
@@ -967,21 +978,61 @@ def run_agent_loop(
     return result
 
 
+def _allocate_log_path(config: Config, agent_name: str, iteration: int) -> Path | None:
+    """Allocate the next log file path and increment the sequence counter.
+
+    Returns *None* when logging is disabled (no ``logs_dir``).
+    """
+    if not config.logs_dir:
+        return None
+    seq = _call_seq.get(iteration, 0) + 1
+    _call_seq[iteration] = seq
+    agent = agent_name or "unknown"
+    return Path(config.logs_dir, f"iter{iteration:03d}_{seq:02d}_{agent}.md")
+
+
+def _write_preliminary_log(log_path: Path | None, system: str,
+                           user_content: str) -> None:
+    """Write system prompt + user message to *log_path* before the API call.
+
+    If the call later succeeds, the file is overwritten with the full log
+    (including the response).  On failure the preliminary version survives,
+    giving the operator enough context to diagnose what was sent.
+    """
+    if log_path is None:
+        return
+    content = (
+        f'<SYSTEM_PROMPT chars="{len(system)}">\n'
+        f"{system}\n"
+        f"</SYSTEM_PROMPT>\n\n"
+        f'<USER_MESSAGE chars="{len(user_content)}">\n'
+        f"{user_content}\n"
+        f"</USER_MESSAGE>\n\n"
+        f"<LLM_RESPONSE status=\"pending\">\n"
+        f"(API call in progress)\n"
+        f"</LLM_RESPONSE>\n"
+    )
+    try:
+        log_path.write_text(content)
+    except OSError:
+        pass
+
+
 def _write_conversation_log(config: Config, resp: LLMResponse,
                             system: str, user_content: str,
-                            agent_name: str, iteration: int) -> str:
+                            agent_name: str, iteration: int,
+                            log_path: Path | None = None) -> str:
     """Write a per-call Markdown file with full prompts and response.
+
+    If *log_path* is provided (pre-allocated), the file is overwritten
+    in place.  Otherwise a new path is allocated (legacy callers).
 
     Returns the absolute path of the log file, or "" if not written.
     """
-    if not config.logs_dir:
+    if log_path is None:
+        log_path = _allocate_log_path(config, agent_name, iteration)
+    if log_path is None:
         return ""
-
-    seq = _call_seq.get(iteration, 0) + 1
-    _call_seq[iteration] = seq
-
-    agent = agent_name or "unknown"
-    filename = f"iter{iteration:03d}_{seq:02d}_{agent}.md"
 
     resp_attrs = f"chars=\"{len(resp.text)}\" tokens_in=\"{resp.input_tokens}\" tokens_out=\"{resp.output_tokens}\""
     if resp.reasoning_tokens and resp.reasoning_tokens > 0:
@@ -1000,12 +1051,11 @@ def _write_conversation_log(config: Config, resp: LLMResponse,
 {resp.text}
 </LLM_RESPONSE>
 """
-    log_file = Path(config.logs_dir, filename)
     try:
-        log_file.write_text(content)
+        log_path.write_text(content)
     except OSError:
         return ""
-    return str(log_file)
+    return str(log_path)
 
 
 def _render_tool_input(name: str, input_data) -> str:
