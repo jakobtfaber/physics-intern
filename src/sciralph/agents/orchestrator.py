@@ -12,7 +12,7 @@ from ..renderers import (
     render_background_survey_xml,
 )
 from ..task import Task, TaskType, TASK_TYPE_AGENT_MAP
-from ..tools import ToolCall
+from ..tool_call import ToolCall
 from .base import PROMPTS_DIR, BaseAgent
 from ..categories import CompensationCategory as CC
 from ..workspace import log_scaffold_event

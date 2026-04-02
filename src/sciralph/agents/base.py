@@ -12,7 +12,8 @@ from rich.console import Console
 from ..config import Config
 from ..llm import AgentResult, LLMResponse, call_llm, run_agent_loop
 from ..metrics import MetricsTracker
-from ..tools import ToolCall, ToolExecutor
+from ..tool_call import ToolCall
+from ..tools import ToolExecutor
 from ..categories import CompensationCategory as CC
 from ..workspace import WorkspaceManager, log_scaffold_event
 

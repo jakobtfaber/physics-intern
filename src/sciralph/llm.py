@@ -11,7 +11,8 @@ from rich.console import Console
 
 from .config import Config
 from .providers import LLMProvider, ProviderResponse, create_provider
-from .tools import ToolCall, ToolExecutor
+from .tool_call import ToolCall
+from .tools import ToolExecutor
 from .categories import CompensationCategory as CC
 from .workspace import log_llm_call, log_scaffold_event
 

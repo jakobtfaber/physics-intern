@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from rich.console import Console
 
-from .tools import ToolCall
+from .tool_call import ToolCall
 from .categories import CompensationCategory as CC
 from .workspace import log_scaffold_event
 

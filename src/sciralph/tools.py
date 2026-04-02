@@ -2,22 +2,12 @@
 
 import re
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
 from .sandbox import execute_python
 from .task import TaskType
-
-
-@dataclass
-class ToolCall:
-    """Record of a single tool invocation."""
-    tool_name: str
-    tool_input: dict
-    output: str
-    is_error: bool
-    duration: float
+from .tool_call import ToolCall  # noqa: F401 — re-export for backward compat
 
 
 class ToolExecutor:
