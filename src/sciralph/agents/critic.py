@@ -73,7 +73,6 @@ class CriticAgent(BaseAgent):
     name = "deep_critic"
     prompt_file = "deep_critic.md"
     tools = []  # one-shot: no tools
-    parse_retries = 1
 
     def _validate_response(self, response: LLMResponse) -> bool:
         return _parse_critic_json(response.text or "") is not None

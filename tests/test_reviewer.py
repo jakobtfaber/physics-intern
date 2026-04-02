@@ -101,8 +101,11 @@ class TestReviewerValidateResponse:
                                output_tokens=50, stop_reason="end_turn", duration=0.1)
         assert agent._validate_response(response) is False
 
-    def test_parse_retries_set(self):
-        assert ReviewerAgent.parse_retries == 1
+    def test_parse_retries_from_config(self):
+        """parse_retries is now configured globally via Config.parse_retries."""
+        from sciralph.config import Config
+        config = Config()
+        assert config.parse_retries == 2
 
 
 class TestReviewerProcessResponse:

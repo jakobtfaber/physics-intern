@@ -81,7 +81,6 @@ class ResearcherAgent(EvidenceAgent):
     name = "researcher"
     prompt_file = "researcher.md"
     tools = []  # one-shot: no tools
-    parse_retries = 1
 
     def _validate_response(self, response: LLMResponse) -> bool:
         return _parse_researcher_json(response.text or "") is not None

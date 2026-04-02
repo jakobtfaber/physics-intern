@@ -32,7 +32,7 @@ class BaseAgent(ABC):
     prompt_file: str = ""
     tools: ClassVar[list[dict]] = []
     max_tool_rounds: ClassVar[int | None] = None
-    parse_retries: ClassVar[int] = 0  # one-shot agents can override to retry on parse failure
+    # parse_retries is now read from self.config.parse_retries (config.default.yaml)
 
     def __init__(self, config: Config, workspace: WorkspaceManager, metrics: MetricsTracker):
         self.config = config
@@ -152,17 +152,20 @@ class BaseAgent(ABC):
     def _call_with_retry(self, context: str, iteration: int) -> LLMResponse:
         """Call LLM for one-shot agents, with continuation retry on parse failure.
 
-        If the subclass overrides ``_validate_response`` and ``parse_retries > 0``,
-        a failed parse (or a ``max_tokens`` truncation that left some text)
-        triggers a *continuation* call: the original context is re-sent with
-        the model's previous response appended and a JSON format reminder from
-        ``_parse_retry_hint()``.  On success the two responses are merged so
-        that ``process_response`` sees derivation text + JSON in one pass.
+        If the subclass overrides ``_validate_response`` and
+        ``config.parse_retries > 0``, a failed parse (or a ``max_tokens``
+        truncation that left some text) triggers up to ``parse_retries``
+        *continuation* calls: the original context is re-sent with the model's
+        accumulated response appended and a JSON format reminder from
+        ``_parse_retry_hint()``.  On success the responses are merged so that
+        ``process_response`` sees derivation text + JSON in one pass.
 
         The engine's ``_record_agent_failures()`` still detects
         ``stop_reason='max_tokens'`` on the *returned* response and injects a
-        CAPACITY EXCEEDED banner when the continuation also fails.
+        CAPACITY EXCEEDED banner when all continuations fail.
         """
+        max_retries = self.config.parse_retries
+
         response = call_llm(self.system_prompt, context, self.config,
                             agent_name=self.name, iteration=iteration)
 
@@ -177,90 +180,112 @@ class BaseAgent(ABC):
             answer_tokens=response.answer_tokens,
         )
 
-        # Decide whether a continuation retry is needed
-        needs_retry = False
-        if response.stop_reason == "max_tokens":
-            needs_retry = True
-        elif not self._validate_response(response):
-            needs_retry = True
+        # Track original stop reason for final logging
+        original_stop_reason = response.stop_reason
 
-        if not needs_retry or self.parse_retries < 1:
-            # Either the response is valid, or no retries configured
+        # Accumulate across retries for merged response
+        accumulated_text = response.text or ""
+        total_input = response.input_tokens
+        total_output = response.output_tokens
+        total_duration = response.duration
+        total_reasoning = response.reasoning_tokens
+        total_answer = response.answer_tokens
+
+        attempted_continuation = False
+        for attempt in range(max_retries):
+            # Decide whether a continuation retry is needed
+            needs_retry = False
             if response.stop_reason == "max_tokens":
-                self._log_max_tokens(response, iteration)
-            return response
+                needs_retry = True
+            elif not self._validate_response(response):
+                needs_retry = True
 
-        # --- Attempt continuation retry ---
-        hint = self._parse_retry_hint()
-        if not hint or not (response.text or "").strip():
-            # No hint provided or empty text — can't do continuation
-            if response.stop_reason == "max_tokens":
-                self._log_max_tokens(response, iteration)
-            return response
+            if not needs_retry:
+                return response  # valid — done
 
-        console.print(
-            f"[yellow]{self.name}: structured output missing, "
-            f"attempting continuation...[/yellow]"
-        )
-        log_scaffold_event(
-            self.workspace.root, iteration,
-            category=CC.OUTPUT_NORMALIZATION, event="parse_continuation",
-            detail=f"agent={self.name}, trigger={response.stop_reason}",
-        )
+            hint = self._parse_retry_hint()
+            if not hint or not accumulated_text.strip():
+                break  # no hint or empty text — can't continue
 
-        retry_context = (
-            f"{context}\n\n"
-            "---\n\n"
-            "IMPORTANT: Your previous response to this task is shown below. "
-            "It did not contain the required structured JSON output "
-            "(the response may have been truncated). "
-            "Do not repeat the analysis. Output ONLY the required "
-            "fenced JSON block based on your work above.\n\n"
-            f"<previous-response>\n{response.text}\n</previous-response>"
-            f"\n\n{hint}"
-        )
+            attempted_continuation = True
 
-        retry = call_llm(self.system_prompt, retry_context, self.config,
-                         agent_name=self.name, iteration=iteration)
+            console.print(
+                f"[yellow]{self.name}: structured output missing, "
+                f"attempting continuation ({attempt + 1}/{max_retries})...[/yellow]"
+            )
+            log_scaffold_event(
+                self.workspace.root, iteration,
+                category=CC.OUTPUT_NORMALIZATION, event="parse_continuation",
+                detail=(
+                    f"agent={self.name}, trigger={response.stop_reason}, "
+                    f"attempt={attempt + 1}/{max_retries}"
+                ),
+            )
 
-        self.metrics.record_call(
-            iteration=iteration,
-            agent=self.name,
-            input_tokens=retry.input_tokens,
-            output_tokens=retry.output_tokens,
-            duration=retry.duration,
-            max_tokens_hit=(retry.stop_reason == "max_tokens"),
-            reasoning_tokens=retry.reasoning_tokens,
-            answer_tokens=retry.answer_tokens,
-        )
+            retry_context = (
+                f"{context}\n\n"
+                "---\n\n"
+                "IMPORTANT: Your previous response to this task is shown below. "
+                "It did not contain the required structured JSON output "
+                "(the response may have been truncated). "
+                "Do not repeat the analysis. Output ONLY the required "
+                "fenced JSON block based on your work above.\n\n"
+                f"<previous-response>\n{accumulated_text}\n</previous-response>"
+                f"\n\n{hint}"
+            )
 
-        if self._validate_response(retry):
-            # Merge: original derivation text + retry JSON
-            console.print(f"[green]{self.name}: continuation succeeded[/green]")
+            retry = call_llm(self.system_prompt, retry_context, self.config,
+                             agent_name=self.name, iteration=iteration)
+
+            self.metrics.record_call(
+                iteration=iteration,
+                agent=self.name,
+                input_tokens=retry.input_tokens,
+                output_tokens=retry.output_tokens,
+                duration=retry.duration,
+                max_tokens_hit=(retry.stop_reason == "max_tokens"),
+                reasoning_tokens=retry.reasoning_tokens,
+                answer_tokens=retry.answer_tokens,
+            )
+
+            # Accumulate
+            accumulated_text = accumulated_text + "\n\n" + (retry.text or "")
+            total_input += retry.input_tokens
+            total_output += retry.output_tokens
+            total_duration += retry.duration
+            total_reasoning += retry.reasoning_tokens
+            total_answer += retry.answer_tokens
+
+            # Build merged response for validation
+            response = LLMResponse(
+                text=accumulated_text,
+                input_tokens=total_input,
+                output_tokens=total_output,
+                stop_reason=retry.stop_reason,
+                duration=total_duration,
+                reasoning_tokens=total_reasoning,
+                answer_tokens=total_answer,
+            )
+
+            if self._validate_response(response):
+                console.print(f"[green]{self.name}: continuation succeeded[/green]")
+                log_scaffold_event(
+                    self.workspace.root, iteration,
+                    category=CC.OUTPUT_NORMALIZATION,
+                    event="parse_continuation_success",
+                    detail=f"agent={self.name}, attempt={attempt + 1}",
+                )
+                return response
+
+        # All retries exhausted or no hint available
+        if attempted_continuation:
             log_scaffold_event(
                 self.workspace.root, iteration,
                 category=CC.OUTPUT_NORMALIZATION,
-                event="parse_continuation_success",
+                event="parse_continuation_failed",
                 detail=f"agent={self.name}",
             )
-            return LLMResponse(
-                text=(response.text or "") + "\n\n" + (retry.text or ""),
-                input_tokens=response.input_tokens + retry.input_tokens,
-                output_tokens=response.output_tokens + retry.output_tokens,
-                stop_reason=retry.stop_reason,
-                duration=response.duration + retry.duration,
-                reasoning_tokens=response.reasoning_tokens + retry.reasoning_tokens,
-                answer_tokens=response.answer_tokens + retry.answer_tokens,
-            )
-
-        # Continuation failed — return original response
-        log_scaffold_event(
-            self.workspace.root, iteration,
-            category=CC.OUTPUT_NORMALIZATION,
-            event="parse_continuation_failed",
-            detail=f"agent={self.name}",
-        )
-        if response.stop_reason == "max_tokens":
+        if original_stop_reason == "max_tokens":
             self._log_max_tokens(response, iteration)
         return response
 

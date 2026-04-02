@@ -40,7 +40,6 @@ class AdjudicatorAgent(BaseAgent):
     name = "adjudicator"
     prompt_file = "adjudicator.md"
     tools = []  # one-shot: no tools
-    parse_retries = 1
 
     def __init__(self, config, workspace, metrics):
         super().__init__(config, workspace, metrics)

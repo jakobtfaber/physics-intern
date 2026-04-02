@@ -44,7 +44,6 @@ class ReviewerAgent(BaseAgent):
     name = "reviewer"
     prompt_file = "reviewer.md"
     tools = []  # one-shot: no tools
-    parse_retries = 1
 
     def _validate_response(self, response: LLMResponse) -> bool:
         return _parse_review_json(response.text or "") is not None

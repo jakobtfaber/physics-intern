@@ -46,13 +46,36 @@ class PlannerAgent(BaseAgent):
         self.parsed_sanity_checks: list[str] | None = None
         self.parsed_revision_rationale: str | None = None
         self.parsed_critique_assessments: list[dict] | None = None
+        self._in_revise_mode: bool = False
 
     def _is_revise_mode(self, task: Task) -> bool:
         return task.task_type == TaskType.PLAN_REVISE
 
+    def _validate_response(self, response: LLMResponse) -> bool:
+        if not self._in_revise_mode:
+            return True  # initial mode: raw text, nothing to validate
+        return _parse_planner_json(response.text or "") is not None
+
+    def _parse_retry_hint(self) -> str | None:
+        if not self._in_revise_mode:
+            return None  # initial mode: no structured format
+        return (
+            "Recall the required output format and provide it now:\n\n"
+            "```json\n"
+            "{\n"
+            '  "revised_strategy": "...",\n'
+            '  "revision_rationale": "...",\n'
+            '  "entity_actions": [{"id": "...", "action": "keep|abandon", "reason": "..."}],\n'
+            '  "sanity_checks": ["...", "..."],\n'
+            '  "critique_assessments": [{"id": "CRIT-NNN", "verdict": "accepted|dismissed", "reason": "..."}]\n'
+            "}\n"
+            "```"
+        )
+
     def run(self, task, iteration, **kwargs):
         """Swap prompt file for revise mode, then delegate to BaseAgent.run()."""
         if self._is_revise_mode(task):
+            self._in_revise_mode = True
             original_prompt = self.prompt_file
             # Clear cached system prompt so the new prompt_file is loaded
             self._system_prompt = None
@@ -60,6 +83,7 @@ class PlannerAgent(BaseAgent):
             try:
                 return super().run(task, iteration, **kwargs)
             finally:
+                self._in_revise_mode = False
                 self.prompt_file = original_prompt
                 # Clear cache again so next initial-mode call reloads planner.md
                 self._system_prompt = None

@@ -52,3 +52,7 @@ rq_evidence_cap: 3
 # --- Refuted retry cap ---
 # Max times a WH can be refuted before dispatch to it is blocked (forces abandon).
 max_refuted_retries: 2
+
+# --- One-shot parse retry ---
+# Max continuation retries for one-shot agents on max_tokens or missing JSON output.
+parse_retries: 2

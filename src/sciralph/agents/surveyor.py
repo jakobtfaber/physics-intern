@@ -34,6 +34,39 @@ class SurveyorAgent(BaseAgent):
         self.research_state: ResearchState | None = None
         self.parsed_survey: dict | None = None
 
+    def _validate_response(self, response: LLMResponse) -> bool:
+        """Check that at least one structured section was extracted from JSON."""
+        text = (response.text or "").strip()
+        fenced = list(JSON_FENCE_RE.finditer(text))
+        if not fenced:
+            return False
+        try:
+            parsed = try_json_loads(fenced[-1].group(1).strip())
+            if isinstance(parsed, dict):
+                return any(
+                    k in parsed and isinstance(parsed[k], str) and parsed[k].strip()
+                    for k in TEXT_SECTION_FIELDS
+                )
+        except (json.JSONDecodeError, ValueError, AttributeError):
+            pass
+        return False
+
+    def _parse_retry_hint(self) -> str:
+        return (
+            "Recall the required output format and provide it now:\n\n"
+            "```json\n"
+            "{\n"
+            '  "background": "...",\n'
+            '  "key_insights": "...",\n'
+            '  "known_methods": "...",\n'
+            '  "known_pitfalls": "...",\n'
+            '  "conventions_and_definitions": "...",\n'
+            '  "problem_summary": "...",\n'
+            '  "sanity_checks": ["...", "..."]\n'
+            "}\n"
+            "```"
+        )
+
     def build_context(self, task: Task, iteration: int) -> str:
         parts = [
             f"<problem-statement>\n"

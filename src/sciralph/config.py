@@ -55,6 +55,7 @@ class Config:
     rq_evidence_cap: int = DEFAULTS["rq_evidence_cap"]
     max_refuted_retries: int = DEFAULTS["max_refuted_retries"]
     auto_expire_iterations: int = DEFAULTS["auto_expire_iterations"]
+    parse_retries: int = DEFAULTS["parse_retries"]
     provider: str = ""
     workspace_dir: str = ""
     logs_dir: str = ""
@@ -138,6 +139,7 @@ _YAML_CONFIG_FIELDS = frozenset({
     "rq_evidence_cap",
     "max_refuted_retries",
     "auto_expire_iterations",
+    "parse_retries",
     "provider",
 })
 
