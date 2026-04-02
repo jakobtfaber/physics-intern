@@ -87,13 +87,18 @@ class GoogleProvider(LLMProvider):
             config=config,
         )
 
-        # Extract text and tool calls
+        # Extract text, reasoning, and tool calls
         text_parts = []
+        reasoning_parts = []
         tool_calls = None
 
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
             for part in response.candidates[0].content.parts:
-                if part.text:
+                if hasattr(part, 'thought') and part.thought:
+                    # Thinking part — capture reasoning, exclude from answer text
+                    if part.text:
+                        reasoning_parts.append(part.text)
+                elif part.text:
                     text_parts.append(part.text)
                 elif part.function_call:
                     if tool_calls is None:
@@ -106,6 +111,7 @@ class GoogleProvider(LLMProvider):
                     })
 
         text = "\n".join(text_parts)
+        reasoning_content = "\n".join(reasoning_parts)
 
         # Determine stop reason
         stop_reason = "end_turn"
@@ -135,6 +141,7 @@ class GoogleProvider(LLMProvider):
             answer_tokens=answer_tokens,
             tool_calls=tool_calls,
             raw_content=response.candidates[0].content if response.candidates else None,
+            reasoning_content=reasoning_content,
         )
 
     def format_assistant_message(self, raw_content: object) -> dict:

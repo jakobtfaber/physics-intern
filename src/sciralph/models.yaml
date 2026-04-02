@@ -86,6 +86,7 @@ deepseek-v3.2:
   input_cost: 0.56
   output_cost: 1.68
   reasoning_format: think_tags
+  hf_provider: novita
 
 kimi-k2.5:
   provider: huggingface

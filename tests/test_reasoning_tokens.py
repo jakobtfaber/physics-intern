@@ -1,6 +1,11 @@
 """Tests for reasoning token tracking across providers."""
 
-from sciralph.providers.base import ProviderResponse, estimate_reasoning_tokens
+from sciralph.providers.base import (
+    ProviderResponse,
+    estimate_answer_tokens,
+    estimate_reasoning_tokens,
+    strip_think_tags,
+)
 
 
 # ── estimate_reasoning_tokens ──────────────────────────────────────────────
@@ -38,6 +43,78 @@ class TestEstimateReasoningTokens:
         assert tokens > 0
 
 
+# ── estimate_answer_tokens ─────────────────────────────────────────────────
+
+class TestEstimateAnswerTokens:
+    def test_text_only(self):
+        tokens = estimate_answer_tokens("The Hawking temperature is T")
+        # 5 words * 1.3 = 6
+        assert tokens == int(5 * 1.3)
+
+    def test_empty_text(self):
+        assert estimate_answer_tokens("") == 0
+        assert estimate_answer_tokens("", None) == 0
+
+    def test_tool_calls_only(self):
+        """Tool-call-only response (text='') should still count tool args."""
+        tool_calls = [{"id": "1", "name": "calc", "input": {"expr": "7*13"}}]
+        tokens = estimate_answer_tokens("", tool_calls)
+        assert tokens > 0
+
+    def test_text_plus_tool_calls(self):
+        tool_calls = [{"id": "1", "name": "calc", "input": {"expr": "7*13"}}]
+        text_only = estimate_answer_tokens("The answer is 91")
+        both = estimate_answer_tokens("The answer is 91", tool_calls)
+        assert both > text_only
+
+    def test_empty_tool_input(self):
+        tool_calls = [{"id": "1", "name": "noop", "input": {}}]
+        tokens = estimate_answer_tokens("", tool_calls)
+        # json.dumps({}) = "{}" = 1 word * 1.3 = 1
+        assert tokens >= 1
+
+    def test_multiple_tool_calls(self):
+        tool_calls = [
+            {"id": "1", "name": "a", "input": {"x": 1}},
+            {"id": "2", "name": "b", "input": {"y": "hello world"}},
+        ]
+        tokens = estimate_answer_tokens("", tool_calls)
+        assert tokens > 0
+
+
+# ── strip_think_tags ───────────────────────────────────────────────────────
+
+class TestStripThinkTags:
+    def test_standard_tags(self):
+        text = "<think>Step 1: reason\nStep 2: more reasoning</think>The answer is 4."
+        assert strip_think_tags(text) == "The answer is 4."
+
+    def test_bare_closing_tag(self):
+        """Qwen3/Nemotron: chat template inserts <think>, model emits only </think>."""
+        text = "Let me think step by step...</think>The answer is 42."
+        assert strip_think_tags(text) == "The answer is 42."
+
+    def test_no_tags(self):
+        text = "Just a normal response."
+        assert strip_think_tags(text) == "Just a normal response."
+
+    def test_empty(self):
+        assert strip_think_tags("") == ""
+        assert strip_think_tags(None) == ""
+
+    def test_whitespace_only_think_block(self):
+        text = "<think>   \n   </think>Result."
+        assert strip_think_tags(text) == "Result."
+
+    def test_multiple_think_blocks(self):
+        text = "<think>first</think>mid<think>second</think>end"
+        result = strip_think_tags(text)
+        assert "first" not in result
+        assert "second" not in result
+        assert "mid" in result
+        assert "end" in result
+
+
 # ── ProviderResponse invariant ─────────────────────────────────────────────
 
 class TestProviderResponseInvariant:
@@ -63,14 +140,24 @@ class TestProviderResponseInvariant:
         )
         assert resp.reasoning_tokens == 0
         assert resp.answer_tokens == 0
+        assert resp.reasoning_content == ""
+
+    def test_reasoning_content_field(self):
+        resp = ProviderResponse(
+            text="answer",
+            input_tokens=100,
+            output_tokens=500,
+            stop_reason="end_turn",
+            reasoning_content="I thought about it carefully.",
+        )
+        assert resp.reasoning_content == "I thought about it carefully."
 
     def test_anthropic_paradigm(self):
         """Anthropic: output_tokens includes thinking, estimate split from text."""
         text = "The Hawking temperature is T equals h-bar kappa"
-        content_words = len(text.split())
-        answer_tokens = int(content_words * 1.3)
         output_tokens = 500
-        reasoning_tokens = max(0, output_tokens - answer_tokens)
+        answer_tokens = min(estimate_answer_tokens(text), output_tokens)
+        reasoning_tokens = output_tokens - answer_tokens
         resp = ProviderResponse(
             text=text,
             input_tokens=100,
@@ -79,7 +166,17 @@ class TestProviderResponseInvariant:
             reasoning_tokens=reasoning_tokens,
             answer_tokens=answer_tokens,
         )
-        assert resp.output_tokens >= resp.reasoning_tokens + resp.answer_tokens
+        assert resp.output_tokens == resp.reasoning_tokens + resp.answer_tokens
+
+    def test_anthropic_tool_call_only(self):
+        """Anthropic with text='' and tool_calls: answer_tokens should be nonzero."""
+        tool_calls = [{"id": "1", "name": "execute_python",
+                        "input": {"code": "import numpy as np\nprint(np.pi)"}}]
+        output_tokens = 200
+        answer_tokens = min(estimate_answer_tokens("", tool_calls), output_tokens)
+        reasoning_tokens = output_tokens - answer_tokens
+        assert answer_tokens > 0, "Tool call args should contribute to answer_tokens"
+        assert reasoning_tokens + answer_tokens == output_tokens
 
     def test_openai_paradigm(self):
         """OpenAI: native reasoning_tokens from completion_tokens_details."""
@@ -108,20 +205,40 @@ class TestProviderResponseInvariant:
         assert resp.output_tokens == resp.reasoning_tokens + resp.answer_tokens
 
     def test_huggingface_think_tags_paradigm(self):
-        """HuggingFace with think_tags: estimate reasoning from content."""
+        """HuggingFace with think_tags: estimate answer from visible text."""
         text = "<think>Step 1 step 2 step 3 reasoning</think>The answer is 4."
-        reasoning = estimate_reasoning_tokens(text)
         output_tokens = 100
-        answer = max(0, output_tokens - reasoning)
+        visible_text = strip_think_tags(text)
+        answer_tokens = min(estimate_answer_tokens(visible_text), output_tokens)
+        reasoning_tokens = output_tokens - answer_tokens
         resp = ProviderResponse(
             text=text,
             input_tokens=50,
             output_tokens=output_tokens,
             stop_reason="end_turn",
-            reasoning_tokens=reasoning,
-            answer_tokens=answer,
+            reasoning_tokens=reasoning_tokens,
+            answer_tokens=answer_tokens,
         )
         assert resp.reasoning_tokens + resp.answer_tokens == resp.output_tokens
+
+    def test_huggingface_separate_field_paradigm(self):
+        """HuggingFace separate_field: estimate answer from text + tool calls."""
+        output_tokens = 300
+        tool_calls = [{"id": "1", "name": "calc", "input": {"expr": "7*13"}}]
+        answer_tokens = min(
+            estimate_answer_tokens("Let me calculate", tool_calls), output_tokens)
+        reasoning_tokens = output_tokens - answer_tokens
+        assert reasoning_tokens + answer_tokens == output_tokens
+
+    def test_min_clamp_prevents_overshoot(self):
+        """When estimate exceeds output_tokens, min() clamp preserves invariant."""
+        text = "a " * 100  # 100 words → estimate ~130 tokens
+        output_tokens = 50  # Less than estimate
+        answer_tokens = min(estimate_answer_tokens(text), output_tokens)
+        reasoning_tokens = output_tokens - answer_tokens
+        assert answer_tokens == output_tokens
+        assert reasoning_tokens == 0
+        assert reasoning_tokens + answer_tokens == output_tokens
 
 
 # ── LLMResponse / AgentResult fields ──────────────────────────────────────

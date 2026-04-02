@@ -2,7 +2,7 @@
 
 import anthropic
 
-from .base import LLMProvider, ProviderResponse
+from .base import LLMProvider, ProviderResponse, estimate_answer_tokens
 
 # Effort levels in descending order, used by _call_with_thinking_recovery
 # to step down when thinking exhausts the token budget.
@@ -85,12 +85,18 @@ class AnthropicProvider(LLMProvider):
         ) as stream:
             response = stream.get_final_message()
 
-        # Extract text
+        # Extract text and reasoning content
         text_parts = []
+        reasoning_parts = []
         for block in response.content:
-            if hasattr(block, "text"):
+            if getattr(block, "type", None) == "thinking":
+                reasoning_parts.append(block.thinking)
+            elif getattr(block, "type", None) == "redacted_thinking":
+                reasoning_parts.append("[redacted]")
+            elif hasattr(block, "text"):
                 text_parts.append(block.text)
         text = "\n".join(text_parts)
+        reasoning_content = "\n".join(reasoning_parts)
 
         # Extract tool calls
         tool_calls = None
@@ -105,11 +111,11 @@ class AnthropicProvider(LLMProvider):
                     })
 
         # Estimate reasoning vs answer token split.
-        # Anthropic output_tokens includes thinking; estimate answer from visible text.
+        # Anthropic output_tokens includes thinking; estimate answer from visible
+        # text + tool call arguments, remainder is reasoning.
         output_tokens = response.usage.output_tokens
-        content_words = len(text.split()) if text else 0
-        answer_tokens = int(content_words * 1.3)
-        reasoning_tokens = max(0, output_tokens - answer_tokens)
+        answer_tokens = min(estimate_answer_tokens(text, tool_calls), output_tokens)
+        reasoning_tokens = output_tokens - answer_tokens
 
         return ProviderResponse(
             text=text,
@@ -120,6 +126,7 @@ class AnthropicProvider(LLMProvider):
             answer_tokens=answer_tokens,
             tool_calls=tool_calls,
             raw_content=response.content,
+            reasoning_content=reasoning_content,
         )
 
     def format_assistant_message(self, raw_content: object) -> dict:

@@ -7,7 +7,12 @@ from types import SimpleNamespace
 
 from rich.console import Console
 
-from .base import LLMProvider, ProviderResponse, estimate_reasoning_tokens
+from .base import (
+    LLMProvider,
+    ProviderResponse,
+    estimate_answer_tokens,
+    strip_think_tags,
+)
 
 _STOP_REASON_MAP = {
     "stop": "end_turn",
@@ -228,6 +233,7 @@ class HuggingFaceProvider(LLMProvider):
 
         # Accumulate streamed chunks
         text_parts: list[str] = []
+        reasoning_parts: list[str] = []
         tc_acc: dict[int, dict] = {}  # index -> {id, name, arg_parts}
         finish_reason: str | None = None
         input_tokens = 0
@@ -251,6 +257,12 @@ class HuggingFaceProvider(LLMProvider):
             # Accumulate text content
             if hasattr(delta, "content") and delta.content:
                 text_parts.append(delta.content)
+
+            # Capture reasoning fields (GPT-OSS, Kimi, GLM)
+            if hasattr(delta, "reasoning") and delta.reasoning:
+                reasoning_parts.append(delta.reasoning)
+            if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                reasoning_parts.append(delta.reasoning_content)
 
             # Accumulate tool call deltas
             if hasattr(delta, "tool_calls") and delta.tool_calls:
@@ -308,25 +320,38 @@ class HuggingFaceProvider(LLMProvider):
             tool_calls=raw_tool_calls,
         )
 
-        # Reasoning token breakdown based on model's reasoning format
+        # Determine effective reasoning format — auto-discover if not configured
+        reasoning_content = "".join(reasoning_parts)
+        fmt = self._reasoning_format
+        if not fmt:
+            if reasoning_content:
+                fmt = "separate_field"
+            elif "</think>" in text:
+                fmt = "think_tags"
+
+        # Reasoning token breakdown: always estimate answer first, derive reasoning
         reasoning_tokens = 0
         answer_tokens = output_tokens
-        if self._reasoning_format == "separate_field":
+        if fmt == "separate_field":
             # Models like Kimi, GPT-OSS: completion_tokens includes reasoning.
-            # Count words in visible text AND tool call arguments so tool-use
-            # rounds don't misattribute all output_tokens to reasoning.
-            content_words = len(text.split()) if text else 0
-            if raw_tool_calls:
-                for tc in raw_tool_calls:
-                    args_str = tc.function.arguments if isinstance(
-                        tc.function.arguments, str) else ""
-                    content_words += len(args_str.split())
-            answer_tokens = int(content_words * 1.3)
-            reasoning_tokens = max(0, output_tokens - answer_tokens)
-        elif self._reasoning_format == "think_tags":
-            # Models like DeepSeek: reasoning in <think>...</think> tags
-            reasoning_tokens = estimate_reasoning_tokens(text)
-            answer_tokens = max(0, output_tokens - reasoning_tokens)
+            answer_tokens = min(
+                estimate_answer_tokens(text, tool_calls), output_tokens)
+            reasoning_tokens = output_tokens - answer_tokens
+        elif fmt == "think_tags":
+            # Models like DeepSeek, Qwen: reasoning in <think>...</think> tags.
+            # Extract reasoning content from tags, estimate answer from visible text.
+            if not reasoning_content and "</think>" in text:
+                # Extract think content for reasoning_content
+                import re
+                match = re.search(r'<think>(.*?)</think>', text, re.DOTALL)
+                if match:
+                    reasoning_content = match.group(1)
+                elif "</think>" in text:
+                    reasoning_content = text.split("</think>", 1)[0]
+            visible_text = strip_think_tags(text)
+            answer_tokens = min(
+                estimate_answer_tokens(visible_text, tool_calls), output_tokens)
+            reasoning_tokens = output_tokens - answer_tokens
 
         return ProviderResponse(
             text=text,
@@ -337,6 +362,7 @@ class HuggingFaceProvider(LLMProvider):
             answer_tokens=answer_tokens,
             tool_calls=tool_calls,
             raw_content=raw_content,
+            reasoning_content=reasoning_content,
         )
 
     def format_assistant_message(self, raw_content: object) -> dict:

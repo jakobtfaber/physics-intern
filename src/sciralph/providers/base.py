@@ -1,5 +1,6 @@
 """Base provider abstraction for LLM providers."""
 
+import json
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ class ProviderResponse:
     answer_tokens: int = 0
     tool_calls: list[dict] | None = None  # [{id, name, input}] or None
     raw_content: object = None  # Provider-native content for message history
+    reasoning_content: str = ""  # Reasoning trace when available
 
 
 def estimate_reasoning_tokens(content: str) -> int:
@@ -46,6 +48,40 @@ def estimate_reasoning_tokens(content: str) -> int:
 
     word_count = len(thinking_text.split())
     return int(word_count * 1.3)
+
+
+def estimate_answer_tokens(text: str, tool_calls: list[dict] | None = None) -> int:
+    """Estimate answer tokens from visible text + tool call arguments.
+
+    Uses word_count * 1.3 heuristic on the visible content (text and serialized
+    tool call arguments).  tool_calls uses normalized format: [{id, name, input}].
+    """
+    content_words = len(text.split()) if text else 0
+    if tool_calls:
+        for tc in tool_calls:
+            args_str = json.dumps(tc.get("input", {}))
+            content_words += len(args_str.split())
+    return int(content_words * 1.3)
+
+
+def strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> blocks, return visible answer text only.
+
+    Handles:
+    - Standard <think>...</think> tags
+    - Bare </think> without opening tag (Qwen3, Nemotron — chat template
+      inserts the opening <think> so the model only emits </think>)
+    """
+    if not text:
+        return ""
+    # Standard format: remove all <think>...</think> blocks
+    stripped = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    if stripped != text:
+        return stripped.strip()
+    # Bare </think>: everything before it is reasoning
+    if "</think>" in text:
+        return text.split("</think>", 1)[1].strip()
+    return text
 
 
 class LLMProvider(ABC):
