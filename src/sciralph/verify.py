@@ -207,7 +207,7 @@ def load_workspace(workspace_dir: str, *, include_process_data: bool = False) ->
 
         # Background survey from JSON state (not in markdown snapshots)
         from .research_state import STATE_FILENAME
-        from .renderers import render_background_survey
+        from .rendering import render_background_survey
 
         state_path = ws / STATE_FILENAME
         if state_path.exists():

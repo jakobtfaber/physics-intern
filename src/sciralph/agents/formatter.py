@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..llm import LLMResponse
-from ..renderers import render_formatter_context
+from ..rendering import render_formatter_context
 from .base import BaseAgent
 
 if TYPE_CHECKING:

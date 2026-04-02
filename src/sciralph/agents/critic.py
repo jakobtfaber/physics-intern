@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 
 from ..llm import LLMResponse
-from ..renderers import render_critic_context
+from ..rendering import render_critic_context
 from ..research_state import Critique, CritiqueStatus, Severity
 from .base import BaseAgent
 from ..utils.categories import CompensationCategory as CC

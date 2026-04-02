@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 from ..llm import LLMResponse
-from ..renderers import _problem_guidelines, render_planner_revise_context, render_background_survey_xml
+from ..rendering import _problem_guidelines, render_planner_revise_context, render_background_survey_xml
 from ..task import TaskType
 from .base import BaseAgent
 from .parsing import JSON_FENCE_RE, try_json_loads

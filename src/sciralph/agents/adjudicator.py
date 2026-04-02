@@ -65,7 +65,7 @@ class AdjudicatorAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build neutral adjudication context."""
-        from ..renderers import render_research_context_xml
+        from ..rendering import render_research_context_xml
 
         if not self.research_state:
             return ""

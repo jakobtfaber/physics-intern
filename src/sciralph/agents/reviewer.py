@@ -107,7 +107,7 @@ class ReviewerAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build focused verification context: WH + evidence + light state."""
-        from ..renderers import render_research_context_xml
+        from ..rendering import render_research_context_xml
 
         parts: list[str] = []
 

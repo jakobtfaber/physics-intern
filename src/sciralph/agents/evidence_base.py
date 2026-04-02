@@ -86,7 +86,7 @@ class EvidenceAgent(BaseAgent):
         self.research_state: ResearchState | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
-        from ..renderers import render_research_context_xml
+        from ..rendering import render_research_context_xml
 
         parts: list[str] = []
 

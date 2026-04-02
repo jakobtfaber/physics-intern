@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from ..llm import AgentResult, LLMResponse, run_agent_loop
 from ..orchestrator_tools import OrchestratorToolExecutor
-from ..renderers import (
+from ..rendering import (
     render_orchestrator_slim_state,
     render_research_context_xml,
     render_background_survey_xml,

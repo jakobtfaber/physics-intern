@@ -14,7 +14,7 @@ from .metrics import MetricsTracker
 from .task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
 from .research_state import ResearchState, Verdict
-from .renderers import render_research_state_md, render_evidence_log_md, render_critique_log_md
+from .rendering import render_research_state_md, render_evidence_log_md, render_critique_log_md
 from .validation import validate_post_integration, can_terminate, Violation, ViolationSeverity
 from .workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
