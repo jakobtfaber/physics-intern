@@ -13,7 +13,7 @@ from ..config import Config
 from ..llm import AgentResult, LLMResponse, call_llm, run_agent_loop
 from ..metrics import MetricsTracker
 from ..tool_call import ToolCall
-from ..tools import ToolExecutor
+from .computer.tools import ToolExecutor
 from ..utils.categories import CompensationCategory as CC
 from ..workspace import WorkspaceManager, log_scaffold_event
 
