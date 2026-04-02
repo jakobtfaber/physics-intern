@@ -10,7 +10,7 @@ from typing import ClassVar, TYPE_CHECKING
 from rich.console import Console
 
 from ..config import Config
-from ..llm import AgentResult, LLMResponse, call_llm, call_llm_continuation, run_agent_loop
+from ..llm import AgentResult, ContextTooLongError, LLMResponse, call_llm, call_llm_continuation, run_agent_loop
 from ..metrics import MetricsTracker
 from ..tool_call import ToolCall
 from .computer.tools import ToolExecutor
@@ -246,29 +246,43 @@ class BaseAgent(ABC):
                 + hint
             )
 
-            if attempt == 0:
-                # Phase 1: multi-turn continuation
-                messages = [
-                    {"role": "user", "content": context},
-                    {"role": "assistant", "content": accumulated_text},
-                    {"role": "user", "content": correction},
-                ]
-                retry = call_llm_continuation(
-                    self.system_prompt, messages, self.config,
-                    agent_name=self.name, iteration=iteration,
-                    append_to_log=response.log_path,
+            try:
+                if attempt == 0:
+                    # Phase 1: multi-turn continuation
+                    messages = [
+                        {"role": "user", "content": context},
+                        {"role": "assistant", "content": accumulated_text},
+                        {"role": "user", "content": correction},
+                    ]
+                    retry = call_llm_continuation(
+                        self.system_prompt, messages, self.config,
+                        agent_name=self.name, iteration=iteration,
+                        append_to_log=response.log_path,
+                    )
+                else:
+                    # Phase 2: fresh call with error context
+                    retry_context = (
+                        f"{context}\n\n"
+                        "---\n\n"
+                        + correction
+                    )
+                    retry = call_llm(
+                        self.system_prompt, retry_context, self.config,
+                        agent_name=self.name, iteration=iteration,
+                    )
+            except ContextTooLongError:
+                console.print(
+                    f"[yellow]{self.name}: context too long during parse "
+                    f"retry (attempt {attempt + 1}) — returning best "
+                    f"response so far[/yellow]"
                 )
-            else:
-                # Phase 2: fresh call with error context
-                retry_context = (
-                    f"{context}\n\n"
-                    "---\n\n"
-                    + correction
+                log_scaffold_event(
+                    self.workspace.root, iteration,
+                    category=CC.OUTPUT_NORMALIZATION,
+                    event="parse_retry_context_too_long",
+                    detail=f"agent={self.name}, attempt={attempt + 1}",
                 )
-                retry = call_llm(
-                    self.system_prompt, retry_context, self.config,
-                    agent_name=self.name, iteration=iteration,
-                )
+                return response
 
             self.metrics.record_call(
                 iteration=iteration,

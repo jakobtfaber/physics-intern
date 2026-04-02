@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from .config import Config
-from .llm import _is_transient
+from .llm import _is_transient, ContextTooLongError
 from .metrics import MetricsTracker
 from .task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
@@ -192,6 +192,21 @@ class SciRalph:
             # 1. Orchestrator pass
             try:
                 task = self._run_orchestrator()
+            except ContextTooLongError as exc:
+                console.print(
+                    f"[yellow]Orchestrator context too long — skipping to "
+                    f"next iteration: {exc}[/yellow]"
+                )
+                self.metrics.alert(
+                    self.iteration,
+                    f"Orchestrator context too long: {exc.input_tokens} input tokens",
+                )
+                log_scaffold_event(
+                    self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                    "context_too_long",
+                    f"agent=orchestrator, input_tokens={exc.input_tokens}",
+                )
+                continue
             except Exception as exc:
                 if not _is_transient(exc):
                     raise
@@ -293,29 +308,13 @@ class SciRalph:
             # 5. Dispatch to agent
             try:
                 agent_name, agent_result = self._dispatch(task)
+            except ContextTooLongError as exc:
+                self._handle_context_too_long(task, exc)
+                continue
             except Exception as exc:
                 if not _is_transient(exc):
                     raise
-                self.metrics.alert(
-                    self.iteration,
-                    f"Dispatch failed (transient): {type(exc).__name__}: {exc}",
-                )
-                self._state.pending_violations.append(
-                    Violation(
-                        check="dispatch_failure",
-                        severity=ViolationSeverity.WARNING,
-                        message=(
-                            f"Agent dispatch failed with transient error: "
-                            f"{type(exc).__name__}: {str(exc)[:200]}"
-                        ),
-                    )
-                )
-                console.print(
-                    f"[yellow]Dispatch failed (transient), skipping to next "
-                    f"iteration: {exc}[/yellow]"
-                )
-                log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "dispatch_failure",
-                                   f"{type(exc).__name__}: {str(exc)[:200]}")
+                self._handle_dispatch_error(task, exc)
                 continue
 
             # 5b. Record agent failure signals for orchestrator context
@@ -338,10 +337,17 @@ class SciRalph:
                     "auto_review", f"target={auto_review_target}, trigger=new_evidence",
                 )
                 review_task = self._make_auto_review_task(auto_review_target)
-                agent_name_r, result_r = self._dispatch(review_task)
-                self._record_agent_failures(review_task, agent_name_r, result_r)
-                self._track_agent_result(review_task)
-                self._append_dispatch_record(review_task)
+                try:
+                    agent_name_r, result_r = self._dispatch(review_task)
+                    self._record_agent_failures(review_task, agent_name_r, result_r)
+                    self._track_agent_result(review_task)
+                    self._append_dispatch_record(review_task)
+                except ContextTooLongError as exc:
+                    self._handle_context_too_long(review_task, exc)
+                except Exception as exc:
+                    if not _is_transient(exc):
+                        raise
+                    self._handle_dispatch_error(review_task, exc)
 
             # 6c. Auto-trigger critic after VERIFIED review
             if self._should_trigger_critic():
@@ -354,9 +360,16 @@ class SciRalph:
                                    f"trigger=verified_review, "
                                    f"last_critic={self.metrics.last_critic_iteration}")
                 critic_task = self._make_forced_critic_task()
-                agent_name_c, result_c = self._dispatch(critic_task)
-                self._record_agent_failures(critic_task, agent_name_c, result_c)
-                self._append_dispatch_record(critic_task)
+                try:
+                    agent_name_c, result_c = self._dispatch(critic_task)
+                    self._record_agent_failures(critic_task, agent_name_c, result_c)
+                    self._append_dispatch_record(critic_task)
+                except ContextTooLongError as exc:
+                    self._handle_context_too_long(critic_task, exc)
+                except Exception as exc:
+                    if not _is_transient(exc):
+                        raise
+                    self._handle_dispatch_error(critic_task, exc)
 
             # 6d. Periodic critic safeguard (no verified review required)
             elif self._should_force_periodic_critic():
@@ -370,9 +383,16 @@ class SciRalph:
                                    f"trigger=periodic_safeguard, "
                                    f"last_critic={self.metrics.last_critic_iteration}")
                 critic_task = self._make_forced_critic_task()
-                agent_name_c, result_c = self._dispatch(critic_task)
-                self._record_agent_failures(critic_task, agent_name_c, result_c)
-                self._append_dispatch_record(critic_task)
+                try:
+                    agent_name_c, result_c = self._dispatch(critic_task)
+                    self._record_agent_failures(critic_task, agent_name_c, result_c)
+                    self._append_dispatch_record(critic_task)
+                except ContextTooLongError as exc:
+                    self._handle_context_too_long(critic_task, exc)
+                except Exception as exc:
+                    if not _is_transient(exc):
+                        raise
+                    self._handle_dispatch_error(critic_task, exc)
 
             # 6e. Route critic findings to specialist agents
             self._route_critiques()
@@ -502,6 +522,55 @@ class SciRalph:
             return
 
         self.research_state.strategy = strategy
+
+    def _handle_context_too_long(self, task: Task, exc: ContextTooLongError) -> None:
+        """Log context-too-long error and record for orchestrator — do not crash."""
+        self.metrics.alert(
+            self.iteration,
+            f"Context too long for {task.task_id}: {exc.input_tokens} input tokens "
+            f"(model limit {exc.max_context})",
+        )
+        self._state.agent_failures.append({
+            "task_id": task.task_id, "agent": task.task_type.value,
+            "event": "context_too_long",
+            "detail": (
+                f"Context exceeded model limit (~{exc.input_tokens} input tokens, "
+                f"limit {exc.max_context}). Simplify or decompose the task."
+            ),
+            "iteration": self.iteration,
+        })
+        console.print(
+            f"[yellow]Context too long for {task.task_id} — skipping "
+            f"(~{exc.input_tokens} input tokens, limit {exc.max_context})[/yellow]"
+        )
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+            "context_too_long",
+            f"task={task.task_id}, input_tokens={exc.input_tokens}, "
+            f"max_context={exc.max_context}",
+        )
+
+    def _handle_dispatch_error(self, task: Task, exc: Exception) -> None:
+        """Handle transient dispatch errors — log and skip to next iteration."""
+        self.metrics.alert(
+            self.iteration,
+            f"Dispatch failed (transient): {type(exc).__name__}: {exc}",
+        )
+        self._state.pending_violations.append(
+            Violation(
+                check="dispatch_failure",
+                severity=ViolationSeverity.WARNING,
+                message=(
+                    f"Agent dispatch failed with transient error: "
+                    f"{type(exc).__name__}: {str(exc)[:200]}"
+                ),
+            )
+        )
+        console.print(
+            f"[yellow]Dispatch failed (transient), skipping: {exc}[/yellow]"
+        )
+        log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "dispatch_failure",
+                           f"{type(exc).__name__}: {str(exc)[:200]}")
 
     def _record_agent_failures(self, task: Task, agent_name: str, result):
         """Inspect agent result for failure signals and record for orchestrator context."""

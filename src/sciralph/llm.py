@@ -1,6 +1,7 @@
 """LLM wrapper for SciRalph — provider-agnostic via providers/ adapters."""
 
 import json
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -109,8 +110,72 @@ def _is_provider_side_400(exc: Exception) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Context-too-long detection
+# ---------------------------------------------------------------------------
+
+_CONTEXT_TOO_LONG_PATTERNS = (
+    "maximum context length",     # OpenAI / vLLM
+    "prompt is too long",         # Anthropic
+    "input is too long",          # HuggingFace
+    "context window",             # generic
+    "token limit",                # generic
+    "reduce the length",          # OpenAI suggestion text
+    "prompt_too_long",            # Google Gemini error code
+    "context_length_exceeded",    # OpenAI error code
+    "max_tokens",                 # vLLM variants
+)
+
+
+def _is_context_too_long(exc: Exception) -> bool:
+    """Return True if *exc* is a context-length / prompt-too-long rejection."""
+    status = _extract_status_code(exc)
+    if status is not None and status not in (400, 413):
+        return False
+    msg_lower = str(exc).lower()
+    return any(p in msg_lower for p in _CONTEXT_TOO_LONG_PATTERNS)
+
+
+class ContextTooLongError(Exception):
+    """Raised when a provider rejects a request because the context is too long.
+
+    Attributes:
+        input_tokens:  Reported input token count (0 if not parseable).
+        max_context:   Model's reported context limit (0 if not parseable).
+        original:      The original provider exception.
+    """
+
+    def __init__(self, original: Exception):
+        self.original = original
+        self.input_tokens, self.max_context = _parse_context_error(original)
+        super().__init__(
+            f"Context too long: ~{self.input_tokens} input tokens "
+            f"(model limit {self.max_context}). "
+            f"Original: {original}"
+        )
+
+
+def _parse_context_error(exc: Exception) -> tuple[int, int]:
+    """Extract (input_tokens, max_context) from a context-length error message."""
+    msg = str(exc)
+    input_tokens = 0
+    max_context = 0
+    # OpenAI / vLLM: "contains at least 65537 input tokens"
+    m = re.search(r"(?:contains|has)\s+(?:at\s+least\s+)?(\d+)\s+(?:input[_ ])?tokens", msg)
+    if m:
+        input_tokens = int(m.group(1))
+    # OpenAI / vLLM: "maximum context length is 131072 tokens"
+    m = re.search(r"maximum\s+context\s+length\s+(?:is|of)\s+(\d+)", msg)
+    if m:
+        max_context = int(m.group(1))
+    return input_tokens, max_context
+
+
 def _is_transient(exc: Exception) -> bool:
     """Return True if *exc* looks like a transient / retryable API error."""
+    # Context-too-long is deterministic — retrying wastes time and money
+    if isinstance(exc, ContextTooLongError) or _is_context_too_long(exc):
+        return False
     # Tool-call generation failures are stochastic — retry may produce valid JSON
     if _is_tool_call_failure(exc):
         return True
@@ -138,6 +203,9 @@ def _call_provider_with_retry(provider: LLMProvider, config: Config,
         try:
             return provider.call(**call_kwargs)
         except Exception as exc:
+            # Context-too-long is deterministic — raise immediately, no retry
+            if _is_context_too_long(exc):
+                raise ContextTooLongError(exc) from exc
             if not _is_transient(exc) or attempt == config.api_retry_max:
                 raise
             # Provider-side 400s are deterministic — cap at 1 retry (2 attempts total)
@@ -466,6 +534,17 @@ def run_agent_loop(
                 messages=provider.prepare_messages(messages),
                 tools=active_tools,
             )
+        except ContextTooLongError as exc:
+            console.print(
+                f"[yellow]Context too long (round {round_num}): {exc} "
+                f"— falling back to text-only response[/yellow]"
+            )
+            tool_call_failure = True
+            loop_exit_reason = "context_too_long"
+            if config.workspace_dir:
+                log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "context_too_long_fallback",
+                                   f"round={round_num}, input_tokens={exc.input_tokens}")
+            break
         except Exception as exc:
             if _is_tool_call_failure(exc):
                 console.print(
@@ -781,6 +860,7 @@ def run_agent_loop(
         "tool_call_failure": "The tool-calling interface is unavailable due to a provider error.",
         "provider_side_400": "The tool-calling interface is unavailable due to a provider-side processing error.",
         "empty_end_turn": "Your previous responses produced no output after repeated attempts.",
+        "context_too_long": "The conversation context exceeded the model's maximum length. Summarize your findings so far.",
     }
     reason = _reasons_human.get(loop_exit_reason, _reasons_human["max_rounds"])
 
