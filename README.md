@@ -1,14 +1,17 @@
 # SciRalph
 
-Multi-agent scaffolding system for autonomous scientific research in mathematics and theoretical physics.
+A multi-agent scaffolding system for autonomous scientific research in mathematics and theoretical physics.
 
 ## What is this?
 
 SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
 
-**How it works.** Nine specialised LLM agent roles (surveyor, planner, orchestrator, researcher, computer, reviewer, deep critic, adjudicator, formatter) take turns in a loop. A **surveyor** maps the research landscape before the main loop begins. A **planner** produces the initial research strategy (and can revise it when critiques demand). The **orchestrator** dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), formulates working hypotheses from the evidence, then the **reviewer** provides adversarial review (auto-triggered). A **deep critic** periodically audits strategy and inter-result coherence, filing typed critiques that are routed to an **adjudicator** (for ER challenges) or back to the **planner** (for strategy revision). No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots. The workspace is version-controlled with git, so every step is recoverable. Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
+**How it works.** Nine specialised LLM agent roles take turns in a loop. A **surveyor** maps the research landscape before the main loop begins. A **planner** produces the initial research strategy (and can revise it when critiques demand). The **orchestrator** dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), and formulates working hypotheses from the evidence. Then the **reviewer** provides adversarial review (auto-triggered).  A **deep critic** periodically audits strategy and inter-result coherence, filing typed critiques that are routed back to the **planner** (for strategy revision) or to an **adjudicator** (for challenges on established results). Finally a **formatter** produces a clean `ANSWER.md` from the final research state.
 
-**Current status.** Core functionality is complete (~1090 tests passing). The system produces correct science on all tested problems. A comprehensive scaffolding hardening stack (50+ mechanisms across 4 categories) compensates for predictable LLM failures. Every mechanism is instrumented — `EVENT_LOG.jsonl` records each intervention. See `CODEBASE.md` §7 for the full catalog.
+No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots. The workspace is version-controlled with git, so every step is recoverable.
+
+Supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, HuggingFace) via a provider abstraction layer with a `models.yaml` registry.
+
 
 ## Quick Start
 
@@ -16,27 +19,43 @@ SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temp
 # Install (requires Python 3.12+ and uv)
 uv sync --extra dev
 
-# Run tests
-uv run python -m pytest -v
+# For non-Anthropic providers, install the relevant extra:
+uv sync --extra openai          # OpenAI
+uv sync --extra google          # Google Gemini
+uv sync --extra huggingface     # HuggingFace Inference Providers
+uv sync --extra all-providers   # all of the above
 
-# Run a research problem (requires ANTHROPIC_API_KEY in .env or env var)
-uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --max-iterations 10
-
-# Run with a different provider (auto-resolved from models.yaml)
-uv sync --extra openai
-uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --model gpt-4o --max-iterations 10
+# Run a research problem (requires model API key in .env or env var)
+uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --max-iterations 10 --model claude-4.6-sonnet
 ```
+
+### Environment Variables
+
+Set API keys for the providers you want to use (in `.env` or as env vars):
+
+| Variable | Provider |
+|----------|----------|
+| `ANTHROPIC_API_KEY` | Anthropic (default) |
+| `OPENAI_API_KEY` | OpenAI |
+| `GOOGLE_API_KEY` | Google Gemini |
+| `HF_TOKEN` | HuggingFace Inference Providers |
 
 ### CLI Options
 
 ```
 python -m sciralph.main <problem.yaml> [options]
 
-  --model MODEL           LLM model key (default: claude-sonnet-4.6, resolved via models.yaml)
-  --provider PROVIDER     Force provider (anthropic/openai/google/huggingface)
-  --max-iterations N      Max loop iterations (default: 200)
-  --workspace-dir DIR     Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
+  --model MODEL               LLM model key (default: claude-4.6-sonnet, resolved via models.yaml)
+  --max-iterations N          Max loop iterations (default: 200)
+  --max-tokens N              Max output tokens per LLM call (default: 65536)
+  --workspace-dir DIR         Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
+  --resume DIR                Resume from existing workspace if DIR exists
+  --config FILE               Path to config YAML file (overrides defaults)
 ```
+
+### Configuration
+
+All defaults live in `config.default.yaml` (single source of truth). Override with a config YAML file (`--config`) or individual CLI flags. The precedence is: CLI flags > config file > `config.default.yaml`.
 
 ### Verification
 
@@ -44,63 +63,100 @@ After a run completes, you can independently verify the scientific results using
 
 ```bash
 # Verify a completed workspace
-uv run python -m sciralph.verify workspaces/<run_dir>/ --write-report
-
-# Also re-run computation scripts
-uv run python -m sciralph.verify workspaces/<run_dir>/ --rerun-computations --write-report
+uv run python -m sciralph.verify workspaces/<run_dir>/
 
 # Run + verify in one command
 ./run_and_verify.sh problems/tier1/hawking_temperature.yaml --max-iterations 10
-./run_and_verify.sh problems/tier1/qho_thermodynamics.yaml -- --rerun-computations
 ```
 
 ```
 python -m sciralph.verify <workspace_dir> [options]
 
-  --model MODEL              LLM model (default: claude-opus-4.6)
-  --max-tokens N             Max output tokens (default: 16384)
-  --rerun-computations       Re-run computation scripts before verification
-  --timeout N                Computation timeout in seconds (default: 60)
-  --write-report             Write VERIFICATION.md into workspace
+  --model MODEL              LLM model (default: claude-4.6-opus)
+  --max-tokens N             Max output tokens (default: 65536)
 ```
 
-The verifier evaluates each Established Result for mathematical/physical validity, checks chain coherence between results, and outputs a verdict: VALID, PARTIALLY_VALID, INVALID, or INCONCLUSIVE.
+The verifier writes `VERIFICATION.md` into the workspace. It evaluates each Established Result for mathematical/physical validity, runs a process audit, checks chain coherence between results, and outputs a verdict: VALID, PARTIALLY_VALID, INVALID, or INCONCLUSIVE. The problem definition is auto-loaded from `problem.yaml` in the workspace (copied there by `main.py` at run start).
+
+### One-shot Baseline
+
+Run a single LLM call on a problem with no scaffolding — useful for benchmarking raw model capability against the multi-agent pipeline:
+
+```bash
+uv run python -m sciralph.one_shot problems/tier1/hawking_temperature.yaml
+uv run python -m sciralph.one_shot problems/tier1/hawking_temperature.yaml --model gpt-5.4-high
+uv run python -m sciralph.one_shot problems/tier1/hawking_temperature.yaml --runs 10  # multiple runs for statistics
+```
+
+Answers are auto-evaluated against the known answer in the problem YAML (symbolic SymPy comparison + numerical fallback).
+
+## Supported Models
+
+Models are registered in `models.yaml`. Use the friendly key with `--model`:
+
+| Key | Provider | Model | Input $/M | Output $/M |
+|-----|----------|-------|-----------|------------|
+| `claude-4.6-opus` | Anthropic | claude-opus-4-6 | 5.00 | 25.00 |
+| `claude-4.6-sonnet` | Anthropic | claude-sonnet-4-6 | 3.00 | 15.00 |
+| `gpt-5.4-high` | OpenAI | gpt-5.4 (high effort) | 2.50 | 15.00 |
+| `gpt-5.4-medium` | OpenAI | gpt-5.4 (medium effort) | 2.50 | 15.00 |
+| `gpt-5.4-pro` | OpenAI | gpt-5.4-pro | 30.00 | 180.00 |
+| `gemini-3.1-pro-preview` | Google | gemini-3.1-pro-preview | 2.00 | 12.00 |
+| `gemini-3-flash-preview` | Google | gemini-3-flash-preview | 0.50 | 3.00 |
+| `deepseek-v3.2` | HuggingFace | DeepSeek-V3.2 | 0.56 | 1.68 |
+| `kimi-k2.5` | HuggingFace | Kimi-K2.5 | 0.50 | 2.80 |
+| `glm-5` | HuggingFace | GLM-5 | 1.00 | 3.20 |
+| `gpt-oss-120b` | HuggingFace | gpt-oss-120b | 0.25 | 0.69 |
+| `minimax-m2.5` | HuggingFace | MiniMax-M2.5 | 0.30 | 1.20 |
+| `qwen-3.5-397B-A17B` | HuggingFace | Qwen3.5-397B-A17B | 0.60 | 3.60 |
 
 ## Architecture
 
-Nine agent roles take turns in a main loop. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
+Nine agent roles collaborate in a loop. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
+
+The orchestrator is the only agent that *decides* what to do — it reads ResearchState and calls tools (create RQs, formulate WHs, dispatch researcher/computer, request termination). Everything else is auto-triggered by the engine in cascading fashion.
 
 ```
-                 ┌────────────┐
-                 │  Surveyor   │  (runs once before loop,
-                 │ (one-shot)  │   can be re-invoked mid-loop)
-                 └──────┬─────┘
-                        ▼
-                 ┌────────────┐
-                 │  Planner    │  (runs once before loop,
-                 │ (one-shot)  │   produces research strategy)
-                 └──────┬─────┘
-                        ▼
-┌─────────────────────────────────────────────────┐
-│                   Main Loop                      │
-│                                                  │
-│  ┌──────────────┐    ┌──────────────────────┐   │
-│  │ Orchestrator  │───>│  Dispatch to Agent    │   │
-│  │ (plan next    │    │                      │   │
-│  │  task)        │    │  researcher (1-shot) │   │
-│  └──────────────┘    │  computer  (agentic) │   │
-│         ▲            │  reviewer  (1-shot)  │   │
-│         │            │  critic    (1-shot)  │   │
-│         │            │  format    (1-shot)  │   │
-│  ┌──────┴───────┐    │                      │   │
-│  │ ResearchState │<───└──────────┬───────────┘   │
-│  │ (JSON + MD    │               │               │
-│  │  snapshots)   │    ┌──────────▼───────────┐   │
-│  └──────────────┘    │  Critique Routing     │   │
-│         ▲            │  adjudicator (1-shot) │   │
-│         │            │  planner rev (1-shot) │   │
-│         └────────────└───────────────────────┘   │
-└─────────────────────────────────────────────────┘
+                    ┌───────────┐       ┌──────────┐
+                    │  Surveyor  │──────>│  Planner  │     (pre-loop, one-shot)
+                    └───────────┘       └─────┬────┘
+                                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                         Main Loop                                 │
+│                                                                   │
+│  Orchestrator (agentic, 9 tools)                                  │
+│  Reads ResearchState, decides next action via tool calls          │
+│      │                    │                       │               │
+│  dispatch task       add_hypothesis         request_termination   │
+│      │               (creates WH)                 │               │
+│      ▼                    │                       ▼               │
+│  Researcher               │              Termination Gate         │
+│  or Computer              │              → Formatter → ANSWER.md  │
+│      │                    │                                       │
+│      │ evidence           │                                       │
+│      ▼                    ▼                                       │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ Engine auto-triggers:                                       │  │
+│  │                                                             │  │
+│  │  WH created or ──> Reviewer ──VERIFIED──> auto-promote     │  │
+│  │  stale review       (1-shot)               WH → ER         │  │
+│  │                        │                                    │  │
+│  │  (+ periodic       ┌───┘                                    │  │
+│  │    every N) ──>  Critic                                     │  │
+│  │                    (1-shot)                                  │  │
+│  │                      │                                      │  │
+│  │              ┌───────┴───────┐                               │  │
+│  │              ▼               ▼                               │  │
+│  │        Adjudicator      Planner                              │  │
+│  │        (ER challenge)   (strategy revision)                  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                   │
+│               ┌───────────────────────────┐                       │
+│               │  ResearchState             │                       │
+│               │  (source of truth for all  │                       │
+│               │   agents, JSON + MD)       │                       │
+│               └───────────────────────────┘                       │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Agents
@@ -141,6 +197,17 @@ Results go through layered review before being promoted to "Established":
 
 Promotion from WH to ER is automatic: the engine's `_auto_promote` fires after a VERIFIED review when all dependencies are established, including cascading promotion of other VERIFIED WHs whose dependencies become satisfied. ERs are immutable — only the adjudicator can demote them (via valid critique). REFUTED WHs are auto-abandoned. Periodic critic passes run every N iterations. A post-integration validation pipeline (`validation.py`) runs 4 checks on ResearchState after every orchestrator pass — demoting unreviewed ERs, stripping phantom labels, and ensuring critique resolution consistency.
 
+### LLM Failure Compensation
+
+LLMs fail in predictable ways (hallucinating IDs, promoting unverified results, emitting malformed output, failing to terminate). The scaffolding compensates via ~40 mechanisms across four categories (defined in `categories.py` as `CompensationCategory`):
+
+- **`call_reliability`** — making each LLM call succeed: transport retry, tool-call fallback, agent loop bailouts, tool execution guards
+- **`state_invariants`** — keeping ResearchState consistent: post-integration validation pipeline (4 checks)
+- **`loop_control`** — steering the main loop: forced critic, dispatch guards, verdict tracking, compute enrichment, termination gates
+- **`output_normalization`** — cleaning agent output: per-agent response corrections, markdown parsing tolerance
+
+All interventions are logged to `EVENT_LOG.jsonl` with category, event key, and detail.
+
 ### Workspace Files
 
 All research state is persisted under `workspaces/<run>/` (each run gets a timestamped subdirectory, gitignored from this repo, has its own git):
@@ -154,8 +221,19 @@ All research state is persisted under `workspaces/<run>/` (each run gets a times
 | `CRITIQUE_LOG.md` | All critiques with severity and resolution status |
 | `METRICS.md` | Token usage, alerts |
 | `EVENT_LOG.jsonl` | Unified event log — LLM call metadata + scaffolding intervention events |
+| `ANSWER.md` | Final formatted answer (written by formatter at end of run) |
 | `VERIFICATION.md` | Independent verification report (written by `--write-report`) |
 | `computations/` | Saved Python scripts from computer agent |
+| `derivations/` | Saved derivation files from researcher agent |
+
+## Problem Definitions
+
+Problems are defined in YAML files under `problems/`. Each file contains a `problem` field with the problem statement in plain language. Problems with a known `answer` field support auto-evaluation in one-shot mode.
+
+- `problems/tier1/` — 10 core problems (Hawking temperature, QHO thermodynamics, 1D Ising, hydrogen fine structure, Casimir effect, perihelion precession, Berry phase, Chandrasekhar limit, path integral HO, φ⁴ renormalisation)
+- `problems/tier2/` — 12 advanced problems (Aharonov-Bohm, bremsstrahlung, Dirac-Coulomb, H₂⁺, 2D Ising Onsager, Lamb shift, Schwinger, Stark effect, Thomas-Fermi, TOV-Buchdahl, Unruh, WKB quartic)
+- `problems/critpt/` — Critical-path problems (quantum error correction decomposition)
+- `problems/cfg/` — CFG/combinatorics problems
 
 ## Project Structure
 
@@ -170,7 +248,10 @@ src/sciralph/
   categories.py        — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
   validation.py        — Post-integration checks (4 checks on ResearchState) + termination gates
   verify.py            — Independent verification script (Claude Opus, streaming)
+  evaluate.py          — Answer evaluation: symbolic (SymPy) and numerical comparison for one-shot scoring
+  one_shot.py          — One-shot LLM baseline runner (no scaffolding, for benchmarking raw model capability)
   config.py            — Config dataclass (model, provider, thresholds, timeouts)
+  config.default.yaml  — Single source of truth for all default values
   llm.py               — Provider-agnostic LLM wrapper (call_llm, run_agent_loop) with retry + audit logging
   task.py              — Task dataclass + TaskType enum + TASK_TYPE_AGENT_MAP for typed task handling
   workspace.py         — File I/O + git operations on workspace/ + log_scaffold_event() + log_llm_call()
@@ -189,7 +270,7 @@ src/sciralph/
     formatter.py       — Produces ANSWER.md from final research state (one-shot)
     planner.py         — Research strategy planner: initial strategy + revision mode (one-shot)
     surveyor.py        — Background surveyor: maps the research landscape (one-shot)
-  prompts/             — Static .md system prompt files (one per agent): orchestrator.md, researcher.md, computer.md, reviewer.md, deep_critic.md, adjudicator.md, planner.md, planner_revise.md, formatter.md, surveyor.md, verifier.md, process_auditor.md
+  prompts/             — Static .md system prompt files (one per agent)
   providers/
     base.py            — LLMProvider ABC + ProviderResponse dataclass
     anthropic.py       — Anthropic Claude adapter
@@ -197,65 +278,18 @@ src/sciralph/
     google.py          — Google Gemini adapter
     huggingface.py     — HuggingFace Inference Providers adapter
   models.yaml          — Model registry (friendly keys → provider + model_id + env_key + cost)
-tests/                 — ~1090 pytest tests across 32 files
+tests/                 — pytest tests across 32 files
 problems/
   tier1/               — 10 core problems
   tier2/               — 12 advanced problems
   critpt/              — Critical-path problems (quantum error correction decomposition)
+  cfg/                 — CFG/combinatorics problems
 run_and_verify.sh      — Run a problem then verify results in one command
+one_shot_batch.sh      — Batch-run one-shot baseline across multiple problems
 ```
 
-## Problem Definitions
-
-Problems are defined in YAML files under `problems/tier1/` and `problems/tier2/`:
-
-```yaml
-problem: |
-  Derive the Hawking temperature of a Schwarzschild black hole
-  from the Euclidean path integral approach...
-
-```
-
-**Tier 1** — core problems (`problems/tier1/`):
-- `hawking_temperature.yaml` — Hawking temperature from Euclidean path integral
-- `qho_thermodynamics.yaml` — Quantum harmonic oscillator thermodynamics
-- `ising_1d_transfer_matrix.yaml` — 1D Ising model via transfer matrix method
-- `hydrogen_fine_structure.yaml` — Fine structure corrections to hydrogen energy levels
-- `casimir_effect.yaml` — Casimir force via zeta-function regularisation
-- `perihelion_precession.yaml` — Anomalous perihelion precession of Mercury from GR
-- `berry_phase_spin.yaml` — Berry phase for spin-1/2 in a rotating magnetic field
-- `chandrasekhar_limit.yaml` — Chandrasekhar mass limit via Lane-Emden equation
-- `path_integral_harmonic_oscillator.yaml` — Exact path integral for the harmonic oscillator
-- `renormalisation_phi4.yaml` — One-loop renormalisation of scalar φ⁴ theory
-
-**Tier 2** — advanced problems (`problems/tier2/`):
-- `aharonov_bohm_scattering.yaml` — Aharonov-Bohm differential scattering cross section
-- `bremsstrahlung.yaml` — Classical bremsstrahlung spectral energy distribution
-- `dirac_coulomb.yaml` — Exact Dirac equation in Coulomb potential
-- `h2_plus_molecule.yaml` — H₂⁺ ground-state potential energy curve
-- `ising_2d_onsager.yaml` — Exact critical temperature of 2D Ising model (Onsager)
-- `lamb_shift.yaml` — Leading-order Lamb shift for hydrogen
-- `schwinger_pair_production.yaml` — Schwinger pair production rate
-- `stark_effect_parabolic.yaml` — Hydrogen Stark effect in parabolic coordinates
-- `thomas_fermi.yaml` — Thomas-Fermi model of the atom
-- `tov_buchdahl.yaml` — TOV equation and Buchdahl bound
-- `unruh_effect.yaml` — Unruh effect for uniformly accelerated observer
-- `wkb_quartic_oscillator.yaml` — WKB approximation for pure quartic oscillator
-
-## Development
+## Run tests
 
 ```bash
-# Install with dev dependencies
-uv sync --extra dev
-
-# Run tests
 uv run python -m pytest -v
-
-# Run with coverage
-uv run python -m pytest --cov=sciralph -v
 ```
-
-## Design Documents
-
-- **`PLAN.md`** — Future work ideas and roadmap
-- **`CODEBASE.md`** — Developer-oriented codebase reference (architecture, data flow, known issues, planned changes)

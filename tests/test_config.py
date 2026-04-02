@@ -92,7 +92,7 @@ class TestBuildConfig:
     def test_defaults_only(self):
         args = Namespace(config=None, model=None, max_tokens=None,
                          max_iterations=None, workspace_dir=None,
-                         critic_every_n=None, sympy_timeout_seconds=None)
+)
         cfg = build_config(args)
         assert cfg.model == DEFAULTS["model"]
         assert cfg.verify_model == DEFAULTS["verify_model"]
@@ -114,7 +114,7 @@ class TestBuildConfig:
         cfg_file.write_text(yaml.dump({"model": "custom-model", "max_iterations": 50}))
         args = Namespace(config=str(cfg_file), model=None, max_tokens=None,
                          max_iterations=None, workspace_dir=None,
-                         critic_every_n=None, sympy_timeout_seconds=None)
+)
         cfg = build_config(args)
         assert cfg.model == "custom-model"
         assert cfg.max_iterations == 50
@@ -124,20 +124,19 @@ class TestBuildConfig:
         cfg_file.write_text(yaml.dump({"model": "yaml-model", "max_iterations": 50}))
         args = Namespace(config=str(cfg_file), model="cli-model", max_tokens=None,
                          max_iterations=None, workspace_dir=None,
-                         critic_every_n=None, sympy_timeout_seconds=None)
+)
         cfg = build_config(args)
         assert cfg.model == "cli-model"
         assert cfg.max_iterations == 50  # from YAML
 
     def test_partial_overlap(self, tmp_path):
         cfg_file = tmp_path / "config.yaml"
-        cfg_file.write_text(yaml.dump({"max_tokens": 8192, "critic_every_n": 2}))
+        cfg_file.write_text(yaml.dump({"max_tokens": 8192}))
         args = Namespace(config=str(cfg_file), model=None, max_tokens=None,
                          max_iterations=10, workspace_dir=None,
-                         critic_every_n=None, sympy_timeout_seconds=None)
+)
         cfg = build_config(args)
         assert cfg.max_tokens == 8192  # from YAML
-        assert cfg.critic_every_n == 2  # from YAML
         assert cfg.max_iterations == 10  # from CLI
 
 
@@ -162,14 +161,11 @@ class TestMainParser:
         args = parser.parse_args([
             "p.yaml", "--config", "c.yaml", "--model", "m",
             "--max-tokens", "1024", "--max-iterations", "3",
-            "--workspace-dir", "/tmp/ws", "--critic-every-n", "2",
-            "--sympy-timeout-seconds", "30",
+            "--workspace-dir", "/tmp/ws",
         ])
         assert args.config == Path("c.yaml")
         assert args.max_tokens == 1024
         assert args.workspace_dir == "/tmp/ws"
-        assert args.critic_every_n == 2
-        assert args.sympy_timeout_seconds == 30
 
     def test_bad_int_exits(self):
         from sciralph.main import build_parser
@@ -185,8 +181,6 @@ class TestMainParser:
         assert args.max_tokens is None
         assert args.max_iterations is None
         assert args.workspace_dir is None
-        assert args.critic_every_n is None
-        assert args.sympy_timeout_seconds is None
 
 
 # ---------------------------------------------------------------------------
@@ -201,25 +195,13 @@ class TestVerifyParser:
         assert args.workspace_dir == "workspaces/run1"
         assert args.model == DEFAULTS["verify_model"]
         assert args.max_tokens == DEFAULTS["max_tokens"]
-        assert args.timeout == 60
-        assert args.rerun_computations is False
-        assert args.write_report is False
-
-    def test_boolean_flags(self):
-        from sciralph.verify import build_verify_parser
-        parser = build_verify_parser()
-        args = parser.parse_args(["ws", "--rerun-computations", "--write-report"])
-        assert args.rerun_computations is True
-        assert args.write_report is True
 
     def test_custom_values(self):
         from sciralph.verify import build_verify_parser
         parser = build_verify_parser()
-        args = parser.parse_args(["ws", "--model", "opus", "--max-tokens", "8192",
-                                  "--timeout", "120"])
+        args = parser.parse_args(["ws", "--model", "opus", "--max-tokens", "8192"])
         assert args.model == "opus"
         assert args.max_tokens == 8192
-        assert args.timeout == 120
 
     def test_bad_int_exits(self):
         from sciralph.verify import build_verify_parser

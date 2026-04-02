@@ -208,8 +208,7 @@ def build_config(args: Namespace) -> Config:
 
     # Layer 2: CLI args override (only non-None values)
     cli_fields = {
-        "model", "max_tokens", "max_iterations", "critic_every_n",
-        "sympy_timeout_seconds", "workspace_dir", "provider",
+        "model", "max_tokens", "max_iterations", "workspace_dir",
     }
     for field_name in cli_fields:
         cli_name = field_name.replace("-", "_")

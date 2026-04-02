@@ -36,13 +36,6 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Maximum iterations")
     parser.add_argument("--workspace-dir", type=str, default=None,
                         help="Workspace directory (default: auto-generated)")
-    parser.add_argument("--critic-every-n", type=int, default=None,
-                        help="Force critic pass every N iterations")
-    parser.add_argument("--sympy-timeout-seconds", type=int, default=None,
-                        help="Timeout for SymPy computations in seconds")
-    parser.add_argument("--provider", type=str, default=None,
-                        help="LLM provider (anthropic, openai, google, huggingface). "
-                             "Auto-resolved from --model via models.yaml if omitted.")
     return parser
 
 
@@ -124,8 +117,7 @@ def _main_resume(args) -> None:
 
     # Collect CLI overrides that should apply on resume
     overrides = {}
-    for key in ("model", "max_tokens", "max_iterations", "critic_every_n",
-                "sympy_timeout_seconds", "provider"):
+    for key in ("model", "max_tokens", "max_iterations"):
         value = getattr(args, key.replace("-", "_"), None)
         if value is not None:
             overrides[key] = value

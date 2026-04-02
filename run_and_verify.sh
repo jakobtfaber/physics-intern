@@ -6,10 +6,10 @@
 #
 # Examples:
 #   ./run_and_verify.sh problems/hawking_temperature.yaml --max-iterations 10
-#   ./run_and_verify.sh problems/qho.yaml --max-iterations 5 -- --rerun-computations
+#   ./run_and_verify.sh problems/qho.yaml --max-iterations 5 -- --model claude-4.6-opus
 #
 # Everything before "--" is passed to sciralph.main.
-# Everything after "--" is passed to sciralph.verify (--write-report is always on).
+# Everything after "--" is passed to sciralph.verify.
 
 set -euo pipefail
 
@@ -106,4 +106,4 @@ echo ""
 # --- Phase 2: Verification ---
 echo "--- Phase 2a: Science verification (Claude Opus) ---"
 echo "--- Phase 2b: Process audit (Claude Opus) ---"
-uv run python -m sciralph.verify "$workspace_dir" --write-report --problem "$problem_file" ${verify_args[@]+"${verify_args[@]}"}
+uv run python -m sciralph.verify "$workspace_dir" ${verify_args[@]+"${verify_args[@]}"}

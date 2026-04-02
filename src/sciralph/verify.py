@@ -1013,18 +1013,6 @@ def build_verify_parser() -> "argparse.ArgumentParser":
                         help=f"LLM model (default: {DEFAULTS['verify_model']})")
     parser.add_argument("--max-tokens", type=int, default=DEFAULTS["max_tokens"],
                         help=f"Max output tokens (default: {DEFAULTS['max_tokens']})")
-    parser.add_argument("--timeout", type=int, default=60,
-                        help="Computation timeout in seconds (default: 60)")
-    parser.add_argument("--rerun-computations", action="store_true",
-                        help="Re-run computation scripts before verification")
-    parser.add_argument("--write-report", action="store_true",
-                        help="Write VERIFICATION.md into workspace")
-    parser.add_argument("--process-audit", action="store_true", default=None,
-                        help="Run process audit (default: on when --write-report)")
-    parser.add_argument("--no-process-audit", action="store_true",
-                        help="Disable process audit")
-    parser.add_argument("--problem", type=str, default=None,
-                        help="Path to problem YAML file (passes known answer to verifier)")
     return parser
 
 
@@ -1039,16 +1027,10 @@ def main():
 
     model = args.model
     max_tokens = args.max_tokens
-    do_rerun = args.rerun_computations
-    timeout = args.timeout
-    write_report = args.write_report
-
-    # Determine process audit flag
-    do_process_audit = args.process_audit
-    if args.no_process_audit:
-        do_process_audit = False
-    elif do_process_audit is None:
-        do_process_audit = write_report  # default: on when --write-report
+    do_rerun = False
+    timeout = 60
+    write_report = True
+    do_process_audit = True
 
     # Load workspace
     console.print(f"[bold]Loading workspace:[/] {workspace_dir}")
@@ -1074,10 +1056,10 @@ def main():
             status = "TIMEOUT" if ex.timed_out else ("OK" if ex.returncode == 0 else "FAIL")
             console.print(f"  {name}: {status}")
 
-    # Load problem definition from YAML (explicit flag or workspace fallback)
+    # Load problem definition from workspace (copied there by main.py at run start)
     problem_def = None
     known_answer = None
-    problem_path = Path(args.problem) if args.problem else Path(workspace_dir) / "problem.yaml"
+    problem_path = Path(workspace_dir) / "problem.yaml"
     if problem_path.exists():
         with open(problem_path) as f:
             problem_def = yaml.safe_load(f)
@@ -1085,12 +1067,9 @@ def main():
         if answer_val is not None:
             known_answer = str(answer_val)
             console.print(f"[bold]Known answer:[/] {known_answer}")
-    elif args.problem:
-        console.print(f"[yellow]Warning: problem file not found: {args.problem}[/]")
 
     # Load reference file (if available)
-    problem_path_for_ref = Path(args.problem) if args.problem else None
-    ref_answer_expr, reference_content = load_reference_file(problem_path_for_ref)
+    ref_answer_expr, reference_content = load_reference_file(problem_path if problem_path.exists() else None)
     if reference_content:
         console.print("[bold]Reference file:[/] loaded")
     if not known_answer and ref_answer_expr:
