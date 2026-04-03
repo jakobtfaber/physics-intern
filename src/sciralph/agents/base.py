@@ -7,17 +7,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar, TYPE_CHECKING
 
-from rich.console import Console
-
 from ..config import Config
+from ..console import console
 from ..llm import AgentResult, ContextTooLongError, LLMResponse, call_llm, call_llm_continuation, run_agent_loop
 from ..metrics import MetricsTracker
 from ..tool_call import ToolCall
 from .computer.tools import ToolExecutor
 from ..utils.categories import CompensationCategory as CC
 from ..workspace import WorkspaceManager, log_scaffold_event
-
-console = Console()
 
 if TYPE_CHECKING:
     from ..task import Task

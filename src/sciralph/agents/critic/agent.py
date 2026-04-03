@@ -6,8 +6,7 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from rich.console import Console
-
+from sciralph.console import console
 from sciralph.llm import LLMResponse
 from sciralph.rendering import render_critic_context
 from sciralph.research_state import Critique, CritiqueStatus, Severity
@@ -16,8 +15,6 @@ from sciralph.workspace import log_scaffold_event
 
 from ..base import BaseAgent
 from ..parsing import JSON_FENCE_RE, try_json_loads
-
-console = Console()
 
 if TYPE_CHECKING:
     from sciralph.research_state import ResearchState

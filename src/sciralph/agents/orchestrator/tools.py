@@ -9,13 +9,10 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, ClassVar
 
-from rich.console import Console
-
+from sciralph.console import console
 from sciralph.tool_call import ToolCall
 from sciralph.utils.categories import CompensationCategory as CC
 from sciralph.workspace import log_scaffold_event
-
-console = Console()
 
 if TYPE_CHECKING:
     from sciralph.research_state import ResearchState

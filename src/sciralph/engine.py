@@ -4,11 +4,11 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 from .config import Config
+from .console import console, replay_log
 from .llm import _is_transient, ContextTooLongError
 from .metrics import MetricsTracker
 from .task import Task, TaskType
@@ -30,8 +30,6 @@ from .verification.verify import (
     run_formal_evaluation, render_formal_evaluation,
     write_formal_eval_report, load_reference_file,
 )
-
-console = Console()
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -81,6 +79,7 @@ class SciRalph:
         self.workspace = WorkspaceManager(self.config)
         self.workspace.init(problem)
         self.config.logs_dir = str(self.workspace.logs_dir)
+        console.setup_log(Path(self.workspace.logs_dir) / "console.log")
         self.iteration = 0
         self._state = LoopState()
         self.research_state = ResearchState()
@@ -135,6 +134,9 @@ class SciRalph:
         engine.workspace = WorkspaceManager(config)
         engine.workspace.attach()
         engine.config.logs_dir = str(engine.workspace.logs_dir)
+        log_path = Path(engine.workspace.logs_dir) / "console.log"
+        replay_log(log_path)
+        console.setup_log(log_path)
         engine.problem_meta = problem_meta
 
         # 4. Load research state

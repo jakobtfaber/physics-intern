@@ -8,16 +8,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from rich.console import Console
-
 from .config import Config
+from .console import console
 from .providers import LLMProvider, ProviderResponse, create_provider
 from .tool_call import ToolCall
 from .agents.computer.tools import ToolExecutor
 from .utils.categories import CompensationCategory as CC
 from .workspace import log_llm_call, log_scaffold_event
-
-console = Console()
 
 _call_seq: dict[int, int] = {}
 _round_num = round  # save builtin before parameter shadowing

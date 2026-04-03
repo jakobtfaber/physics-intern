@@ -25,6 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Path to problem YAML file")
     parser.add_argument("--resume", type=Path, default=None,
                         help="Path to workspace directory to resume")
+    parser.add_argument("--replay", type=Path, default=None,
+                        help="Replay console log from a workspace (no run)")
     parser.add_argument("--config", type=Path, default=None,
                         help="Path to config YAML file")
     parser.add_argument("--model", type=str, default=None,
@@ -109,6 +111,18 @@ def _main_fresh(args) -> None:
     engine.run()
 
 
+def _main_replay(args) -> None:
+    """Replay console log from a workspace directory."""
+    from .console import replay_log
+
+    workspace_path = args.replay.resolve()
+    log_path = workspace_path / "logs" / "console.log"
+    if not log_path.exists():
+        print(f"Error: no console log at {log_path}")
+        sys.exit(1)
+    replay_log(log_path, tail=None)  # show entire log
+
+
 def _main_resume(args) -> None:
     """Resume an interrupted research session."""
     workspace_path = args.resume.resolve()
@@ -133,7 +147,9 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.resume is not None:
+    if args.replay is not None:
+        _main_replay(args)
+    elif args.resume is not None:
         _main_resume(args)
     else:
         _main_fresh(args)

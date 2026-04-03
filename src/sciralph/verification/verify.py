@@ -11,8 +11,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from rich.console import Console
 from rich.table import Table
+
+from ..console import console
 
 import time
 
@@ -23,8 +24,6 @@ from ..config import Config, DEFAULTS
 from ..llm import LLMResponse  # noqa: F401 — reuse dataclass, call via streaming
 from ..utils.markdown import parse_frontmatter
 from ..utils.sandbox import ExecutionResult, execute_python
-
-console = Console()
 
 PROMPTS_DIR = Path(__file__).parent
 REFERENCES_DIR = Path(__file__).parent.parent.parent.parent / "references"
