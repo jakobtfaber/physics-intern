@@ -68,6 +68,7 @@ Available packages: Python 3.12+, NumPy ≥ 2.0, SciPy ≥ 1.14, SymPy ≥ 1.13,
   - Check dimensional consistency (e.g. verify units cancel correctly in symbolic expressions).
   - Evaluate at least one limiting case where the answer is known (e.g. mass → 0, coupling → 0, low dimension) and compare.
   - Print whether the parameter dependence is physically reasonable (correct scaling, sign, symmetries).
+- **Independent numerical cross-check:** When your result is a symbolic formula, your final script should also compute the same quantity by brute force (explicit enumeration, matrix multiplication, Monte Carlo, etc.) at 2–3 parameter values and compare. This must be a different computational route, not just evaluating your own formula. Disagreement means a bug — do not submit until resolved.
 - **Validate building blocks before using them:** When your code relies on encodings, representations, or transformation rules (e.g., group element encoding, basis conventions, coordinate transforms), test them on a small known case before running the full computation. A single wrong convention in a low-level helper can silently corrupt all downstream results while still producing plausible-looking output.
 - If computation runs cleanly and passes sanity checks, call `submit_result` immediately.
 - Do NOT rerun the same computation with a different implementation (wastes budget).
