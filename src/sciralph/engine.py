@@ -535,7 +535,19 @@ class SciRalph:
         if survey.get("conventions_and_definitions") and not self.research_state.conventions:
             self.research_state.conventions = survey["conventions_and_definitions"].strip()
         if survey.get("sanity_checks") and not self.research_state.sanity_checks:
-            self.research_state.sanity_checks = list(survey["sanity_checks"])
+            from .research_state import SanityCheck
+            for item in survey["sanity_checks"]:
+                sc_num = self.research_state.next_sc_num()
+                if isinstance(item, dict):
+                    self.research_state.sanity_checks.append(SanityCheck(
+                        id=f"SC-{sc_num:03d}",
+                        predicate=item.get("predicate", str(item)),
+                        rationale=item.get("rationale", ""),
+                    ))
+                else:
+                    self.research_state.sanity_checks.append(SanityCheck(
+                        id=f"SC-{sc_num:03d}", predicate=str(item),
+                    ))
         if survey.get("problem_summary"):
             self.research_state.problem_summary = survey["problem_summary"].strip()
 
@@ -958,8 +970,8 @@ class SciRalph:
 
         # Separate by target_type
         er_critiques = [c for c in new_critiques if c.target_type == "er"]
-        strategy_critiques = [c for c in new_critiques if c.target_type in ("strategy", "coordination")]
-        untyped = [c for c in new_critiques if c.target_type not in ("er", "strategy", "coordination")]
+        strategy_critiques = [c for c in new_critiques if c.target_type in ("strategy", "coordination", "sanity_check")]
+        untyped = [c for c in new_critiques if c.target_type not in ("er", "strategy", "coordination", "sanity_check")]
 
         # Warn and auto-resolve untyped critiques
         for c in untyped:
@@ -1146,9 +1158,29 @@ class SciRalph:
             self.research_state.strategy = self.planner.parsed_strategy
             console.print("  [green]Strategy updated[/green]")
 
-        if self.planner.parsed_sanity_checks:
-            self.research_state.sanity_checks = self.planner.parsed_sanity_checks
-            console.print(f"  [dim]Sanity checks updated ({len(self.planner.parsed_sanity_checks)} checks)[/dim]")
+        if self.planner.parsed_sanity_checks is not None:
+            from .research_state import SanityCheck
+            new_checks: list[SanityCheck] = []
+            for item in self.planner.parsed_sanity_checks:
+                if isinstance(item, dict):
+                    existing_id = item.get("id", "")
+                    predicate = item.get("predicate", str(item))
+                    rationale = item.get("rationale", "")
+                    if existing_id and existing_id.startswith("SC-"):
+                        new_checks.append(SanityCheck(id=existing_id, predicate=predicate, rationale=rationale))
+                    else:
+                        sc_num = self.research_state.next_sc_num()
+                        # Account for checks already added in this batch
+                        while any(c.id == f"SC-{sc_num:03d}" for c in new_checks):
+                            sc_num += 1
+                        new_checks.append(SanityCheck(id=f"SC-{sc_num:03d}", predicate=predicate, rationale=rationale))
+                elif isinstance(item, str) and item.strip():
+                    sc_num = self.research_state.next_sc_num()
+                    while any(c.id == f"SC-{sc_num:03d}" for c in new_checks):
+                        sc_num += 1
+                    new_checks.append(SanityCheck(id=f"SC-{sc_num:03d}", predicate=item.strip()))
+            self.research_state.sanity_checks = new_checks
+            console.print(f"  [dim]Sanity checks updated ({len(new_checks)} checks)[/dim]")
 
         if self.planner.parsed_entity_actions:
             for action in self.planner.parsed_entity_actions:

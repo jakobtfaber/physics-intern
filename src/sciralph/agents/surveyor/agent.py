@@ -57,7 +57,10 @@ class SurveyorAgent(BaseAgent):
             '  "known_pitfalls": "...",\n'
             '  "conventions_and_definitions": "...",\n'
             '  "problem_summary": "...",\n'
-            '  "sanity_checks": ["...", "..."]\n'
+            '  "sanity_checks": [\n'
+            '    {"predicate": "...", "rationale": "..."},\n'
+            '    {"predicate": "...", "rationale": "..."}\n'
+            '  ]\n'
             "}\n"
             "```"
         )
@@ -102,7 +105,7 @@ class SurveyorAgent(BaseAgent):
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
         text = response.text.strip()
         sections: dict[str, str] = {}
-        sanity_checks: list[str] = []
+        sanity_checks: list[dict[str, str]] = []
 
         parsed = extract_json(text)
         if isinstance(parsed, dict):
@@ -113,9 +116,23 @@ class SurveyorAgent(BaseAgent):
             }
             raw_sc = parsed.get("sanity_checks")
             if isinstance(raw_sc, list):
-                sanity_checks = [str(s).strip() for s in raw_sc if str(s).strip()]
+                for item in raw_sc:
+                    if isinstance(item, dict) and "predicate" in item:
+                        sanity_checks.append({
+                            "predicate": str(item["predicate"]).strip(),
+                            "rationale": str(item.get("rationale", "")).strip(),
+                        })
+                    elif isinstance(item, dict) and "check" in item:
+                        # Legacy format
+                        sanity_checks.append({"predicate": str(item["check"]).strip()})
+                    elif isinstance(item, str) and item.strip():
+                        # Bare string fallback
+                        sanity_checks.append({"predicate": item.strip()})
             elif isinstance(raw_sc, str) and raw_sc.strip():
-                sanity_checks = [line.lstrip("- ").strip() for line in raw_sc.splitlines() if line.strip()]
+                for line in raw_sc.splitlines():
+                    line = line.lstrip("- ").strip()
+                    if line:
+                        sanity_checks.append({"predicate": line})
 
         self.parsed_survey = {
             "raw_notes": text,

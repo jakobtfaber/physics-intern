@@ -39,8 +39,13 @@ def render_background_survey(state: ResearchState) -> str:
     if state.conventions:
         parts.append(f"### Conventions and Definitions\n\n{state.conventions}\n")
     if state.sanity_checks:
-        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
-        parts.append(f"### Sanity Checks\n\n{checks_text}\n")
+        lines = []
+        for sc in state.sanity_checks:
+            line = f"- **[{sc.id}]** {sc.predicate}"
+            if sc.rationale:
+                line += f" — *{sc.rationale}*"
+            lines.append(line)
+        parts.append("### Sanity Checks\n\n" + "\n".join(lines) + "\n")
     return "\n".join(parts)
 
 

@@ -39,7 +39,7 @@ class PlannerAgent(BaseAgent):
         self.parsed_strategy: str | None = None
         # Revise mode outputs
         self.parsed_entity_actions: list[dict] | None = None
-        self.parsed_sanity_checks: list[str] | None = None
+        self.parsed_sanity_checks: list[dict] | None = None
         self.parsed_revision_rationale: str | None = None
         self.parsed_critique_assessments: list[dict] | None = None
         self._in_revise_mode: bool = False
@@ -62,7 +62,7 @@ class PlannerAgent(BaseAgent):
             '  "revised_strategy": "...",\n'
             '  "revision_rationale": "...",\n'
             '  "entity_actions": [{"id": "...", "action": "keep|abandon", "reason": "..."}],\n'
-            '  "sanity_checks": ["...", "..."],\n'
+            '  "sanity_checks": [{"id": "SC-001", "predicate": "...", "rationale": "..."}, {"predicate": "new check", "rationale": "..."}],\n'
             '  "critique_assessments": [{"id": "CRIT-NNN", "verdict": "accepted|dismissed", "reason": "..."}]\n'
             "}\n"
             "```"
@@ -126,11 +126,15 @@ class PlannerAgent(BaseAgent):
             self.parsed_entity_actions = parsed.get("entity_actions")
             raw_sc = parsed.get("sanity_checks")
             if isinstance(raw_sc, list):
-                # Accept list[str] or legacy list[dict] (extract "check" field)
-                self.parsed_sanity_checks = [
-                    c.get("check", str(c)) if isinstance(c, dict) else str(c)
-                    for c in raw_sc if c
-                ]
+                checks: list[dict] = []
+                for c in raw_sc:
+                    if isinstance(c, dict) and "predicate" in c:
+                        checks.append(c)
+                    elif isinstance(c, dict) and "check" in c:
+                        checks.append({"predicate": c["check"], "rationale": c.get("rationale", "")})
+                    elif isinstance(c, str) and c.strip():
+                        checks.append({"predicate": c.strip()})
+                self.parsed_sanity_checks = checks if checks else None
             else:
                 self.parsed_sanity_checks = None
             self.parsed_revision_rationale = parsed.get("revision_rationale")

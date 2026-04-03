@@ -150,8 +150,11 @@ class ReviewerAgent(BaseAgent):
                 er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
                 rs_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
             if self.research_state.sanity_checks:
-                checks_text = "\n".join(f"- {c}" for c in self.research_state.sanity_checks)
-                rs_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
+                from sciralph.rendering import _render_sanity_checks
+                rs_parts.append(_render_sanity_checks(
+                    self.research_state.sanity_checks,
+                    tag="suggested-sanity-checks",
+                ))
             if rs_parts:
                 parts.append("<research-state>\n" + "\n".join(rs_parts) + "\n</research-state>")
 

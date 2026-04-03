@@ -19,7 +19,7 @@ Produce:
 1. For each critique in the trigger: an assessment (accept or dismiss with reasoning)
 2. A revised strategy (or the current one verbatim if it is sound)
 3. For each active entity (ER, WH, RQ), whether it should be kept or abandoned
-4. Updated sanity checks
+4. Updated sanity checks — you own the sanity check list. You may add, modify, or remove checks. Checks from the surveyor are initial suggestions; critiques may challenge them or suggest new ones. Each check has an `id` (preserve for existing checks), a `predicate` (testable pass/fail condition), and a `rationale` (why it must hold). Omit the `id` for new checks.
 5. A rationale for the revision (or explanation of why no revision is needed)
 
 ER demotions listed in the trigger are informational — they were already adjudicated and do not need a critique assessment entry.
@@ -88,8 +88,8 @@ Produce a JSON block:
     {"id": "RQ-004", "action": "keep"}
   ],
   "sanity_checks": [
-    "If X=0, then Y = 1.",
-    "The result must have dimensions of [T]^{-1}."
+    {"id": "SC-001", "predicate": "If X=0, then Y = 1.", "rationale": "At zero coupling the system is trivial."},
+    {"predicate": "The result must have dimensions of [T]^{-1}.", "rationale": "Follows from dimensional analysis of the input parameters."}
   ],
   "revision_rationale": "Brief explanation of what changed and why (or why no change is needed)"
 }

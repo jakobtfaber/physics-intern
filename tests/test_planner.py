@@ -347,7 +347,7 @@ class TestPlannerReviseProcessResponse:
         assert agent.parsed_entity_actions[0] == {"id": "ER-001", "action": "keep", "concern": "may need re-examination"}
         assert agent.parsed_entity_actions[1] == {"id": "WH-002", "action": "abandon", "reason": "premise invalidated"}
         assert len(agent.parsed_sanity_checks) == 1
-        assert agent.parsed_sanity_checks[0] == "T -> 0 as M -> inf"
+        assert agent.parsed_sanity_checks[0] == {"predicate": "T -> 0 as M -> inf", "rationale": "Large BH limit"}
         assert agent.parsed_revision_rationale == "ER-001 demotion invalidates downstream results."
         # No critique_assessments in JSON → None
         assert agent.parsed_critique_assessments is None

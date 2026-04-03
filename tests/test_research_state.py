@@ -9,6 +9,7 @@ from sciralph.research_state import (
     HypothesisStatus,
     Evidence,
     ReviewResult,
+    SanityCheck,
     Verdict,
     Critique,
     Severity,
@@ -459,7 +460,7 @@ class TestSurveyFieldSerialization:
         assert state.survey_methods == "Euclidean method, WKB"
         assert state.known_pitfalls == "Coordinate singularity confusion"
         assert state.conventions == "Natural units"
-        assert state.sanity_checks == ["T -> 0 as M -> inf"]
+        assert state.sanity_checks == [SanityCheck(id="SC-001", predicate="T -> 0 as M -> inf")]
 
 
 # ---------------------------------------------------------------------------

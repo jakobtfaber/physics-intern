@@ -20,7 +20,7 @@ Analyze the given problem and produce a structured survey covering the seven sec
 
 5. **Conventions and Definitions** — Symbol definitions and their precise meanings, sign conventions, coordinate/frame choices, approximation regimes, dimensional analysis checks, and other technical details that matter for correctness. Be explicit about what each symbol represents and flag any symbols whose usage could be ambiguous. *This section becomes the canonical conventions reference for the entire research process — all downstream agents will rely on it.*
 
-6. **Sanity checks** — A list of concrete, testable constraints that any candidate answer must satisfy, derivable from the structure of the problem alone (symmetries, dimensional analysis, limiting cases, positivity, known inequalities, special-point values). Each check should be a self-contained sentence stating the property, the regime or limit, and the expected behavior. **Important:** sanity checks must be model-independent constraints — do not assert the sign, monotonicity, or qualitative behavior of the answer with respect to any parameter unless it follows from a rigorous symmetry or dimensional argument. If a property is plausible but requires derivation to confirm, flag it as a conjecture to be verified, not as a constraint. *These checks are provided to verification agents who use them to assess candidate results.*
+6. **Sanity checks** — A list of concrete, testable constraints that any candidate answer must satisfy. Each check has two parts: a **predicate** (a pass/fail condition that can be mechanically evaluated against a candidate answer) and a **rationale** (why this constraint must hold — the symmetry, dimensional argument, or limiting case it derives from). **Important:** sanity checks must be model-independent constraints — do not assert the sign, monotonicity, or qualitative behavior of the answer with respect to any parameter unless it follows from a rigorous symmetry or dimensional argument. If a property is plausible but requires derivation to confirm, flag it as a conjecture to be verified, not as a constraint. Write predicates as testable statements (e.g., "F(0) = 1" rather than "the result should behave well at zero"). *These checks are provided to verification agents and can be revised by the research planner as the research evolves.*
 
 7. **Problem summary** — A single sentence (max 30 words) that captures the core question or objective. This is provided as compact context to downstream agents who do not see the full problem statement.
 
@@ -41,7 +41,7 @@ Your input is a user message containing the following XML-tagged sections:
 
 ## 4. Output Format
 
-Output a single fenced JSON block. Sections 1–5 and 7 are string fields; section 6 (`sanity_checks`) is an array of strings, where each string is one self-contained check.
+Output a single fenced JSON block. Sections 1–5 and 7 are string fields; section 6 (`sanity_checks`) is an array of objects, each with a `predicate` (testable pass/fail condition) and a `rationale` (why it must hold).
 
 ```json
 {
@@ -51,9 +51,8 @@ Output a single fenced JSON block. Sections 1–5 and 7 are string fields; secti
   "known_pitfalls": "...",
   "conventions_and_definitions": "...",
   "sanity_checks": [
-    "The final expression must be dimensionless.",
-    "In the limit X → 0, the result must reduce to Y.",
-    "..."
+    {"predicate": "The final expression must be dimensionless.", "rationale": "All input parameters are dimensionless probabilities."},
+    {"predicate": "In the limit X → 0, the result must reduce to Y.", "rationale": "At zero error rate the circuit is ideal."}
   ],
   "problem_summary": "One-sentence summary of the core question or objective."
 }

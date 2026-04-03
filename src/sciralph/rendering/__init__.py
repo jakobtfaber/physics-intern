@@ -8,6 +8,7 @@ from .snapshots import (
     render_task_md,
 )
 from .contexts import (
+    _render_sanity_checks,
     render_background_survey_xml,
     _problem_guidelines,
     render_research_context_xml,
@@ -36,4 +37,5 @@ __all__ = [
     "render_critic_previous_critiques",
     "render_formatter_context",
     "render_planner_revise_context",
+    "_render_sanity_checks",
 ]

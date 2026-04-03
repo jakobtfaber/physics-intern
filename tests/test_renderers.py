@@ -28,6 +28,7 @@ from sciralph.research_state import (
     Severity,
     Verdict,
     ReviewResult,
+    SanityCheck,
 )
 from sciralph.task import Task, TaskType
 
@@ -773,7 +774,7 @@ class TestRenderBackgroundSurvey:
         state.survey_methods = "Method A."
         state.known_pitfalls = "Pitfall B."
         state.conventions = "Some conventions."
-        state.sanity_checks = ["Check C."]
+        state.sanity_checks = [SanityCheck(id="SC-001", predicate="Check C.")]
         return state
 
     def test_render_background_survey_with_sections(self):
@@ -990,7 +991,7 @@ class TestRenderCriticContextSanityChecks:
 
     def test_sanity_checks_included(self):
         state = ResearchState(problem_statement="Test", strategy="Do X")
-        state.sanity_checks = ["T -> 0 as M -> inf", "Result must be positive"]
+        state.sanity_checks = [SanityCheck(id="SC-001", predicate="T -> 0 as M -> inf"), SanityCheck(id="SC-002", predicate="Result must be positive")]
         text = render_critic_context(state, iteration=3)
         assert "<sanity-checks>" in text
         assert "T -> 0 as M -> inf" in text
@@ -1010,7 +1011,7 @@ class TestRenderOrchestratorSlimState:
 
     def test_sanity_checks_included(self):
         state = ResearchState(conventions="Natural units")
-        state.sanity_checks = ["T -> 0 as M -> inf"]
+        state.sanity_checks = [SanityCheck(id="SC-001", predicate="T -> 0 as M -> inf")]
         text = render_orchestrator_slim_state(state)
         assert "<sanity-checks>" in text
         assert "T -> 0 as M -> inf" in text
@@ -1029,7 +1030,7 @@ class TestRenderOrchestratorSlimState:
 
     def test_ordering_strategy_before_sanity_checks(self):
         state = ResearchState(conventions="Natural units", strategy="Use surface gravity")
-        state.sanity_checks = ["T > 0"]
+        state.sanity_checks = [SanityCheck(id="SC-001", predicate="T > 0")]
         text = render_orchestrator_slim_state(state)
         assert text.index("<strategy>") < text.index("<sanity-checks>")
 
@@ -1092,7 +1093,7 @@ class TestRenderFormatterContextSanityChecks:
 
     def test_sanity_checks_included(self):
         state = ResearchState(problem_statement="Test", conventions="Natural units")
-        state.sanity_checks = ["Result must be dimensionless"]
+        state.sanity_checks = [SanityCheck(id="SC-001", predicate="Result must be dimensionless")]
         text = render_formatter_context(state)
         assert "<sanity-checks>" in text
         assert "Result must be dimensionless" in text

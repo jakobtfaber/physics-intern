@@ -126,7 +126,7 @@ def test_surveyor_parses_json_sections():
     assert survey["raw_notes"].startswith("Some prose")
     assert survey["background"] == "Physical context here"
     assert survey["known_pitfalls"] == "Watch for sign errors"
-    assert survey["sanity_checks"] == ["Result must be positive"]  # str fallback → list
+    assert survey["sanity_checks"] == [{"predicate": "Result must be positive"}]  # str fallback → list[dict]
     assert "key_insights" not in survey  # not provided
 
 

@@ -12,8 +12,20 @@ from ..research_state import (
     HypothesisStatus,
     ResearchState,
     RQStatus,
+    SanityCheck,
     Severity,
 )
+
+
+def _render_sanity_checks(checks: list[SanityCheck], tag: str = "sanity-checks") -> str:
+    """Render structured sanity checks as an XML-tagged block."""
+    lines: list[str] = []
+    for sc in checks:
+        line = f"- [{sc.id}] {sc.predicate}"
+        if sc.rationale:
+            line += f"\n  Rationale: {sc.rationale}"
+        lines.append(line)
+    return f"<{tag}>\n" + "\n".join(lines) + f"\n</{tag}>"
 
 
 def render_background_survey_xml(state: ResearchState) -> str:
@@ -209,8 +221,7 @@ def render_orchestrator_slim_state(
 
     # Sanity checks
     if state.sanity_checks:
-        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
-        parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
+        parts.append(_render_sanity_checks(state.sanity_checks))
 
     # Established Results — one-liner per ER
     ers = sorted(
@@ -311,8 +322,7 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
     rs_parts.append(f"<strategy>\n{strat}\n</strategy>")
 
     if state.sanity_checks:
-        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
-        rs_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
+        rs_parts.append(_render_sanity_checks(state.sanity_checks))
 
     # Research Questions
     if state.research_questions:
@@ -418,8 +428,7 @@ def render_formatter_context(
     if state.conventions:
         rs_parts.append(f"<conventions>\n{state.conventions}\n</conventions>")
     if state.sanity_checks:
-        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
-        rs_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")
+        rs_parts.append(_render_sanity_checks(state.sanity_checks))
     if rs_parts:
         parts.append("<research-state>\n" + "\n".join(rs_parts) + "\n</research-state>")
 
@@ -603,8 +612,7 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
 
     # Current sanity checks (editable by the planner)
     if state.sanity_checks:
-        checks_text = "\n".join(f"- {c}" for c in state.sanity_checks)
-        parts.append(f"<current-sanity-checks>\n{checks_text}\n</current-sanity-checks>")
+        parts.append(_render_sanity_checks(state.sanity_checks, tag="current-sanity-checks"))
 
     # Revision Trigger
     parts.append(f"<revision-trigger>\n{trigger_text}\n</revision-trigger>")

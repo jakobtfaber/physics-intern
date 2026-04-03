@@ -117,6 +117,14 @@ class Critique:
 
 
 @dataclass
+class SanityCheck:
+    """A testable constraint for candidate answers."""
+    id: str              # SC-001, SC-002, ...
+    predicate: str       # Testable condition (pass/fail statement)
+    rationale: str = ""  # Why this check should hold
+
+
+@dataclass
 class FailedApproach:
     description: str = ""
     reason: str = ""
@@ -165,7 +173,7 @@ class ResearchState:
     research_notes: list[dict] = field(default_factory=list)
     status: str = "in_progress"
     title: str = ""
-    sanity_checks: list[str] = field(default_factory=list)  # seeded by surveyor, editable by planner
+    sanity_checks: list[SanityCheck] = field(default_factory=list)  # seeded by surveyor, editable by planner
     # Survey-produced fields (seeded by surveyor, immutable after)
     survey_background: str = ""   # §1: background context
     key_insights: str = ""        # §2: key insights
@@ -278,6 +286,18 @@ class ResearchState:
                             nums.append(int(ev.id.split("-")[1]))
                         except ValueError:
                             pass
+        return max(nums, default=0) + 1
+
+    def next_sc_num(self) -> int:
+        """Max existing SC number + 1."""
+        nums = []
+        for sc in self.sanity_checks:
+            parts = sc.id.split("-")
+            if len(parts) == 2 and parts[0] == "SC":
+                try:
+                    nums.append(int(parts[1]))
+                except ValueError:
+                    pass
         return max(nums, default=0) + 1
 
     def demote_hypothesis(self, hid: str) -> str | None:
@@ -438,12 +458,29 @@ class ResearchState:
                 derivation_excerpt=fdata.get("derivation_excerpt", ""),
             ))
         state.critic_clean_reviews = data.get("critic_clean_reviews", [])
-        # Backward compat: old sanity_checks format was list[dict], extract "check"
+        # Deserialize sanity_checks — handles 3 formats:
+        #   1. New: list[dict] with "id", "predicate", "rationale"
+        #   2. Legacy: list[dict] with "check" key
+        #   3. Legacy: list[str]
         raw_checks = data.get("sanity_checks", [])
-        state.sanity_checks = [
-            c.get("check", str(c)) if isinstance(c, dict) else str(c)
-            for c in raw_checks
-        ]
+        sc_counter = 1
+        for c in raw_checks:
+            if isinstance(c, dict) and "predicate" in c:
+                sc_id = c.get("id", f"SC-{sc_counter:03d}")
+                state.sanity_checks.append(SanityCheck(
+                    id=sc_id, predicate=c["predicate"],
+                    rationale=c.get("rationale", ""),
+                ))
+            elif isinstance(c, dict):
+                state.sanity_checks.append(SanityCheck(
+                    id=f"SC-{sc_counter:03d}",
+                    predicate=c.get("check", str(c)),
+                ))
+            else:
+                state.sanity_checks.append(SanityCheck(
+                    id=f"SC-{sc_counter:03d}", predicate=str(c),
+                ))
+            sc_counter += 1
         # New flat fields
         state.survey_background = data.get("survey_background", "")
         state.key_insights = data.get("key_insights", "")
@@ -475,9 +512,27 @@ class ResearchState:
             if not state.sanity_checks:
                 raw_sc = survey_data.get("sanity_checks", [])
                 if isinstance(raw_sc, str):
-                    state.sanity_checks = [line.lstrip("- ").strip() for line in raw_sc.splitlines() if line.strip()] if raw_sc else []
-                elif isinstance(raw_sc, list):
-                    state.sanity_checks = [c.get("check", str(c)) if isinstance(c, dict) else str(c) for c in raw_sc]
+                    lines = [line.lstrip("- ").strip() for line in raw_sc.splitlines() if line.strip()]
+                    raw_sc = lines
+                if isinstance(raw_sc, list):
+                    sc_num = 1
+                    for c in raw_sc:
+                        if isinstance(c, dict) and "predicate" in c:
+                            state.sanity_checks.append(SanityCheck(
+                                id=c.get("id", f"SC-{sc_num:03d}"),
+                                predicate=c["predicate"],
+                                rationale=c.get("rationale", ""),
+                            ))
+                        elif isinstance(c, dict):
+                            state.sanity_checks.append(SanityCheck(
+                                id=f"SC-{sc_num:03d}",
+                                predicate=c.get("check", str(c)),
+                            ))
+                        else:
+                            state.sanity_checks.append(SanityCheck(
+                                id=f"SC-{sc_num:03d}", predicate=str(c),
+                            ))
+                        sc_num += 1
         return state
 
     def save(self, workspace_root: Path) -> None:
