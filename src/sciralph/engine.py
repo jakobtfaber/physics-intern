@@ -1598,12 +1598,21 @@ class SciRalph:
 
     def _on_compute_round(self, round_num, stop_reason, tool_calls,
                           total_input, total_output,
-                          round_input, round_output, round_duration):
+                          round_input, round_output, round_duration,
+                          round_reasoning=0, round_answer=0):
         """Progress callback for agent tool-use rounds."""
-        tokens = f"{round_input:,}in + {round_output:,}out"
+        # Token breakdown: input + reasoning/answer split + speed
+        if round_reasoning:
+            tokens = f"{round_input:,}in + {round_output:,}out ({round_reasoning:,}r + {round_answer:,}a)"
+        else:
+            tokens = f"{round_input:,}in + {round_output:,}out"
+        tps = f"{round_output / round_duration:,.0f} t/s" if round_duration > 0 else ""
         dur = _fmt_duration(round_duration)
+        detail = f"{tokens}, {dur}"
+        if tps:
+            detail += f", {tps}"
         if stop_reason == "forced_partial":
-            console.print(f"  round {round_num}: forced final call ({tokens}, {dur})", style="dim magenta")
+            console.print(f"  round {round_num}: forced final call ({detail})", style="dim magenta")
             return
         n_tools = len(tool_calls)
         errors = sum(1 for tc in tool_calls if tc.is_error)
@@ -1611,7 +1620,7 @@ class SciRalph:
             status = f"{n_tools} tool call{'s' if n_tools != 1 else ''}, {errors} error{'s' if errors != 1 else ''}"
         else:
             status = f"{n_tools} tool call{'s' if n_tools != 1 else ''}"
-        console.print(f"  round {round_num}: {status} ({tokens}, {dur})", style="dim magenta")
+        console.print(f"  round {round_num}: {status} ({detail})", style="dim magenta")
 
     # Alias so orchestrator/critic use the same callback
     _on_agent_round = _on_compute_round
@@ -1620,13 +1629,24 @@ class SciRalph:
         """Print a one-line timing/token summary for one-shot LLM calls."""
         from .llm import LLMResponse, AgentResult
         if isinstance(result, AgentResult):
-            tokens = f"{result.total_input_tokens:,}in + {result.total_output_tokens:,}out"
+            out = result.total_output_tokens
+            reasoning = result.total_reasoning_tokens
+            answer = result.total_answer_tokens
+            tokens = f"{result.total_input_tokens:,}in + {out:,}out"
+            if reasoning:
+                tokens += f" ({reasoning:,}r + {answer:,}a)"
         elif isinstance(result, LLMResponse):
-            tokens = f"{result.input_tokens:,}in + {result.output_tokens:,}out"
+            out = result.output_tokens
+            reasoning = result.reasoning_tokens
+            answer = result.answer_tokens
+            tokens = f"{result.input_tokens:,}in + {out:,}out"
+            if reasoning:
+                tokens += f" ({reasoning:,}r + {answer:,}a)"
         else:
             return
         dur = _fmt_duration(result.duration)
-        console.print(f"  ({tokens}, {dur})", style="dim")
+        tps = f", {out / result.duration:,.0f} t/s" if result.duration > 0 else ""
+        console.print(f"  ({tokens}, {dur}{tps})", style="dim")
 
     def _final_report(self):
         """Flush metrics and print final summary."""

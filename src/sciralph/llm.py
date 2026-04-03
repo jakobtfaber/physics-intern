@@ -767,7 +767,9 @@ def run_agent_loop(
             if on_round:
                 on_round(round_num, resp.stop_reason, round_tool_calls,
                          total_input, total_output,
-                         resp.input_tokens, resp.output_tokens, duration)
+                         resp.input_tokens, resp.output_tokens, round_duration=duration,
+                         round_reasoning=resp.reasoning_tokens,
+                         round_answer=resp.answer_tokens)
 
             # Executor-signaled early stop (e.g., orchestrator dispatch tools)
             if getattr(tool_executor, "stop_after_round", False):
@@ -989,7 +991,8 @@ def run_agent_loop(
     if _forced_with_exit_tool and getattr(tool_executor, "stop_after_round", False):
         if on_round:
             on_round(round_num + 1, "executor_stop", [], total_input, total_output,
-                     final_in, final_out, final_dur)
+                     final_in, final_out, round_duration=final_dur,
+                     round_reasoning=final_reasoning, round_answer=final_answer)
         round_log.append({
             "kind": "forced_final_call", "round": round_num + 1,
             "reason": "forced_exit_tool", "text": final_text,
@@ -1018,7 +1021,8 @@ def run_agent_loop(
 
     if on_round:
         on_round(round_num + 1, "forced_partial", [], total_input, total_output,
-                 final_in, final_out, final_dur)
+                 final_in, final_out, round_duration=final_dur,
+                 round_reasoning=final_reasoning, round_answer=final_answer)
 
     round_log.append({
         "kind": "forced_final_call", "round": round_num + 1,
