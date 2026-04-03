@@ -63,3 +63,4 @@ Include only the fields relevant to your verdict:
 - Do NOT produce new derivations or computations. Assess what is presented.
 - If the critique raises a valid concern but the claim's evidence adequately addresses it, rule `invalid`.
 - If the critique identifies a genuine logical impossibility or inter-result contradiction, rule `valid`.
+- **Sanity-check rule**: If a critique cites a violation of a sanity check listed in `<suggested-sanity-checks>`, you must not dismiss it on theoretical reasoning alone. To rule `invalid`, you must show with explicit, step-by-step logic why the sanity check does not apply to this specific claim. If you cannot do so conclusively, rule `needs_evidence` and request a numerical or independent verification that settles the dispute.
