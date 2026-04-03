@@ -26,6 +26,10 @@ from .agents.formatter import FormatterAgent
 from .agents.surveyor import SurveyorAgent
 from .agents.planner import PlannerAgent
 from .agents.adjudicator import AdjudicatorAgent
+from .verification.verify import (
+    run_formal_evaluation, render_formal_evaluation,
+    write_formal_eval_report, load_reference_file,
+)
 
 console = Console()
 
@@ -440,6 +444,39 @@ class SciRalph:
             )
 
         self._final_report()
+        self._run_formal_verification()
+
+    def _run_formal_verification(self):
+        """Run formal (symbolic/numerical) answer evaluation at end of run."""
+        import yaml
+
+        problem_path = self.workspace.root / "problem.yaml"
+        if not problem_path.exists():
+            console.print("[dim]Formal verification skipped: no problem.yaml in workspace[/]")
+            return
+
+        try:
+            with open(problem_path) as f:
+                problem_def = yaml.safe_load(f)
+        except Exception as exc:
+            console.print(f"[yellow]Formal verification skipped: could not read problem.yaml: {exc}[/]")
+            return
+
+        # Build reference lookup path from problem name
+        problem_name = problem_def.get("name") if problem_def else None
+        ref_lookup_path = Path(problem_name + ".yaml") if problem_name else None
+
+        console.print(f"\n[bold]Formal answer evaluation...[/]")
+
+        try:
+            result = run_formal_evaluation(
+                str(self.workspace.root), problem_def, problem_path=ref_lookup_path,
+            )
+            render_formal_evaluation(result)
+            write_formal_eval_report(result, str(self.workspace.root))
+            self.workspace.git_commit("Formal answer evaluation")
+        except Exception as exc:
+            console.print(f"[yellow]Formal verification failed: {type(exc).__name__}: {exc}[/]")
 
     def _run_orchestrator(self) -> Task:
         """Run orchestrator pass: set context prefix, get task."""

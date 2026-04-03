@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Run a SciRalph research session, then verify the results with Claude Opus.
+# Run a SciRalph research session, then diagnose the results with Claude Opus.
+#
+# Phase 1: Research run (includes formal answer evaluation at the end)
+# Phase 2: Diagnosis (single Claude Opus LLM call — error/correction chain analysis)
 #
 # Usage:
-#   ./run_and_verify.sh <problem.yaml> [run-options...] [-- verify-options...]
+#   ./run_and_verify.sh <problem.yaml> [run-options...] [-- diagnosis-options...]
 #
 # Examples:
 #   ./run_and_verify.sh problems/hawking_temperature.yaml --max-iterations 10
 #   ./run_and_verify.sh problems/qho.yaml --max-iterations 5 -- --model claude-4.6-opus
 #
 # Everything before "--" is passed to sciralph.main.
-# Everything after "--" is passed to sciralph.verification.
+# Everything after "--" is passed to sciralph.verification (diagnosis).
 
 set -euo pipefail
 
@@ -82,7 +85,7 @@ if ! $has_ws_flag; then
     run_args+=("--workspace-dir" "$workspace_dir")
 fi
 
-echo "=== SciRalph: Run + Verify ==="
+echo "=== SciRalph: Run + Diagnose ==="
 echo "Problem:   $problem_file"
 echo "Workspace: $workspace_dir"
 echo ""
@@ -103,7 +106,6 @@ if [ $run_rc -ne 0 ]; then
 fi
 echo ""
 
-# --- Phase 2: Verification ---
-echo "--- Phase 2a: Science verification (Claude Opus) ---"
-echo "--- Phase 2b: Process audit (Claude Opus) ---"
+# --- Phase 2: Diagnosis (single Claude Opus call) ---
+echo "--- Phase 2: Diagnosis (Claude Opus) ---"
 uv run python -m sciralph.verification "$workspace_dir" ${verify_args[@]+"${verify_args[@]}"}

@@ -1,4 +1,4 @@
-"""Tests for the independent verification script."""
+"""Tests for the independent verification / diagnosis script."""
 
 import tempfile
 from pathlib import Path
@@ -9,19 +9,18 @@ import pytest
 from sciralph.verification.verify import (
     WorkspaceContents,
     FormalEvalResult,
-    ProcessEvent,
-    ProcessAuditResult,
+    DiagnosisEvent,
+    DiagnosisResult,
     load_workspace,
     load_reference_file,
     rerun_computations,
     run_formal_evaluation,
-    build_verification_prompt,
-    build_process_audit_prompt,
-    parse_verdict,
-    parse_process_audit,
-    append_process_audit_to_report,
-    write_verification_report,
+    build_diagnosis_prompt,
+    parse_diagnosis,
+    write_diagnosis_report,
+    write_formal_eval_report,
     _summarize_event_log,
+    _load_or_run_formal_eval,
 )
 
 
@@ -93,44 +92,50 @@ Verified ER-002 surface gravity numerically.
 Verdict: VERIFIED
 """
 
-WELL_FORMED_RESPONSE = """
-Let me evaluate each result.
+WELL_FORMED_DIAGNOSIS_RESPONSE = """
+Let me analyze this research run.
 
-<verdict>VALID</verdict>
+<diagnosis_summary>
+The research run was largely successful, arriving at the correct Hawking temperature
+through a standard derivation path. One notable error occurred in iteration 4 where
+the researcher introduced a sign error in the surface gravity calculation, but this
+was caught by the reviewer in iteration 6 and corrected by iteration 7.
+</diagnosis_summary>
 
-<confidence>HIGH</confidence>
+<chains>
+EVENT-001 [CAUGHT] (iterations 4-7)
+Agents: researcher, reviewer
+Sign error in surface gravity κ — researcher wrote κ = -1/(4M) instead of κ = 1/(4M).
+Reviewer flagged the sign issue in the REFUTED verdict.
+Root cause: researcher applied Killing vector normalization with wrong sign convention.
+Evidence: WH-002, CRIT-001, ER-002
 
-<summary>
-All three established results are correct. The Hawking temperature derivation
-follows standard methods and arrives at the canonical result.
-</summary>
+EVENT-002 [PARTIAL] (iterations 8-10)
+Agents: computer, orchestrator
+Computation script for numerical verification timed out twice before succeeding on third attempt.
+Root cause: initial script used symbolic integration instead of numerical evaluation.
+Evidence: WH-003, ER-003
+</chains>
 
-<result_assessment>
-ER-001: VALID
-- Standard Schwarzschild metric, correctly stated.
+<weakest_link>
+The sign error in ER-002 was the closest call — if the reviewer had not caught it,
+the final Hawking temperature would have been off by a sign.
+</weakest_link>
 
-ER-002: VALID
-- Surface gravity κ = 1/(4M) is correct for Schwarzschild.
-
-ER-003: VALID
-- Hawking temperature follows from ER-002 via the standard Unruh-like argument.
-</result_assessment>
-
-<chain_valid>YES — Results form a correct logical chain: metric → surface gravity → temperature.</chain_valid>
-
-<unresolved_concerns>
-- Signature convention (-, +, +, +) is implicit but standard.
-</unresolved_concerns>
+<recommendations>
+- Enforce sign convention checks in the surveyor's sanity checks section
+- Add timeout handling for computation scripts to fail fast rather than stall
+- Consider requiring numerical spot-checks before promoting WHs to ERs
+</recommendations>
 """
 
-PARTIAL_RESPONSE = """
-The results look mostly correct.
+PARTIAL_DIAGNOSIS_RESPONSE = """
+The research had some issues.
 
-<verdict>PARTIALLY_VALID</verdict>
-
-<summary>
-Two of three results are correct but ER-002 has a potential issue.
-</summary>
+<diagnosis_summary>
+The system failed to arrive at the correct answer due to an uncaught error
+in the surface gravity calculation.
+</diagnosis_summary>
 """
 
 
@@ -192,64 +197,161 @@ def test_load_workspace_with_scripts(tmp_path):
     assert len(contents.computation_scripts) == 2
 
 
-def test_parse_verdict_valid():
-    result = parse_verdict(WELL_FORMED_RESPONSE)
+def test_load_workspace_loads_metrics(tmp_path):
+    """METRICS.md is always loaded."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "METRICS.md").write_text("# Metrics\ntotal: 100")
 
-    assert result.verdict == "VALID"
-    assert result.confidence == "HIGH"
-    assert "correct" in result.summary.lower()
-    assert len(result.result_assessments) == 3
-    assert result.result_assessments[0].result_id == "ER-001"
-    assert result.result_assessments[0].verdict == "VALID"
-    assert result.result_assessments[2].result_id == "ER-003"
-    assert "YES" in result.chain_valid
-    assert len(result.unresolved_concerns) >= 1
+    contents = load_workspace(ws_dir)
+    assert "total: 100" in contents.metrics_md
+
+
+def test_load_workspace_loads_event_log(tmp_path):
+    """EVENT_LOG.jsonl is always loaded."""
+    ws_dir = _make_workspace(tmp_path)
+    event_data = '{"kind":"llm_call","agent":"orchestrator"}\n'
+    (tmp_path / "EVENT_LOG.jsonl").write_text(event_data)
+
+    contents = load_workspace(ws_dir)
+    assert "llm_call" in contents.event_log
+
+
+def test_load_workspace_no_metrics(tmp_path):
+    """Missing METRICS.md leaves field empty."""
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+    assert contents.metrics_md == ""
+
+
+def test_parse_diagnosis_well_formed():
+    """All XML tags parsed correctly from a well-formed response."""
+    formal_eval = FormalEvalResult(correct=True, method="simplify")
+    result = parse_diagnosis(WELL_FORMED_DIAGNOSIS_RESPONSE, formal_eval=formal_eval)
+
+    assert result.formal_outcome == "CORRECT"
+    assert result.diagnosis_mode == "success_analysis"
+    assert "largely successful" in result.summary.lower()
+    assert len(result.events) == 2
+
+    # Check first event
+    ev0 = result.events[0]
+    assert ev0.event_id == "EVENT-001"
+    assert ev0.classification == "CAUGHT"
+    assert ev0.chain_type == "correction_chain"
+    assert "researcher" in ev0.agents_involved
+    assert "reviewer" in ev0.agents_involved
+    assert "sign" in ev0.description.lower()
+    assert "WH-002" in ev0.evidence_ids
+
+    # Check second event
+    ev1 = result.events[1]
+    assert ev1.event_id == "EVENT-002"
+    assert ev1.classification == "PARTIAL"
+    assert ev1.chain_type == "failure_chain"
+
+    assert "sign error" in result.weakest_link.lower()
+    assert len(result.recommendations) == 3
     assert len(result.parse_warnings) == 0
 
 
-def test_parse_verdict_partial():
-    """Missing tags should produce fallback with warnings."""
-    result = parse_verdict(PARTIAL_RESPONSE)
+def test_parse_diagnosis_partial():
+    """Missing tags should produce warnings, not crashes."""
+    formal_eval = FormalEvalResult(correct=False, method="simplify")
+    result = parse_diagnosis(PARTIAL_DIAGNOSIS_RESPONSE, formal_eval=formal_eval)
 
-    assert result.verdict == "PARTIALLY_VALID"
-    assert "Two of three" in result.summary
+    assert result.formal_outcome == "INCORRECT"
+    assert result.diagnosis_mode == "failure_analysis"
+    assert "failed" in result.summary.lower()
     # Missing tags should generate warnings
-    assert any("confidence" in w.lower() for w in result.parse_warnings)
-    assert any("chain_valid" in w.lower() for w in result.parse_warnings)
-    assert any("result_assessment" in w.lower() for w in result.parse_warnings)
+    assert any("chains" in w.lower() for w in result.parse_warnings)
+    assert any("weakest_link" in w.lower() for w in result.parse_warnings)
+    assert any("recommendations" in w.lower() for w in result.parse_warnings)
 
 
-def test_parse_verdict_empty():
-    """Empty response should return INCONCLUSIVE with warnings."""
-    result = parse_verdict("")
+def test_parse_diagnosis_empty():
+    """Empty response should produce warnings."""
+    result = parse_diagnosis("")
 
-    assert result.verdict == "INCONCLUSIVE"
+    assert result.formal_outcome == "SKIPPED"  # no formal_eval passed
+    assert result.diagnosis_mode == "failure_analysis"
     assert len(result.parse_warnings) > 0
 
 
-def test_build_prompt_includes_all_files(tmp_path):
+def test_build_diagnosis_prompt_includes_all_files(tmp_path):
     ws_dir = _make_workspace(tmp_path)
     contents = load_workspace(ws_dir)
-    system, user_content = build_verification_prompt(contents)
+    system, user_content = build_diagnosis_prompt(contents)
 
     assert "RESEARCH_STATE.md" in user_content
     assert "EVIDENCE_LOG.md" in user_content
     assert "CRITIQUE_LOG.md" in user_content
     assert "terminated cleanly" in user_content
     assert "ER-001" in user_content
-    # System prompt should be the verifier prompt
-    assert "scientific referee" in system.lower()
+    # System prompt should be the diagnosis prompt
+    assert "diagnostic analyst" in system.lower()
 
 
-def test_build_prompt_not_terminated(tmp_path):
+def test_build_diagnosis_prompt_correct_framing(tmp_path):
+    """CORRECT formal eval should frame as success analysis."""
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+    formal_eval = FormalEvalResult(correct=True, method="simplify")
+
+    _, user_content = build_diagnosis_prompt(contents, formal_eval=formal_eval)
+
+    assert "CORRECT" in user_content
+    assert "correction chains" in user_content
+
+
+def test_build_diagnosis_prompt_incorrect_framing(tmp_path):
+    """INCORRECT formal eval should frame as failure analysis."""
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+    formal_eval = FormalEvalResult(correct=False, method="simplify")
+
+    _, user_content = build_diagnosis_prompt(contents, formal_eval=formal_eval)
+
+    assert "INCORRECT" in user_content
+    assert "failure chains" in user_content
+
+
+def test_build_diagnosis_prompt_skipped_framing(tmp_path):
+    """Skipped formal eval should frame as no ground truth."""
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+
+    _, user_content = build_diagnosis_prompt(contents, formal_eval=None)
+
+    assert "SKIPPED" in user_content
+    assert "No ground truth" in user_content
+
+
+def test_build_diagnosis_prompt_not_terminated(tmp_path):
     ws_dir = _make_workspace(tmp_path, current_task=CURRENT_TASK_NOT_TERMINATED)
     contents = load_workspace(ws_dir)
-    _, user_content = build_verification_prompt(contents)
+    _, user_content = build_diagnosis_prompt(contents)
 
     assert "did NOT terminate cleanly" in user_content
 
 
-def test_build_prompt_with_rerun_results(tmp_path):
+def test_build_diagnosis_prompt_with_known_answer(tmp_path):
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+
+    _, user_content = build_diagnosis_prompt(contents, known_answer="0.7687")
+    assert "Known Answer" in user_content
+    assert "0.7687" in user_content
+
+
+def test_build_diagnosis_prompt_without_known_answer(tmp_path):
+    ws_dir = _make_workspace(tmp_path)
+    contents = load_workspace(ws_dir)
+
+    _, user_content = build_diagnosis_prompt(contents, known_answer=None)
+    assert "Known Answer" not in user_content
+
+
+def test_build_diagnosis_prompt_with_rerun_results(tmp_path):
     from sciralph.utils.sandbox import ExecutionResult
     from sciralph.verification.verify import RerunResult
 
@@ -267,28 +369,34 @@ def test_build_prompt_with_rerun_results(tmp_path):
         ),
     ]
 
-    _, user_content = build_verification_prompt(contents, rerun_results=rerun)
+    _, user_content = build_diagnosis_prompt(contents, rerun_results=rerun)
     assert "Re-run Results" in user_content
     assert "check_001.py" in user_content
     assert "SUCCESS" in user_content
     assert "FAILED" in user_content
 
 
-def test_build_prompt_with_known_answer(tmp_path):
+def test_build_diagnosis_prompt_includes_metrics(tmp_path):
+    """METRICS.md content should appear in user content."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "METRICS.md").write_text("# Metrics\ntotal_iterations: 10")
+
+    contents = load_workspace(ws_dir)
+    _, user_content = build_diagnosis_prompt(contents)
+
+    assert "METRICS.md" in user_content
+    assert "total_iterations" in user_content
+
+
+def test_build_diagnosis_prompt_includes_git_log(tmp_path):
+    """Git log should appear in user content when available."""
     ws_dir = _make_workspace(tmp_path)
     contents = load_workspace(ws_dir)
+    contents.git_log = "abc1234 iteration 1: orchestrator\ndef5678 iteration 2: researcher"
+    _, user_content = build_diagnosis_prompt(contents)
 
-    _, user_content = build_verification_prompt(contents, known_answer="0.7687")
-    assert "Known Answer" in user_content
-    assert "0.7687" in user_content
-
-
-def test_build_prompt_without_known_answer(tmp_path):
-    ws_dir = _make_workspace(tmp_path)
-    contents = load_workspace(ws_dir)
-
-    _, user_content = build_verification_prompt(contents, known_answer=None)
-    assert "Known Answer" not in user_content
+    assert "Git Log" in user_content
+    assert "abc1234" in user_content
 
 
 def test_terminated_cleanly_detection(tmp_path):
@@ -373,235 +481,105 @@ def test_rerun_computations(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Process audit fixtures
+# Diagnosis report writing tests
 # ---------------------------------------------------------------------------
 
-METRICS_MD = """---
-total_iterations: 10
-total_input_tokens: 150000
-total_output_tokens: 50000
----
-
-# Metrics
-
-| Iteration | Agent           | Input Tokens | Output Tokens |
-|-----------|-----------------|--------------|---------------|
-| 1         | orchestrator    | 5000         | 2000          |
-| 2         | researcher      | 15000        | 5000          |
-| 3         | computationalist| 10000        | 3000          |
-| 4         | deep_critic     | 12000        | 4000          |
-| 5         | orchestrator    | 8000         | 2500          |
-
-## Alerts
-- iteration 8: computationalist max rounds reached
-"""
-
-WELL_FORMED_PROCESS_RESPONSE = """
-Let me analyze the multi-agent process.
-
-<process_events>
-EVENT-001 [SUCCESS] error_correction_cycle (iterations 3-7)
-CRIT-001 identified missing c² factor in ER-002. Researcher corrected in iteration 5, computationalist re-verified (COMP-007 VERIFIED).
-Evidence: CRIT-001, COMP-003, COMP-007
-
-EVENT-002 [FAILURE] computation_stall (iterations 8-12)
-Computationalist hit max rounds 3 times trying to verify ER-003 numerically. Same approach retried without adaptation.
-Evidence: COMP-005, COMP-007, COMP-009
-
-EVENT-003 [MIXED] good_sequencing (iterations 1-5)
-Orchestrator correctly prioritized establishing the metric before computing derived quantities, but delayed critique resolution.
-Evidence: ER-001, ER-002
-</process_events>
-
-<process_verdict>PARTIALLY_EFFECTIVE</process_verdict>
-
-<process_summary>
-The multi-agent system showed good error correction capability (CRIT-001 cycle) but suffered from computation stalls in later iterations. Budget usage was acceptable but could be improved by breaking stalls earlier.
-</process_summary>
-
-<token_efficiency>
-Total tokens: 200k input, 65k output. Approximately 15% wasted on the computation stall in iterations 8-12. The researcher and computationalist consumed the bulk of the budget, which is expected for a derivation-heavy problem.
-</token_efficiency>
-
-<recommendations>
-- Add stall detection for repeated INCONCLUSIVE verdicts on the same claim
-- Increase critique resolution priority to avoid carrying unresolved HIGH critiques
-- Consider adaptive compute timeout based on problem complexity
-</recommendations>
-"""
-
-PARTIAL_PROCESS_RESPONSE = """
-The process had issues.
-
-<process_verdict>INEFFECTIVE</process_verdict>
-
-<process_summary>
-Multiple unresolved critiques and repeated stalls.
-</process_summary>
-"""
-
-
-# ---------------------------------------------------------------------------
-# Process audit tests
-# ---------------------------------------------------------------------------
-
-def test_parse_process_audit_well_formed():
-    """All XML tags parsed correctly from a well-formed response."""
-    result = parse_process_audit(WELL_FORMED_PROCESS_RESPONSE)
-
-    assert result.verdict == "PARTIALLY_EFFECTIVE"
-    assert "error correction" in result.summary.lower()
-    assert len(result.events) == 3
-
-    # Check first event
-    ev0 = result.events[0]
-    assert ev0.event_id == "EVENT-001"
-    assert ev0.classification == "SUCCESS"
-    assert ev0.event_type == "error_correction_cycle"
-    assert ev0.iterations == "iterations 3-7"
-    assert "CRIT-001" in ev0.description
-    assert "CRIT-001" in ev0.evidence
-
-    # Check second event
-    ev1 = result.events[1]
-    assert ev1.event_id == "EVENT-002"
-    assert ev1.classification == "FAILURE"
-    assert ev1.event_type == "computation_stall"
-
-    # Check third event
-    ev2 = result.events[2]
-    assert ev2.classification == "MIXED"
-
-    assert "200k" in result.token_efficiency or "Total tokens" in result.token_efficiency
-    assert len(result.recommendations) == 3
-    assert len(result.parse_warnings) == 0
-
-
-def test_parse_process_audit_partial():
-    """Missing tags should produce warnings, not crashes."""
-    result = parse_process_audit(PARTIAL_PROCESS_RESPONSE)
-
-    assert result.verdict == "INEFFECTIVE"
-    assert "unresolved" in result.summary.lower()
-    # Missing tags should generate warnings
-    assert any("token_efficiency" in w.lower() for w in result.parse_warnings)
-    assert any("recommendations" in w.lower() for w in result.parse_warnings)
-    assert any("process_events" in w.lower() for w in result.parse_warnings)
-
-
-def test_parse_process_audit_empty():
-    """Empty response defaults to INEFFECTIVE with warnings."""
-    result = parse_process_audit("")
-
-    assert result.verdict == "INEFFECTIVE"
-    assert len(result.parse_warnings) > 0
-    assert any("process_verdict" in w.lower() for w in result.parse_warnings)
-
-
-def test_build_process_audit_prompt_includes_metrics(tmp_path):
-    """METRICS.md content should appear in user content."""
-    ws_dir = _make_workspace(tmp_path)
-    (tmp_path / "METRICS.md").write_text(METRICS_MD)
-
-    contents = load_workspace(ws_dir, include_process_data=True)
-    system, user_content = build_process_audit_prompt(contents)
-
-    assert "METRICS.md" in user_content
-    assert "total_iterations" in user_content
-    assert "computationalist max rounds" in user_content
-    # System prompt should be the process auditor prompt
-    assert "process auditor" in system.lower()
-
-
-def test_build_process_audit_prompt_includes_git_log(tmp_path):
-    """Git log should appear in user content when available."""
-    ws_dir = _make_workspace(tmp_path)
-    # Simulate by setting git_log directly on contents
-    contents = load_workspace(ws_dir)
-    contents.git_log = "abc1234 iteration 1: orchestrator\ndef5678 iteration 2: researcher"
-    system, user_content = build_process_audit_prompt(contents)
-
-    assert "Git Log" in user_content
-    assert "abc1234" in user_content
-    assert "iteration 2: researcher" in user_content
-
-
-def test_load_workspace_with_process_data(tmp_path):
-    """include_process_data=True loads METRICS.md."""
-    ws_dir = _make_workspace(tmp_path)
-    (tmp_path / "METRICS.md").write_text(METRICS_MD)
-
-    # Without process data
-    contents_basic = load_workspace(ws_dir)
-    assert contents_basic.metrics_md == ""
-    assert contents_basic.git_log == ""
-
-    # With process data
-    contents_full = load_workspace(ws_dir, include_process_data=True)
-    assert "total_iterations" in contents_full.metrics_md
-
-
-def test_load_workspace_with_process_data_no_metrics(tmp_path):
-    """Missing METRICS.md should not crash, just leave field empty."""
-    ws_dir = _make_workspace(tmp_path)
-    contents = load_workspace(ws_dir, include_process_data=True)
-    assert contents.metrics_md == ""
-
-
-def test_append_process_audit_patches_frontmatter(tmp_path):
-    """Appending process audit should add process_verdict to YAML frontmatter."""
+def test_write_diagnosis_report(tmp_path):
+    """Diagnosis sections are appended to VERIFICATION.md."""
     ws_dir = _make_workspace(tmp_path)
     report_path = tmp_path / "VERIFICATION.md"
-    report_path.write_text("---\nverdict: VALID\nconfidence: HIGH\n---\n\n# Verification Report\n\n## Summary\nAll good.\n")
+    report_path.write_text("---\nformal_answer: correct\n---\n\n# Verification Report\n\n## Formal Answer Evaluation: CORRECT\n")
 
-    pa_result = ProcessAuditResult(
-        verdict="PARTIALLY_EFFECTIVE",
-        summary="Good error correction but some stalls.",
-        events=[ProcessEvent(
+    diag_result = DiagnosisResult(
+        formal_outcome="CORRECT",
+        diagnosis_mode="success_analysis",
+        summary="Clean run with one corrected error.",
+        events=[DiagnosisEvent(
             event_id="EVENT-001",
-            classification="SUCCESS",
-            event_type="error_correction_cycle",
-            iterations="iterations 3-7",
-            description="Fixed missing factor.",
-            evidence="CRIT-001, COMP-003",
+            chain_type="correction_chain",
+            classification="CAUGHT",
+            agents_involved=["researcher", "reviewer"],
+            iterations="iterations 4-7",
+            description="Sign error caught by reviewer.",
+            root_cause="Wrong sign convention.",
+            evidence_ids=["WH-002", "ER-002"],
         )],
-        token_efficiency="200k tokens, 15% waste.",
-        recommendations=["Detect stalls earlier", "Prioritize HIGH critiques"],
+        weakest_link="Sign error in surface gravity.",
+        recommendations=["Add sign checks", "Require numerical verification"],
     )
 
-    append_process_audit_to_report(pa_result, ws_dir)
+    write_diagnosis_report(diag_result, ws_dir)
 
     report = report_path.read_text()
-    # Frontmatter should have process_verdict
-    assert "process_verdict: PARTIALLY_EFFECTIVE" in report
-    # Original verdict should still be there
-    assert "verdict: VALID" in report
-    # Process audit sections should be present
-    assert "# Process Audit" in report
-    assert "Process Summary" in report
-    assert "Good error correction" in report
+    # Frontmatter should have diagnosis_mode
+    assert "diagnosis_mode: success_analysis" in report
+    # Original formal_answer should still be there
+    assert "formal_answer: correct" in report
+    # Diagnosis sections should be present
+    assert "Diagnosis: Success Analysis" in report
+    assert "Clean run" in report
     assert "EVENT-001" in report
-    assert "Token Efficiency" in report
+    assert "CAUGHT" in report
+    assert "Sign error" in report
+    assert "Weakest Link" in report
     assert "Recommendations" in report
-    assert "Detect stalls earlier" in report
+    assert "Add sign checks" in report
 
 
-def test_append_process_audit_creates_report_if_missing(tmp_path):
+def test_write_diagnosis_report_creates_if_missing(tmp_path):
     """Should create VERIFICATION.md if it doesn't exist."""
     ws_dir = _make_workspace(tmp_path)
     report_path = tmp_path / "VERIFICATION.md"
     assert not report_path.exists()
 
-    pa_result = ProcessAuditResult(
-        verdict="EFFECTIVE",
-        summary="Excellent process.",
+    diag_result = DiagnosisResult(
+        formal_outcome="INCORRECT",
+        diagnosis_mode="failure_analysis",
+        summary="Root cause: uncaught sign error.",
     )
 
-    append_process_audit_to_report(pa_result, ws_dir)
+    write_diagnosis_report(diag_result, ws_dir)
 
     report = report_path.read_text()
-    assert "process_verdict: EFFECTIVE" in report
-    assert "# Process Audit" in report
+    assert "diagnosis_mode: failure_analysis" in report
+    assert "Diagnosis: Failure Analysis" in report
+
+
+# ---------------------------------------------------------------------------
+# Formal eval report writing tests
+# ---------------------------------------------------------------------------
+
+def test_write_formal_eval_report_correct(tmp_path):
+    """Correct formal eval writes proper VERIFICATION.md."""
+    ws_dir = str(tmp_path)
+    result = FormalEvalResult(correct=True, method="simplify", details="diff=0")
+    write_formal_eval_report(result, ws_dir)
+
+    report = (tmp_path / "VERIFICATION.md").read_text()
+    assert "formal_answer: correct" in report
+    assert "Formal Answer Evaluation: CORRECT" in report
+    assert "simplify" in report
+
+
+def test_write_formal_eval_report_incorrect(tmp_path):
+    ws_dir = str(tmp_path)
+    result = FormalEvalResult(correct=False, method="ratio_test")
+    write_formal_eval_report(result, ws_dir)
+
+    report = (tmp_path / "VERIFICATION.md").read_text()
+    assert "formal_answer: incorrect" in report
+    assert "INCORRECT" in report
+
+
+def test_write_formal_eval_report_skipped(tmp_path):
+    ws_dir = str(tmp_path)
+    result = FormalEvalResult(skipped=True, skip_reason="No ANSWER.md")
+    write_formal_eval_report(result, ws_dir)
+
+    report = (tmp_path / "VERIFICATION.md").read_text()
+    assert "formal_answer: skipped" in report
+    assert "SKIPPED" in report
+    assert "No ANSWER.md" in report
 
 
 # ---------------------------------------------------------------------------
@@ -615,17 +593,6 @@ EVENT_LOG_LINES = """\
 {"kind":"scaffold","ts":"2026-03-13T14:00:20+00:00","iter":3,"category":"call_reliability","event":"forced_final_call","detail":"max_rounds"}
 {"kind":"scaffold","ts":"2026-03-13T14:00:25+00:00","iter":3,"category":"call_reliability","event":"api_retry","detail":"attempt=1/3, TimeoutError"}
 """
-
-
-def test_load_workspace_event_log(tmp_path):
-    """EVENT_LOG.jsonl is loaded when include_process_data=True."""
-    ws_dir = _make_workspace(tmp_path)
-    (tmp_path / "EVENT_LOG.jsonl").write_text(EVENT_LOG_LINES)
-
-    contents = load_workspace(ws_dir, include_process_data=True)
-    assert contents.event_log == EVENT_LOG_LINES
-    assert "llm_call" in contents.event_log
-
 
 
 def test_summarize_event_log_llm_table():
@@ -668,28 +635,17 @@ def test_summarize_event_log_truncation():
     assert len(summary) <= 1000
 
 
-def test_build_process_audit_prompt_includes_event_log(tmp_path):
-    """Event log summary appears in the process audit prompt."""
+def test_build_diagnosis_prompt_includes_event_log(tmp_path):
+    """Event log summary appears in the diagnosis prompt."""
     ws_dir = _make_workspace(tmp_path)
     (tmp_path / "EVENT_LOG.jsonl").write_text(EVENT_LOG_LINES)
 
-    contents = load_workspace(ws_dir, include_process_data=True)
-    system, user_content = build_process_audit_prompt(contents)
+    contents = load_workspace(ws_dir)
+    _, user_content = build_diagnosis_prompt(contents)
 
     assert "Event Log Summary" in user_content
     assert "orchestrator" in user_content
     assert "LLM Calls by Agent" in user_content
-
-
-def test_build_process_audit_prompt_no_event_log(tmp_path):
-    """Missing event log shows 'Not available'."""
-    ws_dir = _make_workspace(tmp_path)
-
-    contents = load_workspace(ws_dir, include_process_data=True)
-    _, user_content = build_process_audit_prompt(contents)
-
-    assert "Event Log Summary" in user_content
-    assert "Not available" in user_content
 
 
 # ---------------------------------------------------------------------------
@@ -804,12 +760,12 @@ def test_formal_eval_already_fenced(tmp_path):
 
 
 def test_formal_eval_prompt_inclusion(tmp_path):
-    """Formal eval result is included in the verification prompt."""
+    """Formal eval result is included in the diagnosis prompt."""
     ws_dir = _make_workspace(tmp_path)
     contents = load_workspace(ws_dir)
 
     correct_eval = FormalEvalResult(correct=True, method="simplify", details="diff=0")
-    _, user_content = build_verification_prompt(contents, formal_eval=correct_eval)
+    _, user_content = build_diagnosis_prompt(contents, formal_eval=correct_eval)
 
     assert "Formal Answer Evaluation" in user_content
     assert "CORRECT" in user_content
@@ -817,40 +773,15 @@ def test_formal_eval_prompt_inclusion(tmp_path):
 
 
 def test_formal_eval_prompt_skipped_not_included(tmp_path):
-    """Skipped formal eval should NOT appear in prompt."""
+    """Skipped formal eval should show SKIPPED framing."""
     ws_dir = _make_workspace(tmp_path)
     contents = load_workspace(ws_dir)
 
     skipped_eval = FormalEvalResult(skipped=True, skip_reason="No ANSWER.md")
-    _, user_content = build_verification_prompt(contents, formal_eval=skipped_eval)
+    _, user_content = build_diagnosis_prompt(contents, formal_eval=skipped_eval)
 
-    assert "Formal Answer Evaluation" not in user_content
-
-
-def test_formal_eval_report_writing(tmp_path):
-    """formal_answer field appears in VERIFICATION.md frontmatter and body."""
-    ws_dir = _make_workspace(tmp_path)
-    contents = load_workspace(ws_dir)
-    verification = parse_verdict(WELL_FORMED_RESPONSE)
-
-    correct_eval = FormalEvalResult(correct=True, method="simplify", details="diff=0")
-    write_verification_report(verification, ws_dir, formal_eval=correct_eval)
-
-    report = (tmp_path / "VERIFICATION.md").read_text()
-    assert "formal_answer: correct" in report
-    assert "Formal Answer Evaluation: CORRECT" in report
-    assert "simplify" in report
-
-
-def test_formal_eval_report_without_formal(tmp_path):
-    """No formal eval → no formal_answer in report."""
-    ws_dir = _make_workspace(tmp_path)
-    verification = parse_verdict(WELL_FORMED_RESPONSE)
-
-    write_verification_report(verification, ws_dir)
-
-    report = (tmp_path / "VERIFICATION.md").read_text()
-    assert "formal_answer" not in report
+    assert "SKIPPED" in user_content
+    assert "No ground truth" in user_content
 
 
 # ---------------------------------------------------------------------------
@@ -956,31 +887,57 @@ def test_formal_eval_no_fallback_when_answer_present(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# build_verification_prompt with reference content
+# build_diagnosis_prompt with reference content
 # ---------------------------------------------------------------------------
 
-def test_build_prompt_with_reference_content():
-    """Reference content is included in verification prompt."""
+def test_build_diagnosis_prompt_with_reference_content():
+    """Reference content is included in diagnosis prompt."""
     contents = WorkspaceContents(
         workspace_dir="/tmp/test",
         research_state="# State", evidence_log="# Evidence", critique_log="# Critiques",
     )
     ref_content = "# Typical Good Run\nExpected: 5 iterations, VALID verdict."
 
-    _, user_content = build_verification_prompt(contents, reference_content=ref_content)
+    _, user_content = build_diagnosis_prompt(contents, reference_content=ref_content)
 
     assert "## Reference Document" in user_content
     assert "Typical Good Run" in user_content
     assert "Expected: 5 iterations" in user_content
 
 
-def test_build_prompt_without_reference_content():
+def test_build_diagnosis_prompt_without_reference_content():
     """No reference content → no Reference Document section."""
     contents = WorkspaceContents(
         workspace_dir="/tmp/test",
         research_state="# State", evidence_log="# Evidence", critique_log="# Critiques",
     )
 
-    _, user_content = build_verification_prompt(contents, reference_content=None)
+    _, user_content = build_diagnosis_prompt(contents, reference_content=None)
 
     assert "Reference Document" not in user_content
+
+
+# ---------------------------------------------------------------------------
+# _load_or_run_formal_eval
+# ---------------------------------------------------------------------------
+
+def test_load_or_run_reads_existing_report(tmp_path):
+    """If VERIFICATION.md has formal_answer, read it instead of re-running."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "VERIFICATION.md").write_text("---\nformal_answer: correct\n---\n\n# Report\n")
+
+    result = _load_or_run_formal_eval(str(tmp_path), None, None)
+
+    assert result.correct is True
+    assert result.method == "from_report"
+
+
+def test_load_or_run_falls_back_to_fresh(tmp_path):
+    """If no VERIFICATION.md, run formal eval fresh."""
+    ws_dir = _make_workspace(tmp_path)
+    (tmp_path / "ANSWER.md").write_text(CORRECT_ANSWER_MD)
+
+    result = _load_or_run_formal_eval(str(tmp_path), HAWKING_PROBLEM_DEF, None)
+
+    assert result.correct is True
+    assert result.method != "from_report"

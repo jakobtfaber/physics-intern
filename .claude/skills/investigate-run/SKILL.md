@@ -25,7 +25,7 @@ A workspace contains these key files:
 |-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `problem.yaml`        | The scientific research problem to be solved, the answer template and possibly the true answer (not visible to the agents)                                      |
 | `ANSWER.md`           | Final formatted answer (produced by formatter agent on successful termination)                                                                                  |
-| `VERIFICATION.md`     | Independent verification report (science + process audit)                                                                                                       |
+| `VERIFICATION.md`     | Formal answer evaluation + diagnosis (error/correction chain analysis)                                                                                          |
 | `RESEARCH_GRAPH.json` | Authoritative structured state: hypotheses (with evidence + review), research_questions (with evidence), critiques, failed_approaches with explicit cross-links |
 | `EVENT_LOG.jsonl`     | Structured scaffold events (4 categories) and LLM call metadata                                                                                                 |
 | `RESEARCH_STATE.md`   | Rendered snapshot of the research state (from ResearchState, write-only for git/audit)                                                                          |
@@ -38,20 +38,26 @@ A workspace contains these key files:
 
 ### Verification Report Structure
 
-The verification report (`VERIFICATION.md`) is produced by two independent LLM calls and contains two sections:
+`VERIFICATION.md` contains two sections produced at different stages:
 
-1. **Scientific Verification** — assesses correctness of mathematical/physical results
+1. **Formal Answer Evaluation** — deterministic symbolic/numerical check of ANSWER.md against ground truth (run by the engine at end of run). Frontmatter has `formal_answer: correct/incorrect/inconclusive/skipped`.
 
-2. **Process Audit** — assesses effectiveness of the multi-agent process, but you should go beyond this first preliminary audit.
+2. **Diagnosis** — a single LLM analysis that traces error/correction chains through the run. If the answer was correct, it focuses on errors that were made and caught (correction chains). If incorrect, it focuses on root-cause failure analysis (failure chains). Each event is classified as CAUGHT, UNCAUGHT, or PARTIAL, with agents involved, root cause, and evidence IDs.
+
+The diagnosis is a useful starting point — read it first. Your job is to go deeper: verify the diagnosis claims against the raw data, investigate events it may have missed, and read the actual agent logs for critical moments.
 
 
 ## Procedure
 
-After reading the problem statement problem.yaml
+After reading the problem statement in `problem.yaml`:
 
-### Examine the formal research state
+### 1. Read the existing diagnosis
 
-Read `RESEARCH_GRAPH.json` (this is the authoritative state, not the markdown files):
+Read `VERIFICATION.md` to get the automated diagnosis. Note the formal answer evaluation result and the error/correction chains identified. This gives you the high-level narrative and the key events to investigate further.
+
+### 2. Examine the formal research state
+
+Read `RESEARCH_GRAPH.json` (the authoritative state, not the markdown files):
 
 **Strategy**:
 - Investigate "strategy" and "situation_assessment" fields and assess the approach
@@ -90,7 +96,7 @@ Read `RESEARCH_GRAPH.json` (this is the authoritative state, not the markdown fi
 - Are there entries in `failed_approaches`? Do they correspond to abandoned hypotheses?
 - Were failures tracked for claims that were retried?
 
-### Entity lifecycle report
+### 3. Entity lifecycle report
 
 Reconstruct the full lifecycle of every entity (RQ, WH, ER) from `RESEARCH_GRAPH.json` and `EVENT_LOG.jsonl`. Present this as a structured per-entity timeline so the user can visualize how the research unfolded.
 
@@ -154,7 +160,7 @@ After presenting the per-entity timeline, explicitly flag any of these anomalies
 - **Duplicate claims** — multiple WHs with semantically identical statements
 - **Stale strategy** — strategy text references abandoned or refuted entities (check `strategy` field in RESEARCH_GRAPH.json against entity statuses)
 
-### Investigate scaffold events
+### 4. Investigate scaffold events
 
 Read `EVENT_LOG.jsonl`. Events fall into 4 categories: `call_reliability`, `state_invariants`, `loop_control`, `output_normalization`.
 
@@ -196,71 +202,33 @@ Read `EVENT_LOG.jsonl`. Events fall into 4 categories: `call_reliability`, `stat
 - Track `agent`, `model`, `input_tokens`, `output_tokens`, `duration`, `round` (for agentic calls)
 - Use these to compute per-agent token budgets and identify bloated contexts
 
-### Trace specific issues
+### 5. Deepen the diagnosis with agent logs
 
-For any issue from Steps 1–4 that lacks sufficient explanation:
+The automated diagnosis (Step 1) identifies the key error/correction chains. Now verify and deepen those claims by reading the actual agent conversations.
 
+For each event flagged in the diagnosis (CAUGHT, UNCAUGHT, or PARTIAL):
 - Read the relevant LLM call logs in `logs/` (e.g., `iter003_01_orchestrator.md` for iteration 3) — logs use ALL_CAPS XML tags (`<SYSTEM_PROMPT>`, `<ROUND>`, `<LLM_RESPONSE>`, `<TOOL_CALL>`, `<TOOL_RESULT>`, `<USER_MESSAGE>`) to separate log structure from prompt content
-- Check `EVIDENCE_LOG.md` for evidence entries and review results
-- Check `CRITIQUE_LOG.md` for unresolved critiques and their severity
+- Verify the diagnosis is accurate: did the error really happen where claimed? Was it really caught (or missed) by the agent named?
+- For UNCAUGHT events: read the reviewer/critic logs to understand why they missed it. Did they have the right information in their context? Did they check the relevant steps?
+- For CAUGHT events: was the correction efficient or wasteful? How many iterations elapsed?
+
+Also check for issues the diagnosis may have missed:
 - Look at `METRICS.md` for token usage anomalies (context bloat, max_tokens hits)
 - Key failures to look for: empty/truncated outputs, repeated document_approach calls without execute_python, repeating the same task, tool loops cut off by max_rounds or max_tokens, reviewer not receiving focused context
 
 ## Failure attribution
 
-This is the core diagnostic deliverable. For every failure or significant inefficiency identified , trace it to its **root cause** by answering: **which agent made the mistake, and why?**
+For every failure or significant inefficiency, trace it to its **root cause**: which agent made the mistake, and why? Use the diagnosis chains as your starting point — the automated analysis identifies the "what", your job is to determine the "why" by reading the actual agent reasoning.
 
-Work through each of these questions systematically. Not all will apply to every run — skip those that are clearly irrelevant, but be thorough on the ones that matter.
+Focus on the questions most relevant to the specific failures found. Skip those that are clearly irrelevant.
 
-#### Did the surveyor set the right context?
-
-- Did the background notes contain accurate and relevant information?
-- Did the surveyor accidentally anchor the system by including candidate answers, code, or numerical predictions?
-- Were important conventions, definitions, or pitfalls flagged?
-- Were important sanity checks reported that the reviewer should have used? Were some missed that could have caught a critical error?
-
-#### Was the strategy sound?
-
-- Did the planner/orchestrator formulate a reasonable initial strategy?
-- Was the strategy updated after refutations, new evidence, or critiques?
-- Did a stale or wrong strategy cause the system to pursue a dead end?
-- Was the strategy too vague or too prescriptive?
-
-#### Did the researcher/computer produce correct work?
-
-- If the researcher made an error: what was the specific mathematical/physical mistake? Was it a conceptual error (wrong model), algebraic error (dropped term), or convention confusion (e.g., Δ̄ treatment)?
-- If the computer made an error: was the code logically wrong, did it time out, did it enumerate incompletely, or did it produce correct intermediate results that were incorrectly assembled?
-- Was the agent overwhelmed by the complexity of the task? (Signs: max_tokens hit, reasoning loops, incomplete output, multiple failed attempts at the same derivation)
-- Was the task well scoped, or too big for one agent call? (Signs of too-big: multiple independent sub-goals in one step, long reasoning chains, multiple tool calls, or a mix of analytical and computational work that should have been split)
-- Was the task appropriately routed? (e.g., was a pure analytical problem sent to the computer, or a computational problem sent to the researcher?)
-- Occasional errors might occur, if they are caught by the reviewer.
-
-#### Did the reviewer catch what it should have?
-
-- If the science is wrong: did the reviewer verify a wrong result (false verification)? Read the reviewer's reasoning — did it actually check the critical steps, or did it rubber-stamp?
-- Did the reviewer reject a correct result (false refutation)? What was the reviewer's stated reason? Was the reasoning plausible but wrong, or clearly flawed?
-- Did the reviewer receive adequate context to make its determination? (Check the focused context: was the evidence complete, were scripts and outputs included?)
-- It might happen that a computer/researcher makes a mistake, but the reviewer correctly REFUTES it.
-
-#### Was the orchestrator effective?
-
-- Did the orchestrator correctly interpret evidence results and review verdicts?
-- Did it handle the management of the research process well (creating RQ/WH, asking reviews, promoting to ER, critique resolution, abandonment decisions)?
-- Did it get "lost" — dispatching redundant tasks, creating unnecessary entities, failing to promote or abandon when it should have?
-- Did it respond appropriately to refutations (update strategy, re-dispatch with different approach) or did it repeat the same failing approach?
-- Did it waste iterations on housekeeping (excessive note-taking, redundant strategy updates) instead of productive work?
-
-#### Did the critic add value or cause harm?
-
-- Were filed critiques legitimate and actionable? Was the number of critiques reasonable (not zero, but not excessive)?
-- Did a false-alarm critique send the system on an unnecessary detour?
-- Did the critic miss something important that it should have caught?
-- Did the critique trigger a revision of the strategy, or did the orchestrator ignore it?
-
-#### Did the scaffold help or hinder?
-
-- Were there scaffold-level events (forced_critic, termination_blocked, er_demotion_safety) that were appropriate and protective, or did they create unnecessary overhead?
-- Did agent failures (max_tokens, max_rounds, empty responses) reflect a scaffold configuration issue or an inherently difficult task?
+- **Surveyor**: Did it set the right context? Did it anchor the system with candidate answers? Were important pitfalls/sanity checks flagged or missed?
+- **Planner/Strategy**: Was the initial strategy sound? Was it updated after failures? Did a stale strategy cause dead ends?
+- **Researcher/Computer**: What was the specific mistake (conceptual, algebraic, convention confusion, code bug, timeout)? Was the task well-scoped or too big for one call? Was it appropriately routed (analytical vs computational)?
+- **Reviewer**: Did it rubber-stamp a wrong result (false verification)? Did it reject a correct result (false refutation)? Did it receive adequate context? Read its actual reasoning to answer this.
+- **Orchestrator**: Did it interpret verdicts correctly? Did it repeat failing approaches? Did it waste iterations on housekeeping instead of productive work?
+- **Critic**: Were critiques legitimate and actionable? Did false alarms cause detours? Did it miss something important?
+- **Scaffold**: Were interventions (forced_critic, termination_blocked, er_demotion_safety) helpful or harmful? Did agent failures reflect config issues or inherent difficulty?
 
 ## Insights for improvement
 
