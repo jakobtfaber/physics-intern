@@ -15,7 +15,7 @@ from ..parsing import extract_json
 TEXT_SECTION_FIELDS = (
     "background", "key_insights", "known_methods",
     "known_pitfalls", "conventions_and_definitions",
-    "problem_summary",
+    "expected_answer_structure", "problem_summary",
 )
 
 if TYPE_CHECKING:
@@ -56,6 +56,7 @@ class SurveyorAgent(BaseAgent):
             '  "known_methods": "...",\n'
             '  "known_pitfalls": "...",\n'
             '  "conventions_and_definitions": "...",\n'
+            '  "expected_answer_structure": "...",\n'
             '  "problem_summary": "...",\n'
             '  "sanity_checks": [\n'
             '    {"predicate": "...", "rationale": "..."},\n'

@@ -179,7 +179,8 @@ class ResearchState:
     key_insights: str = ""        # §2: key insights
     survey_methods: str = ""      # §3: known methods and techniques
     known_pitfalls: str = ""      # §4: known pitfalls
-    problem_summary: str = ""     # §7: one-sentence problem summary
+    expected_answer_structure: str = ""  # §7: expected form/complexity of the answer
+    problem_summary: str = ""     # §8: one-sentence problem summary
 
     # --- Query methods ---
 
@@ -486,6 +487,7 @@ class ResearchState:
         state.key_insights = data.get("key_insights", "")
         state.survey_methods = data.get("survey_methods", "")
         state.known_pitfalls = data.get("known_pitfalls", "")
+        state.expected_answer_structure = data.get("expected_answer_structure", "")
         state.problem_summary = data.get("problem_summary", "")
         # Backward compat: split merged survey_background containing ## Key Insights
         if state.survey_background and not state.key_insights and "## Key Insights" in state.survey_background:

@@ -44,6 +44,8 @@ def render_background_survey_xml(state: ResearchState) -> str:
         parts.append(f"<known-methods>\n{state.survey_methods}\n</known-methods>")
     if state.known_pitfalls:
         parts.append(f"<known-pitfalls>\n{state.known_pitfalls}\n</known-pitfalls>")
+    if state.expected_answer_structure:
+        parts.append(f"<expected-answer-structure>\n{state.expected_answer_structure}\n</expected-answer-structure>")
     return "\n".join(parts)
 
 

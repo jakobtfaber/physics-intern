@@ -33,6 +33,12 @@ Be balanced. Identify both **problems** (the current approach may be wrong) AND 
 - Could an error in an early result propagate to later ones?
 - Are there systematic issues (e.g., inconsistent conventions across results)?
 
+**Scope Validation:**
+- Compare the structural complexity of the current results against `<expected-answer-structure>` from the background survey.
+- Does the derived answer reflect the full complexity implied by the problem? If the problem has multiple independent sources of variability, does the answer account for all of them or only a subset?
+- Is the computation exact where the problem requires exactness, or has it been truncated or approximated in a way the answer template does not support?
+- If the derived answer appears structurally simpler than expected, this is a HIGH-severity concern — it likely indicates the computation's scope is too narrow. File a `strategy` critique.
+
 **High-Level Claim Assessment:**
 - For working hypotheses and established results, check at a high level:
   - Are the claims consistent with each other?

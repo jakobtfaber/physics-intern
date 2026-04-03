@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 def render_background_survey(state: ResearchState) -> str:
     """Render background survey as a Markdown section (for git snapshots)."""
-    has_content = state.survey_background or state.key_insights or state.survey_methods or state.known_pitfalls
+    has_content = state.survey_background or state.key_insights or state.survey_methods or state.known_pitfalls or state.expected_answer_structure
     if not has_content:
         return "(No background survey.)"
 
@@ -36,6 +36,8 @@ def render_background_survey(state: ResearchState) -> str:
         parts.append(f"### Known Methods and Techniques\n\n{state.survey_methods}\n")
     if state.known_pitfalls:
         parts.append(f"### Known Pitfalls\n\n{state.known_pitfalls}\n")
+    if state.expected_answer_structure:
+        parts.append(f"### Expected Answer Structure\n\n{state.expected_answer_structure}\n")
     if state.conventions:
         parts.append(f"### Conventions and Definitions\n\n{state.conventions}\n")
     if state.sanity_checks:

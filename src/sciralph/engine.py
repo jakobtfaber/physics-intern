@@ -548,6 +548,8 @@ class SciRalph:
                     self.research_state.sanity_checks.append(SanityCheck(
                         id=f"SC-{sc_num:03d}", predicate=str(item),
                     ))
+        if survey.get("expected_answer_structure"):
+            self.research_state.expected_answer_structure = survey["expected_answer_structure"].strip()
         if survey.get("problem_summary"):
             self.research_state.problem_summary = survey["problem_summary"].strip()
 
