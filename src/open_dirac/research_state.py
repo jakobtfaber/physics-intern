@@ -76,6 +76,13 @@ class Evidence:
     derivation_file: str = ""  # Filename in derivations/ (researcher only)
     refuted: bool = False      # Marked True when review verdict is REFUTED
 
+    def __post_init__(self):
+        # LLMs may return non-string values (e.g. int) for these fields
+        if not isinstance(self.result, str):
+            self.result = str(self.result)
+        if not isinstance(self.summary, str):
+            self.summary = str(self.summary)
+
 
 @dataclass
 class ReviewResult:
