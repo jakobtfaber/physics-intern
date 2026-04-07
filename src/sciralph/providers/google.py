@@ -113,6 +113,23 @@ class GoogleProvider(LLMProvider):
         text = "\n".join(text_parts)
         reasoning_content = "\n".join(reasoning_parts)
 
+        # Detect blocked or empty response
+        if not text and not tool_calls and not reasoning_parts:
+            if response.candidates:
+                finish = response.candidates[0].finish_reason
+                if finish and getattr(finish, 'name', None) in (
+                    "SAFETY", "RECITATION", "OTHER",
+                ):
+                    raise RuntimeError(
+                        f"Gemini response blocked: finish_reason={finish.name}"
+                    )
+            if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+                block = getattr(response.prompt_feedback, 'block_reason', None)
+                if block:
+                    raise RuntimeError(
+                        f"Gemini prompt blocked: block_reason={block}"
+                    )
+
         # Determine stop reason
         stop_reason = "end_turn"
         if tool_calls:
@@ -140,7 +157,9 @@ class GoogleProvider(LLMProvider):
             reasoning_tokens=reasoning_tokens,
             answer_tokens=answer_tokens,
             tool_calls=tool_calls,
-            raw_content=response.candidates[0].content if response.candidates else None,
+            raw_content=(response.candidates[0].content
+                        if response.candidates and response.candidates[0].content
+                        else None),
             reasoning_content=reasoning_content,
         )
 

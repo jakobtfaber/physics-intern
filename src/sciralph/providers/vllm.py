@@ -258,6 +258,13 @@ class VLLMProvider(LLMProvider):
 
         text = "".join(text_parts)
 
+        # Guard against empty stream (no chunks received at all)
+        if not text_parts and not tc_acc and finish_reason is None:
+            raise RuntimeError(
+                "Provider returned an empty stream (no chunks received). "
+                "This may indicate a server-side timeout or misconfiguration."
+            )
+
         # ------------------------------------------------------------------
         # Tool-call detection (mode-dependent)
         # ------------------------------------------------------------------

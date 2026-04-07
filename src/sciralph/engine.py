@@ -9,7 +9,7 @@ from rich.text import Text
 
 from .config import Config
 from .console import console, replay_log
-from .llm import _is_transient, ContextTooLongError
+from .llm import _is_transient, ContextTooLongError, ParseFailureError
 from .metrics import MetricsTracker
 from .task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
@@ -175,13 +175,13 @@ class SciRalph:
 
         # Skip surveyor if survey fields already populated (e.g. on resume)
         if not self.research_state.survey_background:
-            self._run_surveyor()
+            self._run_with_pipeline_retry("Surveyor", self._run_surveyor)
         else:
             console.print("[dim]Surveyor skipped (background survey already exists)[/dim]")
 
         # Run planner to produce initial strategy (skip if already set, e.g. on resume)
         if not self.research_state.strategy:
-            self._run_planner()
+            self._run_with_pipeline_retry("Planner", self._run_planner)
         else:
             console.print("[dim]Planner skipped (strategy already exists)[/dim]")
 
@@ -317,6 +317,9 @@ class SciRalph:
             except ContextTooLongError as exc:
                 self._handle_context_too_long(task, exc)
                 continue
+            except ParseFailureError as exc:
+                self._handle_parse_failure(task, exc)
+                continue
             except Exception as exc:
                 if not _is_transient(exc):
                     raise
@@ -350,6 +353,8 @@ class SciRalph:
                     self._append_dispatch_record(review_task)
                 except ContextTooLongError as exc:
                     self._handle_context_too_long(review_task, exc)
+                except ParseFailureError as exc:
+                    self._handle_parse_failure(review_task, exc)
                 except Exception as exc:
                     if not _is_transient(exc):
                         raise
@@ -372,6 +377,8 @@ class SciRalph:
                     self._append_dispatch_record(critic_task)
                 except ContextTooLongError as exc:
                     self._handle_context_too_long(critic_task, exc)
+                except ParseFailureError as exc:
+                    self._handle_parse_failure(critic_task, exc)
                 except Exception as exc:
                     if not _is_transient(exc):
                         raise
@@ -395,6 +402,8 @@ class SciRalph:
                     self._append_dispatch_record(critic_task)
                 except ContextTooLongError as exc:
                     self._handle_context_too_long(critic_task, exc)
+                except ParseFailureError as exc:
+                    self._handle_parse_failure(critic_task, exc)
                 except Exception as exc:
                     if not _is_transient(exc):
                         raise
@@ -624,6 +633,74 @@ class SciRalph:
         )
         log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "dispatch_failure",
                            f"{type(exc).__name__}: {str(exc)[:200]}")
+
+    def _handle_parse_failure(self, task: Task, exc: ParseFailureError) -> None:
+        """Handle evidence agent parse failure — log and report to orchestrator.
+
+        No evidence is stored.  The failure is appended to ``agent_failures``
+        so the orchestrator can decide whether to re-dispatch or decompose.
+        """
+        self.metrics.alert(
+            self.iteration,
+            f"Parse failure on {exc.agent_name}: {exc.detail}",
+        )
+        self._state.agent_failures.append({
+            "task_id": task.task_id,
+            "agent": exc.agent_name,
+            "event": "parse_failure",
+            "detail": (
+                f"Agent {exc.agent_name} failed to produce valid structured "
+                f"output after retries. No evidence was stored. "
+                f"Consider re-dispatching or decomposing the task."
+            ),
+            "iteration": self.iteration,
+        })
+        console.print(
+            f"[yellow]{exc.agent_name}: parse failure — no evidence stored. "
+            f"Reporting to orchestrator.[/yellow]"
+        )
+        log_scaffold_event(
+            self.workspace.root, self.iteration, CC.OUTPUT_NORMALIZATION,
+            "parse_failure_no_evidence",
+            f"agent={exc.agent_name}, task={task.task_id}, {exc.detail[:200]}",
+        )
+
+    def _run_with_pipeline_retry(self, label: str, fn) -> None:
+        """Run a mandatory pipeline stage with retry on transient errors.
+
+        Surveyor and planner are required before the main loop.  If retries
+        are exhausted the entire run is aborted with a clear error message.
+        """
+        import time
+        max_retries = self.config.pipeline_retry_max
+        delay = self.config.api_retry_initial_delay
+        for attempt in range(max_retries + 1):
+            try:
+                fn()
+                return
+            except ContextTooLongError:
+                raise  # Deterministic — retrying won't help
+            except Exception as exc:
+                if not _is_transient(exc) or attempt == max_retries:
+                    console.print(
+                        f"[red]{label} failed after {attempt + 1} attempt(s): "
+                        f"{type(exc).__name__}: {exc}[/red]"
+                    )
+                    raise RuntimeError(
+                        f"{label} failed — provider may be unavailable. "
+                        f"Last error: {type(exc).__name__}: {exc}"
+                    ) from exc
+                console.print(
+                    f"[yellow]{label} failed (attempt {attempt + 1}/"
+                    f"{max_retries + 1}), retrying: {exc}[/yellow]"
+                )
+                log_scaffold_event(
+                    self.workspace.root, 0, CC.CALL_RELIABILITY,
+                    f"{label.lower()}_retry",
+                    f"attempt={attempt + 1}, {type(exc).__name__}: {str(exc)[:200]}",
+                )
+                time.sleep(min(delay, self.config.api_retry_max_delay))
+                delay *= 2
 
     def _record_agent_failures(self, task: Task, agent_name: str, result):
         """Inspect agent result for failure signals and record for orchestrator context."""

@@ -10,7 +10,9 @@ from sciralph.agents.researcher import (
     _extract_derivation_text,
     _parse_researcher_json,
 )
-from sciralph.llm import LLMResponse
+import pytest
+
+from sciralph.llm import LLMResponse, ParseFailureError
 from sciralph.research_state import (
     Evidence,
     Hypothesis,
@@ -173,12 +175,9 @@ class TestResearcherProcessResponse:
         response = LLMResponse(text="Long derivation without any JSON block at the end.",
                                input_tokens=100, output_tokens=50,
                                stop_reason="end_turn", duration=0.1)
-        agent.process_response(response, task, iteration=3)
-        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
-        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
-        assert ev.confidence == "partial"
-        assert "Failed to parse" in ev.result
-        assert "Long derivation" in ev.reasoning
+        with pytest.raises(ParseFailureError):
+            agent.process_response(response, task, iteration=3)
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 0
 
     def test_fallback_reasoning_truncated(self):
         agent = _make_researcher()
@@ -187,10 +186,9 @@ class TestResearcherProcessResponse:
         long_text = "x" * 5000
         response = LLMResponse(text=long_text, input_tokens=100, output_tokens=50,
                                stop_reason="end_turn", duration=0.1)
-        agent.process_response(response, task, iteration=1)
-        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
-        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
-        assert len(ev.reasoning) == 2000
+        with pytest.raises(ParseFailureError):
+            agent.process_response(response, task, iteration=1)
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 0
 
     def test_invalid_confidence_normalized(self):
         agent = _make_researcher()
@@ -222,10 +220,9 @@ class TestResearcherProcessResponse:
                     body="Derive", target_claim="RQ-001")
         response = LLMResponse(text="", input_tokens=100, output_tokens=0,
                                stop_reason="end_turn", duration=0.1)
-        agent.process_response(response, task, iteration=1)
-        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
-        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
-        assert ev.confidence == "partial"
+        with pytest.raises(ParseFailureError):
+            agent.process_response(response, task, iteration=1)
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -489,10 +486,10 @@ class TestResearcherDerivationFile:
         response = LLMResponse(text="Long derivation without JSON.",
                                input_tokens=100, output_tokens=50,
                                stop_reason="end_turn", duration=0.1)
-        agent.process_response(response, task, iteration=2)
-        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
-        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
-        assert ev.derivation_file == "RQ-001_002.md"
+        with pytest.raises(ParseFailureError):
+            agent.process_response(response, task, iteration=2)
+        # Derivation file is written before parsing, but no evidence stored
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 0
         content = agent.workspace.read_file("derivations/RQ-001_002.md")
         assert "Long derivation" in content
 
@@ -502,10 +499,9 @@ class TestResearcherDerivationFile:
                     body="Derive", target_claim="RQ-001")
         response = LLMResponse(text="", input_tokens=100, output_tokens=0,
                                stop_reason="end_turn", duration=0.1)
-        agent.process_response(response, task, iteration=1)
-        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 1
-        ev = agent.research_state.research_questions["RQ-001"].evidence[0]
-        assert ev.derivation_file == ""
+        with pytest.raises(ParseFailureError):
+            agent.process_response(response, task, iteration=1)
+        assert len(agent.research_state.research_questions["RQ-001"].evidence) == 0
 
     def test_derivation_file_serialization_roundtrip(self):
         """derivation_file survives JSON serialization roundtrip."""

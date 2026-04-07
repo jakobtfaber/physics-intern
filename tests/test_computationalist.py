@@ -232,17 +232,17 @@ class TestResearcherProcessResponse:
         assert len(agent.research_state.research_questions[rq_id].evidence) > 0
 
     def test_fallback_no_json(self):
-        """When no JSON block, build minimal evidence from response text."""
+        """When no JSON block, raise ParseFailureError (no degraded evidence)."""
+        import pytest
+        from sciralph.llm import ParseFailureError
         from sciralph.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body=f"Derive for {rq_id}", target_claim=rq_id)
         response = self._make_response(text="Partial derivation that got cut off...")
-        agent.process_response(response, task, iteration=1)
-        evidence = agent.research_state.research_questions[rq_id].evidence[-1]
-        assert evidence is not None
-        assert evidence.confidence == "partial"
-        assert "Partial derivation" in evidence.reasoning
+        with pytest.raises(ParseFailureError):
+            agent.process_response(response, task, iteration=1)
+        assert len(agent.research_state.research_questions[rq_id].evidence) == 0
 
 
 class TestToolsForTaskType:

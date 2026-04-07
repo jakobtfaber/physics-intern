@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sciralph.llm import LLMResponse
+from sciralph.llm import LLMResponse, ParseFailureError
 from sciralph.research_state import ReviewResult
 
 from ..base import BaseAgent
@@ -61,6 +61,7 @@ class ReviewerAgent(BaseAgent):
     name = "reviewer"
     prompt_file = "prompt.md"
     tools = []  # one-shot: no tools
+    raise_on_parse_failure = True
 
     def _validate_response(self, response: LLMResponse) -> bool:
         return _parse_review_json(response.text or "") is not None
@@ -266,11 +267,11 @@ class ReviewerAgent(BaseAgent):
                 iteration=iteration,
             )
         else:
-            review = ReviewResult(
-                verdict="INCONCLUSIVE",
-                summary="Failed to parse structured review output.",
-                details=text[:2000] if text else "",
-                iteration=iteration,
+            # Unreachable when raise_on_parse_failure=True — _call_with_retry
+            # raises ParseFailureError before process_response is called.
+            raise ParseFailureError(
+                agent_name=self.name,
+                detail="process_response reached without valid parsed output",
             )
 
         # Store on target hypothesis

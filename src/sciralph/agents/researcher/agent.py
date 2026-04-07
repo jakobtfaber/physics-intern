@@ -6,7 +6,7 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from sciralph.llm import LLMResponse
+from sciralph.llm import LLMResponse, ParseFailureError
 from sciralph.research_state import Evidence
 
 from ..evidence_base import ENTITY_ID_RE, EvidenceAgent
@@ -82,6 +82,7 @@ class ResearcherAgent(EvidenceAgent):
     name = "researcher"
     prompt_file = "prompt.md"
     tools = []  # one-shot: no tools
+    raise_on_parse_failure = True
 
     def _validate_response(self, response: LLMResponse) -> bool:
         return _parse_researcher_json(response.text or "") is not None
@@ -137,14 +138,11 @@ class ResearcherAgent(EvidenceAgent):
                 derivation_file=derivation_file,
             )
         else:
-            # Parse failure — build minimal evidence from text
-            evidence = Evidence(
-                type="research",
-                reasoning=text[:2000] if text else "",
-                result="Failed to parse structured research output.",
-                confidence="partial",
-                iteration=iteration,
-                derivation_file=derivation_file,
+            # Unreachable when raise_on_parse_failure=True — _call_with_retry
+            # raises ParseFailureError before process_response is called.
+            raise ParseFailureError(
+                agent_name=self.name,
+                detail="process_response reached without valid parsed output",
             )
 
         # Store on target entity — use task.target_claim, not tool params

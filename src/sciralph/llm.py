@@ -152,6 +152,23 @@ class ContextTooLongError(Exception):
         )
 
 
+class ParseFailureError(Exception):
+    """Raised when an agent exhausts parse retries without valid output.
+
+    Signals to the engine that the agent call failed to produce usable
+    structured output and should be reported to the orchestrator — NOT
+    stored as degraded partial evidence.
+    """
+
+    def __init__(self, agent_name: str, detail: str = ""):
+        self.agent_name = agent_name
+        self.detail = detail
+        super().__init__(
+            f"Parse failure after retries exhausted: agent={agent_name}"
+            + (f", {detail}" if detail else "")
+        )
+
+
 def _parse_context_error(exc: Exception) -> tuple[int, int]:
     """Extract (input_tokens, max_context) from a context-length error message."""
     msg = str(exc)

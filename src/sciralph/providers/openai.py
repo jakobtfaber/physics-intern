@@ -55,10 +55,18 @@ class OpenAIProvider(LLMProvider):
             import json
             tool_calls = []
             for tc in choice.message.tool_calls:
+                args_str = tc.function.arguments or ""
+                try:
+                    parsed_args = json.loads(args_str) if args_str else {}
+                except (json.JSONDecodeError, ValueError):
+                    if tc.function.name == "execute_python":
+                        parsed_args = {"code": args_str}
+                    else:
+                        parsed_args = {"raw": args_str}
                 tool_calls.append({
                     "id": tc.id,
                     "name": tc.function.name,
-                    "input": json.loads(tc.function.arguments),
+                    "input": parsed_args,
                 })
 
         stop_reason = _STOP_REASON_MAP.get(choice.finish_reason, choice.finish_reason)

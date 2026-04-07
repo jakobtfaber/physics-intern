@@ -56,3 +56,9 @@ max_refuted_retries: 2
 # --- One-shot parse retry ---
 # Max continuation retries for one-shot agents on max_tokens or missing JSON output.
 parse_retries: 2
+
+# --- Pipeline retry ---
+# Max retries for mandatory pipeline stages (surveyor, planner).
+# These stages run before the main loop — if retries are exhausted,
+# the entire run aborts.
+pipeline_retry_max: 2

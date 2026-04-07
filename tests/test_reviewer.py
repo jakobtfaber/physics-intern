@@ -5,7 +5,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from sciralph.agents.reviewer import ReviewerAgent, _parse_review_json
-from sciralph.llm import LLMResponse
+import pytest
+
+from sciralph.llm import LLMResponse, ParseFailureError
 from sciralph.research_state import (
     Evidence,
     Hypothesis,
@@ -144,10 +146,10 @@ class TestReviewerProcessResponse:
         response = LLMResponse(text="Some analysis without JSON output.",
                                input_tokens=100, output_tokens=50,
                                stop_reason="end_turn", duration=0.1)
-        agent.process_response(response, task, iteration=3)
-        review = agent.research_state.hypotheses["WH-001"].review
-        assert review.verdict == "INCONCLUSIVE"
-        assert "Failed to parse" in review.summary
+        with pytest.raises(ParseFailureError):
+            agent.process_response(response, task, iteration=3)
+        # No review stored on parse failure
+        assert agent.research_state.hypotheses["WH-001"].review is None
 
     def test_invalid_verdict_normalized(self):
         root = Path(tempfile.mkdtemp())

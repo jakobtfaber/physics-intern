@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sciralph.llm import AgentResult
+from sciralph.llm import AgentResult, ParseFailureError
 from sciralph.research_state import Evidence
 
 from ..evidence_base import ENTITY_ID_RE, EvidenceAgent
@@ -18,6 +18,7 @@ class ComputerAgent(EvidenceAgent):
     name = "computer"
     prompt_file = "prompt.md"
     tools = ToolExecutor.COMPUTER_TOOLS
+    raise_on_parse_failure = True
 
     def process_response(self, response: AgentResult, task: Task, iteration: int):
         """Build Evidence from document_approach + submit_result and store on target entity."""
@@ -93,16 +94,12 @@ class ComputerAgent(EvidenceAgent):
                 iteration=iteration,
             )
         else:
-            # No exit tool called — build minimal evidence
-            evidence = Evidence(
-                type="compute",
-                approach=approach_text,
-                scripts=filtered_scripts,
-                script_purposes=purposes,
-                output="\n---\n".join(exec_outputs) if exec_outputs else "",
-                result="Agent produced no exit tool call.",
-                confidence="partial",
-                iteration=iteration,
+            # No exit tool called — agent failed to produce structured output
+            raise ParseFailureError(
+                agent_name=self.name,
+                detail=f"Agent produced no submit_result tool call"
+                       f" (rounds={getattr(response, 'rounds', '?')},"
+                       f" tool_calls={len(response.tool_calls)})",
             )
 
         # Store on target entity

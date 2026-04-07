@@ -9,7 +9,7 @@ from typing import ClassVar, TYPE_CHECKING
 
 from ..config import Config
 from ..console import console
-from ..llm import AgentResult, ContextTooLongError, LLMResponse, call_llm, call_llm_continuation, run_agent_loop
+from ..llm import AgentResult, ContextTooLongError, LLMResponse, ParseFailureError, call_llm, call_llm_continuation, run_agent_loop
 from ..metrics import MetricsTracker
 from ..tool_call import ToolCall
 from .computer.tools import ToolExecutor
@@ -27,6 +27,7 @@ class BaseAgent(ABC):
     prompt_file: str = ""
     tools: ClassVar[list[dict]] = []
     max_tool_rounds: ClassVar[int | None] = None
+    raise_on_parse_failure: ClassVar[bool] = False
     # parse_retries is now read from self.config.parse_retries (config.default.yaml)
 
     def __init__(self, config: Config, workspace: WorkspaceManager, metrics: MetricsTracker):
@@ -336,6 +337,15 @@ class BaseAgent(ABC):
                 event="parse_retry_failed",
                 detail=f"agent={self.name}",
             )
+
+        # Raise if agent opts in and response is still invalid
+        if self.raise_on_parse_failure and not self._validate_response(response):
+            raise ParseFailureError(
+                agent_name=self.name,
+                detail=f"stop_reason={response.stop_reason}, "
+                       f"text_len={len(response.text or '')}",
+            )
+
         if original_stop_reason == "max_tokens":
             self._log_max_tokens(response, iteration)
         return response
