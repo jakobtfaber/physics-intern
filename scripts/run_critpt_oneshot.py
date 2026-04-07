@@ -172,6 +172,35 @@ def _parse_stderr_stats(stderr: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Raw response logging
+# ---------------------------------------------------------------------------
+
+# Set by run_batch() before workers start
+_logs_dir: Path | None = None
+
+
+def _save_raw_response(
+    problem: Problem,
+    stdout_text: str,
+    stderr_text: str,
+    success: bool,
+) -> None:
+    """Save raw LLM stdout/stderr to logs/ for post-hoc debugging."""
+    if _logs_dir is None:
+        return
+    prefix = "ok" if success else "FAIL"
+    log_path = _logs_dir / f"{prefix}_{problem.problem_id}.txt"
+    try:
+        with open(log_path, "w") as f:
+            f.write(f"=== STDOUT ({len(stdout_text)} chars) ===\n")
+            f.write(stdout_text)
+            f.write(f"\n\n=== STDERR ({len(stderr_text)} chars) ===\n")
+            f.write(stderr_text)
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Run result
 # ---------------------------------------------------------------------------
 
@@ -241,6 +270,9 @@ async def run_one_problem(
                     error = f"exit code {proc.returncode}: {stderr_text[-500:]}"
                 else:
                     error = "no answer code found in response"
+
+            # Save raw response for debugging (especially useful for failures)
+            _save_raw_response(problem, stdout_text, stderr_text, success)
 
             return RunResult(
                 problem_n=problem.n,
@@ -395,6 +427,11 @@ async def run_batch(args: argparse.Namespace) -> int:
         safe_model = args.model.replace("/", "-").replace(":", "-")
         output_dir = DEFAULT_RESULTS_BASE / safe_model / ts
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create logs directory for raw responses
+    global _logs_dir
+    _logs_dir = output_dir / "logs"
+    _logs_dir.mkdir(exist_ok=True)
 
     # Resume: skip completed
     n_skip = 0
