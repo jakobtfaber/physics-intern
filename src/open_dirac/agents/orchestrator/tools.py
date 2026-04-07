@@ -733,6 +733,9 @@ class OrchestratorToolExecutor:
         h = state.hypotheses[hid]
         title = h.statement or hid
 
+        if h.status == HypothesisStatus.ABANDONED:
+            return f"{hid} is already abandoned."
+
         h.status = HypothesisStatus.ABANDONED
         h.iteration_modified = self.iteration
 

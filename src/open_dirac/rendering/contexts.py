@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..research_state import (
     CritiqueStatus,
+    FailedApproach,
     Hypothesis,
     HypothesisStatus,
     ResearchState,
@@ -15,6 +16,24 @@ from ..research_state import (
     SanityCheck,
     Severity,
 )
+
+
+def _dedup_failed_approaches(approaches: list[FailedApproach]) -> list[FailedApproach]:
+    """Keep only the latest FailedApproach per primary entity, preserving order."""
+    best: dict[str, FailedApproach] = {}
+    for fa in approaches:
+        key = fa.related_entities[0] if fa.related_entities else fa.description
+        if key not in best or fa.iteration >= best[key].iteration:
+            best[key] = fa
+    # Preserve first-seen order of keys
+    seen: set[str] = set()
+    result: list[FailedApproach] = []
+    for fa in approaches:
+        key = fa.related_entities[0] if fa.related_entities else fa.description
+        if key not in seen and best[key] is fa:
+            seen.add(key)
+            result.append(fa)
+    return result
 
 
 def _render_sanity_checks(checks: list[SanityCheck], tag: str = "sanity-checks") -> str:
@@ -179,7 +198,8 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
     )
     if has_dead_ends:
         de_parts: list[str] = []
-        for fa in state.failed_approaches:
+        deduped = _dedup_failed_approaches(state.failed_approaches)
+        for fa in deduped:
             de_parts.append(f"- {fa.description}")
             if fa.reason:
                 de_parts.append(f"  Reason: {fa.reason}")
@@ -187,7 +207,7 @@ def render_orchestrator_research_state(state: ResearchState) -> str:
                 de_parts.append(f"  Derivation: {fa.derivation_excerpt}")
             if fa.related_entities:
                 de_parts.append(f"  Related entities: {', '.join(fa.related_entities)}")
-        fa_descriptions = {fa.description for fa in state.failed_approaches}
+        fa_descriptions = {fa.description for fa in deduped}
         for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
             if h.status == HypothesisStatus.ABANDONED:
                 desc = f"Abandoned {h.id} — {h.statement}"
@@ -281,11 +301,12 @@ def render_orchestrator_slim_state(
         return s if len(s) <= cap else s[: cap - 1] + "\u2026"
 
     dead_lines: list[str] = []
-    for fa in state.failed_approaches:
+    deduped = _dedup_failed_approaches(state.failed_approaches)
+    for fa in deduped:
         desc = _trunc(fa.description, 150)
         reason = f" ({_trunc(fa.reason, 120)})" if fa.reason else ""
         dead_lines.append(f"- {desc}{reason}")
-    fa_descriptions = {fa.description for fa in state.failed_approaches}
+    fa_descriptions = {fa.description for fa in deduped}
     for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
         if h.status == HypothesisStatus.ABANDONED:
             desc = f"Abandoned {h.id} — {h.statement}"
@@ -591,12 +612,13 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
 
     # Dead Ends
     de_lines: list[str] = []
-    for fa in state.failed_approaches:
+    deduped = _dedup_failed_approaches(state.failed_approaches)
+    for fa in deduped:
         line = f"- {fa.description}"
         if fa.reason:
             line += f" (Reason: {fa.reason})"
         de_lines.append(line)
-    fa_descriptions = {fa.description for fa in state.failed_approaches}
+    fa_descriptions = {fa.description for fa in deduped}
     for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
         if h.status == HypothesisStatus.ABANDONED:
             desc = f"Abandoned {h.id} — {h.statement}"

@@ -16,6 +16,7 @@ from ..research_state import (
     ResearchState,
     RQStatus,
 )
+from .contexts import _dedup_failed_approaches
 
 if TYPE_CHECKING:
     from ..task import Task
@@ -183,7 +184,8 @@ def _research_state_body(state: ResearchState) -> str:
         h.status == HypothesisStatus.ABANDONED for h in state.hypotheses.values()
     )
     parts.append("# Dead Ends\n")
-    for fa in state.failed_approaches:
+    deduped = _dedup_failed_approaches(state.failed_approaches)
+    for fa in deduped:
         parts.append(f"- {fa.description}")
         if fa.reason:
             parts.append(f"  Reason: {fa.reason}")
@@ -192,7 +194,7 @@ def _research_state_body(state: ResearchState) -> str:
         if fa.related_entities:
             parts.append(f"  Related entities: {', '.join(fa.related_entities)}")
     # Only render abandoned hypotheses not already covered by failed_approaches
-    fa_descriptions = {fa.description for fa in state.failed_approaches}
+    fa_descriptions = {fa.description for fa in deduped}
     for h in sorted(state.hypotheses.values(), key=lambda h: h.id):
         if h.status == HypothesisStatus.ABANDONED:
             desc = f"Abandoned {h.id} — {h.statement}"

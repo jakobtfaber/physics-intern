@@ -1275,6 +1275,9 @@ class OpenDirac:
                 elif act == "abandon" and eid in self.research_state.hypotheses:
                     from .research_state import FailedApproach
                     h = self.research_state.hypotheses[eid]
+                    if h.status == HypothesisStatus.ABANDONED:
+                        console.print(f"  [dim]{eid} already abandoned, skipping[/dim]")
+                        continue
                     h.status = HypothesisStatus.ABANDONED
                     h.iteration_modified = self.iteration
                     self.research_state.failed_approaches.append(FailedApproach(
