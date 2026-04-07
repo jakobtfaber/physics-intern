@@ -376,6 +376,7 @@ def write_submission_json(
         "model": critpt_model,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "generation_config": generation_config,
+        "messages": [],
     }
     out_path = output_dir / f"{result.problem_id}.json"
     out_path.write_text(json.dumps(submission, indent=2, ensure_ascii=False))
