@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import re
 import signal
 import sys
@@ -213,6 +214,7 @@ async def run_one_problem(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(PROJECT_ROOT),
+                start_new_session=True,  # new process group for clean kill
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout,
@@ -253,10 +255,14 @@ async def run_one_problem(
 
         except asyncio.TimeoutError:
             elapsed = time.monotonic() - start
+            # Kill the entire process group (includes child processes)
             try:
-                proc.kill()
-                await proc.wait()
-            except Exception:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except (asyncio.TimeoutError, ProcessLookupError):
                 pass
             return RunResult(
                 problem_n=problem.n,
@@ -312,9 +318,26 @@ def write_batch_metadata(
     start_time: datetime,
     end_time: datetime,
 ) -> None:
-    """Write batch_metadata.json summarizing the run."""
-    n_success = sum(1 for r in all_results if r.success)
-    n_failed = sum(1 for r in all_results if not r.success)
+    """Write batch_metadata.json summarizing the run.
+
+    Includes both current-run results and previously completed submissions
+    found on disk, so metadata is accurate after resumed runs.
+    """
+    # Collect all submission JSONs on disk (includes previous runs)
+    all_submission_ids: list[str] = []
+    pattern = re.compile(r"Challenge_(\d+)_main\.json$")
+    for f in sorted(output_dir.glob("Challenge_*_main.json")):
+        m = pattern.match(f.name)
+        if m:
+            try:
+                data = json.loads(f.read_text())
+                if data.get("problem_id") and data.get("generated_code"):
+                    all_submission_ids.append(data["problem_id"])
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+    n_run_success = sum(1 for r in all_results if r.success)
+    n_run_failed = sum(1 for r in all_results if not r.success)
     total_duration = sum(r.duration_s for r in all_results)
     total_cost = sum(
         (r.stats or {}).get("cost_usd", 0.0) for r in all_results
@@ -324,15 +347,13 @@ def write_batch_metadata(
         "model": critpt_model,
         "timestamp": end_time.isoformat(),
         "generation_config": generation_config,
-        "num_submissions": n_success,
-        "problem_ids": [
-            r.problem_id for r in sorted(all_results, key=lambda r: r.problem_n)
-            if r.success
-        ],
+        "num_submissions": len(all_submission_ids),
+        "problem_ids": all_submission_ids,
         "summary": {
-            "total": len(all_results),
-            "success": n_success,
-            "failed": n_failed,
+            "total_submissions": len(all_submission_ids),
+            "this_run_total": len(all_results),
+            "this_run_success": n_run_success,
+            "this_run_failed": n_run_failed,
             "total_compute_s": round(total_duration, 1),
             "wall_clock_s": round((end_time - start_time).total_seconds(), 1),
             "total_cost_usd": round(total_cost, 4),
