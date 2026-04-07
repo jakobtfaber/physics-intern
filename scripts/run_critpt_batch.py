@@ -265,6 +265,21 @@ async def run_one_problem(
     async with semaphore:
         # Build subprocess command
         if action.action == "resume" and action.workspace:
+            # Auto-clean dirty workspace to avoid interactive prompt in
+            # _handle_dirty_workspace (which would hang in a subprocess).
+            ws = action.workspace
+            p = await asyncio.create_subprocess_exec(
+                "git", "checkout", ".", cwd=str(ws),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await p.wait()
+            p = await asyncio.create_subprocess_exec(
+                "git", "clean", "-fd", cwd=str(ws),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await p.wait()
             cmd = [
                 "uv", "run", "python", "-m", "open_dirac.main",
                 "--resume", str(action.workspace),
