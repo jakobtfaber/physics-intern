@@ -2,8 +2,8 @@
 
 from unittest.mock import MagicMock
 
-from sciralph.agents.orchestrator.tools import OrchestratorToolExecutor
-from sciralph.research_state import (
+from open_dirac.agents.orchestrator.tools import OrchestratorToolExecutor
+from open_dirac.research_state import (
     ResearchState, Hypothesis, HypothesisStatus, Verdict,
     Critique, Severity, CritiqueStatus, FailedApproach,
     Evidence, ReviewResult,
@@ -80,7 +80,7 @@ def _make_state_with_high_critique(target: str = "WH-001") -> ResearchState:
 
 class TestAddHypothesis:
     def test_creates_wh003_in_state(self):
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
         state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
@@ -120,7 +120,7 @@ class TestAddHypothesis:
 
     def test_blocked_by_wh_cap(self):
         """Cannot create WH when >= 2 working hypotheses exist."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = _make_state()  # 2 working WHs
         state.research_questions["RQ-003"] = ResearchQuestion(
@@ -135,7 +135,7 @@ class TestAddHypothesis:
 
     def test_blocked_by_unresolved_critiques(self):
         """Cannot create WH when unresolved critiques exist."""
-        from sciralph.research_state import Critique, CritiqueStatus, ResearchQuestion, Severity
+        from open_dirac.research_state import Critique, CritiqueStatus, ResearchQuestion, Severity
         ws = _make_workspace()
         state = _make_state()
         state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
@@ -160,7 +160,7 @@ class TestAddHypothesis:
 
 class TestRqEvidenceCap:
     def _make_rq_with_evidence(self, rq_id: str, n_evidence: int) -> "ResearchQuestion":
-        from sciralph.research_state import ResearchQuestion, Evidence
+        from open_dirac.research_state import ResearchQuestion, Evidence
         rq = ResearchQuestion(id=rq_id, question="Q?", iteration_created=1)
         for i in range(n_evidence):
             rq.evidence.append(Evidence(id=f"EV-{i+1:03d}", type="compute", result="r"))
@@ -168,7 +168,7 @@ class TestRqEvidenceCap:
 
     def test_dispatch_blocked_when_rq_saturated(self):
         """dispatch_computer is rejected when an open RQ has >= cap evidence."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = ResearchState()
         state.research_questions["RQ-001"] = self._make_rq_with_evidence("RQ-001", 3)
@@ -205,7 +205,7 @@ class TestRqEvidenceCap:
 
     def test_refuted_evidence_not_counted(self):
         """Refuted evidence does not count toward the cap."""
-        from sciralph.research_state import ResearchQuestion, Evidence
+        from open_dirac.research_state import ResearchQuestion, Evidence
         ws = _make_workspace()
         state = ResearchState()
         rq = ResearchQuestion(id="RQ-001", question="Q?", iteration_created=1)
@@ -398,7 +398,7 @@ class TestTargetClaimValidation:
 
     def test_block_dispatch_on_resolved_rq(self):
         """Resolved RQs should not receive new evidence."""
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -414,7 +414,7 @@ class TestTargetClaimValidation:
 
     def test_block_dispatch_on_abandoned_rq(self):
         """Abandoned RQs should not receive new evidence."""
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
         state.research_questions["RQ-002"] = ResearchQuestion(
@@ -430,7 +430,7 @@ class TestTargetClaimValidation:
 
     def test_allow_dispatch_on_open_rq(self):
         """Open RQs are valid dispatch targets."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = _make_state()
         state.research_questions["RQ-003"] = ResearchQuestion(
@@ -554,7 +554,7 @@ class TestDependencyGraph:
     """Tests for depends_on in add_hypothesis."""
 
     def test_add_hypothesis_with_depends_on(self):
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = _make_state()
         state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
@@ -594,7 +594,7 @@ class TestResearchQuestionTools:
         assert ex.mutations_applied
 
     def test_abandon_research_question(self):
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -623,7 +623,7 @@ class TestResearchQuestionTools:
 
     def test_abandon_already_abandoned_rq_is_idempotent(self):
         """Re-abandoning an already-abandoned RQ returns early without mutation."""
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -646,7 +646,7 @@ class TestResearchQuestionTools:
 
     def test_abandon_resolved_rq_returns_error(self):
         """Cannot abandon an RQ that was auto-resolved by add_hypothesis."""
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -666,7 +666,7 @@ class TestResearchQuestionTools:
 
     def test_add_rq_blocked_by_cap(self):
         """Cannot create RQ when >= max_open_rqs open RQs exist."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = _make_state()
         for i in range(3, 6):
@@ -681,7 +681,7 @@ class TestResearchQuestionTools:
 
     def test_add_rq_blocked_by_unresolved_critiques(self):
         """Cannot create RQ when unresolved critiques exist."""
-        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.research_state import Critique, CritiqueStatus, Severity
         ws = _make_workspace()
         state = _make_state()
         state.critiques["CRIT-001"] = Critique(
@@ -695,7 +695,7 @@ class TestResearchQuestionTools:
 
     def test_add_hypothesis_not_blocked_by_medium_critique(self):
         """MEDIUM critique does not block WH creation (severity-gated)."""
-        from sciralph.research_state import Critique, CritiqueStatus, ResearchQuestion, Severity
+        from open_dirac.research_state import Critique, CritiqueStatus, ResearchQuestion, Severity
         ws = _make_workspace()
         state = _make_state()
         state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
@@ -715,7 +715,7 @@ class TestResearchQuestionTools:
 
     def test_add_rq_not_blocked_by_low_critique(self):
         """LOW critique does not block RQ creation (severity-gated)."""
-        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.research_state import Critique, CritiqueStatus, Severity
         ws = _make_workspace()
         state = ResearchState()
         state.critiques["CRIT-001"] = Critique(
@@ -728,7 +728,7 @@ class TestResearchQuestionTools:
 
     def test_add_hypothesis_from_already_resolved_rq_blocked(self):
         """Creating a WH from an already-resolved RQ is rejected."""
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         ws = _make_workspace()
         state = _make_state()
         state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
@@ -759,7 +759,7 @@ class TestDispatchGate:
     @staticmethod
     def _state_with_open_rq():
         """State with WH-001 (working), WH-002 (established), and an open RQ-003 for add_hypothesis calls."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         state = _make_state()
         state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
         state.research_questions["RQ-003"] = ResearchQuestion(
@@ -1018,7 +1018,7 @@ class TestTargetClaimValidation:
         assert ex.stop_after_round
 
     def test_valid_rq_target_passes(self):
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = _make_state()
         state.research_questions["RQ-003"] = ResearchQuestion(
@@ -1108,7 +1108,7 @@ class TestFocusGuard:
 
     def test_dangling_refuted_wh_blocks_rq_dispatch(self):
         """A REFUTED WH blocks dispatch to any RQ."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
@@ -1131,7 +1131,7 @@ class TestFocusGuard:
 
     def test_dangling_inconclusive_wh_blocks_rq_dispatch(self):
         """An INCONCLUSIVE WH blocks dispatch to any RQ."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
@@ -1170,7 +1170,7 @@ class TestFocusGuard:
 
     def test_serial_rq_blocks_second_rq_with_evidence(self):
         """Cannot dispatch to RQ-002 when RQ-001 already has evidence."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = ResearchState()
         rq1 = ResearchQuestion(id="RQ-001", question="Q1?", iteration_created=1)
@@ -1190,7 +1190,7 @@ class TestFocusGuard:
 
     def test_serial_rq_allows_same_rq(self):
         """Dispatch to RQ-001 allowed when RQ-001 already has evidence."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = ResearchState()
         rq1 = ResearchQuestion(id="RQ-001", question="Q1?", iteration_created=1)
@@ -1205,7 +1205,7 @@ class TestFocusGuard:
 
     def test_serial_rq_allows_when_no_evidence(self):
         """Two open RQs with no evidence — dispatch to either is fine."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -1260,7 +1260,7 @@ class TestFocusGuard:
 
     def test_verified_wh_does_not_block_rq_dispatch(self):
         """VERIFIED WHs are not dangling — don't block RQ dispatch."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
@@ -1279,7 +1279,7 @@ class TestFocusGuard:
 
     def test_no_review_wh_does_not_block_rq_dispatch(self):
         """WH without any review is not dangling — doesn't block RQ dispatch."""
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         ws = _make_workspace()
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(

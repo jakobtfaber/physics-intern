@@ -4,10 +4,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from sciralph.agents.formatter import FormatterAgent
-from sciralph.llm import LLMResponse
-from sciralph.rendering import render_formatter_context
-from sciralph.research_state import (
+from open_dirac.agents.formatter import FormatterAgent
+from open_dirac.llm import LLMResponse
+from open_dirac.rendering import render_formatter_context
+from open_dirac.research_state import (
     Evidence,
     FailedApproach,
     Hypothesis,
@@ -18,7 +18,7 @@ from sciralph.research_state import (
     RQStatus,
     Verdict,
 )
-from sciralph.task import Task, TaskType
+from open_dirac.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------

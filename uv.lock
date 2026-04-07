@@ -918,6 +918,62 @@ wheels = [
 ]
 
 [[package]]
+name = "open-dirac"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "anthropic" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "scipy" },
+    { name = "sympy" },
+]
+
+[package.optional-dependencies]
+all-providers = [
+    { name = "google-genai" },
+    { name = "huggingface-hub" },
+    { name = "openai" },
+]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+google = [
+    { name = "google-genai" },
+]
+huggingface = [
+    { name = "huggingface-hub" },
+]
+openai = [
+    { name = "openai" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = ">=0.42.0" },
+    { name = "google-genai", marker = "extra == 'all-providers'", specifier = ">=1.0" },
+    { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.0" },
+    { name = "huggingface-hub", marker = "extra == 'all-providers'", specifier = ">=0.25" },
+    { name = "huggingface-hub", marker = "extra == 'huggingface'", specifier = ">=0.25" },
+    { name = "matplotlib", specifier = ">=3.9" },
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "openai", marker = "extra == 'all-providers'", specifier = ">=1.0" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rich", specifier = ">=13.0" },
+    { name = "scipy", specifier = ">=1.14" },
+    { name = "sympy", specifier = ">=1.13" },
+]
+provides-extras = ["dev", "openai", "google", "huggingface", "all-providers"]
+
+[[package]]
 name = "openai"
 version = "2.26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1354,62 +1410,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/11/2f/b29eafe4a3fbc3d6de9662b36e028d5f039e72d345e05c250e121a230dd4/scipy-1.17.1-cp314-cp314t-win_amd64.whl", hash = "sha256:eb092099205ef62cd1782b006658db09e2fed75bffcae7cc0d44052d8aa0f484", size = 37345327, upload-time = "2026-02-23T00:22:24.442Z" },
     { url = "https://files.pythonhosted.org/packages/07/39/338d9219c4e87f3e708f18857ecd24d22a0c3094752393319553096b98af/scipy-1.17.1-cp314-cp314t-win_arm64.whl", hash = "sha256:200e1050faffacc162be6a486a984a0497866ec54149a01270adc8a59b7c7d21", size = 25489165, upload-time = "2026-02-23T00:22:29.563Z" },
 ]
-
-[[package]]
-name = "sciralph"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "anthropic" },
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "rich" },
-    { name = "scipy" },
-    { name = "sympy" },
-]
-
-[package.optional-dependencies]
-all-providers = [
-    { name = "google-genai" },
-    { name = "huggingface-hub" },
-    { name = "openai" },
-]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-google = [
-    { name = "google-genai" },
-]
-huggingface = [
-    { name = "huggingface-hub" },
-]
-openai = [
-    { name = "openai" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "anthropic", specifier = ">=0.42.0" },
-    { name = "google-genai", marker = "extra == 'all-providers'", specifier = ">=1.0" },
-    { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.0" },
-    { name = "huggingface-hub", marker = "extra == 'all-providers'", specifier = ">=0.25" },
-    { name = "huggingface-hub", marker = "extra == 'huggingface'", specifier = ">=0.25" },
-    { name = "matplotlib", specifier = ">=3.9" },
-    { name = "numpy", specifier = ">=2.0" },
-    { name = "openai", marker = "extra == 'all-providers'", specifier = ">=1.0" },
-    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rich", specifier = ">=13.0" },
-    { name = "scipy", specifier = ">=1.14" },
-    { name = "sympy", specifier = ">=1.13" },
-]
-provides-extras = ["dev", "openai", "google", "huggingface", "all-providers"]
 
 [[package]]
 name = "shellingham"

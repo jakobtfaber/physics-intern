@@ -8,7 +8,7 @@ for researcher, computer, and verifier will live in dedicated test files.
 import tempfile
 from unittest.mock import MagicMock
 
-from sciralph.utils.sandbox import execute_python
+from open_dirac.utils.sandbox import execute_python
 
 
 class TestSoftCheckPattern:
@@ -56,15 +56,15 @@ class TestNewAgentImports:
     """Verify the new agent modules exist and are importable."""
 
     def test_researcher_agent_importable(self):
-        from sciralph.agents.researcher import ResearcherAgent
+        from open_dirac.agents.researcher import ResearcherAgent
         assert ResearcherAgent.name == "researcher"
 
     def test_computer_agent_importable(self):
-        from sciralph.agents.computer import ComputerAgent
+        from open_dirac.agents.computer import ComputerAgent
         assert ComputerAgent.name == "computer"
 
     def test_verifier_agent_importable(self):
-        from sciralph.agents.reviewer import ReviewerAgent
+        from open_dirac.agents.reviewer import ReviewerAgent
         assert ReviewerAgent.name == "reviewer"
 
 
@@ -72,26 +72,26 @@ class TestNewAgentTools:
     """Verify the new agents have correct tool configurations."""
 
     def test_researcher_is_one_shot(self):
-        from sciralph.agents.researcher import ResearcherAgent
+        from open_dirac.agents.researcher import ResearcherAgent
         assert ResearcherAgent.tools == []
 
     def test_computer_has_tools(self):
-        from sciralph.agents.computer import ComputerAgent
+        from open_dirac.agents.computer import ComputerAgent
         assert ComputerAgent.tools
         names = {t["function"]["name"] for t in ComputerAgent.tools}
         assert "execute_python" in names
         assert "submit_result" in names
 
     def test_reviewer_is_one_shot(self):
-        from sciralph.agents.reviewer import ReviewerAgent
+        from open_dirac.agents.reviewer import ReviewerAgent
         assert ReviewerAgent.tools == []
 
     def test_critic_is_one_shot(self):
-        from sciralph.agents.critic import CriticAgent
+        from open_dirac.agents.critic import CriticAgent
         assert CriticAgent.tools == []
 
     def test_orchestrator_has_state_mutation_tools(self):
-        from sciralph.agents.orchestrator import OrchestratorAgent
+        from open_dirac.agents.orchestrator import OrchestratorAgent
         assert len(OrchestratorAgent.tools) > 0
         tool_names = {t["function"]["name"] for t in OrchestratorAgent.tools}
         assert "dispatch_researcher" in tool_names
@@ -102,8 +102,8 @@ class TestComputerProcessResponse:
     """Test ComputerAgent.process_response builds Evidence correctly."""
 
     def _make_agent(self):
-        from sciralph.agents.computer import ComputerAgent
-        from sciralph.research_state import ResearchState, ResearchQuestion
+        from open_dirac.agents.computer import ComputerAgent
+        from open_dirac.research_state import ResearchState, ResearchQuestion
         agent = ComputerAgent.__new__(ComputerAgent)
         agent.research_state = ResearchState(problem_statement="test")
         rq_id = agent.research_state.next_entity_num()
@@ -112,15 +112,15 @@ class TestComputerProcessResponse:
         return agent
 
     def _make_result(self, tool_calls):
-        from sciralph.llm import AgentResult
+        from open_dirac.llm import AgentResult
         return AgentResult(text="", tool_calls=tool_calls)
 
     def _make_tc(self, name, tool_input, output="ok", is_error=False):
-        from sciralph.tool_call import ToolCall
+        from open_dirac.tool_call import ToolCall
         return ToolCall(tool_name=name, tool_input=tool_input, output=output, is_error=is_error, duration=0.1)
 
     def test_approach_includes_assumptions_and_expected_outcome(self):
-        from sciralph.task import Task, TaskType
+        from open_dirac.task import Task, TaskType
         agent = self._make_agent()
         rq_id = list(agent.research_state.research_questions.keys())[0]
         task = Task(task_id="T1", task_type=TaskType.COMPUTE, assigned_to="computer", body=f"Compute {rq_id}", target_claim=rq_id)
@@ -146,7 +146,7 @@ class TestComputerProcessResponse:
         assert "Expected outcome: Should match Hawking formula" in evidence.approach
 
     def test_approach_without_assumptions_or_expected_outcome(self):
-        from sciralph.task import Task, TaskType
+        from open_dirac.task import Task, TaskType
         agent = self._make_agent()
         rq_id = list(agent.research_state.research_questions.keys())[0]
         task = Task(task_id="T1", task_type=TaskType.COMPUTE, assigned_to="computer", body=f"Compute {rq_id}", target_claim=rq_id)
@@ -167,8 +167,8 @@ class TestResearcherProcessResponse:
     """Test ResearcherAgent.process_response builds Evidence correctly (one-shot JSON)."""
 
     def _make_agent(self):
-        from sciralph.agents.researcher import ResearcherAgent
-        from sciralph.research_state import ResearchState, ResearchQuestion
+        from open_dirac.agents.researcher import ResearcherAgent
+        from open_dirac.research_state import ResearchState, ResearchQuestion
         agent = ResearcherAgent.__new__(ResearcherAgent)
         agent.research_state = ResearchState(problem_statement="test")
         rq_id = f"RQ-{agent.research_state.next_entity_num():03d}"
@@ -176,12 +176,12 @@ class TestResearcherProcessResponse:
         return agent, rq_id
 
     def _make_response(self, text=""):
-        from sciralph.llm import LLMResponse
+        from open_dirac.llm import LLMResponse
         return LLMResponse(text=text, input_tokens=100, output_tokens=50,
                            stop_reason="end_turn", duration=0.1)
 
     def test_evidence_from_json_block(self):
-        from sciralph.task import Task, TaskType
+        from open_dirac.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body=f"Derive for {rq_id}", target_claim=rq_id)
@@ -204,7 +204,7 @@ class TestResearcherProcessResponse:
 
     def test_reasoning_is_full_response_text(self):
         """Evidence.reasoning is the full response text (derivation + JSON)."""
-        from sciralph.task import Task, TaskType
+        from open_dirac.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body=f"Derive for {rq_id}", target_claim=rq_id)
@@ -222,7 +222,7 @@ class TestResearcherProcessResponse:
 
     def test_target_from_task_target_claim(self):
         """Target ID comes from task.target_claim."""
-        from sciralph.task import Task, TaskType
+        from open_dirac.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body="Some task", target_claim=rq_id)
@@ -234,8 +234,8 @@ class TestResearcherProcessResponse:
     def test_fallback_no_json(self):
         """When no JSON block, raise ParseFailureError (no degraded evidence)."""
         import pytest
-        from sciralph.llm import ParseFailureError
-        from sciralph.task import Task, TaskType
+        from open_dirac.llm import ParseFailureError
+        from open_dirac.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body=f"Derive for {rq_id}", target_claim=rq_id)
@@ -249,14 +249,14 @@ class TestToolsForTaskType:
     """Test tools_for_task_type returns correct tool sets."""
 
     def test_research_tools(self):
-        from sciralph.task import TaskType
-        from sciralph.agents.computer.tools import ToolExecutor
+        from open_dirac.task import TaskType
+        from open_dirac.agents.computer.tools import ToolExecutor
         names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.RESEARCH)}
         assert "submit_result" in names
 
     def test_compute_tools(self):
-        from sciralph.task import TaskType
-        from sciralph.agents.computer.tools import ToolExecutor
+        from open_dirac.task import TaskType
+        from open_dirac.agents.computer.tools import ToolExecutor
         names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.COMPUTE)}
         assert "execute_python" in names
         assert "submit_result" in names

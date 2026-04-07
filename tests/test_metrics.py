@@ -1,6 +1,6 @@
 """Tests for metrics tracking."""
 
-from sciralph.metrics import MetricsTracker
+from open_dirac.metrics import MetricsTracker
 
 
 def test_record_call():

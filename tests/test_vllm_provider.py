@@ -4,7 +4,7 @@ import json
 import pytest
 from types import SimpleNamespace
 
-from sciralph.providers.vllm import VLLMProvider
+from open_dirac.providers.vllm import VLLMProvider
 
 
 # ---------------------------------------------------------------------------

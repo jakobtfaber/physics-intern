@@ -4,18 +4,18 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from sciralph.agents.reviewer import ReviewerAgent, _parse_review_json
+from open_dirac.agents.reviewer import ReviewerAgent, _parse_review_json
 import pytest
 
-from sciralph.llm import LLMResponse, ParseFailureError
-from sciralph.research_state import (
+from open_dirac.llm import LLMResponse, ParseFailureError
+from open_dirac.research_state import (
     Evidence,
     Hypothesis,
     HypothesisStatus,
     ResearchQuestion,
     ResearchState,
 )
-from sciralph.task import Task, TaskType
+from open_dirac.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ class TestReviewerValidateResponse:
 
     def test_parse_retries_from_config(self):
         """parse_retries is now configured globally via Config.parse_retries."""
-        from sciralph.config import Config
+        from open_dirac.config import Config
         config = Config()
         assert config.parse_retries == 2
 
@@ -367,7 +367,7 @@ class TestReviewerProblemContext:
 
 class TestComputerEvidenceFiltering:
     def _make_agent(self):
-        from sciralph.agents.computer import ComputerAgent
+        from open_dirac.agents.computer import ComputerAgent
         agent = ComputerAgent.__new__(ComputerAgent)
         agent.research_state = ResearchState(problem_statement="test")
         rq_id = f"RQ-{agent.research_state.next_entity_num():03d}"
@@ -378,11 +378,11 @@ class TestComputerEvidenceFiltering:
         return agent, rq_id
 
     def _make_result(self, tool_calls):
-        from sciralph.llm import AgentResult
+        from open_dirac.llm import AgentResult
         return AgentResult(text="", tool_calls=tool_calls)
 
     def _make_tc(self, name, tool_input, output="ok", is_error=False):
-        from sciralph.tool_call import ToolCall
+        from open_dirac.tool_call import ToolCall
         return ToolCall(tool_name=name, tool_input=tool_input,
                         output=output, is_error=is_error, duration=0.1)
 

@@ -2,12 +2,12 @@
 
 import pytest
 
-from sciralph.agents.orchestrator import OrchestratorAgent
-from sciralph.config import Config
-from sciralph.metrics import MetricsTracker
-from sciralph.research_state import ResearchState
-from sciralph.task import Task, TaskType
-from sciralph.workspace import WorkspaceManager
+from open_dirac.agents.orchestrator import OrchestratorAgent
+from open_dirac.config import Config
+from open_dirac.metrics import MetricsTracker
+from open_dirac.research_state import ResearchState
+from open_dirac.task import Task, TaskType
+from open_dirac.workspace import WorkspaceManager
 
 _EMPTY_TASK = Task(task_id="", task_type=TaskType.RESEARCH, assigned_to="orchestrator")
 

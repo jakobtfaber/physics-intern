@@ -4,10 +4,10 @@ import json
 
 from unittest.mock import MagicMock, patch
 
-from sciralph.config import Config
-from sciralph.utils.markdown import render_frontmatter
-from sciralph.task import Task, TaskType
-from sciralph.workspace import log_llm_call, log_scaffold_event
+from open_dirac.config import Config
+from open_dirac.utils.markdown import render_frontmatter
+from open_dirac.task import Task, TaskType
+from open_dirac.workspace import log_llm_call, log_scaffold_event
 
 
 class TestLogScaffoldEvent:
@@ -49,9 +49,9 @@ class TestValidatePostIntegrationLogs:
 
     def test_violations_are_logged(self, tmp_path):
         """Set up state with phantom VERIFIED label, verify EVENT_LOG.jsonl gets state_invariants event."""
-        from sciralph.workspace import WorkspaceManager
-        from sciralph.validation import validate_post_integration
-        from sciralph.research_state import ResearchState, Hypothesis
+        from open_dirac.workspace import WorkspaceManager
+        from open_dirac.validation import validate_post_integration
+        from open_dirac.research_state import ResearchState, Hypothesis
 
         config = Config(workspace_dir=str(tmp_path / "ws"))
         ws = WorkspaceManager(config)

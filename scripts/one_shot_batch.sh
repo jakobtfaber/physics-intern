@@ -50,7 +50,7 @@ for f in "${FILES[@]}"; do
     NAME="$(basename "$f")"
     echo ""
     echo "=== $NAME ==="
-    if uv run python -m sciralph.one_shot "$f" --model "$MODEL" --runs "$RUNS"; then
+    if uv run python -m open_dirac.one_shot "$f" --model "$MODEL" --runs "$RUNS"; then
         PASSED=$((PASSED + 1))
     else
         echo "  *** FAILED: $NAME ***" >&2

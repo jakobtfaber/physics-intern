@@ -1,6 +1,6 @@
 """Tests for validation.py — post-integration validation and termination gates."""
 
-from sciralph.validation import (
+from open_dirac.validation import (
     Violation,
     ViolationSeverity,
     validate_post_integration,
@@ -10,7 +10,7 @@ from sciralph.validation import (
     check_stale_unverified_labels,
     check_critique_resolution_consistency,
 )
-from sciralph.research_state import (
+from open_dirac.research_state import (
     Critique,
     CritiqueStatus,
     Evidence,
@@ -314,7 +314,7 @@ class TestValidatePostIntegration:
 
     def test_runs_four_checks(self):
         """Pipeline has exactly 4 checks."""
-        from sciralph.validation import _DEFAULT_CHECKS
+        from open_dirac.validation import _DEFAULT_CHECKS
         assert len(_DEFAULT_CHECKS) == 4
 
 

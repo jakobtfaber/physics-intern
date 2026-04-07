@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run a SciRalph research session, then diagnose the results with Claude Opus.
+# Run a OpenDirac research session, then diagnose the results with Claude Opus.
 #
 # Phase 1: Research run (includes formal answer evaluation at the end)
 # Phase 2: Diagnosis (single Claude Opus LLM call — error/correction chain analysis)
@@ -11,8 +11,8 @@
 #   ./run_and_verify.sh problems/hawking_temperature.yaml --max-iterations 10
 #   ./run_and_verify.sh problems/qho.yaml --max-iterations 5 -- --model claude-4.6-opus
 #
-# Everything before "--" is passed to sciralph.main.
-# Everything after "--" is passed to sciralph.verification (diagnosis).
+# Everything before "--" is passed to open_dirac.main.
+# Everything after "--" is passed to open_dirac.verification (diagnosis).
 
 set -euo pipefail
 
@@ -58,7 +58,7 @@ for i in "${!run_args[@]}"; do
 done
 if [ -z "$model_label" ]; then
     # Read default from config.default.yaml
-    model_label=$(python3 -c "import yaml; print(yaml.safe_load(open('src/sciralph/config.default.yaml'))['model'])" 2>/dev/null || echo "unknown")
+    model_label=$(python3 -c "import yaml; print(yaml.safe_load(open('src/open_dirac/config.default.yaml'))['model'])" 2>/dev/null || echo "unknown")
 fi
 # Sanitise for filesystem
 safe_model=$(echo "$model_label" | tr '/: ' '--_')
@@ -85,7 +85,7 @@ if ! $has_ws_flag; then
     run_args+=("--workspace-dir" "$workspace_dir")
 fi
 
-echo "=== SciRalph: Run + Diagnose ==="
+echo "=== OpenDirac: Run + Diagnose ==="
 echo "Problem:   $problem_file"
 echo "Workspace: $workspace_dir"
 echo ""
@@ -93,7 +93,7 @@ echo ""
 # --- Phase 1: Research run ---
 echo "--- Phase 1: Research run ---"
 run_rc=0
-uv run python -m sciralph.main "${run_args[@]}" || run_rc=$?
+uv run python -m open_dirac.main "${run_args[@]}" || run_rc=$?
 
 if [ $run_rc -ne 0 ]; then
     # SEGV=139 (128+11). Tolerate if workspace looks complete (RESEARCH_STATE.md exists).
@@ -108,4 +108,4 @@ echo ""
 
 # --- Phase 2: Diagnosis (single Claude Opus call) ---
 echo "--- Phase 2: Diagnosis (Claude Opus) ---"
-uv run python -m sciralph.verification "$workspace_dir" ${verify_args[@]+"${verify_args[@]}"}
+uv run python -m open_dirac.verification "$workspace_dir" ${verify_args[@]+"${verify_args[@]}"}

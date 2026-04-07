@@ -1,10 +1,10 @@
-# SciRalph
+# OpenDirac
 
 A multi-agent scaffolding system for autonomous scientific research in mathematics and theoretical physics.
 
 ## What is this?
 
-SciRalph takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
+OpenDirac takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
 
 **How it works.** Nine specialised LLM agent roles take turns in a loop. A **surveyor** maps the research landscape before the main loop begins. A **planner** produces the initial research strategy (and can revise it when critiques demand). The **orchestrator** dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), and formulates working hypotheses from the evidence. Then the **reviewer** provides adversarial review (auto-triggered).  A **deep critic** periodically audits strategy and inter-result coherence, filing typed critiques that are routed back to the **planner** (for strategy revision) or to an **adjudicator** (for challenges on established results). Finally a **formatter** produces a clean `ANSWER.md` from the final research state.
 
@@ -26,7 +26,7 @@ uv sync --extra huggingface     # HuggingFace Inference Providers
 uv sync --extra all-providers   # all of the above
 
 # Run a research problem (requires model API key in .env or env var)
-uv run python -m sciralph.main problems/tier1/hawking_temperature.yaml --max-iterations 10 --model claude-4.6-sonnet
+uv run python -m open_dirac.main problems/tier1/hawking_temperature.yaml --max-iterations 10 --model claude-4.6-sonnet
 ```
 
 ### Environment Variables
@@ -43,7 +43,7 @@ Set API keys for the providers you want to use (in `.env` or as env vars):
 ### CLI Options
 
 ```
-python -m sciralph.main <problem.yaml> [options]
+python -m open_dirac.main <problem.yaml> [options]
 
   --model MODEL               LLM model key (default: claude-4.6-sonnet, resolved via models.yaml)
   --max-iterations N          Max loop iterations (default: 200)
@@ -63,14 +63,14 @@ After a run completes, you can independently verify the scientific results using
 
 ```bash
 # Verify a completed workspace
-uv run python -m sciralph.verification workspaces/<run_dir>/
+uv run python -m open_dirac.verification workspaces/<run_dir>/
 
 # Run + verify in one command
 ./scripts/run_and_verify.sh problems/tier1/hawking_temperature.yaml --max-iterations 10
 ```
 
 ```
-python -m sciralph.verification <workspace_dir> [options]
+python -m open_dirac.verification <workspace_dir> [options]
 
   --model MODEL              LLM model (default: claude-4.6-opus)
   --max-tokens N             Max output tokens (default: 65536)
@@ -83,9 +83,9 @@ The verifier writes `VERIFICATION.md` into the workspace. It evaluates each Esta
 Run a single LLM call on a problem with no scaffolding — useful for benchmarking raw model capability against the multi-agent pipeline:
 
 ```bash
-uv run python -m sciralph.one_shot problems/tier1/hawking_temperature.yaml
-uv run python -m sciralph.one_shot problems/tier1/hawking_temperature.yaml --model gpt-5.4-high
-uv run python -m sciralph.one_shot problems/tier1/hawking_temperature.yaml --runs 10  # multiple runs for statistics
+uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml
+uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml --model gpt-5.4-high
+uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml --runs 10  # multiple runs for statistics
 ```
 
 Answers are auto-evaluated against the known answer in the problem YAML (symbolic SymPy comparison + numerical fallback).
@@ -238,7 +238,7 @@ Problems are defined in YAML files under `problems/`. Each file contains a `prob
 ## Project Structure
 
 ```
-src/sciralph/
+src/open_dirac/
   main.py              — Entry point, CLI argument parsing
   engine.py            — Main loop (LoopState): orchestrate → validate → enrich → dispatch → route critiques → git
   research_state.py    — ResearchState dataclass: authoritative structured state (hypotheses, evidence, critiques)

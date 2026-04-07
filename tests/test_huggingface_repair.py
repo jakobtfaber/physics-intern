@@ -85,7 +85,7 @@ def _make_provider():
     """Create a HuggingFaceProvider with a mocked client."""
     with patch.dict("os.environ", {"HF_TOKEN": "fake"}):
         with patch("huggingface_hub.InferenceClient"):
-            from sciralph.providers.huggingface import HuggingFaceProvider
+            from open_dirac.providers.huggingface import HuggingFaceProvider
             return HuggingFaceProvider(api_key="fake")
 
 
@@ -97,7 +97,7 @@ class TestExtractFailedGeneration:
 
     def test_strategy1_response_json(self):
         """Strategy 1: exc.response.json() with top-level failed_generation."""
-        from sciralph.providers.huggingface import HuggingFaceProvider
+        from open_dirac.providers.huggingface import HuggingFaceProvider
         raw = '{"name": "execute_python", "arguments": print(1)}'
         exc = _make_exc(raw)
         result = HuggingFaceProvider._extract_failed_generation(exc)
@@ -105,7 +105,7 @@ class TestExtractFailedGeneration:
 
     def test_strategy1_nested(self):
         """Strategy 1: nested error dict."""
-        from sciralph.providers.huggingface import HuggingFaceProvider
+        from open_dirac.providers.huggingface import HuggingFaceProvider
         raw = '{"name": "execute_python", "arguments": x=1}'
         exc = _make_exc(raw, nested=True)
         result = HuggingFaceProvider._extract_failed_generation(exc)
@@ -113,7 +113,7 @@ class TestExtractFailedGeneration:
 
     def test_strategy2_broken_json_method(self):
         """Strategy 2: .json() fails but .text has valid JSON."""
-        from sciralph.providers.huggingface import HuggingFaceProvider
+        from open_dirac.providers.huggingface import HuggingFaceProvider
         raw = '{"name": "execute_python", "arguments": print(42)}'
         exc = _make_exc_broken_json(raw)
         result = HuggingFaceProvider._extract_failed_generation(exc)
@@ -121,7 +121,7 @@ class TestExtractFailedGeneration:
 
     def test_strategy3_str_extraction(self):
         """Strategy 3: both .json() and .text fail, extract from str(exc)."""
-        from sciralph.providers.huggingface import HuggingFaceProvider
+        from open_dirac.providers.huggingface import HuggingFaceProvider
         raw = '{"name": "execute_python", "arguments": import numpy as np}'
         exc = _make_exc_str_only(raw)
         result = HuggingFaceProvider._extract_failed_generation(exc)
@@ -130,14 +130,14 @@ class TestExtractFailedGeneration:
 
     def test_no_response_attr(self):
         """No .response at all → empty string."""
-        from sciralph.providers.huggingface import HuggingFaceProvider
+        from open_dirac.providers.huggingface import HuggingFaceProvider
         exc = Exception("some error without failed_generation")
         result = HuggingFaceProvider._extract_failed_generation(exc)
         assert result == ""
 
     def test_no_failed_generation_anywhere(self):
         """Nothing to extract → empty string."""
-        from sciralph.providers.huggingface import HuggingFaceProvider
+        from open_dirac.providers.huggingface import HuggingFaceProvider
         exc = _make_exc(None)
         result = HuggingFaceProvider._extract_failed_generation(exc)
         assert result == ""

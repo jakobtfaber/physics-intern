@@ -2,11 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
-from sciralph.agents.planner import PlannerAgent, _parse_planner_json
-from sciralph.config import Config
-from sciralph.engine import LoopState
-from sciralph.llm import LLMResponse
-from sciralph.research_state import (
+from open_dirac.agents.planner import PlannerAgent, _parse_planner_json
+from open_dirac.config import Config
+from open_dirac.engine import LoopState
+from open_dirac.llm import LLMResponse
+from open_dirac.research_state import (
     Evidence,
     FailedApproach,
     Hypothesis,
@@ -16,7 +16,7 @@ from sciralph.research_state import (
     ReviewResult,
     RQStatus,
 )
-from sciralph.task import Task, TaskType
+from open_dirac.task import Task, TaskType
 
 
 class TestPlannerBuildContext:
@@ -601,7 +601,7 @@ class TestEngineApplyStrategy:
     """Test engine._apply_strategy() stores strategy in research state."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -611,8 +611,8 @@ class TestEngineApplyStrategy:
             ws.git_commit = MagicMock()
             ws.file_size = MagicMock(return_value=0)
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.research_state = ResearchState(
                 problem_statement="Derive Hawking temperature.",
@@ -655,7 +655,7 @@ class TestTaskTypePlanRevise:
         assert TaskType.PLAN_REVISE == "plan_revise"
 
     def test_plan_revise_maps_to_planner(self):
-        from sciralph.task import TASK_TYPE_AGENT_MAP
+        from open_dirac.task import TASK_TYPE_AGENT_MAP
         assert TASK_TYPE_AGENT_MAP[TaskType.PLAN_REVISE] == "planner"
 
     def test_task_from_frontmatter_plan_revise(self):

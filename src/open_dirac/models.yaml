@@ -1,0 +1,142 @@
+# OpenDirac model registry
+# Friendly keys map to provider + model_id + env_key
+# Use with: --model <key> (e.g., --model claude-sonnet-4.6)
+# Costs are in USD per million tokens
+
+# ============================================================================
+# Anthropic
+# ============================================================================
+
+claude-4.6-opus:
+  provider: anthropic
+  model_id: claude-opus-4-6
+  env_key: ANTHROPIC_API_KEY
+  input_cost: 5.00
+  output_cost: 25.00
+  max_output_tokens: 128000
+  thinking: true
+  effort: medium
+
+claude-4.6-sonnet:
+  provider: anthropic
+  model_id: claude-sonnet-4-6
+  env_key: ANTHROPIC_API_KEY
+  input_cost: 3.00
+  output_cost: 15.00
+  max_output_tokens: 65536
+  thinking: true
+  effort: medium
+
+# ============================================================================
+# OpenAI
+# ============================================================================
+
+gpt-5.4-high:
+  provider: openai
+  model_id: gpt-5.4
+  env_key: OPENAI_API_KEY
+  input_cost: 2.50
+  output_cost: 15.00
+  reasoning_effort: high
+
+gpt-5.4-medium:
+  provider: openai
+  model_id: gpt-5.4
+  env_key: OPENAI_API_KEY
+  input_cost: 2.50
+  output_cost: 15.00
+  reasoning_effort: medium
+
+gpt-5.4-pro:
+  provider: openai
+  model_id: gpt-5.4-pro-2026-03-05
+  env_key: OPENAI_API_KEY
+  input_cost: 30.00
+  output_cost: 180.00
+
+# ============================================================================
+# Google
+# ============================================================================
+
+gemini-3.1-pro-preview:
+  provider: google
+  model_id: gemini-3.1-pro-preview
+  env_key: GOOGLE_API_KEY
+  input_cost: 2.00
+  output_cost: 12.00
+  thinking_level: high
+
+gemini-3-flash-preview:
+  provider: google
+  model_id: gemini-3-flash-preview
+  env_key: GOOGLE_API_KEY
+  input_cost: 0.5
+  output_cost: 3.00
+  thinking_level: medium
+
+# ============================================================================
+# HuggingFace Inference Providers
+# Costs are approximate — depend on backend provider route (Together, Fireworks, etc.)
+# ============================================================================
+
+deepseek-v3.2:
+  provider: huggingface
+  model_id: deepseek-ai/DeepSeek-V3.2
+  env_key: HF_TOKEN
+  input_cost: 0.56
+  output_cost: 1.68
+  reasoning_format: think_tags
+  hf_provider: novita
+
+kimi-k2.5:
+  provider: huggingface
+  model_id: moonshotai/Kimi-K2.5
+  env_key: HF_TOKEN
+  input_cost: 0.50
+  output_cost: 2.80
+  reasoning_format: separate_field
+
+glm-5:
+  provider: huggingface
+  model_id: zai-org/GLM-5
+  env_key: HF_TOKEN
+  input_cost: 1.00
+  output_cost: 3.20
+  reasoning_format: separate_field
+
+gpt-oss-120b:
+  provider: huggingface
+  model_id: openai/gpt-oss-120b
+  env_key: HF_TOKEN
+  input_cost: 0.25
+  output_cost: 0.69
+  reasoning_format: separate_field
+
+minimax-m2.5:
+  provider: huggingface
+  model_id: MiniMaxAI/MiniMax-M2.5
+  env_key: HF_TOKEN
+  input_cost: 0.30
+  output_cost: 1.20
+
+qwen-3.5-397B-A17B:
+  provider: huggingface
+  model_id: Qwen/Qwen3.5-397B-A17B
+  env_key: HF_TOKEN
+  input_cost: 0.60
+  output_cost: 3.60
+  reasoning_format: think_tags
+
+# ============================================================================
+# vLLM (local endpoints)
+# ============================================================================
+
+nemotron:
+  provider: vllm
+  model_id: nemotron3
+  env_key: VLLM_API_KEY
+  base_url: "http://localhost:8000/v1"
+  input_cost: 0.0
+  output_cost: 0.0
+  reasoning_format: think_tags
+  tool_mode: xml_text  # Nemotron emits <tool_call> XML tags in text

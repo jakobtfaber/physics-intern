@@ -8,10 +8,10 @@ redundant critic skip.
 import re
 from unittest.mock import MagicMock, patch
 
-from sciralph.config import Config, DEFAULTS
-from sciralph.llm import AgentResult, run_agent_loop
-from sciralph.providers.base import ProviderResponse
-from sciralph.research_state import (
+from open_dirac.config import Config, DEFAULTS
+from open_dirac.llm import AgentResult, run_agent_loop
+from open_dirac.providers.base import ProviderResponse
+from open_dirac.research_state import (
     Evidence,
     Hypothesis,
     HypothesisStatus,
@@ -19,9 +19,9 @@ from sciralph.research_state import (
     Verdict,
     ReviewResult,
 )
-from sciralph.task import Task, TaskType
-from sciralph.agents.computer.tools import ToolExecutor
-from sciralph.validation import (
+from open_dirac.task import Task, TaskType
+from open_dirac.agents.computer.tools import ToolExecutor
+from open_dirac.validation import (
     Violation,
     ViolationSeverity,
     check_er_demotion_safety,
@@ -77,7 +77,7 @@ def _mock_provider():
 class TestProgressCheck:
     """P0-A: Progress check injected after N consecutive execute_python rounds."""
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_progress_check_injected_after_n_rounds(self, mock_get_provider):
         """Progress check message injected after progress_check_interval consecutive exec_python."""
         provider = _mock_provider()
@@ -116,7 +116,7 @@ class TestProgressCheck:
         )
         assert progress_found, "Progress check should be injected after 3 exec_python rounds"
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_progress_check_resets_after_report_progress(self, mock_get_provider):
         """Calling report_progress resets counter → no injection next round."""
         provider = _mock_provider()
@@ -158,7 +158,7 @@ class TestProgressCheck:
         )
         assert progress_count == 1
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_no_progress_check_before_interval(self, mock_get_provider):
         """No progress check if fewer than N exec_python rounds."""
         provider = _mock_provider()
@@ -198,7 +198,7 @@ class TestProgressCheck:
 class TestFinalWarning:
     """Final warning injected 2 rounds before max_rounds."""
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_final_warning_injected_near_end(self, mock_get_provider):
         """FINAL WARNING appears in messages at round max_rounds-2."""
         provider = _mock_provider()
@@ -232,7 +232,7 @@ class TestFinalWarning:
         )
         assert warning_found, "WARNING should be injected after round 8 (max_rounds-2)"
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_no_final_warning_for_short_loops(self, mock_get_provider):
         """No FINAL WARNING when max_rounds < 5."""
         provider = _mock_provider()
@@ -268,7 +268,7 @@ class TestFinalWarning:
 class TestTokenAlert:
     """P1-B: token_alert_fired set when input tokens exceed threshold."""
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_alert_fired_above_threshold(self, mock_get_provider):
         """token_alert_fired=True when total_input > computation_token_alert."""
         provider = _mock_provider()
@@ -291,7 +291,7 @@ class TestTokenAlert:
 
         assert result.token_alert_fired is True
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_alert_not_fired_below_threshold(self, mock_get_provider):
         """token_alert_fired=False when total_input <= computation_token_alert."""
         provider = _mock_provider()
@@ -313,7 +313,7 @@ class TestTokenAlert:
 
         assert result.token_alert_fired is False
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_alert_accumulates_across_rounds(self, mock_get_provider):
         """Alert fires when cumulative input exceeds threshold."""
         provider = _mock_provider()
@@ -510,7 +510,7 @@ class TestCritiqueResolutionRegex:
 
     def test_multiline_resolution_captured(self):
         """Resolution text spanning multiple lines is captured."""
-        from sciralph.agents.orchestrator import OrchestratorAgent
+        from open_dirac.agents.orchestrator import OrchestratorAgent
 
         config = MagicMock()
         config.min_er_for_completion = 3
@@ -601,7 +601,7 @@ class TestShouldTriggerCritic:
     def _make_engine(self, last_critic_iteration=0,
                      last_verified_review_iteration=0,
                      current_iteration=5, critic_every_n=4):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -609,14 +609,14 @@ class TestShouldTriggerCritic:
             ws.logs_dir = "/tmp/logs"
             ws.read_file = MagicMock(return_value="")
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config(critic_every_n=critic_every_n)
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.metrics.last_critic_iteration = last_critic_iteration
             engine.iteration = current_iteration
-            from sciralph.engine import LoopState
+            from open_dirac.engine import LoopState
             engine._state = LoopState(
                 last_verified_review_iteration=last_verified_review_iteration,
             )
@@ -649,7 +649,7 @@ class TestShouldTriggerCritic:
 
     def test_last_content_tracked_in_dispatch(self):
         """_dispatch updates _last_content_iteration for research/compute tasks."""
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -657,14 +657,14 @@ class TestShouldTriggerCritic:
             ws.logs_dir = "/tmp/logs"
             ws.read_file = MagicMock(return_value="")
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
             engine.iteration = 7
-            from sciralph.engine import LoopState
-            from sciralph.research_state import ResearchState
+            from open_dirac.engine import LoopState
+            from open_dirac.research_state import ResearchState
             engine._state = LoopState()
             engine.research_state = ResearchState()
 
@@ -693,6 +693,6 @@ class TestNewConfigFields:
         assert Config().computation_token_alert == 150_000
 
     def test_new_fields_in_yaml_config_fields(self):
-        from sciralph.config import _YAML_CONFIG_FIELDS
+        from open_dirac.config import _YAML_CONFIG_FIELDS
         assert "progress_check_interval" in _YAML_CONFIG_FIELDS
         assert "computation_token_alert" in _YAML_CONFIG_FIELDS

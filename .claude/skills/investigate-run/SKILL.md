@@ -1,21 +1,28 @@
 ---
 name: investigate-run
-description: "Investigates SciRalph workspace run. Use to understand what went wrong and could be improved in the multi-agent research process."
+description: "Investigates OpenDirac workspace run. Use to understand what went wrong and could be improved in the multi-agent research process."
 allowed-tools: Read, Grep
 model: opus
 ---
 
-# Analyze a SciRalph Run
+# Analyze a OpenDirac Run
 
 Read README.md to understand how the multi-agent research process works.
 
-Given a workspace directory (under `workspaces/` in the SciRalph project), perform a systematic post-mortem analysis of the run and its failure modes and inefficiencies. The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
+Given a workspace directory (under `workspaces/` in the OpenDirac project), perform a systematic post-mortem analysis of the run and its failure modes and inefficiencies. The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
 
 Check `references/` in the project root for a reference document matching the problem. These files describe what a correct answer looks like and what a typical successful run looks like for known problems.
 
 **Key deliverables:**
 - A list of specific failures, which agent or part of the framework didn't work, when, and why.
 - A list of insights for improvements in the process design, improved agents (prompt, tools), and scaffold adjustments.
+
+## Tools
+
+For any python code you need to write to analyze the file, use the /tmp folder to write and run temporary files. 
+Do not run directly in the command line. Instead, write a python script that reads the relevant files, performs the analysis, and prints the results. 
+Then run that script and read its output.
+
 
 ## Workspace Structure
 

@@ -1,6 +1,6 @@
 """Tests for Task dataclass and TaskType enum."""
 
-from sciralph.task import Task, TaskType, TASK_TYPE_AGENT_MAP
+from open_dirac.task import Task, TaskType, TASK_TYPE_AGENT_MAP
 
 
 class TestTaskType:

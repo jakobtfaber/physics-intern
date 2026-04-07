@@ -1,20 +1,20 @@
-"""Tests for SciRalph engine (research status, budget enforcement, overrides)."""
+"""Tests for OpenDirac engine (research status, budget enforcement, overrides)."""
 
 from unittest.mock import MagicMock, patch, PropertyMock, call
 
-from sciralph.config import Config
-from sciralph.engine import DispatchRecord, LoopState
-from sciralph.research_state import Evidence, Hypothesis, ResearchState, ReviewResult
-from sciralph.task import Task, TaskType
-from sciralph.validation import Violation, ViolationSeverity
+from open_dirac.config import Config
+from open_dirac.engine import DispatchRecord, LoopState
+from open_dirac.research_state import Evidence, Hypothesis, ResearchState, ReviewResult
+from open_dirac.task import Task, TaskType
+from open_dirac.validation import Violation, ViolationSeverity
 
 
 class TestSetResearchStatus:
     """Test _set_research_status updates research state."""
 
     def test_set_research_status(self):
-        from sciralph.engine import SciRalph
-        engine = SciRalph.__new__(SciRalph)
+        from open_dirac.engine import OpenDirac
+        engine = OpenDirac.__new__(OpenDirac)
         engine.config = Config()
         engine.research_state = ResearchState()
 
@@ -27,7 +27,7 @@ class TestEnrichComputeTask:
     """Test compute task enrichment with prior failure context."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -39,8 +39,8 @@ class TestEnrichComputeTask:
                 written[filename] = content
             ws.write_file = MagicMock(side_effect=capture_write)
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.research_state = ResearchState()
             # Record prior failures via claim_failure_count in LoopState
@@ -82,15 +82,15 @@ class TestComputeVerdictTracking:
     """Test dispatch-level verdict tracking with failure counter and verdict signals."""
 
     def _make_engine(self, stall_recompute_limit=2):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config(stall_recompute_limit=stall_recompute_limit)
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -100,7 +100,7 @@ class TestComputeVerdictTracking:
         return engine
 
     def _set_verification(self, engine, target, verdict_str, summary=""):
-        from sciralph.research_state import Hypothesis, ReviewResult
+        from open_dirac.research_state import Hypothesis, ReviewResult
         if target not in engine.research_state.hypotheses:
             engine.research_state.hypotheses[target] = Hypothesis(id=target)
         engine.research_state.hypotheses[target].review = ReviewResult(
@@ -151,7 +151,7 @@ class TestComputeVerdictTracking:
 
     def test_refuted_keeps_working_and_increments_refuted_count(self):
         """REFUTED verdict keeps WH WORKING, increments refuted_count, no FailedApproach."""
-        from sciralph.research_state import HypothesisStatus
+        from open_dirac.research_state import HypothesisStatus
         engine = self._make_engine()
         h = Hypothesis(id="WH-001", statement="Claim X = Y", evidence=[
             Evidence(type="compute", result="wrong", iteration=1),
@@ -362,10 +362,10 @@ class TestComputeVerdictTracking:
     def test_track_agent_result_stores_provenance(self):
         """_track_agent_result stores task_id and task_type in pending results."""
         engine = self._make_engine()
-        from sciralph.research_state import Evidence
+        from open_dirac.research_state import Evidence
         rq = engine.research_state.research_questions.get("RQ-001")
         if rq is None:
-            from sciralph.research_state import ResearchQuestion
+            from open_dirac.research_state import ResearchQuestion
             engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
                 id="RQ-001", question="What is T?",
             )
@@ -458,7 +458,7 @@ class TestComputeVerdictTracking:
     def test_empty_comp_log_noop(self):
         """No verification on target hypothesis, nothing happens."""
         engine = self._make_engine()
-        from sciralph.research_state import Hypothesis
+        from open_dirac.research_state import Hypothesis
         engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
 
         task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
@@ -475,7 +475,7 @@ class TestRefutedEvidenceClearing:
 
     def test_store_evidence_clears_refuted(self):
         """New evidence replaces previously-refuted evidence on a hypothesis."""
-        from sciralph.agents.evidence_base import EvidenceAgent
+        from open_dirac.agents.evidence_base import EvidenceAgent
 
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
@@ -505,7 +505,7 @@ class TestRefutedEvidenceClearing:
 
     def test_store_evidence_keeps_non_refuted(self):
         """Non-refuted evidence is preserved alongside new evidence."""
-        from sciralph.agents.evidence_base import EvidenceAgent
+        from open_dirac.agents.evidence_base import EvidenceAgent
 
         state = ResearchState()
         state.hypotheses["WH-001"] = Hypothesis(
@@ -539,15 +539,15 @@ class TestCriticCleanSignal:
     """Test that _no_critiques_filed flag injects a violation for the orchestrator."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -591,8 +591,8 @@ class TestTerminationGate:
     """Test the termination gate in the main loop."""
 
     def _make_engine(self):
-        """Create a SciRalph instance for termination gate testing."""
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        """Create a OpenDirac instance for termination gate testing."""
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -605,8 +605,8 @@ class TestTerminationGate:
             ws.write_file = MagicMock(side_effect=capture_write)
             ws.read_file = MagicMock(return_value="")
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -618,7 +618,7 @@ class TestTerminationGate:
 
     def test_terminate_allowed_when_stub(self):
         """Stub can_terminate always returns True, so TERMINATE proceeds."""
-        from sciralph.validation import can_terminate
+        from open_dirac.validation import can_terminate
         engine, _ = self._make_engine()
 
         # The stub always allows termination
@@ -704,7 +704,7 @@ class TestCheckStatusField:
     """Test the renamed _check_status_field (formerly _should_terminate)."""
 
     def _make_engine(self, state_text=""):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -712,8 +712,8 @@ class TestCheckStatusField:
             ws.logs_dir = "/tmp/logs"
             ws.read_file = MagicMock(return_value=state_text)
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.research_state = ResearchState()
             engine.workspace = ws
@@ -749,7 +749,7 @@ class TestZeroOutputStallHandling:
     """Tests for zero-output stall detection and enrichment (Improvement 1C-1D)."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -761,8 +761,8 @@ class TestZeroOutputStallHandling:
                 written[filename] = content
             ws.write_file = MagicMock(side_effect=capture_write)
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -792,15 +792,15 @@ class TestDispatchNewAgents:
     """Test dispatch routing to new agents (researcher, computer, reviewer)."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -847,8 +847,8 @@ class TestUpdateResearchIteration:
     """Test engine-side iteration counter update."""
 
     def test_iteration_field_updated(self):
-        from sciralph.engine import SciRalph
-        engine = SciRalph.__new__(SciRalph)
+        from open_dirac.engine import OpenDirac
+        engine = OpenDirac.__new__(OpenDirac)
         engine.config = Config()
         engine.research_state = ResearchState()
         engine.iteration = 5
@@ -856,8 +856,8 @@ class TestUpdateResearchIteration:
         assert engine.research_state.iteration == 5
 
     def test_iteration_starts_at_zero(self):
-        from sciralph.engine import SciRalph
-        engine = SciRalph.__new__(SciRalph)
+        from open_dirac.engine import OpenDirac
+        engine = OpenDirac.__new__(OpenDirac)
         engine.config = Config()
         engine.research_state = ResearchState()
         assert engine.research_state.iteration == 0
@@ -870,8 +870,8 @@ class TestDispatchFailureRecovery:
     """Test that transient dispatch failures are caught and the loop continues."""
 
     def _make_engine(self):
-        """Create a SciRalph instance with mocked agents for dispatch testing."""
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        """Create a OpenDirac instance with mocked agents for dispatch testing."""
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -882,8 +882,8 @@ class TestDispatchFailureRecovery:
             ws.file_size = MagicMock(return_value=0)
             ws.git_commit = MagicMock()
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config(max_iterations=3)
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -992,15 +992,15 @@ class TestAgentFailureRouting:
     """Test _record_agent_failures and its integration with _build_context_suffix."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -1028,7 +1028,7 @@ class TestAgentFailureRouting:
 
     def test_max_rounds_forced_recorded(self):
         """max_rounds_forced stop_reason records an exhaustion failure."""
-        from sciralph.llm import AgentResult
+        from open_dirac.llm import AgentResult
         engine = self._make_engine()
         result = AgentResult(text="partial", rounds=10, stop_reason="max_rounds_forced")
         task = Task(task_id="TASK-005", task_type=TaskType.REVIEW, assigned_to="reviewer")
@@ -1087,7 +1087,7 @@ class TestAgentFailureRouting:
 
     def test_compute_verdict_appends_to_pending_verdicts(self):
         """REFUTED verdict below stall limit appends to pending_compute_verdicts."""
-        from sciralph.research_state import Hypothesis, ReviewResult
+        from open_dirac.research_state import Hypothesis, ReviewResult
 
         engine = self._make_engine()
         engine.iteration = 5
@@ -1108,7 +1108,7 @@ class TestAgentFailureRouting:
 
     def test_compute_verdict_stall_signals_orchestrator(self):
         """At stall (count >= limit), verdict signal still goes to pending_compute_verdicts."""
-        from sciralph.research_state import Hypothesis, ReviewResult
+        from open_dirac.research_state import Hypothesis, ReviewResult
 
         engine = self._make_engine()
         engine.iteration = 5
@@ -1152,7 +1152,7 @@ class TestProblemStatementPopulated:
     """Test that ResearchState gets problem_statement populated on init (A1)."""
 
     def test_problem_statement_set_on_init(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -1160,8 +1160,8 @@ class TestProblemStatementPopulated:
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -1178,7 +1178,7 @@ class TestProblemStatementPopulated:
 
     def test_answer_template_stored_separately(self):
         """answer_template is stored as a separate field, not embedded in problem_statement."""
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -1186,8 +1186,8 @@ class TestProblemStatementPopulated:
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph("Derive T_H.", Config(), answer_template="## Answer\n\nT_H = ?")
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac("Derive T_H.", Config(), answer_template="## Answer\n\nT_H = ?")
 
             assert engine.research_state.problem_statement == "Derive T_H."
             assert engine.research_state.answer_template == "## Answer\n\nT_H = ?"
@@ -1197,7 +1197,7 @@ class TestSyncOnTermination:
     """Test that _sync_research_state is called on termination path (A3)."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -1208,8 +1208,8 @@ class TestSyncOnTermination:
             ws.file_size = MagicMock(return_value=0)
             ws.git_commit = MagicMock()
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config(max_iterations=3)
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -1254,15 +1254,15 @@ class TestExploreResultSuppression:
     """Test that evidence-less results are NOT appended to pending_explore_results (C3)."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -1273,7 +1273,7 @@ class TestExploreResultSuppression:
 
     def test_no_evidence_not_appended(self):
         """Hypothesis with no evidence NOT appended to pending_explore_results."""
-        from sciralph.research_state import Hypothesis
+        from open_dirac.research_state import Hypothesis
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
         task = Task(task_id="TASK-003", task_type=TaskType.RESEARCH,
@@ -1285,7 +1285,7 @@ class TestExploreResultSuppression:
 
     def test_empty_result_explore_not_appended(self):
         """Evidence with empty result NOT appended to pending_explore_results."""
-        from sciralph.research_state import Hypothesis, Evidence
+        from open_dirac.research_state import Hypothesis, Evidence
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
@@ -1300,7 +1300,7 @@ class TestExploreResultSuppression:
 
     def test_successful_explore_appended(self):
         """Successful evidence IS appended to pending_explore_results."""
-        from sciralph.research_state import Hypothesis, Evidence
+        from open_dirac.research_state import Hypothesis, Evidence
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
@@ -1316,7 +1316,7 @@ class TestExploreResultSuppression:
 
     def test_critique_evidence_appended(self):
         """Evidence on a critique target IS appended to pending_explore_results."""
-        from sciralph.research_state import Critique, Evidence, Severity, CritiqueStatus
+        from open_dirac.research_state import Critique, Evidence, Severity, CritiqueStatus
         engine = self._make_engine()
         engine.research_state.critiques["CRIT-001"] = Critique(
             id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
@@ -1339,7 +1339,7 @@ class TestExploreResultSuppression:
 
     def test_critique_no_evidence_not_appended(self):
         """Critique with no evidence NOT appended to pending_explore_results."""
-        from sciralph.research_state import Critique, Severity, CritiqueStatus
+        from open_dirac.research_state import Critique, Severity, CritiqueStatus
         engine = self._make_engine()
         engine.research_state.critiques["CRIT-001"] = Critique(
             id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
@@ -1369,8 +1369,8 @@ class TestCallWithRetryNoRetry:
 
     def _make_agent(self, tmp_path):
         """Create a minimal concrete agent for testing _call_with_retry."""
-        from sciralph.agents.base import BaseAgent
-        from sciralph.llm import LLMResponse
+        from open_dirac.agents.base import BaseAgent
+        from open_dirac.llm import LLMResponse
 
         class _StubAgent(BaseAgent):
             name = "test_agent"
@@ -1389,13 +1389,13 @@ class TestCallWithRetryNoRetry:
         config = Config(workspace_dir=str(tmp_path))
         ws = MagicMock()
         ws.root = tmp_path
-        from sciralph.metrics import MetricsTracker
+        from open_dirac.metrics import MetricsTracker
         metrics = MetricsTracker()
         return _StubAgent(config, ws, metrics), metrics
 
     def test_no_retry_on_max_tokens(self, tmp_path):
         """call_llm is invoked exactly once even when it returns max_tokens."""
-        from sciralph.llm import LLMResponse
+        from open_dirac.llm import LLMResponse
         agent, metrics = self._make_agent(tmp_path)
 
         response = LLMResponse(
@@ -1403,7 +1403,7 @@ class TestCallWithRetryNoRetry:
             input_tokens=5000, output_tokens=8000,
             stop_reason="max_tokens", duration=1.0,
         )
-        with patch("sciralph.agents.base.call_llm", return_value=response) as mock_llm:
+        with patch("open_dirac.agents.base.call_llm", return_value=response) as mock_llm:
             result = agent._call_with_retry("long context", iteration=3)
 
         mock_llm.assert_called_once()
@@ -1412,7 +1412,7 @@ class TestCallWithRetryNoRetry:
 
     def test_normal_stop_returns_immediately(self, tmp_path):
         """Normal end_turn returns without alert or scaffold event."""
-        from sciralph.llm import LLMResponse
+        from open_dirac.llm import LLMResponse
         agent, metrics = self._make_agent(tmp_path)
 
         response = LLMResponse(
@@ -1420,7 +1420,7 @@ class TestCallWithRetryNoRetry:
             input_tokens=3000, output_tokens=2000,
             stop_reason="end_turn", duration=0.5,
         )
-        with patch("sciralph.agents.base.call_llm", return_value=response) as mock_llm:
+        with patch("open_dirac.agents.base.call_llm", return_value=response) as mock_llm:
             result = agent._call_with_retry("context", iteration=1)
 
         mock_llm.assert_called_once()
@@ -1429,7 +1429,7 @@ class TestCallWithRetryNoRetry:
 
     def test_max_tokens_fires_alert_and_scaffold_event(self, tmp_path):
         """max_tokens triggers a metrics alert and scaffold log event."""
-        from sciralph.llm import LLMResponse
+        from open_dirac.llm import LLMResponse
         agent, metrics = self._make_agent(tmp_path)
 
         response = LLMResponse(
@@ -1437,8 +1437,8 @@ class TestCallWithRetryNoRetry:
             input_tokens=5000, output_tokens=8000,
             stop_reason="max_tokens", duration=1.0,
         )
-        with patch("sciralph.agents.base.call_llm", return_value=response), \
-             patch("sciralph.agents.base.log_scaffold_event") as mock_log:
+        with patch("open_dirac.agents.base.call_llm", return_value=response), \
+             patch("open_dirac.agents.base.log_scaffold_event") as mock_log:
             agent._call_with_retry("context", iteration=3)
 
         # Alert fired
@@ -1462,7 +1462,7 @@ class TestSurveyorEngine:
     """Tests for surveyor agent integration in the engine."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -1472,8 +1472,8 @@ class TestSurveyorEngine:
             ws.git_commit = MagicMock()
             ws.file_size = MagicMock(return_value=0)
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.research_state = ResearchState(
                 problem_statement="Derive Hawking temperature.",
@@ -1511,7 +1511,7 @@ class TestTerminationCircuitBreaker:
     """Test the circuit breaker that auto-abandons WHs after repeated termination blocks."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -1519,8 +1519,8 @@ class TestTerminationCircuitBreaker:
             ws.logs_dir = "/tmp/logs"
             ws.write_file = MagicMock()
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.research_state = ResearchState()
             engine.workspace = ws
@@ -1531,7 +1531,7 @@ class TestTerminationCircuitBreaker:
 
     def test_force_abandon_working_hypotheses(self):
         """Auto-abandon all remaining WHs when circuit breaker fires."""
-        from sciralph.research_state import Hypothesis, HypothesisStatus
+        from open_dirac.research_state import Hypothesis, HypothesisStatus
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING, statement="Claim A",
@@ -1569,7 +1569,7 @@ class TestTerminationCircuitBreaker:
 
     def test_no_abandon_when_no_working_hypotheses(self):
         """Force-abandon is a no-op when all hypotheses are already established/abandoned."""
-        from sciralph.research_state import Hypothesis, HypothesisStatus
+        from open_dirac.research_state import Hypothesis, HypothesisStatus
         engine = self._make_engine()
         engine.research_state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
@@ -1586,15 +1586,15 @@ class TestRedundantCriticPassFix:
     """Test that forced critic clears stale blockers and injects can-terminate signal."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -1633,15 +1633,15 @@ class TestDispatchHistory:
     """Test dispatch history recording and rendering in orchestrator context."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
 
-            from sciralph.engine import SciRalph
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -1700,7 +1700,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_compute_with_evidence(self):
         """Compute task with evidence on target RQ records confidence."""
         engine = self._make_engine()
-        from sciralph.research_state import ResearchQuestion, Evidence
+        from open_dirac.research_state import ResearchQuestion, Evidence
         engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is T?",
         )
@@ -1720,7 +1720,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_compute_no_evidence(self):
         """Compute task with no evidence on target records 'no evidence'."""
         engine = self._make_engine()
-        from sciralph.research_state import ResearchQuestion
+        from open_dirac.research_state import ResearchQuestion
         engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is T?",
         )
@@ -1733,7 +1733,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_research_on_hypothesis(self):
         """Research task targeting a WH reads evidence from hypothesis."""
         engine = self._make_engine()
-        from sciralph.research_state import Hypothesis, Evidence
+        from open_dirac.research_state import Hypothesis, Evidence
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
             evidence=[Evidence(type="research", result="derived", confidence="approximate", iteration=2)],
@@ -1747,7 +1747,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_review_verdict(self):
         """Review task captures the reviewer's verdict."""
         engine = self._make_engine()
-        from sciralph.research_state import Hypothesis, ReviewResult
+        from open_dirac.research_state import Hypothesis, ReviewResult
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
             review=ReviewResult(verdict="VERIFIED", summary="Correct.", iteration=3),
@@ -1764,7 +1764,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_review_promoted_wh(self):
         """Review task finds promoted WH via ER- fallback."""
         engine = self._make_engine()
-        from sciralph.research_state import Hypothesis, ReviewResult, HypothesisStatus
+        from open_dirac.research_state import Hypothesis, ReviewResult, HypothesisStatus
         # Simulate post-promotion state: WH-001 gone, ER-001 present
         engine.research_state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
@@ -1780,7 +1780,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_review_no_review(self):
         """Review task with no review result records 'no review produced'."""
         engine = self._make_engine()
-        from sciralph.research_state import Hypothesis
+        from open_dirac.research_state import Hypothesis
         engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
         task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
                     assigned_to="reviewer", target_claim="WH-001")
@@ -1790,7 +1790,7 @@ class TestDispatchHistory:
 
     def test_append_dispatch_record_critique_with_critiques(self):
         """Critique task counts recent critiques from research state."""
-        from sciralph.research_state import Critique, Severity, CritiqueStatus
+        from open_dirac.research_state import Critique, Severity, CritiqueStatus
         engine = self._make_engine()
         # Add 3 critiques filed this iteration
         for i in range(1, 4):
@@ -1899,16 +1899,16 @@ class TestAutoPromoteCascade:
     """Tests for cascading auto-promotion in _auto_promote."""
 
     def _make_engine(self):
-        with patch("sciralph.engine.WorkspaceManager") as MockWS:
+        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
             ws.root.__truediv__ = MagicMock()
             ws.logs_dir = "/tmp/logs"
 
-            from sciralph.engine import SciRalph
-            from sciralph.research_state import HypothesisStatus
-            engine = SciRalph.__new__(SciRalph)
+            from open_dirac.engine import OpenDirac
+            from open_dirac.research_state import HypothesisStatus
+            engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
             engine.metrics = MagicMock()
@@ -1919,7 +1919,7 @@ class TestAutoPromoteCascade:
 
     def test_simple_promotion(self):
         """VERIFIED WH with no deps is promoted."""
-        from sciralph.research_state import Hypothesis, HypothesisStatus, Verdict
+        from open_dirac.research_state import Hypothesis, HypothesisStatus, Verdict
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -1931,7 +1931,7 @@ class TestAutoPromoteCascade:
 
     def test_skipped_when_deps_unestablished(self):
         """VERIFIED WH with unestablished dep is NOT promoted."""
-        from sciralph.research_state import Hypothesis, HypothesisStatus, Verdict
+        from open_dirac.research_state import Hypothesis, HypothesisStatus, Verdict
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -1946,7 +1946,7 @@ class TestAutoPromoteCascade:
 
     def test_cascade_promotes_dependent(self):
         """Promoting WH-001 cascades to promote WH-002 that depends on it."""
-        from sciralph.research_state import Hypothesis, HypothesisStatus, Verdict
+        from open_dirac.research_state import Hypothesis, HypothesisStatus, Verdict
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -1965,7 +1965,7 @@ class TestAutoPromoteCascade:
 
     def test_cascade_chain_three_deep(self):
         """Cascade works through a chain: WH-001 -> WH-002 -> WH-003."""
-        from sciralph.research_state import Hypothesis, HypothesisStatus, Verdict
+        from open_dirac.research_state import Hypothesis, HypothesisStatus, Verdict
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -1986,7 +1986,7 @@ class TestAutoPromoteCascade:
 
     def test_cascade_stops_at_unverified(self):
         """Cascade does not promote unverified WHs in the chain."""
-        from sciralph.research_state import Hypothesis, HypothesisStatus, Verdict
+        from open_dirac.research_state import Hypothesis, HypothesisStatus, Verdict
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -2014,8 +2014,8 @@ class TestAutoExpireCritiques:
     """Test _auto_expire_critiques expiration logic."""
 
     def _make_engine(self, auto_expire_iterations=3):
-        from sciralph.engine import SciRalph
-        engine = SciRalph.__new__(SciRalph)
+        from open_dirac.engine import OpenDirac
+        engine = OpenDirac.__new__(OpenDirac)
         engine.config = Config()
         engine.config.auto_expire_iterations = auto_expire_iterations
         engine.research_state = ResearchState()
@@ -2025,7 +2025,7 @@ class TestAutoExpireCritiques:
 
     def test_medium_critique_expires(self):
         """MEDIUM critique auto-expires after TTL iterations."""
-        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=3)
         engine.iteration = 8
         engine.research_state.critiques["CRIT-001"] = Critique(
@@ -2041,7 +2041,7 @@ class TestAutoExpireCritiques:
 
     def test_low_critique_expires(self):
         """LOW critique auto-expires after TTL iterations."""
-        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=3)
         engine.iteration = 10
         engine.research_state.critiques["CRIT-001"] = Critique(
@@ -2054,7 +2054,7 @@ class TestAutoExpireCritiques:
 
     def test_high_critique_never_expires(self):
         """HIGH critique is never auto-expired regardless of age."""
-        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=3)
         engine.iteration = 100
         engine.research_state.critiques["CRIT-001"] = Critique(
@@ -2067,7 +2067,7 @@ class TestAutoExpireCritiques:
 
     def test_young_critique_not_expired(self):
         """MEDIUM critique younger than TTL is not expired."""
-        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=3)
         engine.iteration = 7
         engine.research_state.critiques["CRIT-001"] = Critique(
@@ -2080,7 +2080,7 @@ class TestAutoExpireCritiques:
 
     def test_disabled_when_ttl_zero(self):
         """No expiry when auto_expire_iterations is 0."""
-        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=0)
         engine.iteration = 100
         engine.research_state.critiques["CRIT-001"] = Critique(
@@ -2093,7 +2093,7 @@ class TestAutoExpireCritiques:
 
     def test_already_resolved_not_touched(self):
         """Already-resolved critiques are not re-expired."""
-        from sciralph.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=3)
         engine.iteration = 100
         engine.research_state.critiques["CRIT-001"] = Critique(

@@ -1,6 +1,6 @@
 """Tests for reasoning token tracking across providers."""
 
-from sciralph.providers.base import (
+from open_dirac.providers.base import (
     ProviderResponse,
     estimate_answer_tokens,
     estimate_reasoning_tokens,
@@ -245,14 +245,14 @@ class TestProviderResponseInvariant:
 
 class TestLLMWrapperFields:
     def test_llm_response_defaults(self):
-        from sciralph.llm import LLMResponse
+        from open_dirac.llm import LLMResponse
         resp = LLMResponse(text="hi", input_tokens=10, output_tokens=5,
                            stop_reason="end_turn", duration=1.0)
         assert resp.reasoning_tokens == 0
         assert resp.answer_tokens == 0
 
     def test_llm_response_with_reasoning(self):
-        from sciralph.llm import LLMResponse
+        from open_dirac.llm import LLMResponse
         resp = LLMResponse(text="hi", input_tokens=10, output_tokens=50,
                            stop_reason="end_turn", duration=1.0,
                            reasoning_tokens=30, answer_tokens=20)
@@ -260,13 +260,13 @@ class TestLLMWrapperFields:
         assert resp.answer_tokens == 20
 
     def test_agent_result_defaults(self):
-        from sciralph.llm import AgentResult
+        from open_dirac.llm import AgentResult
         result = AgentResult(text="done")
         assert result.total_reasoning_tokens == 0
         assert result.total_answer_tokens == 0
 
     def test_agent_result_with_reasoning(self):
-        from sciralph.llm import AgentResult
+        from open_dirac.llm import AgentResult
         result = AgentResult(text="done", total_reasoning_tokens=500,
                              total_answer_tokens=200)
         assert result.total_reasoning_tokens == 500

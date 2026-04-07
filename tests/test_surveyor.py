@@ -2,10 +2,10 @@
 
 from unittest.mock import MagicMock
 
-from sciralph.agents.surveyor import SurveyorAgent
-from sciralph.research_state import ResearchState
-from sciralph.task import Task, TaskType
-from sciralph.llm import LLMResponse
+from open_dirac.agents.surveyor import SurveyorAgent
+from open_dirac.research_state import ResearchState
+from open_dirac.task import Task, TaskType
+from open_dirac.llm import LLMResponse
 
 
 def _make_agent():
@@ -108,9 +108,9 @@ def test_process_response_strips_whitespace():
 
 def test_surveyor_parses_json_sections():
     """Surveyor extracts structured sections from JSON block."""
-    from sciralph.agents.surveyor import SurveyorAgent
+    from open_dirac.agents.surveyor import SurveyorAgent
     from unittest.mock import MagicMock
-    from sciralph.llm import LLMResponse
+    from open_dirac.llm import LLMResponse
 
     agent = SurveyorAgent.__new__(SurveyorAgent)
     agent.research_state = None
@@ -132,8 +132,8 @@ def test_surveyor_parses_json_sections():
 
 def test_surveyor_fallback_on_no_json():
     """Surveyor falls back gracefully when no JSON block present."""
-    from sciralph.agents.surveyor import SurveyorAgent
-    from sciralph.llm import LLMResponse
+    from open_dirac.agents.surveyor import SurveyorAgent
+    from open_dirac.llm import LLMResponse
     from unittest.mock import MagicMock
 
     agent = SurveyorAgent.__new__(SurveyorAgent)
@@ -153,9 +153,9 @@ def test_surveyor_fallback_on_no_json():
 
 def test_surveyor_parses_problem_summary():
     """Surveyor extracts problem_summary from JSON block."""
-    from sciralph.agents.surveyor import SurveyorAgent
+    from open_dirac.agents.surveyor import SurveyorAgent
     from unittest.mock import MagicMock
-    from sciralph.llm import LLMResponse
+    from open_dirac.llm import LLMResponse
 
     agent = SurveyorAgent.__new__(SurveyorAgent)
     agent.research_state = None
@@ -190,8 +190,8 @@ def test_build_context_replan_uses_slim_state():
 
 def test_surveyor_fallback_on_malformed_json():
     """Surveyor falls back when JSON is malformed."""
-    from sciralph.agents.surveyor import SurveyorAgent
-    from sciralph.llm import LLMResponse
+    from open_dirac.agents.surveyor import SurveyorAgent
+    from open_dirac.llm import LLMResponse
     from unittest.mock import MagicMock
 
     agent = SurveyorAgent.__new__(SurveyorAgent)

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from sciralph.config import Config, DEFAULTS, _YAML_CONFIG_FIELDS, load_config_yaml, build_config
+from open_dirac.config import Config, DEFAULTS, _YAML_CONFIG_FIELDS, load_config_yaml, build_config
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +146,7 @@ class TestBuildConfig:
 
 class TestMainParser:
     def test_basic_args(self):
-        from sciralph.main import build_parser
+        from open_dirac.main import build_parser
         parser = build_parser()
         args = parser.parse_args(["problems/test.yaml", "--max-iterations", "5",
                                   "--model", "my-model"])
@@ -156,7 +156,7 @@ class TestMainParser:
         assert args.config is None
 
     def test_all_args(self):
-        from sciralph.main import build_parser
+        from open_dirac.main import build_parser
         parser = build_parser()
         args = parser.parse_args([
             "p.yaml", "--config", "c.yaml", "--model", "m",
@@ -168,13 +168,13 @@ class TestMainParser:
         assert args.workspace_dir == "/tmp/ws"
 
     def test_bad_int_exits(self):
-        from sciralph.main import build_parser
+        from open_dirac.main import build_parser
         parser = build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(["p.yaml", "--max-iterations", "abc"])
 
     def test_defaults_are_none(self):
-        from sciralph.main import build_parser
+        from open_dirac.main import build_parser
         parser = build_parser()
         args = parser.parse_args(["p.yaml"])
         assert args.model is None
@@ -189,7 +189,7 @@ class TestMainParser:
 
 class TestVerifyParser:
     def test_basic_args(self):
-        from sciralph.verification.verify import build_verify_parser
+        from open_dirac.verification.verify import build_verify_parser
         parser = build_verify_parser()
         args = parser.parse_args(["workspaces/run1"])
         assert args.workspace_dir == "workspaces/run1"
@@ -197,14 +197,14 @@ class TestVerifyParser:
         assert args.max_tokens == DEFAULTS["max_tokens"]
 
     def test_custom_values(self):
-        from sciralph.verification.verify import build_verify_parser
+        from open_dirac.verification.verify import build_verify_parser
         parser = build_verify_parser()
         args = parser.parse_args(["ws", "--model", "opus", "--max-tokens", "8192"])
         assert args.model == "opus"
         assert args.max_tokens == 8192
 
     def test_bad_int_exits(self):
-        from sciralph.verification.verify import build_verify_parser
+        from open_dirac.verification.verify import build_verify_parser
         parser = build_verify_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(["ws", "--max-tokens", "xyz"])

@@ -1,6 +1,6 @@
 """Tests for console output logging and replay."""
 
-from sciralph.console import LoggingConsole, replay_log
+from open_dirac.console import LoggingConsole, replay_log
 
 
 class TestLoggingConsole:

@@ -4,23 +4,23 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from sciralph.agents.evidence_base import render_relevant_results
-from sciralph.agents.researcher import (
+from open_dirac.agents.evidence_base import render_relevant_results
+from open_dirac.agents.researcher import (
     ResearcherAgent,
     _extract_derivation_text,
     _parse_researcher_json,
 )
 import pytest
 
-from sciralph.llm import LLMResponse, ParseFailureError
-from sciralph.research_state import (
+from open_dirac.llm import LLMResponse, ParseFailureError
+from open_dirac.research_state import (
     Evidence,
     Hypothesis,
     HypothesisStatus,
     ResearchQuestion,
     ResearchState,
 )
-from sciralph.task import Task, TaskType
+from open_dirac.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------

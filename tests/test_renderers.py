@@ -2,8 +2,8 @@
 
 import pytest
 
-from sciralph.utils.markdown import parse_frontmatter
-from sciralph.rendering import (
+from open_dirac.utils.markdown import parse_frontmatter
+from open_dirac.rendering import (
     render_critique_log_md,
     render_critic_context,
     render_critic_previous_critiques,
@@ -17,7 +17,7 @@ from sciralph.rendering import (
     render_research_state_md,
     render_task_md,
 )
-from sciralph.research_state import (
+from open_dirac.research_state import (
     Critique,
     CritiqueStatus,
     Evidence,
@@ -30,7 +30,7 @@ from sciralph.research_state import (
     ReviewResult,
     SanityCheck,
 )
-from sciralph.task import Task, TaskType
+from open_dirac.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +287,7 @@ class TestRenderResearchStateMd:
         assert "**Depends on:**" not in md
 
     def test_research_questions_section_rendered(self):
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is F(p)?",
@@ -366,7 +366,7 @@ class TestRenderEvidenceLogMd:
 
     def test_rq_evidence_rendered(self):
         """Evidence on research questions appears in evidence log."""
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is F?",
@@ -426,7 +426,7 @@ class TestRenderEvidenceLogMd:
 
     def test_promoted_rq_shows_cross_reference(self):
         """When RQ evidence was copied to a WH, the RQ entry should be a short cross-reference."""
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         ev = Evidence(
             type="compute", method="symbolic", approach="Long approach text " * 50,
             result="T = 1/(8*pi*M)", reasoning="Full reasoning " * 50, iteration=2,
@@ -807,7 +807,7 @@ class TestCollapsedResolvedRQs:
 
     def test_resolved_rq_to_er_omitted(self):
         """Resolved RQ pointing to an ER is omitted (already in established-results)."""
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is X?",
@@ -821,7 +821,7 @@ class TestCollapsedResolvedRQs:
         assert "research-questions" not in text
 
     def test_abandoned_rq_one_liner(self):
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is X?",
@@ -839,7 +839,7 @@ class TestCollapsedResolvedRQs:
 
 class TestPlannerReviseEnrichedContext:
     def test_enriched_er_shows_deps_evidence_review(self):
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test problem")
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001",
@@ -873,7 +873,7 @@ class TestPlannerReviseEnrichedContext:
         assert "WH-002" not in text
 
     def test_rq_not_shown_in_revise_context(self):
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001",
@@ -911,7 +911,7 @@ class TestPlannerReviseEnrichedContext:
         assert "<critic-clean-reviews>" not in text
 
     def test_only_ers_in_research_state(self):
-        from sciralph.research_state import ResearchQuestion, RQStatus
+        from open_dirac.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", statement="Established claim",

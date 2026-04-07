@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from sciralph.agents.critic import CriticAgent, _parse_critic_json
-from sciralph.research_state import (
+from open_dirac.agents.critic import CriticAgent, _parse_critic_json
+from open_dirac.research_state import (
     Critique,
     CritiqueStatus,
     Hypothesis,

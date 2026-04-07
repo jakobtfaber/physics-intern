@@ -1,18 +1,11 @@
-# SciRalph — Task List
-
-## Refactor
-- separer verifier
-- clean engine
-- improve structure : utils, scripts, petc.
-- each agent has its tools ?
-
+# OpenDirac — Task List
 
 
 ## LONGER TERM
 
 ### LLM
 - strengthen token count, reasoning storage, etc. per provider
-- 
+
 ### Problem YAML features
 
 - **External reference files** — allow problem YAML to specify a `files:` list. Copy into `workspace/references/`. Requires `read_file` tool for agents to access them. Useful for problems that need external papers or formula sheets.
@@ -39,6 +32,7 @@
 
 ### Improve critic
 - should we call a deep critic after refutation ?
+- or call one right after the first planner at iteration 0 until convergence ?
 
 ### Improve orchestrator
 - create some warm up problems

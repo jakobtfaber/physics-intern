@@ -5,12 +5,12 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from sciralph.config import Config, _PERSIST_FIELDS
-from sciralph.engine import (
-    SciRalph, LoopState, _reconstruct_loop_state, _find_last_critic_iteration,
+from open_dirac.config import Config, _PERSIST_FIELDS
+from open_dirac.engine import (
+    OpenDirac, LoopState, _reconstruct_loop_state, _find_last_critic_iteration,
 )
-from sciralph.workspace import WorkspaceManager
-from sciralph.research_state import (
+from open_dirac.workspace import WorkspaceManager
+from open_dirac.research_state import (
     ResearchState, Hypothesis, HypothesisStatus, Evidence, ReviewResult,
     Verdict, ResearchQuestion, RQStatus,
 )
@@ -250,13 +250,13 @@ class TestEngineResume:
 
     def test_resume_loads_research_state(self, tmp_path):
         ws_dir = self._make_workspace(tmp_path)
-        engine = SciRalph.resume(ws_dir)
+        engine = OpenDirac.resume(ws_dir)
         assert engine.research_state.status == "in_progress"
         assert "WH-001" in engine.research_state.hypotheses
 
     def test_resume_sets_iteration(self, tmp_path):
         ws_dir = self._make_workspace(tmp_path)
-        engine = SciRalph.resume(ws_dir)
+        engine = OpenDirac.resume(ws_dir)
         assert engine.iteration == 4
 
     def test_resume_missing_problem_yaml(self, tmp_path):
@@ -267,16 +267,16 @@ class TestEngineResume:
         config = Config(workspace_dir=str(ws_dir))
         config.save(ws_dir)
         with pytest.raises(FileNotFoundError, match="problem.yaml"):
-            SciRalph.resume(ws_dir)
+            OpenDirac.resume(ws_dir)
 
     def test_resume_with_config_overrides(self, tmp_path):
         ws_dir = self._make_workspace(tmp_path)
-        engine = SciRalph.resume(ws_dir, config_overrides={"max_iterations": 50})
+        engine = OpenDirac.resume(ws_dir, config_overrides={"max_iterations": 50})
         assert engine.config.max_iterations == 50
 
     def test_resume_reconstructs_loop_state(self, tmp_path):
         ws_dir = self._make_workspace(tmp_path)
-        engine = SciRalph.resume(ws_dir)
+        engine = OpenDirac.resume(ws_dir)
         # WH-001 has no review, so claim_failure_count should be empty
         assert engine._state.claim_failure_count == {}
         # Evidence at iteration 2
@@ -291,7 +291,7 @@ class TestRunSurveyorSkip:
 
     def test_run_skips_surveyor_on_resume(self, tmp_path):
         """With existing survey_background, surveyor should not be called."""
-        engine = SciRalph.__new__(SciRalph)
+        engine = OpenDirac.__new__(OpenDirac)
         engine.config = Config(workspace_dir=str(tmp_path), max_iterations=0)
         engine.workspace = MagicMock()
         engine.workspace.root = tmp_path
@@ -318,7 +318,7 @@ class TestRunSurveyorSkip:
 
     def test_run_calls_surveyor_fresh(self, tmp_path):
         """Without background survey, surveyor should be called."""
-        engine = SciRalph.__new__(SciRalph)
+        engine = OpenDirac.__new__(OpenDirac)
         engine.config = Config(workspace_dir=str(tmp_path), max_iterations=0)
         engine.workspace = MagicMock()
         engine.workspace.root = tmp_path
@@ -343,7 +343,7 @@ class TestRunSurveyorSkip:
 
     def test_completed_workspace_exits_early(self, tmp_path):
         """Status 'completed' should exit without running the loop."""
-        engine = SciRalph.__new__(SciRalph)
+        engine = OpenDirac.__new__(OpenDirac)
         engine.config = Config(workspace_dir=str(tmp_path), max_iterations=10)
         engine.workspace = MagicMock()
         engine.workspace.root = tmp_path
@@ -379,14 +379,14 @@ class TestRunSurveyorSkip:
 class TestCLIParsing:
 
     def test_cli_resume_flag(self):
-        from sciralph.main import build_parser
+        from open_dirac.main import build_parser
         parser = build_parser()
         args = parser.parse_args(["--resume", "/some/workspace"])
         assert args.resume == Path("/some/workspace")
         assert args.problem is None
 
     def test_cli_problem_optional_with_resume(self):
-        from sciralph.main import build_parser
+        from open_dirac.main import build_parser
         parser = build_parser()
         # Should not error when problem is omitted with --resume
         args = parser.parse_args(["--resume", "/some/workspace", "--max-iterations", "20"])
@@ -395,7 +395,7 @@ class TestCLIParsing:
         assert args.problem is None
 
     def test_cli_problem_required_without_resume(self):
-        from sciralph.main import build_parser
+        from open_dirac.main import build_parser
         parser = build_parser()
         args = parser.parse_args(["some/problem.yaml"])
         assert args.problem == Path("some/problem.yaml")

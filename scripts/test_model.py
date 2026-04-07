@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-# Add src to path so we can import sciralph
+# Add src to path so we can import open_dirac
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from dotenv import load_dotenv
@@ -23,14 +23,14 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
-from sciralph.config import _resolve_model
-from sciralph.providers import create_provider
+from open_dirac.config import _resolve_model
+from open_dirac.providers import create_provider
 
 console = Console()
 
 
 def load_registry() -> dict:
-    path = Path(__file__).parent.parent / "src" / "sciralph" / "models.yaml"
+    path = Path(__file__).parent.parent / "src" / "open_dirac" / "models.yaml"
     with open(path) as f:
         return yaml.safe_load(f)
 

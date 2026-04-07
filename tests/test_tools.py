@@ -4,11 +4,11 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from sciralph.config import Config
-from sciralph.llm import AgentResult, run_agent_loop
-from sciralph.providers.base import ProviderResponse
-from sciralph.agents.computer.tools import ToolExecutor
-from sciralph.tool_call import ToolCall
+from open_dirac.config import Config
+from open_dirac.llm import AgentResult, run_agent_loop
+from open_dirac.providers.base import ProviderResponse
+from open_dirac.agents.computer.tools import ToolExecutor
+from open_dirac.tool_call import ToolCall
 
 
 def _make_executor(timeout: int = 60) -> ToolExecutor:
@@ -248,7 +248,7 @@ class TestActiveToolsLifecycle:
 
     def test_initial_tools_before_approach(self):
         """Before approach, only document_approach and submit_result are available."""
-        from sciralph.task import TaskType
+        from open_dirac.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         tools = executor.active_tools
@@ -257,7 +257,7 @@ class TestActiveToolsLifecycle:
 
     def test_tools_after_approach(self):
         """After document_approach, execute_python replaces it."""
-        from sciralph.task import TaskType
+        from open_dirac.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         executor.execute("document_approach", {"approach": "test"})
@@ -267,7 +267,7 @@ class TestActiveToolsLifecycle:
 
     def test_progress_check_exposes_report_progress(self):
         """Setting _progress_check_pending adds report_progress to tools."""
-        from sciralph.task import TaskType
+        from open_dirac.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         executor._approach_documented = True
@@ -278,7 +278,7 @@ class TestActiveToolsLifecycle:
 
     def test_report_progress_clears_pending(self):
         """Calling report_progress removes it from next tool set."""
-        from sciralph.task import TaskType
+        from open_dirac.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         executor._approach_documented = True
@@ -293,7 +293,7 @@ class TestActiveToolsLifecycle:
 
     def test_non_compute_returns_initial(self):
         """Non-COMPUTE task type gets initial tool set (document_approach + submit_result)."""
-        from sciralph.task import TaskType
+        from open_dirac.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.RESEARCH)
         tools = executor.active_tools
@@ -360,7 +360,7 @@ class TestSubmitResult:
 
 class TestToolSetsForTaskType:
     def test_computer_tools(self):
-        from sciralph.task import TaskType
+        from open_dirac.task import TaskType
         tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE)
         names = {t["function"]["name"] for t in tools}
         assert names == {"document_approach", "execute_python", "submit_result"}
@@ -375,12 +375,12 @@ class TestExitToolName:
         assert executor.exit_tool_name == "submit_result"
 
     def test_orchestrator_exit_tools(self):
-        from sciralph.agents.orchestrator.tools import OrchestratorToolExecutor
+        from open_dirac.agents.orchestrator.tools import OrchestratorToolExecutor
         expected = {"add_hypothesis", "dispatch_researcher", "dispatch_computer", "request_termination"}
         assert OrchestratorToolExecutor.exit_tool_names == frozenset(expected)
 
     def test_report_progress_mentions_submit_result(self):
-        from sciralph.task import TaskType
+        from open_dirac.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         tc = executor.execute("report_progress", {
@@ -450,7 +450,7 @@ def _mock_provider():
 
 
 class TestAgentLoop:
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_end_turn_first_call(self, mock_get_provider):
         """LLM returns text with end_turn on the first call."""
         provider = _mock_provider()
@@ -473,7 +473,7 @@ class TestAgentLoop:
         assert not result.truncated
         assert result.stop_reason == "end_turn"
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_one_tool_call_then_end(self, mock_get_provider):
         """LLM calls a tool in round 1, then returns text in round 2 → text_end_turn_recovery → submit_result."""
         provider = _mock_provider()
@@ -509,7 +509,7 @@ class TestAgentLoop:
         assert result.stop_reason == "executor_stop"
         assert not result.truncated
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_max_rounds_exhausted(self, mock_get_provider):
         """LLM always returns tool_use — stops at max_rounds with forced final call."""
         provider = _mock_provider()
@@ -540,7 +540,7 @@ class TestAgentLoop:
         assert len(result.tool_calls) == 3
         assert provider.call.call_count == 6
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_token_accumulation(self, mock_get_provider):
         """Tokens are summed across rounds."""
         provider = _mock_provider()
@@ -577,7 +577,7 @@ class TestAgentLoop:
         assert result.total_output_tokens == 330  # 80+90+100+60
         assert result.rounds == 4
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_max_tokens_stop(self, mock_get_provider):
         """stop_reason=max_tokens in round 1 returns truncated."""
         provider = _mock_provider()
@@ -601,7 +601,7 @@ class TestAgentLoop:
 class TestForcedPartialOutput:
     """Test the forced text-only final call when max_rounds is exhausted."""
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_forced_call_includes_exit_tool(self, mock_get_provider):
         """Forced final call should include the exit tool (submit_result)."""
         provider = _mock_provider()
@@ -638,7 +638,7 @@ class TestForcedPartialOutput:
         # System prompt is unchanged (no mutation)
         assert calls[2].kwargs.get("system") == "sys"
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_forced_call_text_in_result(self, mock_get_provider):
         """Result text should come from the forced final call."""
         provider = _mock_provider()
@@ -664,7 +664,7 @@ class TestForcedPartialOutput:
         assert result.text == "Forced partial output here"
         assert result.stop_reason == "max_rounds_forced"
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_token_accumulation_includes_forced(self, mock_get_provider):
         """Total tokens should include all forced call retries."""
         provider = _mock_provider()
@@ -689,7 +689,7 @@ class TestForcedPartialOutput:
         assert result.total_output_tokens == 440  # 80 + 3*120
         assert result.rounds == 4  # 1 tool round + 3 forced retries
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_stop_reason_is_max_rounds_forced(self, mock_get_provider):
         """Stop reason should be 'max_rounds_forced'."""
         provider = _mock_provider()
@@ -717,7 +717,7 @@ class TestForcedPartialOutput:
 class TestEmptyTextFallthrough:
     """Test Gap A: end_turn with empty text falls through to forced final call."""
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_empty_end_turn_recovery_then_text(self, mock_get_provider):
         """First empty end_turn injects recovery; model responds with text → text_end_turn_recovery → falls through."""
         provider = _mock_provider()
@@ -751,7 +751,7 @@ class TestEmptyTextFallthrough:
         assert result.stop_reason == "end_turn"
         assert provider.call.call_count == 4
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_empty_end_turns_retry_until_max_rounds(self, mock_get_provider):
         """Empty end_turns retry until max_rounds, then forced final with exit tool."""
         provider = _mock_provider()
@@ -789,7 +789,7 @@ class TestEmptyTextFallthrough:
         forced_call = provider.call.call_args_list[3]
         assert forced_call.kwargs.get("tools") is not None
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_empty_end_turn_with_text_triggers_recovery(self, mock_get_provider):
         """end_turn with text after tool calls triggers text_end_turn_recovery."""
         provider = _mock_provider()
@@ -827,7 +827,7 @@ class TestEmptyTextFallthrough:
 class TestProgressCheckInLoop:
     """Test progress check injection after consecutive execute_python calls."""
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_progress_check_injected_after_n_rounds(self, mock_get_provider):
         """Progress check message injected after progress_check_interval consecutive exec_python."""
         provider = _mock_provider()
@@ -873,7 +873,7 @@ class TestProgressCheckInLoop:
         )
         assert progress_found, "Progress check message should be injected after 3 exec_python rounds"
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_no_progress_check_before_interval(self, mock_get_provider):
         """No progress check if fewer than N exec_python rounds."""
         provider = _mock_provider()
@@ -910,7 +910,7 @@ class TestProgressCheckInLoop:
                 if isinstance(msg, dict) and isinstance(msg.get("content"), str):
                     assert "PROGRESS CHECK" not in msg["content"]
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_progress_check_resets_after_report_progress(self, mock_get_provider):
         """Counter resets after report_progress; no injection at next interval unless earned."""
         provider = _mock_provider()
@@ -961,7 +961,7 @@ class TestProgressCheckInLoop:
 class TestSubmitResultInLoop:
     """Test submit_result triggers executor_stop in agent loop."""
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_submit_result_stops_loop(self, mock_get_provider):
         """Round 1: execute_python, round 2: submit_result → executor_stop."""
         provider = _mock_provider()
@@ -1001,10 +1001,10 @@ class TestSubmitResultInLoop:
 class TestReadyToConcludeRecovery:
     """Test ready-to-conclude recovery re-prompt (Part A)."""
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_ready_conclude_recovery_then_exit_tool(self, mock_get_provider):
         """report_progress(ready=True) → end_turn with text → recovery → submit_result → executor_stop."""
-        from sciralph.task import TaskType
+        from open_dirac.task import TaskType
 
         provider = _mock_provider()
         mock_get_provider.return_value = provider
@@ -1051,7 +1051,7 @@ class TestReadyToConcludeRecovery:
         )
         assert recovery_found, "Recovery re-prompt should mention ready to conclude"
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_ready_conclude_no_flag_triggers_text_recovery(self, mock_get_provider):
         """end_turn with text but no ready_to_conclude → text_end_turn_recovery fires."""
         provider = _mock_provider()
@@ -1090,10 +1090,10 @@ class TestReadyToConcludeRecovery:
         assert result.rounds == 3
         assert provider.call.call_count == 3
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_ready_conclude_recovery_second_end_turn_falls_through(self, mock_get_provider):
         """Recovery once → model again end_turn with text → falls through to normal end_turn."""
-        from sciralph.task import TaskType
+        from open_dirac.task import TaskType
 
         provider = _mock_provider()
         mock_get_provider.return_value = provider
@@ -1133,7 +1133,7 @@ class TestReadyToConcludeRecovery:
 class TestTextEndTurnRecovery:
     """Test text end_turn recovery when model writes findings as text without calling exit tool."""
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_text_end_turn_recovery_then_exit_tool(self, mock_get_provider):
         """tool_use → text end_turn → recovery → submit_result → executor_stop."""
         provider = _mock_provider()
@@ -1180,7 +1180,7 @@ class TestTextEndTurnRecovery:
         )
         assert recovery_found, "Recovery message should mention submit_result"
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_text_end_turn_recovery_no_prior_tools(self, mock_get_provider):
         """text end_turn on round 1 (no prior tools) → immediate end_turn return (no recovery)."""
         provider = _mock_provider()
@@ -1203,7 +1203,7 @@ class TestTextEndTurnRecovery:
         assert result.rounds == 1
         assert provider.call.call_count == 1  # no recovery
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_text_end_turn_recovery_second_text_falls_through(self, mock_get_provider):
         """tool_use → text end_turn → recovery → text end_turn again → falls through to end_turn."""
         provider = _mock_provider()
@@ -1240,10 +1240,10 @@ class TestTextEndTurnRecovery:
 class TestForcedFinalWithExitTool:
     """Test forced final call keeps exit tool when ready_to_conclude (Part B)."""
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_forced_final_includes_exit_tool_when_ready(self, mock_get_provider):
         """max_rounds hit + ready_to_conclude → forced call with exit tool → executor_stop."""
-        from sciralph.task import TaskType
+        from open_dirac.task import TaskType
 
         provider = _mock_provider()
         mock_get_provider.return_value = provider
@@ -1290,7 +1290,7 @@ class TestForcedFinalWithExitTool:
         # submit_result was actually executed
         assert any(tc.tool_name == "submit_result" for tc in result.tool_calls)
 
-    @patch("sciralph.llm._get_provider")
+    @patch("open_dirac.llm._get_provider")
     def test_forced_final_always_includes_exit_tool(self, mock_get_provider):
         """max_rounds hit → forced call always includes exit tool, retries if not called."""
         provider = _mock_provider()

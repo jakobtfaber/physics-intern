@@ -13,7 +13,7 @@ import os
 
 import pytest
 
-from sciralph.providers import create_provider
+from open_dirac.providers import create_provider
 
 PROMPT = "What is 2+2? Reply with just the number."
 SYSTEM = "You are a helpful assistant. Be concise."

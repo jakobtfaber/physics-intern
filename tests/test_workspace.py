@@ -2,8 +2,8 @@
 
 import inspect
 
-from sciralph.config import Config
-from sciralph.workspace import WorkspaceManager
+from open_dirac.config import Config
+from open_dirac.workspace import WorkspaceManager
 
 
 def test_init_creates_research_state_without_warmups(tmp_path):
