@@ -281,7 +281,12 @@ class ToolExecutor:
         elif tool_name == "report_progress":
             output, is_error = self._report_progress(tool_input)
         else:
-            raise ValueError(f"Unknown tool: {tool_name}")
+            output = (
+                f"ERROR: Unknown tool '{tool_name}'. "
+                f"Available tools: execute_python, submit_result, "
+                f"document_approach, report_progress."
+            )
+            is_error = True
 
         duration = time.time() - start
         return ToolCall(
