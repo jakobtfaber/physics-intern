@@ -131,12 +131,34 @@ qwen-3.5-397B-A17B:
 # vLLM (local endpoints)
 # ============================================================================
 
-nemotron:
+Qwen/Qwen3.5-4B:
   provider: vllm
-  model_id: nemotron3
   env_key: VLLM_API_KEY
-  base_url: "http://localhost:8000/v1"
   input_cost: 0.0
   output_cost: 0.0
   reasoning_format: think_tags
-  tool_mode: xml_text  # Nemotron emits <tool_call> XML tags in text
+  tool_mode: api
+
+nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16:
+  provider: vllm
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  reasoning_format: think_tags
+  tool_mode: xml_text
+
+nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:
+  provider: vllm
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  reasoning_format: think_tags
+  tool_mode: xml_text
+
+nvidia/Nemotron-Cascade-2-30B-A3B:
+  provider: vllm
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  reasoning_format: think_tags
+  tool_mode: xml_text
