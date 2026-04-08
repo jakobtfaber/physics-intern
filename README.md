@@ -25,6 +25,10 @@ uv sync --extra google          # Google Gemini
 uv sync --extra huggingface     # HuggingFace Inference Providers
 uv sync --extra all-providers   # all of the above
 
+# To run local models, install vLLM
+uv sync --extra local
+
+
 # Run a research problem (requires model API key in .env or env var)
 uv run python -m open_dirac.main problems/tier1/hawking_temperature.yaml --max-iterations 10 --model claude-4.6-sonnet
 ```
