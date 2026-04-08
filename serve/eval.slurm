@@ -136,7 +136,10 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   PROBLEM_SLUG="${PROBLEM//[^[:alnum:]]/-}"
   while [[ "$PROBLEM_SLUG" == *--* ]]; do PROBLEM_SLUG="${PROBLEM_SLUG//--/-}"; done
   PROBLEM_SLUG="${PROBLEM_SLUG#-}"; PROBLEM_SLUG="${PROBLEM_SLUG%-}"
-  JOB_NAME="one-shot-${MODEL_KEY}-${PROBLEM_SLUG}"
+  MODEL_SLUG="${MODEL_KEY//[^[:alnum:]]/-}"
+  while [[ "$MODEL_SLUG" == *--* ]]; do MODEL_SLUG="${MODEL_SLUG//--/-}"; done
+  MODEL_SLUG="${MODEL_SLUG#-}"; MODEL_SLUG="${MODEL_SLUG%-}"
+  JOB_NAME="one-shot-${MODEL_SLUG}-${PROBLEM_SLUG}"
   mkdir -p "$LOG_DIR_DEFAULT"
 
   SUBMIT_ARGS=(

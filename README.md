@@ -96,15 +96,39 @@ Answers are auto-evaluated against the known answer in the problem YAML (symboli
 
 ### Serving Local Models with vLLM
 
-For cluster-local serving, use `serve/serve.slurm`. The script self-submits with `sbatch`, launches one `vllm serve` rank per allocated node, stores Slurm logs under `serve/logs/`, and writes connection details to `serve/logs/vllm/<job_id>/endpoint.env`.
+Running a local model is a two-step process: first **serve** the model with vLLM, then **run** the problem against it.
 
-Prerequisites:
+#### End-to-end example (Nemotron Super 120B)
+
+```bash
+# Step 1 — Serve the model (submits a Slurm job; returns immediately)
+./serve/serve.slurm \
+  --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
+  --nodes 1 \
+  --gpus-per-node 8
+
+# Note the Slurm job ID printed to stdout, e.g. 12345.
+# Connection details are written to serve/logs/vllm/<job_id>/endpoint.env
+# as soon as the job starts (before the model finishes loading).
+
+# Step 2 — Run a problem against the served model
+# eval.slurm reads endpoint.env, waits for vLLM to be healthy (up to 30 min),
+# then launches the evaluation.
+./serve/eval.slurm \
+  --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
+  --problem problems/tier1/hawking_temperature.yaml \
+  --serve-job 12345
+```
+
+#### Prerequisites
 
 - `uv sync --extra local`
 - `uv run hf auth whoami`
 - vendored Nemotron parser plugins live in `serve/reasoning_parsers/`
 
-Examples:
+#### Step 1: Serve the model
+
+Use `serve/serve.slurm`. The script self-submits with `sbatch`, launches one `vllm serve` rank per allocated node, stores Slurm logs under `serve/logs/`, and writes connection details to `serve/logs/vllm/<job_id>/endpoint.env`.
 
 ```bash
 # Qwen on 1 node, 1 GPU
@@ -123,7 +147,7 @@ Examples:
 # Nemotron Super on 2 nodes, 8 GPUs per node
 ./serve/serve.slurm \
   --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
-  --nodes 2 \
+  --nodes 1 \
   --gpus-per-node 8
 
 # Nemotron Cascade on 1 node, 1 GPU
@@ -142,7 +166,7 @@ Local model keys match Hub repo IDs:
 - `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`
 - `nvidia/Nemotron-Cascade-2-30B-A3B`
 
-The Python vLLM provider defaults to `http://localhost:8000/v1` but respects the `VLLM_BASE_URL` environment variable, which overrides the default with the serve job's head node IP.
+#### Step 2: Run the problem
 
 **Recommended: use `serve/eval.slurm`**, which reads the serve job's `endpoint.env` and exports `VLLM_BASE_URL` automatically so the Python client connects to the correct node:
 
@@ -153,8 +177,6 @@ The Python vLLM provider defaults to `http://localhost:8000/v1` but respects the
   --serve-job <JOB_ID>
 ```
 
-The serve job ID and head node are written to `serve/logs/vllm/<job_id>/endpoint.env` as soon as the job starts (before the model finishes loading). `eval.slurm` polls the `/health` endpoint and waits up to 30 minutes for vLLM to be ready before running the evaluation.
-
 **Alternative: run manually from any node.** Source the endpoint env and run:
 
 ```bash
@@ -164,6 +186,8 @@ uv run python -m open_dirac.one_shot \
   problems/tier1/hawking_temperature.yaml \
   --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16
 ```
+
+The Python vLLM provider defaults to `http://localhost:8000/v1` but respects the `VLLM_BASE_URL` environment variable, which overrides the default with the serve job's head node IP.
 
 ## Supported Models
 
