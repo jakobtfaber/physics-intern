@@ -4,9 +4,9 @@
 # Usage (self-submits via sbatch when run outside Slurm):
 #   ./serve/eval.slurm --model MODEL_KEY --problem PROBLEM_YAML [options]
 #
-# For local vLLM models the job must run on the serve job's head node so that
-# "localhost:8000" resolves correctly.  Pass --serve-job <JOB_ID> and the
-# script pins the sbatch submission to that node automatically.
+# For local vLLM models, pass --serve-job <JOB_ID>.  The script reads the
+# head node IP from endpoint.env and exports VLLM_BASE_URL so the Python
+# client connects to the correct node (no longer requires localhost).
 
 set -euo pipefail
 
@@ -29,7 +29,7 @@ Usage:
 Examples:
   # Local vLLM model — pins job to the serve head node automatically
   ./serve/eval.slurm \
-    --model nemotron-3-super-local \
+    --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
     --problem problems/tier1/hawking_temperature.yaml \
     --serve-job 22071810
 
@@ -49,9 +49,9 @@ Options:
   --model KEY          Model key from models.yaml (required).
   --problem PATH       Path to problem YAML file (required).
   --runs N             Number of runs for batch evaluation (default: 1).
-  --serve-job JOB_ID   Serve job whose head node hosts the vLLM endpoint.
-                       Reads serve/logs/vllm/<JOB_ID>/endpoint.env to find
-                       the head node and pins this job there via --nodelist.
+  --serve-job JOB_ID   Serve job hosting the vLLM endpoint.
+                       Reads serve/logs/vllm/<JOB_ID>/endpoint.env and
+                       exports VLLM_BASE_URL to reach the head node IP.
   --partition NAME     Slurm partition (default: hopper-cpu; overridden to
                        hopper-prod when --serve-job is used).
   --time HH:MM:SS      Slurm time limit (default: 02:00:00).
@@ -152,7 +152,7 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
     --error "${LOG_DIR_DEFAULT}/%x-%j.err"
   )
 
-  # For local vLLM models: resolve serve head node and pin the job there.
+  # For local vLLM models: resolve serve head node endpoint.
   if [[ -n "$SERVE_JOB" ]]; then
     ENDPOINT_ENV="${LOG_ROOT}/vllm/${SERVE_JOB}/endpoint.env"
     if [[ ! -f "$ENDPOINT_ENV" ]]; then
@@ -163,7 +163,7 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
     # shellcheck disable=SC1090
     source "$ENDPOINT_ENV"
     echo "Serve job ${SERVE_JOB}: endpoint ${BASE_URL} (head node: ${HEAD_NODE})"
-    SUBMIT_ARGS+=(--partition "${PARTITION:-hopper-prod}" --nodelist "$HEAD_NODE")
+    SUBMIT_ARGS+=(--partition "${PARTITION:-hopper-prod}")
   else
     SUBMIT_ARGS+=(--partition "${PARTITION:-hopper-cpu}")
   fi
@@ -202,11 +202,14 @@ if [[ -n "$SERVE_JOB" ]]; then
   fi
   # shellcheck disable=SC1090
   source "$ENDPOINT_ENV"
+  # Export VLLM_BASE_URL so the Python vLLM provider connects to the
+  # serve job's head node IP instead of localhost.
+  export VLLM_BASE_URL="${BASE_URL}"
   echo "Serve job ${SERVE_JOB}: endpoint ${BASE_URL}"
 
   # Wait for vLLM to be ready (models can take 10+ minutes to compile).
   echo "Waiting for vLLM endpoint to be ready..."
-  HEALTH_URL="http://localhost:${PORT:-8000}/health"
+  HEALTH_URL="http://${HEAD_IP}:${PORT:-8000}/health"
   WAIT_SECS=0
   MAX_WAIT=1800  # 30 minutes
   until curl -sf "$HEALTH_URL" >/dev/null 2>&1; do

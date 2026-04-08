@@ -72,8 +72,11 @@ class VLLMProvider(LLMProvider):
                 "openai package required. Install with: uv sync --extra openai"
             )
         resolved_key = api_key or os.environ.get("VLLM_API_KEY", "") or "not-needed"
+        # VLLM_BASE_URL env var overrides the base_url parameter from models.yaml,
+        # allowing eval.slurm to point at the serve job's head node IP.
+        resolved_url = os.environ.get("VLLM_BASE_URL", "") or base_url
         self._client = OpenAI(
-            base_url=base_url,
+            base_url=resolved_url,
             api_key=resolved_key,
             timeout=timeout,
         )

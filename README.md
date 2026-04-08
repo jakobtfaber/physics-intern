@@ -135,34 +135,34 @@ Examples:
 
 The `--reasoning-parser` flag is exposed directly. Use it to enable built-in parsers such as `qwen3`. For `nano_v3` and `super_v3`, the script automatically attaches the matching plugin file from `serve/reasoning_parsers`.
 
-Local OpenDirac model keys:
+Local model keys match Hub repo IDs:
 
-- `qwen-3.5-4b-local`
-- `nemotron-3-nano-local`
-- `nemotron-3-super-local`
-- `nemotron-cascade-2-30b-local`
+- `Qwen/Qwen3.5-4B`
+- `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16`
+- `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`
+- `nvidia/Nemotron-Cascade-2-30B-A3B`
 
-These `models.yaml` entries have `base_url: "http://localhost:8000/v1"` hardcoded, which means the Python client always connects to vLLM on the **same machine it runs on**. Because SLURM schedules the serve job onto an arbitrary compute node, you cannot run OpenDirac commands from the login node — `localhost` there has no vLLM server.
+The Python vLLM provider defaults to `http://localhost:8000/v1` but respects the `VLLM_BASE_URL` environment variable, which overrides the default with the serve job's head node IP.
 
-**Recommended: use `serve/eval.slurm`**, which automatically reads the serve job's head node from `endpoint.env` and pins the eval job to that node via `--nodelist`:
+**Recommended: use `serve/eval.slurm`**, which reads the serve job's `endpoint.env` and exports `VLLM_BASE_URL` automatically so the Python client connects to the correct node:
 
 ```bash
 ./serve/eval.slurm \
-  --model nemotron-3-super-local \
+  --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
   --problem problems/tier1/hawking_temperature.yaml \
   --serve-job <JOB_ID>
 ```
 
 The serve job ID and head node are written to `serve/logs/vllm/<job_id>/endpoint.env` as soon as the job starts (before the model finishes loading). `eval.slurm` polls the `/health` endpoint and waits up to 30 minutes for vLLM to be ready before running the evaluation.
 
-**Alternative: run manually on the head node.** Find the head node and SSH there:
+**Alternative: run manually from any node.** Source the endpoint env and run:
 
 ```bash
-cat serve/logs/vllm/<job_id>/endpoint.env   # shows HEAD_NODE
-srun --jobid <JOB_ID> --pty bash            # open shell on that job's allocation
+source serve/logs/vllm/<job_id>/endpoint.env
+export VLLM_BASE_URL="${BASE_URL}"
 uv run python -m open_dirac.one_shot \
   problems/tier1/hawking_temperature.yaml \
-  --model nemotron-3-super-local
+  --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16
 ```
 
 ## Supported Models
