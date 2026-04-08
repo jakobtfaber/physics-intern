@@ -141,9 +141,9 @@ nemotron:
   reasoning_format: think_tags
   tool_mode: xml_text  # Nemotron emits <tool_call> XML tags in text
 
-qwen-3.5-0.8b-local:
+qwen-3.5-4b-local:
   provider: vllm
-  model_id: Qwen/Qwen3.5-0.8B
+  model_id: Qwen/Qwen3.5-4B
   env_key: VLLM_API_KEY
   base_url: "http://localhost:8000/v1"
   input_cost: 0.0

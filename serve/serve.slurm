@@ -24,10 +24,10 @@ Usage:
   sbatch serve/serve.slurm --model MODEL [options] [-- ...extra vllm args]
 
 Examples:
-  ./serve/serve.slurm --model Qwen/Qwen3.5-0.8B --nodes 2 --gpus-per-node 1
-  ./serve/serve.slurm --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --nodes 2 --gpus-per-node 1
+  ./serve/serve.slurm --model Qwen/Qwen3.5-4B --nodes 1 --gpus-per-node 1
+  ./serve/serve.slurm --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --nodes 1 --gpus-per-node 1
   ./serve/serve.slurm --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 --nodes 2 --gpus-per-node 8
-  ./serve/serve.slurm --model Qwen/Qwen3.5-0.8B --nodes 2 --gpus-per-node 1 --reasoning-parser qwen3
+  ./serve/serve.slurm --model Qwen/Qwen3.5-4B --nodes 1 --gpus-per-node 1 --reasoning-parser qwen3
 
 Options:
   --model MODEL                    Hugging Face model repo id to serve.
@@ -248,7 +248,7 @@ DEFAULT_REASONING_PARSER=""
 DEFAULT_VLLM_ARGS=()
 
 case "$MODEL" in
-  Qwen/Qwen3.5-0.8B)
+  Qwen/Qwen3.5-4B)
     DEFAULT_REASONING_PARSER="qwen3"
     DEFAULT_VLLM_ARGS=(
       --enable-auto-tool-choice
@@ -274,7 +274,6 @@ case "$MODEL" in
       --trust-remote-code
       --enable-auto-tool-choice
       --tool-call-parser qwen3_coder
-      --swap-space 0
       --gpu-memory-utilization 0.9
       --max-cudagraph-capture-size 128
       --enable-chunked-prefill
@@ -470,9 +469,13 @@ VLLM_ARGS=(
 )
 
 if (( NODES > 1 )); then
+  # Derive a unique master port from the job ID to avoid collisions when
+  # multiple multi-node jobs share a node.
+  MASTER_PORT=$(( 29500 + (SLURM_JOB_ID % 1000) ))
   VLLM_ARGS+=(
     --distributed-executor-backend mp
     --nnodes "$NODES"
+    --master-port "$MASTER_PORT"
   )
 fi
 

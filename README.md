@@ -107,17 +107,17 @@ Prerequisites:
 Examples:
 
 ```bash
-# Qwen on 2 nodes, 1 GPU per node
+# Qwen on 1 node, 1 GPU
 ./serve/serve.slurm \
-  --model Qwen/Qwen3.5-0.8B \
-  --nodes 2 \
+  --model Qwen/Qwen3.5-4B \
+  --nodes 1 \
   --gpus-per-node 1 \
   --reasoning-parser qwen3
 
-# Nemotron Nano on 2 nodes, 1 GPU per node
+# Nemotron Nano on 1 node, 1 GPU
 ./serve/serve.slurm \
   --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 \
-  --nodes 2 \
+  --nodes 1 \
   --gpus-per-node 1
 
 # Nemotron Super on 2 nodes, 8 GPUs per node
@@ -126,10 +126,10 @@ Examples:
   --nodes 2 \
   --gpus-per-node 8
 
-# Nemotron Cascade on 2 nodes, 1 GPU per node
+# Nemotron Cascade on 1 node, 1 GPU
 ./serve/serve.slurm \
   --model nvidia/Nemotron-Cascade-2-30B-A3B \
-  --nodes 2 \
+  --nodes 1 \
   --gpus-per-node 1
 ```
 
@@ -137,7 +137,7 @@ The `--reasoning-parser` flag is exposed directly. Use it to enable built-in par
 
 Local OpenDirac model keys:
 
-- `qwen-3.5-0.8b-local`
+- `qwen-3.5-4b-local`
 - `nemotron-3-nano-local`
 - `nemotron-3-super-local`
 - `nemotron-cascade-2-30b-local`
