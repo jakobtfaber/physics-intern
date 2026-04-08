@@ -94,6 +94,68 @@ uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml --r
 
 Answers are auto-evaluated against the known answer in the problem YAML (symbolic SymPy comparison + numerical fallback).
 
+### Serving Local Models with vLLM
+
+For cluster-local serving, use `serve/serve.slurm`. The script self-submits with `sbatch`, launches one `vllm serve` rank per allocated node, and writes connection details to `scratch/vllm/<job_id>/endpoint.env`.
+
+Prerequisites:
+
+- `uv sync --extra local`
+- `uv run hf auth whoami`
+- vendored Nemotron parser plugins live in `serve/reasoning_parsers/`
+
+Examples:
+
+```bash
+# Qwen on 2 nodes, 1 GPU per node
+./serve/serve.slurm \
+  --model Qwen/Qwen3.5-0.8B \
+  --nodes 2 \
+  --gpus-per-node 1 \
+  --reasoning-parser qwen3
+
+# Nemotron Nano on 2 nodes, 1 GPU per node
+./serve/serve.slurm \
+  --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 \
+  --nodes 2 \
+  --gpus-per-node 1
+
+# Nemotron Super on 2 nodes, 8 GPUs per node
+./serve/serve.slurm \
+  --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
+  --nodes 2 \
+  --gpus-per-node 8
+
+# Nemotron Cascade on 2 nodes, 1 GPU per node
+./serve/serve.slurm \
+  --model nvidia/Nemotron-Cascade-2-30B-A3B \
+  --nodes 2 \
+  --gpus-per-node 1
+```
+
+The `--reasoning-parser` flag is exposed directly. Use it to enable built-in parsers such as `qwen3`. For `nano_v3` and `super_v3`, the script automatically attaches the matching plugin file from `serve/reasoning_parsers`.
+
+Local OpenDirac model keys:
+
+- `qwen-3.5-0.8b-local`
+- `nemotron-3-nano-local`
+- `nemotron-3-super-local`
+- `nemotron-cascade-2-30b-local`
+
+These `models.yaml` entries point at `http://localhost:8000/v1`, so run OpenDirac commands on the vLLM head node while the serve job is active. A typical flow is:
+
+```bash
+uv run python -m open_dirac.one_shot \
+  problems/tier1/hawking_temperature.yaml \
+  --model nemotron-3-super-local
+```
+
+You can find the head node and base URL in:
+
+```bash
+cat scratch/vllm/<job_id>/endpoint.env
+```
+
 ## Supported Models
 
 Models are registered in `models.yaml`. Use the friendly key with `--model`:

@@ -140,3 +140,43 @@ nemotron:
   output_cost: 0.0
   reasoning_format: think_tags
   tool_mode: xml_text  # Nemotron emits <tool_call> XML tags in text
+
+qwen-3.5-0.8b-local:
+  provider: vllm
+  model_id: Qwen/Qwen3.5-0.8B
+  env_key: VLLM_API_KEY
+  base_url: "http://localhost:8000/v1"
+  input_cost: 0.0
+  output_cost: 0.0
+  reasoning_format: think_tags
+  tool_mode: api
+
+nemotron-3-nano-local:
+  provider: vllm
+  model_id: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+  env_key: VLLM_API_KEY
+  base_url: "http://localhost:8000/v1"
+  input_cost: 0.0
+  output_cost: 0.0
+  reasoning_format: think_tags
+  tool_mode: xml_text
+
+nemotron-3-super-local:
+  provider: vllm
+  model_id: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16
+  env_key: VLLM_API_KEY
+  base_url: "http://localhost:8000/v1"
+  input_cost: 0.0
+  output_cost: 0.0
+  reasoning_format: think_tags
+  tool_mode: xml_text
+
+nemotron-cascade-2-30b-local:
+  provider: vllm
+  model_id: nvidia/Nemotron-Cascade-2-30B-A3B
+  env_key: VLLM_API_KEY
+  base_url: "http://localhost:8000/v1"
+  input_cost: 0.0
+  output_cost: 0.0
+  reasoning_format: think_tags
+  tool_mode: xml_text
