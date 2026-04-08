@@ -96,7 +96,7 @@ Answers are auto-evaluated against the known answer in the problem YAML (symboli
 
 ### Serving Local Models with vLLM
 
-For cluster-local serving, use `serve/serve.slurm`. The script self-submits with `sbatch`, launches one `vllm serve` rank per allocated node, and writes connection details to `scratch/vllm/<job_id>/endpoint.env`.
+For cluster-local serving, use `serve/serve.slurm`. The script self-submits with `sbatch`, launches one `vllm serve` rank per allocated node, stores Slurm logs under `serve/logs/`, and writes connection details to `serve/logs/vllm/<job_id>/endpoint.env`.
 
 Prerequisites:
 
@@ -153,7 +153,7 @@ uv run python -m open_dirac.one_shot \
 You can find the head node and base URL in:
 
 ```bash
-cat scratch/vllm/<job_id>/endpoint.env
+cat serve/logs/vllm/<job_id>/endpoint.env
 ```
 
 ## Supported Models

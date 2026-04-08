@@ -11,8 +11,9 @@ else
   SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
   REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 fi
-LOG_DIR_DEFAULT="${REPO_ROOT}/scratch/vllm/slurm_logs"
-RUNTIME_DIR_ROOT="${REPO_ROOT}/scratch/vllm"
+LOG_ROOT="${REPO_ROOT}/serve/logs"
+LOG_DIR_DEFAULT="${LOG_ROOT}/slurm"
+RUNTIME_DIR_ROOT="${LOG_ROOT}/vllm"
 PARSER_DIR="${SCRIPT_DIR}/reasoning_parsers"
 PIDS=()
 
