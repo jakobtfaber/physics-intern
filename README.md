@@ -142,18 +142,27 @@ Local OpenDirac model keys:
 - `nemotron-3-super-local`
 - `nemotron-cascade-2-30b-local`
 
-These `models.yaml` entries point at `http://localhost:8000/v1`, so run OpenDirac commands on the vLLM head node while the serve job is active. A typical flow is:
+These `models.yaml` entries have `base_url: "http://localhost:8000/v1"` hardcoded, which means the Python client always connects to vLLM on the **same machine it runs on**. Because SLURM schedules the serve job onto an arbitrary compute node, you cannot run OpenDirac commands from the login node — `localhost` there has no vLLM server.
+
+**Recommended: use `serve/eval.slurm`**, which automatically reads the serve job's head node from `endpoint.env` and pins the eval job to that node via `--nodelist`:
 
 ```bash
+./serve/eval.slurm \
+  --model nemotron-3-super-local \
+  --problem problems/tier1/hawking_temperature.yaml \
+  --serve-job <JOB_ID>
+```
+
+The serve job ID and head node are written to `serve/logs/vllm/<job_id>/endpoint.env` as soon as the job starts (before the model finishes loading). `eval.slurm` polls the `/health` endpoint and waits up to 30 minutes for vLLM to be ready before running the evaluation.
+
+**Alternative: run manually on the head node.** Find the head node and SSH there:
+
+```bash
+cat serve/logs/vllm/<job_id>/endpoint.env   # shows HEAD_NODE
+srun --jobid <JOB_ID> --pty bash            # open shell on that job's allocation
 uv run python -m open_dirac.one_shot \
   problems/tier1/hawking_temperature.yaml \
   --model nemotron-3-super-local
-```
-
-You can find the head node and base URL in:
-
-```bash
-cat serve/logs/vllm/<job_id>/endpoint.env
 ```
 
 ## Supported Models
