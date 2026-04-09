@@ -29,7 +29,7 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODELS_YAML = PROJECT_ROOT / "src" / "open_dirac" / "models.yaml"
-DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "YAML"
+DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "yaml"
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt"
 

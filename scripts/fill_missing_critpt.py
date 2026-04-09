@@ -22,7 +22,7 @@ from pathlib import Path
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "YAML"
+DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "yaml"
 
 
 def discover_all_problem_ids(problems_dir: Path) -> dict[int, Path]:

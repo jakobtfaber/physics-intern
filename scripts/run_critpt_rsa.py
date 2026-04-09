@@ -29,7 +29,7 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODELS_YAML = PROJECT_ROOT / "src" / "open_dirac" / "models.yaml"
-DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "YAML"
+DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "yaml"
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt_rsa"
 
 # Import extract_answer_code (pure regex, no heavy deps)
@@ -83,7 +83,8 @@ def resolve_critpt_model_string(model_key: str) -> str:
     registry = yaml.safe_load(MODELS_YAML.read_text())
     entry = registry.get(model_key)
     if entry:
-        return f"{entry['provider']}/{entry['model_id']}"
+        model_id = entry.get('model_id', model_key)
+        return f"{entry['provider']}/{model_id}"
     return model_key
 
 
