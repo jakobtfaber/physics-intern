@@ -343,7 +343,8 @@ def _run_batch(
     results_dir = args.results_dir
     results_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{args.problem.stem}_{config.model}_{timestamp}.json"
+    safe_model = config.model.replace("/", "-").replace(":", "-")
+    filename = f"{args.problem.stem}_{safe_model}_{timestamp}.json"
     output_path = results_dir / filename
 
     payload = {
