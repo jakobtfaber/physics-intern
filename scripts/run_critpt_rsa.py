@@ -16,29 +16,26 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
 import re
 import signal
 import sys
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODELS_YAML = PROJECT_ROOT / "src" / "open_dirac" / "models.yaml"
-DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "yaml"
-DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt_rsa"
-
-# Import from open_dirac (pure regex + config, no heavy deps)
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
+from run_critpt_common import (
+    PROJECT_ROOT, DEFAULT_PROBLEMS_DIR, DEFAULTS,
+    Problem, RunResult,
+    resolve_critpt_model_string, discover_problems,
+    load_resume_config, find_completed_submissions,
+    resolve_model, make_output_dir,
+    write_submission_json, write_batch_metadata,
+    save_raw_response, setup_signal_handler, print_final_summary,
+)
 from open_dirac.verification.evaluate import extract_answer_code  # noqa: E402
-from open_dirac.config import DEFAULTS  # noqa: E402
 
-# RSA runs produce a single long response; default engine max_tokens is too low.
+DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt_rsa"
 RSA_MAX_TOKENS = 128_000
 
 
@@ -80,139 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 # ---------------------------------------------------------------------------
-# Model resolution
-# ---------------------------------------------------------------------------
-
-def resolve_critpt_model_string(model_key: str) -> str:
-    """Convert OpenDirac model key to CritPt format 'provider/model_id'."""
-    if not MODELS_YAML.exists():
-        return model_key
-    registry = yaml.safe_load(MODELS_YAML.read_text())
-    entry = registry.get(model_key)
-    if entry:
-        model_id = entry.get('model_id', model_key)
-        return f"{entry['provider']}/{model_id}"
-    return model_key
-
-
-# ---------------------------------------------------------------------------
-# Problem discovery
-# ---------------------------------------------------------------------------
-
-def parse_problem_range(range_str: str) -> set[int]:
-    """Parse '1-10,15,30-40' into a set of ints."""
-    result: set[int] = set()
-    for part in range_str.split(","):
-        part = part.strip()
-        if "-" in part:
-            lo, hi = part.split("-", 1)
-            result.update(range(int(lo), int(hi) + 1))
-        else:
-            result.add(int(part))
-    return result
-
-
-@dataclass
-class Problem:
-    n: int
-    problem_id: str
-    yaml_path: Path
-
-
-def discover_problems(
-    problems_dir: Path,
-    problem_range: str | None = None,
-) -> list[Problem]:
-    """Return sorted list of CritPt problems."""
-    pattern = re.compile(r"Challenge_(\d+)_main\.yaml$")
-    problems: list[Problem] = []
-    for p in sorted(problems_dir.iterdir()):
-        m = pattern.match(p.name)
-        if m:
-            n = int(m.group(1))
-            problems.append(Problem(
-                n=n,
-                problem_id=f"Challenge_{n}_main",
-                yaml_path=p.resolve(),
-            ))
-    if problem_range:
-        wanted = parse_problem_range(problem_range)
-        problems = [p for p in problems if p.n in wanted]
-    problems.sort(key=lambda p: p.n)
-    return problems
-
-
-# ---------------------------------------------------------------------------
-# Resume logic
-# ---------------------------------------------------------------------------
-
-def read_model_from_output_dir(output_dir: Path) -> str | None:
-    """Try to recover the model key from a previous run's output directory.
-
-    Prioritizes submission JSONs over batch_metadata.json because the latter
-    gets overwritten on every run (including failed resumes with wrong model).
-    """
-    # Check submission JSONs first — these are written once per successful problem
-    for f in output_dir.glob("Challenge_*_main.json"):
-        try:
-            data = json.loads(f.read_text())
-            model_key = data.get("generation_config", {}).get("model_key")
-            if model_key:
-                return model_key
-        except (json.JSONDecodeError, KeyError):
-            continue
-    # Fall back to batch_metadata.json
-    meta_path = output_dir / "batch_metadata.json"
-    if meta_path.exists():
-        try:
-            data = json.loads(meta_path.read_text())
-            model_key = data.get("generation_config", {}).get("model_key")
-            if model_key:
-                return model_key
-        except (json.JSONDecodeError, KeyError):
-            pass
-    return None
-
-
-def load_resume_config(resume_dir: Path) -> dict:
-    """Load run parameters from batch_metadata.json for --resume."""
-    meta_path = resume_dir / "batch_metadata.json"
-    if not meta_path.exists():
-        print(f"Error: no batch_metadata.json found in {resume_dir}", file=sys.stderr)
-        sys.exit(1)
-    data = json.loads(meta_path.read_text())
-    gen = data.get("generation_config", {})
-    run = data.get("run_config", {})
-    return {
-        "model": gen.get("model_key"),
-        "max_tokens": gen.get("max_tokens"),
-        "rsa_N": gen.get("rsa_N"),
-        "rsa_K": gen.get("rsa_K"),
-        "rsa_T": gen.get("rsa_T"),
-        "problems_dir": run.get("problems_dir"),
-        "problems_subset": run.get("problems_subset"),
-    }
-
-
-def find_completed_submissions(output_dir: Path) -> set[int]:
-    """Return problem numbers that already have valid submission JSONs."""
-    completed: set[int] = set()
-    pattern = re.compile(r"Challenge_(\d+)_main\.json$")
-    for f in output_dir.glob("Challenge_*_main.json"):
-        m = pattern.match(f.name)
-        if not m:
-            continue
-        try:
-            data = json.loads(f.read_text())
-            if data.get("problem_id") and data.get("generated_code"):
-                completed.add(int(m.group(1)))
-        except (json.JSONDecodeError, KeyError):
-            pass
-    return completed
-
-
-# ---------------------------------------------------------------------------
-# Stderr stats parser
+# Stderr stats parser (RSA format)
 # ---------------------------------------------------------------------------
 
 def _parse_stderr_stats(stderr: str) -> dict | None:
@@ -246,50 +111,6 @@ def _parse_stderr_stats(stderr: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Raw response logging
-# ---------------------------------------------------------------------------
-
-_logs_dir: Path | None = None
-
-
-def _save_raw_response(
-    problem: Problem,
-    stdout_text: str,
-    stderr_text: str,
-    success: bool,
-) -> None:
-    """Save raw stdout/stderr to logs/ for debugging."""
-    if _logs_dir is None:
-        return
-    prefix = "ok" if success else "FAIL"
-    log_path = _logs_dir / f"{prefix}_{problem.problem_id}.txt"
-    try:
-        with open(log_path, "w") as f:
-            f.write(f"=== STDOUT ({len(stdout_text)} chars) ===\n")
-            f.write(stdout_text)
-            f.write(f"\n\n=== STDERR ({len(stderr_text)} chars) ===\n")
-            f.write(stderr_text)
-    except OSError:
-        pass
-
-
-# ---------------------------------------------------------------------------
-# Run result
-# ---------------------------------------------------------------------------
-
-@dataclass
-class RunResult:
-    problem_n: int
-    problem_id: str
-    success: bool
-    answer_code: str | None
-    error: str | None
-    duration_s: float
-    stats: dict | None = None
-    returncode: int | None = None
-
-
-# ---------------------------------------------------------------------------
 # Worker: run one problem
 # ---------------------------------------------------------------------------
 
@@ -302,6 +123,7 @@ async def run_one_problem(
     rsa_T: int,
     timeout: float,
     semaphore: asyncio.Semaphore,
+    logs_dir: Path | None,
 ) -> RunResult:
     """Run a single CritPt problem via RSA subprocess."""
     async with semaphore:
@@ -349,7 +171,7 @@ async def run_one_problem(
                 else:
                     error = "no answer code found in response"
 
-            _save_raw_response(problem, stdout_text, stderr_text, success)
+            save_raw_response(logs_dir, problem, stdout_text, stderr_text, success)
 
             return RunResult(
                 problem_n=problem.n,
@@ -393,101 +215,6 @@ async def run_one_problem(
 
 
 # ---------------------------------------------------------------------------
-# Submission JSON writing
-# ---------------------------------------------------------------------------
-
-def write_submission_json(
-    result: RunResult,
-    output_dir: Path,
-    critpt_model: str,
-    generation_config: dict,
-) -> Path | None:
-    """Write a CritPt-format submission JSON. Returns path or None."""
-    if not result.answer_code:
-        return None
-    submission = {
-        "problem_id": result.problem_id,
-        "generated_code": result.answer_code,
-        "model": critpt_model,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "generation_config": generation_config,
-        "messages": [],
-    }
-    out_path = output_dir / f"{result.problem_id}.json"
-    out_path.write_text(json.dumps(submission, indent=2, ensure_ascii=False))
-    return out_path
-
-
-def write_batch_metadata(
-    output_dir: Path,
-    critpt_model: str,
-    all_results: list[RunResult],
-    generation_config: dict,
-    run_config: dict,
-    start_time: datetime,
-    end_time: datetime,
-) -> None:
-    """Write batch_metadata.json summarizing the run."""
-    all_submission_ids: list[str] = []
-    pattern = re.compile(r"Challenge_(\d+)_main\.json$")
-    for f in sorted(output_dir.glob("Challenge_*_main.json")):
-        m = pattern.match(f.name)
-        if m:
-            try:
-                data = json.loads(f.read_text())
-                if data.get("problem_id") and data.get("generated_code"):
-                    all_submission_ids.append(data["problem_id"])
-            except (json.JSONDecodeError, KeyError):
-                pass
-
-    n_run_success = sum(1 for r in all_results if r.success)
-    n_run_failed = sum(1 for r in all_results if not r.success)
-    total_duration = sum(r.duration_s for r in all_results)
-    total_cost = sum(
-        (r.stats or {}).get("cost_usd", 0.0) for r in all_results
-    )
-    total_input_tokens = sum(
-        (r.stats or {}).get("input_tokens", 0) for r in all_results
-    )
-    total_output_tokens = sum(
-        (r.stats or {}).get("output_tokens", 0) for r in all_results
-    )
-
-    metadata = {
-        "model": critpt_model,
-        "timestamp": end_time.isoformat(),
-        "generation_config": generation_config,
-        "run_config": run_config,
-        "num_submissions": len(all_submission_ids),
-        "problem_ids": all_submission_ids,
-        "summary": {
-            "total_submissions": len(all_submission_ids),
-            "this_run_total": len(all_results),
-            "this_run_success": n_run_success,
-            "this_run_failed": n_run_failed,
-            "total_compute_s": round(total_duration, 1),
-            "wall_clock_s": round((end_time - start_time).total_seconds(), 1),
-            "total_cost_usd": round(total_cost, 4),
-            "total_input_tokens": total_input_tokens,
-            "total_output_tokens": total_output_tokens,
-        },
-        "problems": [
-            {
-                "problem_id": r.problem_id,
-                "success": r.success,
-                "duration_s": round(r.duration_s, 1),
-                "error": r.error,
-                "stats": r.stats,
-            }
-            for r in sorted(all_results, key=lambda r: r.problem_n)
-        ],
-    }
-    (output_dir / "batch_metadata.json").write_text(
-        json.dumps(metadata, indent=2, ensure_ascii=False)
-    )
-
-
-# ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
@@ -498,34 +225,25 @@ async def run_batch(args: argparse.Namespace) -> int:
         if not args.resume.is_dir():
             print(f"Error: resume directory not found: {args.resume}", file=sys.stderr)
             return 1
-        cfg = load_resume_config(args.resume)
+        gen_cfg, run_cfg = load_resume_config(args.resume)
         args.output_dir = args.resume
         if args.model is None:
-            args.model = cfg.get("model")
+            args.model = gen_cfg.get("model_key")
         if args.max_tokens is None:
-            args.max_tokens = cfg.get("max_tokens")
+            args.max_tokens = gen_cfg.get("max_tokens")
         if args.N is None:
-            args.N = cfg.get("rsa_N")
+            args.N = gen_cfg.get("rsa_N")
         if args.K is None:
-            args.K = cfg.get("rsa_K")
+            args.K = gen_cfg.get("rsa_K")
         if args.T is None:
-            args.T = cfg.get("rsa_T")
-        if cfg.get("problems_dir"):
-            args.problems_dir = Path(cfg["problems_dir"])
-        if cfg.get("problems_subset"):
-            args.problems = cfg["problems_subset"]
+            args.T = gen_cfg.get("rsa_T")
+        if run_cfg.get("problems_dir"):
+            args.problems_dir = Path(run_cfg["problems_dir"])
+        if run_cfg.get("problems_subset"):
+            args.problems = run_cfg["problems_subset"]
         print(f"Resuming from {args.resume}", file=sys.stderr)
 
-    # Resolve model: explicit flag > previous run metadata > default
-    if args.model is None and args.output_dir and args.output_dir.exists():
-        recovered = read_model_from_output_dir(args.output_dir)
-        if recovered:
-            args.model = recovered
-            print(f"Resumed model from previous run: {recovered}", file=sys.stderr)
-    if args.model is None:
-        args.model = DEFAULTS["model"]
-
-    # Resolve max_tokens and RSA params
+    resolve_model(args, args.output_dir)
     if args.max_tokens is None:
         args.max_tokens = RSA_MAX_TOKENS
     if args.N is None:
@@ -542,19 +260,9 @@ async def run_batch(args: argparse.Namespace) -> int:
         print("Error: no problems found", file=sys.stderr)
         return 1
 
-    # Output directory
-    if args.output_dir:
-        output_dir = args.output_dir
-    else:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_model = args.model.replace("/", "-").replace(":", "-")
-        output_dir = DEFAULT_RESULTS_BASE / safe_model / ts
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create logs directory
-    global _logs_dir
-    _logs_dir = output_dir / "logs"
-    _logs_dir.mkdir(exist_ok=True)
+    output_dir = make_output_dir(args, DEFAULT_RESULTS_BASE)
+    logs_dir = output_dir / "logs"
+    logs_dir.mkdir(exist_ok=True)
 
     # Resume: skip completed
     n_skip = 0
@@ -586,7 +294,6 @@ async def run_batch(args: argparse.Namespace) -> int:
             print(f"  {p.problem_id}", file=sys.stderr)
         return 0
 
-    # Generation config for submission metadata
     generation_config = {
         "system": "open_dirac_rsa",
         "model_key": args.model,
@@ -600,8 +307,6 @@ async def run_batch(args: argparse.Namespace) -> int:
         "parsing": False,
         "multiturn_with_answer": False,
     }
-
-    # Run config for --resume (everything needed to restart the batch)
     run_config = {
         "problems_dir": str(args.problems_dir),
         "problems_subset": args.problems,
@@ -623,14 +328,12 @@ async def run_batch(args: argparse.Namespace) -> int:
         result = await run_one_problem(
             problem, args.model, args.max_tokens,
             N, K, T,
-            args.timeout, semaphore,
+            args.timeout, semaphore, logs_dir,
         )
 
-        # Write submission JSON immediately
         if result.success:
             write_submission_json(result, output_dir, critpt_model, generation_config)
 
-        # Update progress
         async with lock:
             completed_count += 1
             if result.success:
@@ -651,28 +354,13 @@ async def run_batch(args: argparse.Namespace) -> int:
 
         return result
 
-    # Launch all workers
     tasks = [asyncio.create_task(worker(p)) for p in problems]
 
-    # Handle Ctrl+C
     loop = asyncio.get_running_loop()
-    cancelled = False
+    setup_signal_handler(loop, tasks)
 
-    def _signal_handler():
-        nonlocal cancelled
-        if not cancelled:
-            cancelled = True
-            print("\nInterrupted — cancelling pending tasks...", file=sys.stderr)
-            for t in tasks:
-                if not t.done():
-                    t.cancel()
-
-    loop.add_signal_handler(signal.SIGINT, _signal_handler)
-
-    # Wait for all
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Collect exceptions
     for i, r in enumerate(results):
         if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
             p = problems[i]
@@ -687,37 +375,14 @@ async def run_batch(args: argparse.Namespace) -> int:
 
     end_time = datetime.now(timezone.utc)
 
-    # Write batch metadata
     write_batch_metadata(
         output_dir, critpt_model, all_results,
         generation_config, run_config, start_time, end_time,
     )
-
-    # Final summary
-    wall_clock = (end_time - start_time).total_seconds()
-    total_cost = sum((r.stats or {}).get("cost_usd", 0.0) for r in all_results)
-    print("---", file=sys.stderr)
-    print(
-        f"Done: {succeeded}/{total} succeeded, {failed} failed "
-        f"({wall_clock:.0f}s wall clock, ${total_cost:.2f} est. cost)",
-        file=sys.stderr,
+    print_final_summary(
+        all_results, total, succeeded, failed,
+        start_time, end_time, output_dir,
     )
-    print(f"Output: {output_dir}", file=sys.stderr)
-
-    if failed > 0:
-        print("\nFailed problems:", file=sys.stderr)
-        for r in sorted(all_results, key=lambda x: x.problem_n):
-            if not r.success:
-                print(f"  C{r.problem_n}: {r.error}", file=sys.stderr)
-
-    n_jsons = len(list(output_dir.glob("Challenge_*_main.json")))
-    print(f"\nSubmission JSONs: {n_jsons}/70", file=sys.stderr)
-    if n_jsons < 70:
-        print(
-            "Note: CritPt requires all 70 for batch submission. "
-            "Re-run to attempt missing problems.",
-            file=sys.stderr,
-        )
 
     return 0 if failed == 0 else 1
 
