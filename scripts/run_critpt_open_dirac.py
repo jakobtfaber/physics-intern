@@ -5,10 +5,10 @@ Produces CritPt-format submission JSONs progressively. Supports resume from
 interrupted runs (both at the problem level and mid-run via --resume).
 
 Usage:
-    uv run python scripts/run_critpt_batch.py
-    uv run python scripts/run_critpt_batch.py --model claude-4.6-opus --concurrency 5
-    uv run python scripts/run_critpt_batch.py --problems 1-10 --max-iterations 50
-    uv run python scripts/run_critpt_batch.py --dry-run
+    uv run python scripts/run_critpt_open_dirac.py
+    uv run python scripts/run_critpt_open_dirac.py --model claude-4.6-opus --concurrency 5
+    uv run python scripts/run_critpt_open_dirac.py --problems 1-10 --max-iterations 50
+    uv run python scripts/run_critpt_open_dirac.py --dry-run
 """
 
 from __future__ import annotations
@@ -309,7 +309,7 @@ async def run_one_problem(
             )
             await p.wait()
             cmd = [
-                "uv", "run", "python", "-m", "open_dirac.main",
+                "uv", "run", "open_dirac",
                 "--resume", str(action.workspace),
                 "--max-iterations", str(max_iterations),
             ]
@@ -322,7 +322,7 @@ async def run_one_problem(
             workspace_dir = workspace_base / ws_name
 
             cmd = [
-                "uv", "run", "python", "-m", "open_dirac.main",
+                "uv", "run", "open_dirac",
                 str(problem.yaml_path),
                 "--model", model_key,
                 "--max-iterations", str(max_iterations),

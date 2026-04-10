@@ -25,12 +25,14 @@ uv sync --extra google          # Google Gemini
 uv sync --extra huggingface     # HuggingFace Inference Providers
 uv sync --extra all-providers   # all of the above
 
-# To run local models, install vLLM
+# To serve local models on a Linux GPU cluster (no-op on macOS):
 uv sync --extra local
 
 
 # Run a research problem (requires model API key in .env or env var)
-uv run python -m open_dirac.main problems/critpt/quantum_error_correction_main.yaml --max-iterations 10
+uv run open_dirac --max-iterations 10
+# or with an explicit problem file:
+uv run open_dirac problems/critpt/quantum_error_correction_main.yaml --max-iterations 10
 ```
 
 ### Environment Variables
@@ -47,8 +49,9 @@ Set API keys for the providers you want to use (in `.env` or as env vars):
 ### CLI Options
 
 ```
-python -m open_dirac.main <problem.yaml> [options]
+open_dirac [problem.yaml] [options]
 
+  problem.yaml                Problem YAML file (default: problems/critpt/quantum_error_correction_main.yaml)
   --model MODEL               LLM model key (default: gemini-3-flash-preview, resolved via models.yaml)
   --replay DIR                Replay console log from a workspace (no run)
   --max-iterations N          Max loop iterations (default: 200)
@@ -71,7 +74,7 @@ After a run completes, you can independently verify the scientific results using
 uv run python -m open_dirac.verification workspaces/<run_dir>/
 
 # Run + verify in one command
-./scripts/run_and_verify.sh problems/critpt/quantum_error_correction_main.yaml --max-iterations 10
+./scripts/run_and_verify.sh --max-iterations 10
 ```
 
 ```
@@ -228,7 +231,7 @@ These scripts run OpenDirac against the [CritPt](https://github.com/CriticalPath
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/run_critpt_batch.py` | Batch-run all CritPt problems through the full multi-agent pipeline |
+| `scripts/run_critpt_open_dirac.py` | Batch-run all CritPt problems through the full multi-agent pipeline |
 | `scripts/run_critpt_oneshot.py` | Batch-run all CritPt problems through the one-shot baseline |
 | `scripts/run_critpt_rsa.py` | Batch-run all CritPt problems through RSA |
 | `scripts/analyze_batch.py` | Analyze token usage and per-agent metrics across a batch run |
@@ -383,7 +386,7 @@ Problems are defined in YAML files under `problems/`. Each file contains a `prob
 
 ```
 src/open_dirac/
-  main.py              — Entry point, CLI argument parsing
+  main.py              — Entry point, CLI argument parsing (console_scripts: `open_dirac`)
   engine.py            — Main loop (LoopState): orchestrate → validate → enrich → dispatch → route critiques → git
   research_state.py    — ResearchState dataclass: authoritative structured state (hypotheses, evidence, critiques)
   tool_call.py         — ToolCall dataclass shared across agents and LLM layer
@@ -434,7 +437,7 @@ scripts/
   run_and_verify.sh    — Run a problem then verify results in one command
   one_shot_batch.sh    — Batch-run one-shot baseline across multiple problems
   test_model.py        — Smoke-test a model's reasoning and tool-call support
-  run_critpt_batch.py  — Batch-run CritPt problems through the full pipeline
+  run_critpt_open_dirac.py — Batch-run CritPt problems through the full pipeline
   run_critpt_oneshot.py — Batch-run CritPt problems through one-shot baseline
   run_critpt_rsa.py    — Batch-run CritPt problems through RSA
   analyze_batch.py     — Analyze token usage across a CritPt batch run

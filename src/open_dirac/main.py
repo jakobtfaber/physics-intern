@@ -21,8 +21,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="open_dirac",
         description="Multi-agent scaffolding for autonomous scientific research.",
     )
-    parser.add_argument("problem", type=Path, nargs="?", default=None,
-                        help="Path to problem YAML file")
+    parser.add_argument("problem", type=Path, nargs="?",
+                        default=Path("problems/critpt/quantum_error_correction_main.yaml"),
+                        help="Path to problem YAML file (default: quantum_error_correction_main)")
     parser.add_argument("--resume", type=Path, default=None,
                         help="Path to workspace directory to resume")
     parser.add_argument("--replay", type=Path, default=None,
@@ -66,10 +67,6 @@ def _handle_dirty_workspace(workspace_path: Path) -> None:
 
 def _main_fresh(args) -> None:
     """Run a fresh research session."""
-    if args.problem is None:
-        print("Error: problem file is required for a fresh run (use --resume to resume)")
-        sys.exit(1)
-
     if not args.problem.exists():
         print(f"Error: problem file not found: {args.problem}")
         sys.exit(1)

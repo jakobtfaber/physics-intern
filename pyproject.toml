@@ -20,7 +20,15 @@ openai = ["openai>=1.0"]
 google = ["google-genai>=1.0"]
 huggingface = ["huggingface-hub>=0.25"]
 all-providers = ["openai>=1.0", "google-genai>=1.0", "huggingface-hub>=0.25"]
-local = ["vllm==0.19.0", "flashinfer-python==0.6.6", "flashinfer-cubin==0.6.6", "hf-transfer"]
+local = [
+    "vllm==0.19.0; sys_platform == 'linux'",
+    "flashinfer-python==0.6.6; sys_platform == 'linux'",
+    "flashinfer-cubin==0.6.6; sys_platform == 'linux'",
+    "hf-transfer; sys_platform == 'linux'",
+]
+
+[project.scripts]
+open_dirac = "open_dirac.main:main"
 
 [build-system]
 requires = ["hatchling"]

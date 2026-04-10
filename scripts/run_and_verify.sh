@@ -93,7 +93,7 @@ echo ""
 # --- Phase 1: Research run ---
 echo "--- Phase 1: Research run ---"
 run_rc=0
-uv run python -m open_dirac.main "${run_args[@]}" || run_rc=$?
+uv run open_dirac "${run_args[@]}" || run_rc=$?
 
 if [ $run_rc -ne 0 ]; then
     # SEGV=139 (128+11). Tolerate if workspace looks complete (RESEARCH_STATE.md exists).
