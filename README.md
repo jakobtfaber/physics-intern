@@ -267,23 +267,25 @@ uv run python scripts/run_critpt_rsa.py --resume results/rsa_run/ --concurrency 
 
 Models are registered in `models.yaml`. Use the friendly key with `--model`:
 
-| Key | Provider | Model | Input $/M | Output $/M |
-|-----|----------|-------|-----------|------------|
-| `claude-4.6-opus` | Anthropic | claude-opus-4-6 | 5.00 | 25.00 |
-| `claude-4.6-sonnet` | Anthropic | claude-sonnet-4-6 | 3.00 | 15.00 |
-| `gpt-5.4-high` | OpenAI | gpt-5.4 (high effort) | 2.50 | 15.00 |
-| `gpt-5.4-medium` | OpenAI | gpt-5.4 (medium effort) | 2.50 | 15.00 |
-| `gpt-5.4-pro` | OpenAI | gpt-5.4-pro | 30.00 | 180.00 |
-| `gemini-3.1-pro-preview` | Google | gemini-3.1-pro-preview | 2.00 | 12.00 |
-| `gemini-3-flash-preview` | Google | gemini-3-flash-preview | 0.50 | 3.00 |
-| `deepseek-v3.2` | HuggingFace | DeepSeek-V3.2 | 0.56 | 1.68 |
-| `kimi-k2.5` | HuggingFace | Kimi-K2.5 | 0.50 | 2.80 |
-| `glm-5` | HuggingFace | GLM-5 | 1.00 | 3.20 |
-| `gpt-oss-120b` | HuggingFace | gpt-oss-120b | 0.25 | 0.69 |
-| `minimax-m2.5` | HuggingFace | MiniMax-M2.5 | 0.30 | 1.20 |
-| `qwen-3.5-397B-A17B` | HuggingFace | Qwen3.5-397B-A17B | 0.60 | 3.60 |
+| Key | Provider | Model |
+|-----|----------|-------|
+| `claude-4.6-opus` | Anthropic | claude-opus-4-6 |
+| `claude-4.6-sonnet` | Anthropic | claude-sonnet-4-6 |
+| `gpt-5.4-high` | OpenAI | gpt-5.4 (high effort) |
+| `gpt-5.4-medium` | OpenAI | gpt-5.4 (medium effort) |
+| `gpt-5.4-pro` | OpenAI | gpt-5.4-pro |
+| `gemini-3.1-pro-preview` | Google | gemini-3.1-pro-preview |
+| `gemini-3-flash-preview` | Google | gemini-3-flash-preview |
+| `deepseek-v3.2` | HuggingFace | DeepSeek-V3.2 |
+| `kimi-k2.5` | HuggingFace | Kimi-K2.5 |
+| `glm-5` | HuggingFace | GLM-5 |
+| `gpt-oss-120b` | HuggingFace | gpt-oss-120b |
+| `minimax-m2.5` | HuggingFace | MiniMax-M2.5 |
+| `qwen-3.5-397B-A17B` | HuggingFace | Qwen3.5-397B-A17B |
 
 ## Architecture
+
+![Architecture diagram](opendirac.png)
 
 Nine agent roles collaborate in a loop. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
 
