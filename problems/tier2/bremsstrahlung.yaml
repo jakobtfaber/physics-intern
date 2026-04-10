@@ -9,7 +9,7 @@ problem: |
   Let $e$ denote the electron charge magnitude and $c$ the speed of light.
 
   # Main problem:
-  What is the Kramers spectral energy $dW/d\omega$ in the soft-photon limit ($\omega \to 0$) for classical bremsstrahlung of an electron in a Coulomb field of charge $Ze$, expressed in terms of $Z$, $e$, $m_e$, $v$, and $c$?
+  What is the Kramers spectral energy $dW/d\omega$ in the soft-photon limit ($\omega \to 0$) for classical bremsstrahlung of an electron in a Coulomb field of charge $Ze$, expressed in terms of $Z$, $e$, $m_e$, $v$, and $c$? Interpret dW/d\omega as the Kramers spectrum after integration over impact parameter, not for one fixed hyperbolic orbit.
 
 
 answer: |
