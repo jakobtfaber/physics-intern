@@ -134,8 +134,21 @@ def discover_problems(
 # ---------------------------------------------------------------------------
 
 def read_model_from_output_dir(output_dir: Path) -> str | None:
-    """Try to recover the model key from a previous run's output directory."""
-    # Try batch_metadata.json first
+    """Try to recover the model key from a previous run's output directory.
+
+    Prioritizes submission JSONs over batch_metadata.json because the latter
+    gets overwritten on every run (including failed resumes with wrong model).
+    """
+    # Check submission JSONs first — these are written once per successful problem
+    for f in output_dir.glob("Challenge_*_main.json"):
+        try:
+            data = json.loads(f.read_text())
+            model_key = data.get("generation_config", {}).get("model_key")
+            if model_key:
+                return model_key
+        except (json.JSONDecodeError, KeyError):
+            continue
+    # Fall back to batch_metadata.json
     meta_path = output_dir / "batch_metadata.json"
     if meta_path.exists():
         try:
@@ -145,15 +158,6 @@ def read_model_from_output_dir(output_dir: Path) -> str | None:
                 return model_key
         except (json.JSONDecodeError, KeyError):
             pass
-    # Fall back to any existing submission JSON
-    for f in output_dir.glob("Challenge_*_main.json"):
-        try:
-            data = json.loads(f.read_text())
-            model_key = data.get("generation_config", {}).get("model_key")
-            if model_key:
-                return model_key
-        except (json.JSONDecodeError, KeyError):
-            continue
     return None
 
 
