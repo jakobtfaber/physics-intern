@@ -21,9 +21,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="open_dirac",
         description="Multi-agent scaffolding for autonomous scientific research.",
     )
-    parser.add_argument("problem", type=Path, nargs="?",
-                        default=Path("problems/critpt/quantum_error_correction_main.yaml"),
-                        help="Path to problem YAML file (default: quantum_error_correction_main)")
+    parser.add_argument("problem", type=Path, nargs="?", default=None,
+                        help="Path to problem YAML file")
     parser.add_argument("--resume", type=Path, default=None,
                         help="Path to workspace directory to resume")
     parser.add_argument("--replay", type=Path, default=None,
@@ -87,6 +86,13 @@ def _main_fresh(args) -> None:
         run_name = f"{timestamp}_{args.problem.stem}_{safe_model}"
         config.workspace_dir = str(Path("workspaces") / run_name)  # Config stores str
 
+    # Print config summary
+    print(f"Model:    {config.model} ({config.model_id})", file=sys.stderr)
+    print(f"Provider: {config.provider}", file=sys.stderr)
+    print(f"Problem:  {args.problem.name}", file=sys.stderr)
+    print(f"Tokens:   {config.max_tokens} max output", file=sys.stderr)
+    print("---", file=sys.stderr)
+
     # Build problem metadata for termination gates
     problem_meta = {
         "steps": problem_def.get("steps", []),
@@ -148,6 +154,8 @@ def main():
         _main_replay(args)
     elif args.resume is not None:
         _main_resume(args)
+    elif args.problem is None:
+        parser.error("the following argument is required: problem")
     else:
         _main_fresh(args)
 

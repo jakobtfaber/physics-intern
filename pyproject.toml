@@ -29,6 +29,8 @@ local = [
 
 [project.scripts]
 open_dirac = "open_dirac.main:main"
+open_dirac_oneshot = "open_dirac.one_shot.runner:main"
+open_dirac_rsa = "open_dirac.rsa.runner:main"
 
 [build-system]
 requires = ["hatchling"]

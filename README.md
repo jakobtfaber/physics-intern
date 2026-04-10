@@ -30,9 +30,7 @@ uv sync --extra local
 
 
 # Run a research problem (requires model API key in .env or env var)
-uv run open_dirac --max-iterations 10
-# or with an explicit problem file:
-uv run open_dirac problems/critpt/quantum_error_correction_main.yaml --max-iterations 10
+uv run open_dirac problems/critpt/quantum_error_correction_main.yaml --model gemini-3-flash-preview
 ```
 
 ### Environment Variables
@@ -54,7 +52,7 @@ open_dirac [problem.yaml] [options]
   problem.yaml                Problem YAML file (default: problems/critpt/quantum_error_correction_main.yaml)
   --model MODEL               LLM model key (default: from config.default.yaml, resolved via models.yaml)
   --replay DIR                Replay console log from a workspace (no run)
-  --max-iterations N          Max loop iterations (default: 200)
+  --max-iterations N          Max loop iterations (default: 25)
   --max-tokens N              Max output tokens per LLM call (default: 65536)
   --workspace-dir DIR         Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
   --resume DIR                Resume from existing workspace if DIR exists
