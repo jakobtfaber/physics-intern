@@ -4,7 +4,7 @@
 Usage:
     uv run python scripts/test_model.py <model-key>
     uv run python scripts/test_model.py deepseek-v3.2
-    uv run python scripts/test_model.py claude-4.6-sonnet
+    uv run python scripts/test_model.py gemini-3-flash-preview
     uv run python scripts/test_model.py --list          # list available models
 """
 

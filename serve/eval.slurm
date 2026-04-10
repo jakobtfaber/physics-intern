@@ -30,20 +30,20 @@ Examples:
   # Local vLLM model — pins job to the serve head node automatically
   ./serve/eval.slurm \
     --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
-    --problem problems/tier1/hawking_temperature.yaml \
+    --problem problems/critpt/quantum_error_correction_main.yaml \
     --serve-job 22071810
 
   # Batch run (10 samples)
   ./serve/eval.slurm \
     --model qwen-3.5-0.8b-local \
-    --problem problems/tier1/hawking_temperature.yaml \
+    --problem problems/critpt/quantum_error_correction_main.yaml \
     --serve-job 22071812 \
     --runs 10
 
   # Remote API model (no --serve-job needed, runs on hopper-cpu)
   ./serve/eval.slurm \
-    --model claude-4.6-sonnet \
-    --problem problems/tier1/hawking_temperature.yaml
+    --model gemini-3-flash-preview \
+    --problem problems/critpt/quantum_error_correction_main.yaml
 
 Options:
   --model KEY          Model key from models.yaml (required).

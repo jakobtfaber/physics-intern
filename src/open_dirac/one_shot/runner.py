@@ -7,10 +7,10 @@ the engine, agents, or tools — suitable for comparing raw model capability
 against the multi-agent scaffolding.
 
 Usage:
-    uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml
-    uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml --model gpt-5.4-high
-    uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml -o result.md
-    uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml --runs 10
+    uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml
+    uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high
+    uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml -o result.md
+    uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --runs 10
 """
 from __future__ import annotations
 
@@ -375,8 +375,8 @@ def main() -> None:
     )
     parser.add_argument("problem", type=Path, help="Path to problem YAML file")
     parser.add_argument(
-        "--model", type=str, default="claude-sonnet-4.6",
-        help="Model key from models.yaml (default: claude-sonnet-4.6)",
+        "--model", type=str, default="gemini-3-flash-preview",
+        help="Model key from models.yaml (default: gemini-3-flash-preview)",
     )
     parser.add_argument(
         "--max-tokens", type=int, default=128000,

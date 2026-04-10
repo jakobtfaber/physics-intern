@@ -2,7 +2,7 @@
 # This is the single source of truth for all default values.
 # Do NOT hardcode defaults in Python — they are read from this file.
 
-model: claude-4.6-sonnet
+model: gemini-3-flash-preview
 verify_model: claude-4.6-opus
 max_tokens: 65536
 max_iterations: 200

@@ -1,6 +1,6 @@
 # OpenDirac model registry
 # Friendly keys map to provider + model_id + env_key
-# Use with: --model <key> (e.g., --model claude-sonnet-4.6)
+# Use with: --model <key> (e.g., --model gemini-3-flash-preview)
 # Costs are in USD per million tokens
 
 # ============================================================================

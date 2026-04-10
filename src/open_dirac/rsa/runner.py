@@ -9,9 +9,9 @@ Uses the provider layer (open_dirac.providers + open_dirac.config) and reuses
 one-shot utilities for initial generation and retry logic.
 
 Usage:
-    uv run python -m open_dirac.rsa problems/tier1/hawking_temperature.yaml
-    uv run python -m open_dirac.rsa problems/tier1/hawking_temperature.yaml -N 6 -K 2 -T 4
-    uv run python -m open_dirac.rsa problems/tier1/hawking_temperature.yaml --model gpt-5.4-high
+    uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml
+    uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml -N 6 -K 2 -T 4
+    uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high
 """
 from __future__ import annotations
 
@@ -390,8 +390,8 @@ def main() -> None:
     )
     parser.add_argument("problem", type=Path, help="Path to problem YAML file")
     parser.add_argument(
-        "--model", type=str, default="claude-4.6-sonnet",
-        help="Model key from models.yaml (default: claude-4.6-sonnet)",
+        "--model", type=str, default="gemini-3-flash-preview",
+        help="Model key from models.yaml (default: gemini-3-flash-preview)",
     )
     parser.add_argument(
         "--max-tokens", type=int, default=128000,

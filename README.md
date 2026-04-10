@@ -30,7 +30,7 @@ uv sync --extra local
 
 
 # Run a research problem (requires model API key in .env or env var)
-uv run python -m open_dirac.main problems/tier1/hawking_temperature.yaml --max-iterations 10 --model claude-4.6-sonnet
+uv run python -m open_dirac.main problems/critpt/quantum_error_correction_main.yaml --max-iterations 10
 ```
 
 ### Environment Variables
@@ -39,9 +39,9 @@ Set API keys for the providers you want to use (in `.env` or as env vars):
 
 | Variable | Provider |
 |----------|----------|
-| `ANTHROPIC_API_KEY` | Anthropic (default) |
+| `ANTHROPIC_API_KEY` | Anthropic |
 | `OPENAI_API_KEY` | OpenAI |
-| `GOOGLE_API_KEY` | Google Gemini |
+| `GOOGLE_API_KEY` | Google Gemini (default) |
 | `HF_TOKEN` | HuggingFace Inference Providers |
 
 ### CLI Options
@@ -49,7 +49,8 @@ Set API keys for the providers you want to use (in `.env` or as env vars):
 ```
 python -m open_dirac.main <problem.yaml> [options]
 
-  --model MODEL               LLM model key (default: claude-4.6-sonnet, resolved via models.yaml)
+  --model MODEL               LLM model key (default: gemini-3-flash-preview, resolved via models.yaml)
+  --replay DIR                Replay console log from a workspace (no run)
   --max-iterations N          Max loop iterations (default: 200)
   --max-tokens N              Max output tokens per LLM call (default: 65536)
   --workspace-dir DIR         Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
@@ -70,7 +71,7 @@ After a run completes, you can independently verify the scientific results using
 uv run python -m open_dirac.verification workspaces/<run_dir>/
 
 # Run + verify in one command
-./scripts/run_and_verify.sh problems/tier1/hawking_temperature.yaml --max-iterations 10
+./scripts/run_and_verify.sh problems/critpt/quantum_error_correction_main.yaml --max-iterations 10
 ```
 
 ```
@@ -87,12 +88,34 @@ The verifier writes `VERIFICATION.md` into the workspace. It evaluates each Esta
 Run a single LLM call on a problem with no scaffolding — useful for benchmarking raw model capability against the multi-agent pipeline:
 
 ```bash
-uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml
-uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml --model gpt-5.4-high
-uv run python -m open_dirac.one_shot problems/tier1/hawking_temperature.yaml --runs 10  # multiple runs for statistics
+uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml
+uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high
+uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --runs 10  # multiple runs for statistics
 ```
 
 Answers are auto-evaluated against the known answer in the problem YAML (symbolic SymPy comparison + numerical fallback).
+
+### RSA (Recursive Self-Aggregation)
+
+RSA maintains a population of N candidate solutions and iteratively refines them by aggregating random subsets of K candidates over T rounds (total LLM calls = N * T). The final answer is chosen by majority vote.
+
+```bash
+uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml
+uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml -N 6 -K 2 -T 4
+uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high --concurrency 4
+```
+
+```
+python -m open_dirac.rsa <problem.yaml> [options]
+
+  --model MODEL              LLM model key (default: gemini-3-flash-preview)
+  -N INT                     Population size (default: 6)
+  -K INT                     Aggregation subset size (default: 2)
+  -T INT                     Number of rounds (default: 4)
+  --max-tokens N             Max output tokens per call (default: 128000)
+  --concurrency N            Max parallel LLM calls within a round (default: N)
+  -o FILE                    Save response with metadata to a Markdown file
+```
 
 ### Serving Local Models with vLLM
 
@@ -116,7 +139,7 @@ Running a local model is a two-step process: first **serve** the model with vLLM
 # then launches the evaluation.
 ./serve/eval.slurm \
   --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
-  --problem problems/tier1/hawking_temperature.yaml \
+  --problem problems/critpt/quantum_error_correction_main.yaml \
   --serve-job 12345
 ```
 
@@ -173,7 +196,7 @@ Local model keys match Hub repo IDs:
 ```bash
 ./serve/eval.slurm \
   --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
-  --problem problems/tier1/hawking_temperature.yaml \
+  --problem problems/critpt/quantum_error_correction_main.yaml \
   --serve-job <JOB_ID>
 ```
 
@@ -183,11 +206,33 @@ Local model keys match Hub repo IDs:
 source serve/logs/vllm/<job_id>/endpoint.env
 export VLLM_BASE_URL="${BASE_URL}"
 uv run python -m open_dirac.one_shot \
-  problems/tier1/hawking_temperature.yaml \
+  problems/critpt/quantum_error_correction_main.yaml \
   --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16
 ```
 
 The Python vLLM provider defaults to `http://localhost:8000/v1` but respects the `VLLM_BASE_URL` environment variable, which overrides the default with the serve job's head node IP.
+
+## Scripts
+
+### General
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/run_and_verify.sh` | Run a research session then verify results in one command |
+| `scripts/one_shot_batch.sh` | Batch-run the one-shot baseline across all problems in a folder |
+| `scripts/test_model.py` | Smoke-test a model's reasoning and tool-call support (`--list` to show available models) |
+
+### CritPt Benchmark
+
+These scripts run OpenDirac against the [CritPt](https://github.com/CriticalPathAI/benchmarks) benchmark suite (70 problems in `problems/critpt/yaml/`). They produce CritPt-format submission JSONs, support resume from interrupted runs, and handle rolling parallelism.
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/run_critpt_batch.py` | Batch-run all CritPt problems through the full multi-agent pipeline |
+| `scripts/run_critpt_oneshot.py` | Batch-run all CritPt problems through the one-shot baseline |
+| `scripts/run_critpt_rsa.py` | Batch-run all CritPt problems through RSA |
+| `scripts/analyze_batch.py` | Analyze token usage and per-agent metrics across a batch run |
+| `scripts/fill_missing_critpt.py` | Fill missing submission JSONs with template answers for a complete 70-problem set |
 
 ## Supported Models
 
@@ -372,6 +417,8 @@ src/open_dirac/
     process_auditor.md — Process audit prompt
   one_shot/
     runner.py          — One-shot LLM baseline runner (no scaffolding, for benchmarking)
+  rsa/
+    runner.py          — RSA (Recursive Self-Aggregation) runner
   providers/
     base.py            — LLMProvider ABC + ProviderResponse dataclass
     anthropic.py       — Anthropic Claude adapter
@@ -386,6 +433,12 @@ src/open_dirac/
 scripts/
   run_and_verify.sh    — Run a problem then verify results in one command
   one_shot_batch.sh    — Batch-run one-shot baseline across multiple problems
+  test_model.py        — Smoke-test a model's reasoning and tool-call support
+  run_critpt_batch.py  — Batch-run CritPt problems through the full pipeline
+  run_critpt_oneshot.py — Batch-run CritPt problems through one-shot baseline
+  run_critpt_rsa.py    — Batch-run CritPt problems through RSA
+  analyze_batch.py     — Analyze token usage across a CritPt batch run
+  fill_missing_critpt.py — Fill missing CritPt submissions with template answers
 tests/                 — pytest tests
 problems/
   tier1/               — 10 core problems

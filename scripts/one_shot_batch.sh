@@ -5,14 +5,14 @@
 #   ./one_shot_batch.sh <model> <problem_folder> [runs]
 #
 # Examples:
-#   ./one_shot_batch.sh claude-sonnet-4.6 problems/tier1
+#   ./one_shot_batch.sh gemini-3-flash-preview problems/tier1
 #   ./one_shot_batch.sh gpt-5.4-high problems/tier2 10
 
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
     echo "Usage: $0 <model> <problem_folder> [runs]" >&2
-    echo "  model          — model key from models.yaml (e.g. claude-sonnet-4.6)" >&2
+    echo "  model          — model key from models.yaml (e.g. gemini-3-flash-preview)" >&2
     echo "  problem_folder — directory containing problem YAML files" >&2
     echo "  runs           — number of runs per problem (default: 5)" >&2
     exit 1

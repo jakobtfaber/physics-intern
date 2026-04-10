@@ -8,8 +8,8 @@
 #   ./run_and_verify.sh <problem.yaml> [run-options...] [-- diagnosis-options...]
 #
 # Examples:
-#   ./run_and_verify.sh problems/hawking_temperature.yaml --max-iterations 10
-#   ./run_and_verify.sh problems/qho.yaml --max-iterations 5 -- --model claude-4.6-opus
+#   ./run_and_verify.sh problems/critpt/quantum_error_correction_main.yaml --max-iterations 10
+#   ./run_and_verify.sh problems/tier1/qho_thermodynamics.yaml --max-iterations 5 -- --model claude-4.6-opus
 #
 # Everything before "--" is passed to open_dirac.main.
 # Everything after "--" is passed to open_dirac.verification (diagnosis).

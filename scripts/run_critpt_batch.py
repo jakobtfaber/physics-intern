@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run CritPt benchmark problems through OpenDirac in parallel.",
     )
     p.add_argument("--model", default=None,
-                   help="Model key from models.yaml (default: claude-4.6-sonnet)")
+                   help="Model key from models.yaml (default: gemini-3-flash-preview)")
     p.add_argument("--max-iterations", type=int, default=200,
                    help="Max iterations per problem (default: 200)")
     p.add_argument("--config", type=Path, default=None,
@@ -512,7 +512,7 @@ async def run_batch(args: argparse.Namespace) -> int:
             args.model = recovered
             print(f"Resumed model from previous run: {recovered}", file=sys.stderr)
     if args.model is None:
-        args.model = "claude-4.6-sonnet"
+        args.model = "gemini-3-flash-preview"
 
     # Resolve model
     critpt_model = resolve_critpt_model_string(args.model)
