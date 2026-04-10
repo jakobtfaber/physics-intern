@@ -142,7 +142,7 @@ Qwen/Qwen3.5-4B:
 
 nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16:
   provider: vllm
-  model_id: nemotron-3-Nano-30B-A3B-BF16
+  model_id: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
@@ -151,7 +151,7 @@ nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16:
 
 nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:
   provider: vllm
-  model_id: nemotron-3-Super-120B-A12B-BF16
+  model_id: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
@@ -160,7 +160,7 @@ nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:
 
 nvidia/Nemotron-Cascade-2-30B-A3B:
   provider: vllm
-  model_id: nemotron-Cascade-2-30B-A3B
+  model_id: nvidia/Nemotron-Cascade-2-30B-A3B
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0

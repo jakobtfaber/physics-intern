@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Run CritPt benchmark problems through one-shot baseline in parallel.",
     )
-    p.add_argument("--model", default="claude-4.6-sonnet",
+    p.add_argument("--model", default=None,
                    help="Model key from models.yaml (default: claude-4.6-sonnet)")
     p.add_argument("--max-tokens", type=int, default=128000,
                    help="Max output tokens per call (default: 128000)")
@@ -132,6 +132,30 @@ def discover_problems(
 # ---------------------------------------------------------------------------
 # Resume logic
 # ---------------------------------------------------------------------------
+
+def read_model_from_output_dir(output_dir: Path) -> str | None:
+    """Try to recover the model key from a previous run's output directory."""
+    # Try batch_metadata.json first
+    meta_path = output_dir / "batch_metadata.json"
+    if meta_path.exists():
+        try:
+            data = json.loads(meta_path.read_text())
+            model_key = data.get("generation_config", {}).get("model_key")
+            if model_key:
+                return model_key
+        except (json.JSONDecodeError, KeyError):
+            pass
+    # Fall back to any existing submission JSON
+    for f in output_dir.glob("Challenge_*_main.json"):
+        try:
+            data = json.loads(f.read_text())
+            model_key = data.get("generation_config", {}).get("model_key")
+            if model_key:
+                return model_key
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return None
+
 
 def find_completed_submissions(output_dir: Path) -> set[int]:
     """Return problem numbers that already have valid submission JSONs."""
@@ -413,6 +437,15 @@ def write_batch_metadata(
 
 async def run_batch(args: argparse.Namespace) -> int:
     """Main batch orchestrator. Returns exit code."""
+    # Resolve model: explicit flag > previous run metadata > default
+    if args.model is None and args.output_dir and args.output_dir.exists():
+        recovered = read_model_from_output_dir(args.output_dir)
+        if recovered:
+            args.model = recovered
+            print(f"Resumed model from previous run: {recovered}", file=sys.stderr)
+    if args.model is None:
+        args.model = "claude-4.6-sonnet"
+
     critpt_model = resolve_critpt_model_string(args.model)
 
     problems = discover_problems(args.problems_dir, args.problems)
