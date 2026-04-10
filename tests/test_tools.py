@@ -56,13 +56,11 @@ class TestExecutePython:
         assert len(tc.output) <= 11_200  # 10K body + truncation message + header
         assert "truncated" in tc.output
 
-    def test_unknown_tool_raises(self):
+    def test_unknown_tool_returns_error(self):
         executor = _make_executor()
-        try:
-            executor.execute("nonexistent_tool", {"code": "print(1)"})
-            assert False, "Should have raised ValueError"
-        except ValueError as e:
-            assert "Unknown tool" in str(e)
+        tc = executor.execute("nonexistent_tool", {"code": "print(1)"})
+        assert tc.is_error
+        assert "Unknown tool" in tc.output
 
     def test_counter_increments(self):
         executor = _make_executor()
