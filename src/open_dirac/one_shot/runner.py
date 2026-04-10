@@ -26,10 +26,14 @@ load_dotenv()
 
 import yaml
 
-from ..config import Config
+from ..config import Config, DEFAULTS, build_config
 from ..verification.evaluate import evaluate_response
 from ..providers import create_provider, LLMProvider, ProviderResponse
 from ..verification.verify import load_reference_file
+
+# One-shot runs produce a single long response; default engine max_tokens (65536)
+# is too low. This constant is used when neither CLI nor config YAML overrides it.
+ONE_SHOT_MAX_TOKENS = 128_000
 
 # ---------------------------------------------------------------------------
 # System prompt — distilled from the one-shot/prompt_template_default.yaml
@@ -340,7 +344,7 @@ def _run_batch(
     print(f"Total cost: ${total_cost:.4f}", file=sys.stderr)
 
     # --- Save JSON ---
-    results_dir = args.results_dir
+    results_dir = args.output_dir
     results_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_model = config.model.replace("/", "-").replace(":", "-")
@@ -375,16 +379,16 @@ def main() -> None:
     )
     parser.add_argument("problem", type=Path, help="Path to problem YAML file")
     parser.add_argument(
-        "--model", type=str, default="gemini-3-flash-preview",
-        help="Model key from models.yaml (default: gemini-3-flash-preview)",
+        "--model", type=str, default=None,
+        help=f"Model key from models.yaml (default: {DEFAULTS['model']})",
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=128000,
-        help="Max output tokens (default: 128000/)",
+        "--max-tokens", type=int, default=None,
+        help=f"Max output tokens (default: {ONE_SHOT_MAX_TOKENS})",
     )
     parser.add_argument(
-        "--provider", type=str, default=None,
-        help="Override provider (auto-resolved from --model if omitted)",
+        "--config", type=Path, default=None,
+        help="Path to config YAML file (overrides defaults)",
     )
     parser.add_argument(
         "-o", "--output", type=Path, default=None,
@@ -395,7 +399,7 @@ def main() -> None:
         help="Number of runs for batch benchmarking",
     )
     parser.add_argument(
-        "--results-dir", type=Path, default=Path("results/one_shot"),
+        "--output-dir", type=Path, default=Path("results/one_shot"),
         help="Directory for batch result JSON files (default: results/one_shot/)",
     )
     args = parser.parse_args()
@@ -416,12 +420,10 @@ def main() -> None:
         sys.exit(1)
 
     # --- Model / provider resolution ---
-    config = Config(model=args.model, max_tokens=args.max_tokens)
-    if args.provider:
-        config.provider = args.provider
-        # Re-trigger resolution if provider was overridden
-        if not config.model_id or config.model_id == config.model:
-            config.model_id = config.model
+    config = build_config(args)
+    # One-shot needs more output tokens than the engine default
+    if args.max_tokens is None and config.max_tokens == DEFAULTS["max_tokens"]:
+        config.max_tokens = ONE_SHOT_MAX_TOKENS
 
     provider = create_provider(
         config.provider,

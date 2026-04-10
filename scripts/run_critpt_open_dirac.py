@@ -8,6 +8,7 @@ Usage:
     uv run python scripts/run_critpt_open_dirac.py
     uv run python scripts/run_critpt_open_dirac.py --model claude-4.6-opus --concurrency 5
     uv run python scripts/run_critpt_open_dirac.py --problems 1-10 --max-iterations 50
+    uv run python scripts/run_critpt_open_dirac.py --resume results/critpt/model/run_dir/
     uv run python scripts/run_critpt_open_dirac.py --dry-run
 """
 
@@ -33,6 +34,10 @@ DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "yaml"
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt"
 
+# Import config defaults
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+from open_dirac.config import DEFAULTS  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -42,10 +47,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Run CritPt benchmark problems through OpenDirac in parallel.",
     )
+    p.add_argument("--resume", type=Path, default=None,
+                   help="Resume from an existing output directory (recovers all params)")
     p.add_argument("--model", default=None,
-                   help="Model key from models.yaml (default: gemini-3-flash-preview)")
-    p.add_argument("--max-iterations", type=int, default=200,
-                   help="Max iterations per problem (default: 200)")
+                   help=f"Model key from models.yaml (default: {DEFAULTS['model']})")
+    p.add_argument("--max-iterations", type=int, default=None,
+                   help=f"Max iterations per problem (default: {DEFAULTS['max_iterations']})")
     p.add_argument("--config", type=Path, default=None,
                    help="Config YAML file to pass through to each run")
     p.add_argument("--concurrency", type=int, default=10,
@@ -159,6 +166,25 @@ def read_model_from_output_dir(output_dir: Path) -> str | None:
         except (json.JSONDecodeError, KeyError):
             pass
     return None
+
+
+def load_resume_config(resume_dir: Path) -> dict:
+    """Load run parameters from batch_metadata.json for --resume."""
+    meta_path = resume_dir / "batch_metadata.json"
+    if not meta_path.exists():
+        print(f"Error: no batch_metadata.json found in {resume_dir}", file=sys.stderr)
+        sys.exit(1)
+    data = json.loads(meta_path.read_text())
+    gen = data.get("generation_config", {})
+    run = data.get("run_config", {})
+    return {
+        "model": gen.get("model_key"),
+        "max_iterations": gen.get("max_iterations"),
+        "config_file": gen.get("config_file"),
+        "problems_dir": run.get("problems_dir"),
+        "problems_subset": run.get("problems_subset"),
+        "workspace_base": run.get("workspace_base"),
+    }
 
 
 def find_completed_submissions(output_dir: Path) -> set[int]:
@@ -444,6 +470,7 @@ def write_batch_metadata(
     critpt_model: str,
     all_results: list[RunResult],
     generation_config: dict,
+    run_config: dict,
     start_time: datetime,
     end_time: datetime,
 ) -> None:
@@ -473,6 +500,7 @@ def write_batch_metadata(
         "model": critpt_model,
         "timestamp": end_time.isoformat(),
         "generation_config": generation_config,
+        "run_config": run_config,
         "num_submissions": len(all_submission_ids),
         "problem_ids": all_submission_ids,
         "summary": {
@@ -505,6 +533,27 @@ def write_batch_metadata(
 
 async def run_batch(args: argparse.Namespace) -> int:
     """Main batch orchestrator. Returns exit code."""
+    # Handle --resume: restore params from saved batch_metadata.json
+    if args.resume:
+        if not args.resume.is_dir():
+            print(f"Error: resume directory not found: {args.resume}", file=sys.stderr)
+            return 1
+        cfg = load_resume_config(args.resume)
+        args.output_dir = args.resume
+        if args.model is None:
+            args.model = cfg.get("model")
+        if args.max_iterations is None:
+            args.max_iterations = cfg.get("max_iterations")
+        if args.config is None and cfg.get("config_file"):
+            args.config = Path(cfg["config_file"])
+        if cfg.get("problems_dir"):
+            args.problems_dir = Path(cfg["problems_dir"])
+        if cfg.get("problems_subset"):
+            args.problems = cfg["problems_subset"]
+        if cfg.get("workspace_base"):
+            args.workspace_base = Path(cfg["workspace_base"])
+        print(f"Resuming from {args.resume}", file=sys.stderr)
+
     # Resolve model: explicit flag > previous run metadata > default
     if args.model is None and args.output_dir and args.output_dir.exists():
         recovered = read_model_from_output_dir(args.output_dir)
@@ -512,7 +561,11 @@ async def run_batch(args: argparse.Namespace) -> int:
             args.model = recovered
             print(f"Resumed model from previous run: {recovered}", file=sys.stderr)
     if args.model is None:
-        args.model = "gemini-3-flash-preview"
+        args.model = DEFAULTS["model"]
+
+    # Resolve max_iterations
+    if args.max_iterations is None:
+        args.max_iterations = DEFAULTS["max_iterations"]
 
     # Resolve model
     critpt_model = resolve_critpt_model_string(args.model)
@@ -579,6 +632,13 @@ async def run_batch(args: argparse.Namespace) -> int:
         "use_golden_for_prev_steps": False,
         "parsing": False,
         "multiturn_with_answer": False,
+    }
+
+    # Run config for --resume (everything needed to restart the batch)
+    run_config = {
+        "problems_dir": str(args.problems_dir),
+        "problems_subset": args.problems,
+        "workspace_base": str(args.workspace_base),
     }
 
     # Run
@@ -669,7 +729,7 @@ async def run_batch(args: argparse.Namespace) -> int:
     # Write batch metadata
     write_batch_metadata(
         output_dir, critpt_model, all_results,
-        generation_config, start_time, end_time,
+        generation_config, run_config, start_time, end_time,
     )
 
     # Final summary

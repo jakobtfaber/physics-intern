@@ -165,7 +165,7 @@ class TestMainParser:
         ])
         assert args.config == Path("c.yaml")
         assert args.max_tokens == 1024
-        assert args.workspace_dir == "/tmp/ws"
+        assert args.workspace_dir == Path("/tmp/ws")
 
     def test_bad_int_exits(self):
         from open_dirac.main import build_parser
@@ -192,7 +192,7 @@ class TestVerifyParser:
         from open_dirac.verification.verify import build_verify_parser
         parser = build_verify_parser()
         args = parser.parse_args(["workspaces/run1"])
-        assert args.workspace_dir == "workspaces/run1"
+        assert args.workspace_dir == Path("workspaces/run1")
         assert args.model == DEFAULTS["verify_model"]
         assert args.max_tokens == DEFAULTS["max_tokens"]
 

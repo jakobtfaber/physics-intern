@@ -899,7 +899,7 @@ def build_verify_parser() -> "argparse.ArgumentParser":
         prog="open_dirac.verification",
         description="Diagnosis of OpenDirac research workspaces.",
     )
-    parser.add_argument("workspace_dir", type=str,
+    parser.add_argument("workspace_dir", type=Path,
                         help="Path to workspace directory")
     parser.add_argument("--model", type=str, default=DEFAULTS["verify_model"],
                         help=f"LLM model (default: {DEFAULTS['verify_model']})")

@@ -52,7 +52,7 @@ Set API keys for the providers you want to use (in `.env` or as env vars):
 open_dirac [problem.yaml] [options]
 
   problem.yaml                Problem YAML file (default: problems/critpt/quantum_error_correction_main.yaml)
-  --model MODEL               LLM model key (default: gemini-3-flash-preview, resolved via models.yaml)
+  --model MODEL               LLM model key (default: from config.default.yaml, resolved via models.yaml)
   --replay DIR                Replay console log from a workspace (no run)
   --max-iterations N          Max loop iterations (default: 200)
   --max-tokens N              Max output tokens per LLM call (default: 65536)
@@ -94,6 +94,18 @@ Run a single LLM call on a problem with no scaffolding — useful for benchmarki
 uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml
 uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high
 uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --runs 10  # multiple runs for statistics
+uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --config my_config.yaml
+```
+
+```
+python -m open_dirac.one_shot <problem.yaml> [options]
+
+  --model MODEL              LLM model key (default: from config.default.yaml)
+  --max-tokens N             Max output tokens (default: 128000)
+  --config FILE              Path to config YAML file (overrides defaults)
+  --runs N                   Number of runs for batch benchmarking
+  --output-dir DIR           Directory for batch result JSON files (default: results/one_shot/)
+  -o FILE                    Save response with metadata to a Markdown file
 ```
 
 Answers are auto-evaluated against the known answer in the problem YAML (symbolic SymPy comparison + numerical fallback).
@@ -106,17 +118,20 @@ RSA maintains a population of N candidate solutions and iteratively refines them
 uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml
 uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml -N 6 -K 2 -T 4
 uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high --concurrency 4
+uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml --config my_config.yaml
 ```
 
 ```
 python -m open_dirac.rsa <problem.yaml> [options]
 
-  --model MODEL              LLM model key (default: gemini-3-flash-preview)
+  --model MODEL              LLM model key (default: from config.default.yaml)
   -N INT                     Population size (default: 6)
   -K INT                     Aggregation subset size (default: 2)
   -T INT                     Number of rounds (default: 4)
   --max-tokens N             Max output tokens per call (default: 128000)
+  --config FILE              Path to config YAML file (overrides defaults)
   --concurrency N            Max parallel LLM calls within a round (default: N)
+  --output-dir DIR           Directory for result JSON files (default: results/rsa/)
   -o FILE                    Save response with metadata to a Markdown file
 ```
 
@@ -236,6 +251,19 @@ These scripts run OpenDirac against the [CritPt](https://github.com/CriticalPath
 | `scripts/run_critpt_rsa.py` | Batch-run all CritPt problems through RSA |
 | `scripts/analyze_batch.py` | Analyze token usage and per-agent metrics across a batch run |
 | `scripts/fill_missing_critpt.py` | Fill missing submission JSONs with template answers for a complete 70-problem set |
+
+All batch scripts support `--resume <output-dir>` to continue an interrupted run. On resume, all parameters (model, max_tokens, problem subset, RSA N/K/T, etc.) are recovered from the saved `batch_metadata.json` — no need to re-specify them. Completed submissions are automatically skipped.
+
+```bash
+# Fresh run
+uv run python scripts/run_critpt_oneshot.py --model gemini-3-flash-preview --output-dir results/run1/
+
+# Resume an interrupted run (all params recovered from batch_metadata.json)
+uv run python scripts/run_critpt_oneshot.py --resume results/run1/
+
+# Resume with different runtime settings (concurrency, timeout are overridable)
+uv run python scripts/run_critpt_rsa.py --resume results/rsa_run/ --concurrency 5
+```
 
 ## Supported Models
 

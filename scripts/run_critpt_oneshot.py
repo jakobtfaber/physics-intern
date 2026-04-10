@@ -8,6 +8,7 @@ Usage:
     uv run python scripts/run_critpt_oneshot.py
     uv run python scripts/run_critpt_oneshot.py --model claude-4.6-opus --concurrency 5
     uv run python scripts/run_critpt_oneshot.py --problems 1-10
+    uv run python scripts/run_critpt_oneshot.py --resume results/critpt_oneshot/model/run_dir/
     uv run python scripts/run_critpt_oneshot.py --dry-run
 """
 
@@ -32,9 +33,13 @@ MODELS_YAML = PROJECT_ROOT / "src" / "open_dirac" / "models.yaml"
 DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "yaml"
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt_oneshot"
 
-# Import extract_answer_code (pure regex, no heavy deps)
+# Import from open_dirac (pure regex + config, no heavy deps)
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from open_dirac.verification.evaluate import extract_answer_code  # noqa: E402
+from open_dirac.config import DEFAULTS  # noqa: E402
+
+# One-shot runs produce a single long response; default engine max_tokens is too low.
+ONESHOT_MAX_TOKENS = 128_000
 
 
 # ---------------------------------------------------------------------------
@@ -45,10 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Run CritPt benchmark problems through one-shot baseline in parallel.",
     )
+    p.add_argument("--resume", type=Path, default=None,
+                   help="Resume from an existing output directory (recovers all params)")
     p.add_argument("--model", default=None,
-                   help="Model key from models.yaml (default: gemini-3-flash-preview)")
-    p.add_argument("--max-tokens", type=int, default=128000,
-                   help="Max output tokens per call (default: 128000)")
+                   help=f"Model key from models.yaml (default: {DEFAULTS['model']})")
+    p.add_argument("--max-tokens", type=int, default=None,
+                   help=f"Max output tokens per call (default: {ONESHOT_MAX_TOKENS})")
     p.add_argument("--concurrency", type=int, default=10,
                    help="Max parallel runs (default: 10)")
     p.add_argument("--timeout", type=int, default=600,
@@ -159,6 +166,23 @@ def read_model_from_output_dir(output_dir: Path) -> str | None:
         except (json.JSONDecodeError, KeyError):
             pass
     return None
+
+
+def load_resume_config(resume_dir: Path) -> dict:
+    """Load run parameters from batch_metadata.json for --resume."""
+    meta_path = resume_dir / "batch_metadata.json"
+    if not meta_path.exists():
+        print(f"Error: no batch_metadata.json found in {resume_dir}", file=sys.stderr)
+        sys.exit(1)
+    data = json.loads(meta_path.read_text())
+    gen = data.get("generation_config", {})
+    run = data.get("run_config", {})
+    return {
+        "model": gen.get("model_key"),
+        "max_tokens": gen.get("max_tokens"),
+        "problems_dir": run.get("problems_dir"),
+        "problems_subset": run.get("problems_subset"),
+    }
 
 
 def find_completed_submissions(output_dir: Path) -> set[int]:
@@ -376,6 +400,7 @@ def write_batch_metadata(
     critpt_model: str,
     all_results: list[RunResult],
     generation_config: dict,
+    run_config: dict,
     start_time: datetime,
     end_time: datetime,
 ) -> None:
@@ -408,6 +433,7 @@ def write_batch_metadata(
         "model": critpt_model,
         "timestamp": end_time.isoformat(),
         "generation_config": generation_config,
+        "run_config": run_config,
         "num_submissions": len(all_submission_ids),
         "problem_ids": all_submission_ids,
         "summary": {
@@ -441,6 +467,23 @@ def write_batch_metadata(
 
 async def run_batch(args: argparse.Namespace) -> int:
     """Main batch orchestrator. Returns exit code."""
+    # Handle --resume: restore params from saved batch_metadata.json
+    if args.resume:
+        if not args.resume.is_dir():
+            print(f"Error: resume directory not found: {args.resume}", file=sys.stderr)
+            return 1
+        cfg = load_resume_config(args.resume)
+        args.output_dir = args.resume
+        if args.model is None:
+            args.model = cfg.get("model")
+        if args.max_tokens is None:
+            args.max_tokens = cfg.get("max_tokens")
+        if cfg.get("problems_dir"):
+            args.problems_dir = Path(cfg["problems_dir"])
+        if cfg.get("problems_subset"):
+            args.problems = cfg["problems_subset"]
+        print(f"Resuming from {args.resume}", file=sys.stderr)
+
     # Resolve model: explicit flag > previous run metadata > default
     if args.model is None and args.output_dir and args.output_dir.exists():
         recovered = read_model_from_output_dir(args.output_dir)
@@ -448,7 +491,11 @@ async def run_batch(args: argparse.Namespace) -> int:
             args.model = recovered
             print(f"Resumed model from previous run: {recovered}", file=sys.stderr)
     if args.model is None:
-        args.model = "gemini-3-flash-preview"
+        args.model = DEFAULTS["model"]
+
+    # Resolve max_tokens: explicit flag > resume > runner default
+    if args.max_tokens is None:
+        args.max_tokens = ONESHOT_MAX_TOKENS
 
     critpt_model = resolve_critpt_model_string(args.model)
 
@@ -507,6 +554,12 @@ async def run_batch(args: argparse.Namespace) -> int:
         "use_golden_for_prev_steps": False,
         "parsing": False,
         "multiturn_with_answer": False,
+    }
+
+    # Run config for --resume (everything needed to restart the batch)
+    run_config = {
+        "problems_dir": str(args.problems_dir),
+        "problems_subset": args.problems,
     }
 
     # Run with semaphore-controlled concurrency
@@ -591,7 +644,7 @@ async def run_batch(args: argparse.Namespace) -> int:
     # Write batch metadata
     write_batch_metadata(
         output_dir, critpt_model, all_results,
-        generation_config, start_time, end_time,
+        generation_config, run_config, start_time, end_time,
     )
 
     # Final summary

@@ -31,13 +31,14 @@ load_dotenv()
 
 import yaml
 
-from ..config import Config
+from ..config import Config, DEFAULTS, build_config
 from ..providers import create_provider, LLMProvider
 from ..providers.base import strip_think_tags
 from ..verification.evaluate import evaluate_response, extract_answer_code
 from ..verification.verify import load_reference_file
 from ..one_shot.runner import (
     SYSTEM_PROMPT,
+    ONE_SHOT_MAX_TOKENS,
     build_user_message,
     _call_with_retry,
     _resolve_ground_truth,
@@ -390,16 +391,16 @@ def main() -> None:
     )
     parser.add_argument("problem", type=Path, help="Path to problem YAML file")
     parser.add_argument(
-        "--model", type=str, default="gemini-3-flash-preview",
-        help="Model key from models.yaml (default: gemini-3-flash-preview)",
+        "--model", type=str, default=None,
+        help=f"Model key from models.yaml (default: {DEFAULTS['model']})",
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=128000,
-        help="Max output tokens per LLM call (default: 128000)",
+        "--max-tokens", type=int, default=None,
+        help=f"Max output tokens per LLM call (default: {ONE_SHOT_MAX_TOKENS})",
     )
     parser.add_argument(
-        "--provider", type=str, default=None,
-        help="Override provider (auto-resolved from --model if omitted)",
+        "--config", type=Path, default=None,
+        help="Path to config YAML file (overrides defaults)",
     )
     parser.add_argument(
         "-N", type=int, default=6,
@@ -418,7 +419,7 @@ def main() -> None:
         help="Save response with metadata to a Markdown file",
     )
     parser.add_argument(
-        "--results-dir", type=Path, default=Path("results/rsa"),
+        "--output-dir", type=Path, default=Path("results/rsa"),
         help="Directory for result JSON files (default: results/rsa/)",
     )
     parser.add_argument(
@@ -443,11 +444,10 @@ def main() -> None:
         sys.exit(1)
 
     # --- Model / provider resolution ---
-    config = Config(model=args.model, max_tokens=args.max_tokens)
-    if args.provider:
-        config.provider = args.provider
-        if not config.model_id or config.model_id == config.model:
-            config.model_id = config.model
+    config = build_config(args)
+    # RSA needs more output tokens than the engine default
+    if args.max_tokens is None and config.max_tokens == DEFAULTS["max_tokens"]:
+        config.max_tokens = ONE_SHOT_MAX_TOKENS
 
     provider = create_provider(
         config.provider,
@@ -516,7 +516,7 @@ def main() -> None:
         print(f"\nSaved to {args.output}", file=sys.stderr)
 
     # Save JSON results
-    results_dir = args.results_dir
+    results_dir = args.output_dir
     results_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_model = config.model.replace("/", "-").replace(":", "-")

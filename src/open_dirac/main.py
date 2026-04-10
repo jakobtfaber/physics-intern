@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Max output tokens per LLM call")
     parser.add_argument("--max-iterations", type=int, default=None,
                         help="Maximum iterations")
-    parser.add_argument("--workspace-dir", type=str, default=None,
+    parser.add_argument("--workspace-dir", type=Path, default=None,
                         help="Workspace directory (default: auto-generated)")
     return parser
 
@@ -85,7 +85,7 @@ def _main_fresh(args) -> None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_model = config.model.replace("/", "-").replace(":", "-")
         run_name = f"{timestamp}_{args.problem.stem}_{safe_model}"
-        config.workspace_dir = str(Path("workspaces") / run_name)
+        config.workspace_dir = str(Path("workspaces") / run_name)  # Config stores str
 
     # Build problem metadata for termination gates
     problem_meta = {

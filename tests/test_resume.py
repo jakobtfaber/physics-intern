@@ -383,7 +383,8 @@ class TestCLIParsing:
         parser = build_parser()
         args = parser.parse_args(["--resume", "/some/workspace"])
         assert args.resume == Path("/some/workspace")
-        assert args.problem is None
+        # problem gets its default value (ignored during resume)
+        assert args.problem is not None
 
     def test_cli_problem_optional_with_resume(self):
         from open_dirac.main import build_parser
@@ -392,7 +393,8 @@ class TestCLIParsing:
         args = parser.parse_args(["--resume", "/some/workspace", "--max-iterations", "20"])
         assert args.resume == Path("/some/workspace")
         assert args.max_iterations == 20
-        assert args.problem is None
+        # problem gets its default value (ignored during resume)
+        assert args.problem is not None
 
     def test_cli_problem_required_without_resume(self):
         from open_dirac.main import build_parser
