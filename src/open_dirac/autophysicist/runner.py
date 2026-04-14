@@ -18,6 +18,9 @@ from ..config import Config, DEFAULTS, build_config  # noqa: E402
 from ..console import console  # noqa: E402
 from ..llm import run_agent_loop, AgentResult  # noqa: E402
 from ..metrics import MetricsTracker  # noqa: E402
+from ..verification.verify import (  # noqa: E402
+    run_formal_evaluation, render_formal_evaluation, write_formal_eval_report,
+)
 from ..workspace import log_scaffold_event  # noqa: E402
 
 from .memory import PermanentMemory, Scratchpad  # noqa: E402
@@ -32,6 +35,7 @@ def _load_system_prompt() -> str:
 
 def _build_user_content(
     problem_text: str,
+    answer_template: str,
     permanent_memory: PermanentMemory,
     scratchpad: Scratchpad,
     iteration: int,
@@ -46,6 +50,15 @@ def _build_user_content(
     parts.append(
         f"\n\n<problem_statement>\n{problem_text.strip()}\n</problem_statement>"
     )
+
+    if answer_template.strip():
+        parts.append(
+            "\n\n<answer_template>\n"
+            "**Answer template** — populate your final answer into this "
+            "code template:\n\n"
+            f"```python\n{answer_template.strip()}\n```\n"
+            "</answer_template>"
+        )
 
     if mem_text and mem_text != "# Permanent Memory":
         parts.append(f"\n\n<permanent_memory>\n{mem_text}\n</permanent_memory>")
@@ -73,6 +86,7 @@ def _build_user_content(
 def _run_iteration(
     system_prompt: str,
     problem_text: str,
+    answer_template: str,
     config: Config,
     permanent_memory: PermanentMemory,
     scratchpad: Scratchpad,
@@ -87,7 +101,8 @@ def _run_iteration(
 ) -> tuple[AgentResult, ManagerToolExecutor]:
     """Run one iteration of the Research Manager."""
     user_content = _build_user_content(
-        problem_text, permanent_memory, scratchpad, iteration, max_iterations,
+        problem_text, answer_template, permanent_memory, scratchpad,
+        iteration, max_iterations,
     )
 
     executor = ManagerToolExecutor(
@@ -172,6 +187,49 @@ def _read_iteration_counter(workspace_root: Path) -> int:
     return 0
 
 
+def _run_formal_verification(workspace_root: Path, problem_path: Path) -> None:
+    """Run formal (symbolic/numerical) answer evaluation at end of run.
+
+    Mirrors engine.py._run_formal_verification().
+    """
+    problem_yaml = workspace_root / "problem.yaml"
+    if not problem_yaml.exists():
+        console.print("[dim]Formal verification skipped: no problem.yaml in workspace[/]")
+        return
+
+    try:
+        with open(problem_yaml) as f:
+            problem_def = yaml.safe_load(f)
+    except Exception as exc:
+        console.print(f"[yellow]Formal verification skipped: could not read problem.yaml: {exc}[/]")
+        return
+
+    # Build reference lookup path from problem name
+    problem_name = problem_def.get("name") if problem_def else None
+    ref_lookup_path = Path(problem_name + ".yaml") if problem_name else None
+
+    console.print(f"\n[bold]Formal answer evaluation...[/]")
+
+    try:
+        result = run_formal_evaluation(
+            str(workspace_root), problem_def, problem_path=ref_lookup_path,
+        )
+        render_formal_evaluation(result)
+        write_formal_eval_report(result, str(workspace_root))
+        # Git commit the evaluation results
+        if (workspace_root / ".git").exists():
+            subprocess.run(
+                ["git", "add", "-A"], cwd=str(workspace_root),
+                capture_output=True, check=False,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "Formal answer evaluation"],
+                cwd=str(workspace_root), capture_output=True, check=False,
+            )
+    except Exception as exc:
+        console.print(f"[yellow]Formal verification failed: {type(exc).__name__}: {exc}[/]")
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -240,6 +298,7 @@ def main() -> None:
     if not problem_text:
         print("Error: problem YAML has no 'problem' field", file=sys.stderr)
         sys.exit(1)
+    answer_template = problem_def.get("answer_template", "")
 
     # --- Config ---
     config = build_config(args)
@@ -288,6 +347,11 @@ def main() -> None:
         (workspace_root / "PROBLEM.md").write_text(
             f"# Problem\n\n{problem_text}\n"
         )
+        # Persist problem.yaml (with name field) for formal evaluation
+        problem_data = dict(problem_def)
+        problem_data["name"] = args.problem.stem
+        with open(workspace_root / "problem.yaml", "w") as f:
+            yaml.dump(problem_data, f, default_flow_style=False, sort_keys=False)
         subprocess.run(
             ["git", "add", "-A"], cwd=str(workspace_root),
             capture_output=True, check=False,
@@ -317,6 +381,7 @@ def main() -> None:
             result, executor = _run_iteration(
                 system_prompt=system_prompt,
                 problem_text=problem_text,
+                answer_template=answer_template,
                 config=config,
                 permanent_memory=permanent_memory,
                 scratchpad=scratchpad,
@@ -371,10 +436,13 @@ def main() -> None:
                 "[bold green]Problem solved![/bold green] "
                 "Final answer submitted."
             )
-            (workspace_root / "FINAL_ANSWER.md").write_text(
+            (workspace_root / "ANSWER.md").write_text(
                 f"# Final Answer\n\n{executor.final_answer}\n"
             )
             break
+
+    # --- Formal evaluation ---
+    _run_formal_verification(workspace_root, args.problem)
 
     # --- Final summary ---
     console.rule("[bold]Run Complete[/bold]")

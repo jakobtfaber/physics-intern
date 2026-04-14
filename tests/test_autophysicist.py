@@ -304,10 +304,27 @@ class TestContextAssembly:
         from open_dirac.autophysicist.runner import _build_user_content
         mem = PermanentMemory(tmp_path)
         sp = Scratchpad(tmp_path)
-        content = _build_user_content("What is 2+2?", mem, sp, 1, 10)
+        content = _build_user_content("What is 2+2?", "", mem, sp, 1, 10)
         assert "Iteration 1 of 10" in content
         assert "What is 2+2?" in content
         assert "Empty" in content  # both memory and scratchpad empty
+
+    def test_with_answer_template(self, tmp_path):
+        from open_dirac.autophysicist.runner import _build_user_content
+        mem = PermanentMemory(tmp_path)
+        sp = Scratchpad(tmp_path)
+        template = "def answer():\n    return 42"
+        content = _build_user_content("What is 2+2?", template, mem, sp, 1, 10)
+        assert "<answer_template>" in content
+        assert "def answer():" in content
+        assert "```python" in content
+
+    def test_empty_answer_template_omitted(self, tmp_path):
+        from open_dirac.autophysicist.runner import _build_user_content
+        mem = PermanentMemory(tmp_path)
+        sp = Scratchpad(tmp_path)
+        content = _build_user_content("What is 2+2?", "", mem, sp, 1, 10)
+        assert "<answer_template>" not in content
 
     def test_with_populated_state(self, tmp_path):
         from open_dirac.autophysicist.runner import _build_user_content
@@ -315,7 +332,7 @@ class TestContextAssembly:
         mem.append("Verified: 2+2=4", iteration=1)
         sp = Scratchpad(tmp_path)
         sp.append("Next: verify 3+3", iteration=1)
-        content = _build_user_content("What is 2+2?", mem, sp, 2, 10)
+        content = _build_user_content("What is 2+2?", "", mem, sp, 2, 10)
         assert "Iteration 2 of 10" in content
         assert "2+2=4" in content
         assert "verify 3+3" in content
