@@ -10,15 +10,12 @@ Usage:
     uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml
     uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high
     uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml -o result.md
-    uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --runs 10
 """
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -277,98 +274,6 @@ def _run_single(
 
 
 # ---------------------------------------------------------------------------
-# Batch-run mode
-# ---------------------------------------------------------------------------
-
-def _run_batch(
-    args: argparse.Namespace,
-    config: Config,
-    provider: LLMProvider,
-    user_message: str,
-    problem_def: dict,
-) -> None:
-    """Run N times, evaluate each, save JSON results."""
-    n = args.runs
-    runs: list[dict] = []
-    counts = {"correct": 0, "incorrect": 0, "error": 0}
-
-    eval_kwargs = _resolve_ground_truth(problem_def, args.problem)
-
-    for i in range(n):
-        print(f"Run {i + 1}/{n}... ", end="", file=sys.stderr, flush=True)
-        try:
-            result = _run_once(provider, config, user_message)
-            ev = evaluate_response(result["response_text"], **eval_kwargs) if eval_kwargs else {
-                "correct": None, "method": "no_ground_truth", "error": "No answer in problem or references", "details": ""
-            }
-
-            if ev["correct"] is True:
-                counts["correct"] += 1
-                label = "correct"
-            elif ev["correct"] is False:
-                counts["incorrect"] += 1
-                label = "incorrect"
-            else:
-                counts["error"] += 1
-                label = f"error: {ev['error']}"
-
-            runs.append({
-                "run_index": i,
-                "tokens": result["tokens"],
-                "duration_s": result["duration_s"],
-                "cost_usd": result["cost_usd"],
-                "stop_reason": result["stop_reason"],
-                "evaluation": ev,
-                "response_text": result["response_text"],
-            })
-            print(f"done ({result['duration_s']:.1f}s, {label})", file=sys.stderr)
-
-        except Exception as exc:
-            counts["error"] += 1
-            runs.append({
-                "run_index": i,
-                "tokens": None,
-                "duration_s": None,
-                "cost_usd": None,
-                "stop_reason": None,
-                "evaluation": {"correct": None, "method": "llm_error", "error": str(exc), "details": ""},
-                "response_text": None,
-            })
-            print(f"FAILED ({exc})", file=sys.stderr)
-
-    # --- Summary ---
-    total_cost = sum(r["cost_usd"] for r in runs if r["cost_usd"] is not None)
-    print("---", file=sys.stderr)
-    print(f"Results: {counts['correct']}/{n} correct, "
-          f"{counts['incorrect']} incorrect, {counts['error']} errors", file=sys.stderr)
-    print(f"Total cost: ${total_cost:.4f}", file=sys.stderr)
-
-    # --- Save JSON ---
-    results_dir = args.output_dir
-    results_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_model = config.model.replace("/", "-").replace(":", "-")
-    filename = f"{args.problem.stem}_{safe_model}_{timestamp}.json"
-    output_path = results_dir / filename
-
-    payload = {
-        "problem": args.problem.stem,
-        "problem_path": str(args.problem),
-        "model": config.model,
-        "model_id": config.model_id,
-        "provider": config.provider,
-        "max_tokens": config.max_tokens,
-        "num_runs": n,
-        "timestamp": timestamp,
-        "summary": counts,
-        "total_cost_usd": round(total_cost, 6),
-        "runs": runs,
-    }
-    output_path.write_text(json.dumps(payload, indent=2, default=str))
-    print(f"Saved to {output_path}", file=sys.stderr)
-
-
-# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -393,14 +298,6 @@ def main() -> None:
     parser.add_argument(
         "-o", "--output", type=Path, default=None,
         help="Save response with metadata to a Markdown file",
-    )
-    parser.add_argument(
-        "--runs", type=int, default=None,
-        help="Number of runs for batch benchmarking",
-    )
-    parser.add_argument(
-        "--output-dir", type=Path, default=Path("results/one_shot"),
-        help="Directory for batch result JSON files (default: results/one_shot/)",
     )
     args = parser.parse_args()
 
@@ -441,14 +338,7 @@ def main() -> None:
     print(f"Tokens:   {config.max_tokens} max output", file=sys.stderr)
     print("---", file=sys.stderr)
 
-    # --- Dispatch ---
-    if args.runs is not None:
-        if args.runs < 1:
-            print("Error: --runs must be >= 1", file=sys.stderr)
-            sys.exit(1)
-        _run_batch(args, config, provider, user_message, problem_def)
-    else:
-        _run_single(args, config, provider, user_message, problem_def)
+    _run_single(args, config, provider, user_message, problem_def)
 
 
 if __name__ == "__main__":
