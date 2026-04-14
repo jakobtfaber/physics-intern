@@ -43,22 +43,28 @@ def _build_user_content(
 
     parts = [f"# Iteration {iteration} of {max_iterations}"]
 
-    parts.append(f"\n\n## Problem Statement\n\n{problem_text.strip()}")
+    parts.append(
+        f"\n\n<problem_statement>\n{problem_text.strip()}\n</problem_statement>"
+    )
 
     if mem_text and mem_text != "# Permanent Memory":
-        parts.append(f"\n\n---\n\n## Permanent Memory\n\n{mem_text}")
+        parts.append(f"\n\n<permanent_memory>\n{mem_text}\n</permanent_memory>")
     else:
         parts.append(
-            "\n\n---\n\n## Permanent Memory\n\n"
-            "(Empty — no results recorded yet.)"
+            "\n\n<permanent_memory>\n"
+            "(Empty — no results recorded yet.)\n"
+            "</permanent_memory>"
         )
 
     if scratch_text:
-        parts.append(f"\n\n---\n\n## Scratchpad (last entries)\n\n{scratch_text}")
+        parts.append(
+            f"\n\n<scratchpad>\n{scratch_text}\n</scratchpad>"
+        )
     else:
         parts.append(
-            "\n\n---\n\n## Scratchpad\n\n"
-            "(Empty — no working notes yet.)"
+            "\n\n<scratchpad>\n"
+            "(Empty — no working notes yet.)\n"
+            "</scratchpad>"
         )
 
     return "".join(parts)
@@ -78,7 +84,7 @@ def _run_iteration(
     max_rounds: int,
     sandbox_timeout: int,
     metrics: MetricsTracker,
-) -> AgentResult:
+) -> tuple[AgentResult, ManagerToolExecutor]:
     """Run one iteration of the Research Manager."""
     user_content = _build_user_content(
         problem_text, permanent_memory, scratchpad, iteration, max_iterations,
@@ -127,7 +133,7 @@ def _run_iteration(
         answer_tokens=result.total_answer_tokens,
     )
 
-    return result
+    return result, executor
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +314,7 @@ def main() -> None:
         iter_start = time.time()
 
         try:
-            result = _run_iteration(
+            result, executor = _run_iteration(
                 system_prompt=system_prompt,
                 problem_text=problem_text,
                 config=config,
@@ -359,6 +365,16 @@ def main() -> None:
         _git_commit(workspace_root, iteration, result)
         _write_iteration_counter(workspace_root, iteration)
         (workspace_root / "METRICS.md").write_text(metrics.to_markdown())
+
+        if executor.problem_solved:
+            console.print(
+                "[bold green]Problem solved![/bold green] "
+                "Final answer submitted."
+            )
+            (workspace_root / "FINAL_ANSWER.md").write_text(
+                f"# Final Answer\n\n{executor.final_answer}\n"
+            )
+            break
 
     # --- Final summary ---
     console.rule("[bold]Run Complete[/bold]")

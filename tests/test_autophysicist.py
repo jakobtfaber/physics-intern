@@ -224,7 +224,8 @@ class TestManagerToolExecutor:
         tools = ex.active_tools
         names = {t["function"]["name"] for t in tools}
         assert names == {"dispatch_subagent", "write_to_permanent_memory",
-                         "write_to_scratchpad", "end_turn"}
+                         "write_to_scratchpad", "end_turn",
+                         "submit_final_answer"}
 
     def test_wind_down_removes_dispatch(self, tmp_path):
         ex = _make_executor(tmp_path)
@@ -247,7 +248,7 @@ class TestManagerToolExecutor:
     def test_exit_tool_names(self, tmp_path):
         ex = _make_executor(tmp_path)
         assert ex.exit_tool_name == "end_turn"
-        assert ex.exit_tool_names == frozenset({"end_turn"})
+        assert ex.exit_tool_names == frozenset({"end_turn", "submit_final_answer"})
 
 
 class TestBudgetMechanism:

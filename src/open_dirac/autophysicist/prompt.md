@@ -44,6 +44,18 @@ Appends text to the scratchpad. Only the last 5 entries are visible to you. Use 
 
 Signals that you are done with this iteration. Your context will be erased and the next iteration will begin. Always write to memory or scratchpad before calling this — anything not written down is lost.
 
+### `submit_final_answer(answer)`
+
+Submits the final answer to the problem and terminates the entire run. Use this only when:
+
+- The problem is fully solved.
+- The answer has been independently verified.
+- The verified result has been written to permanent memory.
+
+The `answer` parameter should contain the complete final answer: the result, how it was derived, and how it was verified. Once submitted, no further iterations will run.
+
+Do not use this tool prematurely. If you are unsure whether the answer is complete or correct, continue working — use `end_turn()` instead and verify in the next iteration.
+
 ---
 
 ## Foundational rules

@@ -126,18 +126,46 @@ class ManagerToolExecutor:
         },
     }
 
+    _SUBMIT_FINAL_ANSWER_DEF: ClassVar[dict] = {
+        "type": "function",
+        "function": {
+            "name": "submit_final_answer",
+            "description": (
+                "Submit the final answer to the problem and terminate the entire "
+                "run. Use this ONLY when you are confident the problem is fully "
+                "solved and the answer has been verified and written to permanent "
+                "memory. This ends all iterations — there is no going back."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": "string",
+                        "description": (
+                            "The complete final answer to the problem, including "
+                            "the result, how it was derived, and how it was verified."
+                        ),
+                    },
+                },
+                "required": ["answer"],
+            },
+        },
+    }
+
     # Tool sets for active and wind-down phases
     ALL_TOOLS: ClassVar[list[dict]] = [
         _DISPATCH_SUBAGENT_DEF,
         _WRITE_PERMANENT_MEMORY_DEF,
         _WRITE_SCRATCHPAD_DEF,
         _END_TURN_DEF,
+        _SUBMIT_FINAL_ANSWER_DEF,
     ]
 
     WIND_DOWN_TOOLS: ClassVar[list[dict]] = [
         _WRITE_PERMANENT_MEMORY_DEF,
         _WRITE_SCRATCHPAD_DEF,
         _END_TURN_DEF,
+        _SUBMIT_FINAL_ANSWER_DEF,
     ]
 
     HARD_BUDGET_MULTIPLIER = 1.5
@@ -164,6 +192,8 @@ class ManagerToolExecutor:
 
         # Duck-type protocol state for run_agent_loop
         self.stop_after_round = False
+        self.problem_solved = False
+        self.final_answer = ""
         self._wind_down = False
         self._tool_call_count = 0
         self._subagent_counter = 0
@@ -179,7 +209,7 @@ class ManagerToolExecutor:
 
     @property
     def exit_tool_names(self) -> frozenset[str]:
-        return frozenset({"end_turn"})
+        return frozenset({"end_turn", "submit_final_answer"})
 
     @property
     def active_tools(self) -> list[dict] | None:
@@ -250,6 +280,8 @@ class ManagerToolExecutor:
             output, is_error = self._write_scratchpad(tool_input)
         elif tool_name == "end_turn":
             output, is_error = self._end_turn()
+        elif tool_name == "submit_final_answer":
+            output, is_error = self._submit_final_answer(tool_input)
         else:
             output = (
                 f"ERROR: Unknown tool '{tool_name}'. Available: "
@@ -312,3 +344,12 @@ class ManagerToolExecutor:
     def _end_turn(self) -> tuple[str, bool]:
         self.stop_after_round = True
         return "Turn ended. Context will be erased.", False
+
+    def _submit_final_answer(self, params: dict) -> tuple[str, bool]:
+        answer = params.get("answer", "")
+        if not answer.strip():
+            return "ERROR: answer cannot be empty.", True
+        self.stop_after_round = True
+        self.problem_solved = True
+        self.final_answer = answer
+        return "Final answer submitted. Run will terminate.", False

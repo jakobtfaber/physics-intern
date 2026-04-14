@@ -37,12 +37,14 @@ class SubAgentResult:
 
     def format_for_manager(self) -> str:
         """Format as a string to return to the Manager."""
-        parts = [f"## Sub-agent response\n\n{self.reasoning_text}"]
+        parts = [
+            f"<subagent_reasoning>\n{self.reasoning_text}\n</subagent_reasoning>"
+        ]
         if self.code:
-            parts.append(f"\n\n## Code\n\n```python\n{self.code}\n```")
+            parts.append(f"\n\n<code>\n{self.code}\n</code>")
             parts.append(
-                f"\n\n## Execution output ({self.execution_status})\n\n"
-                f"{self.execution_output}"
+                f"\n\n<execution_output status=\"{self.execution_status}\">\n"
+                f"{self.execution_output}\n</execution_output>"
             )
         return "\n".join(parts)
 
@@ -113,7 +115,14 @@ def dispatch_subagent(
 
     # --- Code execution path ---
     code = _extract_python_code(resp.text)
-    reasoning_text = resp.text
+    # Strip the code block from reasoning to avoid duplication in format_for_manager
+    if code:
+        reasoning_text = re.sub(
+            r"```(?:python)?\s*\n.*?```", "", resp.text,
+            count=1, flags=re.DOTALL,
+        ).strip()
+    else:
+        reasoning_text = resp.text
 
     if not code:
         return SubAgentResult(
