@@ -104,6 +104,15 @@ glm-5:
   output_cost: 3.20
   reasoning_format: separate_field
 
+glm-5.1:
+  provider: huggingface
+  model_id: zai-org/GLM-5.1
+  env_key: HF_TOKEN
+  input_cost: 1.40
+  output_cost: 4.40
+  reasoning_format: separate_field
+  hf_provider: together
+
 gpt-oss-120b:
   provider: huggingface
   model_id: openai/gpt-oss-120b
