@@ -6,7 +6,9 @@ A multi-agent scaffolding system for autonomous scientific research in mathemati
 
 OpenDirac takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
 
-**How it works.** Nine specialised LLM agent roles take turns in a loop. A **surveyor** maps the research landscape before the main loop begins. A **planner** produces the initial research strategy (and can revise it when critiques demand). The **orchestrator** dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), and formulates working hypotheses from the evidence. Then the **reviewer** provides adversarial review (auto-triggered).  A **deep critic** periodically audits strategy and inter-result coherence, filing typed critiques that are routed back to the **planner** (for strategy revision) or to an **adjudicator** (for challenges on established results). Finally a **formatter** produces a clean `ANSWER.md` from the final research state.
+The project ships two research modes: a **multi-agent pipeline** (the default) that orchestrates nine specialised roles, and **Autophysicist**, a lighter single-agent loop where one Research Manager dispatches ephemeral sub-agents on the fly.
+
+**Multi-agent pipeline.** Nine specialised LLM agent roles take turns in a loop. A **surveyor** maps the research landscape before the main loop begins. A **planner** produces the initial research strategy (and can revise it when critiques demand). The **orchestrator** dispatches research questions to a **researcher** (analytical reasoning) or **computer** (code execution), and formulates working hypotheses from the evidence. Then the **reviewer** provides adversarial review (auto-triggered).  A **deep critic** periodically audits strategy and inter-result coherence, filing typed critiques that are routed back to the **planner** (for strategy revision) or to an **adjudicator** (for challenges on established results). Finally a **formatter** produces a clean `ANSWER.md` from the final research state.
 
 No agent carries conversation history: each call starts from a fresh context. All research state lives in a structured `ResearchState` object — agents mutate it via tools, and Markdown files are rendered from it for git snapshots. The workspace is version-controlled with git, so every step is recoverable.
 
@@ -83,6 +85,53 @@ python -m open_dirac.verification <workspace_dir> [options]
 ```
 
 The verifier writes `VERIFICATION.md` into the workspace. It evaluates each Established Result for mathematical/physical validity, runs a process audit, checks chain coherence between results, and outputs a verdict: VALID, PARTIALLY_VALID, INVALID, or INCONCLUSIVE. The problem definition is auto-loaded from `problem.yaml` in the workspace (copied there by `main.py` at run start).
+
+### Autophysicist
+
+Autophysicist is a single-agent iterative research mode. A Research Manager receives the problem, dispatches ephemeral sub-agents (with optional sandboxed code execution), and records results in two memory systems — a permanent memory (append-only, always visible) and a scratchpad (rolling window of the last N entries). Each iteration starts from a fresh context; the Manager can only "remember" what it wrote to memory. A per-iteration token budget triggers a wind-down phase that removes the sub-agent dispatch tool, forcing the Manager to consolidate and end the turn.
+
+When the Manager is confident in a solution it calls `submit_final_answer`, which terminates the run and triggers formal evaluation (symbolic SymPy comparison + numerical fallback) against the ground truth in the problem YAML.
+
+```bash
+# Run a single problem
+uv run open_dirac_autophysicist problems/tier1/hydrogen_fine_structure.yaml --model claude-4.6-opus
+
+# With custom budget and iteration limits
+uv run open_dirac_autophysicist problems/tier1/hydrogen_fine_structure.yaml \
+  --max-iterations 30 --token-budget 100000 --tool-call-cap 20
+
+# Resume an interrupted run
+uv run open_dirac_autophysicist problems/tier1/hydrogen_fine_structure.yaml \
+  --resume workspaces/autophysicist/<run_dir>
+```
+
+```
+open_dirac_autophysicist <problem.yaml> [options]
+
+  problem.yaml                Problem YAML file (required)
+  --model MODEL               LLM model key (default: from config.default.yaml)
+  --max-tokens N              Max output tokens per LLM call
+  --config FILE               Path to config YAML file
+  --max-iterations N          Max Manager iterations (default: 50)
+  --token-budget N            Per-iteration token budget for wind-down trigger (default: 64000)
+  --tool-call-cap N           Max tool calls per iteration (default: 15)
+  --max-rounds N              Max LLM rounds per iteration (default: 30)
+  --scratchpad-window N       Visible scratchpad entries (default: 5)
+  --sandbox-timeout N         Code execution timeout in seconds (default: 60)
+  --workspace-dir DIR         Workspace directory (default: auto-generated)
+  --resume DIR                Resume from an existing workspace
+```
+
+#### Multiple concurrent runs (pass@k)
+
+Run N independent instances on the same problem to collect pass@k statistics:
+
+```bash
+uv run python scripts/run_multiple_autophysicist.py problems/tier1/hydrogen_fine_structure.yaml \
+  --runs 20 --concurrency 5 --model claude-4.6-opus --max-iterations 30
+```
+
+Results are written to a JSON file with per-run metrics and an aggregate summary (correct / incorrect / inconclusive / no_answer counts).
 
 ### One-shot Baseline
 
@@ -236,6 +285,7 @@ The Python vLLM provider defaults to `http://localhost:8000/v1` but respects the
 |--------|---------|
 | `scripts/run_and_verify.sh` | Run a research session then verify results in one command |
 | `scripts/one_shot_batch.sh` | Batch-run the one-shot baseline across all problems in a folder |
+| `scripts/run_multiple_autophysicist.py` | Run N concurrent autophysicist instances for pass@k evaluation |
 | `scripts/test_model.py` | Smoke-test a model's reasoning and tool-call support (`--list` to show available models) |
 
 ### CritPt Benchmark
@@ -446,6 +496,12 @@ src/open_dirac/
     evaluate.py        — Answer evaluation: symbolic (SymPy) and numerical comparison
     verifier.md        — Verification prompt
     process_auditor.md — Process audit prompt
+  autophysicist/
+    runner.py          — Autophysicist entry point: CLI, iteration loop, formal evaluation
+    tools.py           — Tool executor: dispatch_subagent, memory writes, end_turn, submit_final_answer
+    subagent.py        — Ephemeral sub-agent dispatch with optional sandboxed code execution
+    memory.py          — PermanentMemory (append-only) and Scratchpad (rolling window)
+    prompt.md          — Research Manager system prompt
   one_shot/
     runner.py          — One-shot LLM baseline runner (no scaffolding, for benchmarking)
   rsa/
@@ -465,6 +521,7 @@ scripts/
   run_and_verify.sh    — Run a problem then verify results in one command
   one_shot_batch.sh    — Batch-run one-shot baseline across multiple problems
   test_model.py        — Smoke-test a model's reasoning and tool-call support
+  run_multiple_autophysicist.py — Run N concurrent autophysicist instances for pass@k
   run_critpt_open_dirac.py — Batch-run CritPt problems through the full pipeline
   run_critpt_oneshot.py — Batch-run CritPt problems through one-shot baseline
   run_critpt_rsa.py    — Batch-run CritPt problems through RSA
