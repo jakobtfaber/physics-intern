@@ -55,8 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help=f"Max output tokens per call (default: {ONESHOT_MAX_TOKENS})")
     p.add_argument("--concurrency", type=int, default=10,
                    help="Max parallel runs (default: 10)")
-    p.add_argument("--timeout", type=int, default=600,
-                   help="Per-problem timeout in seconds (default: 600)")
+    p.add_argument("--timeout", type=int, default=1800,
+                   help="Per-problem timeout in seconds (default: 1800)")
     p.add_argument("--output-dir", type=Path, default=None,
                    help="Output directory for submission JSONs")
     p.add_argument("--problems-dir", type=Path, default=DEFAULT_PROBLEMS_DIR,

@@ -129,26 +129,28 @@ async def run_one(
     async with semaphore:
         start = time.monotonic()
         try:
+            # PYTHONUNBUFFERED ensures stdout is flushed per-line so we
+            # can detect iteration markers in real time via readline().
+            env = {**os.environ, "PYTHONUNBUFFERED": "1"}
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(PROJECT_ROOT),
                 start_new_session=True,
+                env=env,
             )
 
             stderr_tail: list[str] = []  # keep last lines for error reporting
 
-            async def _stream_stderr():
-                assert proc.stderr is not None
+            async def _stream_stdout():
+                """Read stdout line-by-line, detect iteration markers."""
+                assert proc.stdout is not None
                 while True:
-                    line = await proc.stderr.readline()
+                    line = await proc.stdout.readline()
                     if not line:
                         break
                     text = line.decode(errors="replace")
-                    stderr_tail.append(text)
-                    if len(stderr_tail) > 50:
-                        stderr_tail.pop(0)
                     m = _ITERATION_RE.search(text)
                     if m:
                         elapsed_so_far = time.monotonic() - start
@@ -159,12 +161,18 @@ async def run_one(
                                 file=sys.stderr,
                             )
 
-            async def _drain_stdout():
-                assert proc.stdout is not None
-                return await proc.stdout.read()
+            async def _drain_stderr():
+                """Collect stderr tail for error reporting."""
+                assert proc.stderr is not None
+                data = await proc.stderr.read()
+                text = data.decode(errors="replace")
+                for line in text.splitlines():
+                    stderr_tail.append(line)
+                if len(stderr_tail) > 50:
+                    del stderr_tail[:-50]
 
-            stdout_data, _, _ = await asyncio.wait_for(
-                asyncio.gather(_drain_stdout(), _stream_stderr(), proc.wait()),
+            await asyncio.wait_for(
+                asyncio.gather(_stream_stdout(), _drain_stderr(), proc.wait()),
                 timeout=timeout,
             )
             elapsed = time.monotonic() - start
@@ -385,8 +393,8 @@ def main():
                         help="Config YAML file to pass through")
     parser.add_argument("--runs", type=int, required=True,
                         help="Number of independent runs")
-    parser.add_argument("--concurrency", type=int, default=3,
-                        help="Max parallel runs (default: 3)")
+    parser.add_argument("--concurrency", type=int, default=10,
+                        help="Max parallel runs (default: 10)")
     parser.add_argument("--timeout", type=int, default=3600,
                         help="Per-run timeout in seconds (default: 3600)")
     parser.add_argument("--workspace-base", type=Path, default=DEFAULT_WORKSPACE_BASE,

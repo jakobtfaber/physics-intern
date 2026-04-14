@@ -175,7 +175,7 @@ async def run_one(
 async def run_multiple(args: argparse.Namespace) -> int:
     """Run N one-shot instances and report results."""
     n = args.runs
-    concurrency = args.concurrency if args.concurrency is not None else n
+    concurrency = args.concurrency
     semaphore = asyncio.Semaphore(concurrency)
 
     print(f"Problem:     {args.problem.name}", file=sys.stderr)
@@ -317,10 +317,10 @@ def main():
                         help="Config YAML file to pass through")
     parser.add_argument("--runs", type=int, required=True,
                         help="Number of independent runs")
-    parser.add_argument("--concurrency", type=int, default=None,
-                        help="Max parallel runs (default: same as --runs)")
-    parser.add_argument("--timeout", type=int, default=600,
-                        help="Per-run timeout in seconds (default: 600)")
+    parser.add_argument("--concurrency", type=int, default=10,
+                        help="Max parallel runs (default: 10)")
+    parser.add_argument("--timeout", type=int, default=1800,
+                        help="Per-run timeout in seconds (default: 1800)")
     parser.add_argument("--output-dir", type=Path,
                         default=PROJECT_ROOT / "results" / "multiple_oneshot",
                         help="Output directory for results JSON")
