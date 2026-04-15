@@ -263,7 +263,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
 
     workspace_dirs = []
     for i in range(n):
-        ws_name = f"{timestamp}_{problem_stem}_{safe_model}_run{i:03d}"
+        ws_name = f"{timestamp}_{problem_stem}_{safe_model}_autophysicist_run{i:03d}"
         workspace_dirs.append(workspace_base / ws_name)
 
     print(f"Problem:     {args.problem.name}", file=sys.stderr)

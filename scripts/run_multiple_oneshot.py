@@ -28,6 +28,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from open_dirac.config import DEFAULTS  # noqa: E402
 
+DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
+
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -97,11 +99,15 @@ async def run_one(
     model_key: str | None,
     max_tokens: int | None,
     config_path: Path | None,
+    workspace_dir: Path,
     timeout: float,
     semaphore: asyncio.Semaphore,
 ) -> RunResult:
     """Run a single open_dirac_oneshot subprocess."""
-    cmd = ["uv", "run", "open_dirac_oneshot", str(problem_path)]
+    cmd = [
+        "uv", "run", "open_dirac_oneshot", str(problem_path),
+        "--workspace-dir", str(workspace_dir),
+    ]
     if model_key:
         cmd.extend(["--model", model_key])
     if max_tokens is not None:
@@ -178,12 +184,25 @@ async def run_multiple(args: argparse.Namespace) -> int:
     concurrency = args.concurrency
     semaphore = asyncio.Semaphore(concurrency)
 
+    # Generate workspace directories with a shared timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_model = (args.model or DEFAULTS["model"]).replace("/", "-").replace(":", "-")
+    problem_stem = args.problem.stem
+    workspace_base = args.workspace_base
+
+    workspace_dirs = [
+        workspace_base
+        / f"{timestamp}_{problem_stem}_{safe_model}_oneshot_run{i:03d}"
+        for i in range(n)
+    ]
+
     print(f"Problem:     {args.problem.name}", file=sys.stderr)
     if args.model:
         print(f"Model:       {args.model}", file=sys.stderr)
     print(f"Runs:        {n}", file=sys.stderr)
     print(f"Concurrency: {concurrency}", file=sys.stderr)
     print(f"Timeout:     {args.timeout}s per run", file=sys.stderr)
+    print(f"Workspaces:  {workspace_base}/", file=sys.stderr)
     print("---", file=sys.stderr)
 
     start_time = datetime.now(timezone.utc)
@@ -196,6 +215,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
         result = await run_one(
             run_index, args.problem, args.model,
             args.max_tokens, args.config,
+            workspace_dirs[run_index],
             args.timeout, semaphore,
         )
         async with lock:
@@ -321,6 +341,8 @@ def main():
                         help="Max parallel runs (default: 10)")
     parser.add_argument("--timeout", type=int, default=1800,
                         help="Per-run timeout in seconds (default: 1800)")
+    parser.add_argument("--workspace-base", type=Path, default=DEFAULT_WORKSPACE_BASE,
+                        help="Base directory for workspaces")
     parser.add_argument("--output-dir", type=Path,
                         default=PROJECT_ROOT / "results" / "multiple_oneshot",
                         help="Output directory for results JSON")
