@@ -36,7 +36,6 @@ from run_critpt_common import (
 from open_dirac.verification.evaluate import extract_answer_code  # noqa: E402
 
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt_oneshot"
-ONESHOT_MAX_TOKENS = 128_000
 
 
 # ---------------------------------------------------------------------------
@@ -51,8 +50,6 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Resume from an existing output directory (recovers all params)")
     p.add_argument("--model", default=None,
                    help=f"Model key from models.yaml (default: {DEFAULTS['model']})")
-    p.add_argument("--max-tokens", type=int, default=None,
-                   help=f"Max output tokens per call (default: {ONESHOT_MAX_TOKENS})")
     p.add_argument("--concurrency", type=int, default=10,
                    help="Max parallel runs (default: 10)")
     p.add_argument("--timeout", type=int, default=1800,
@@ -99,7 +96,6 @@ def _parse_stderr_stats(stderr: str) -> dict | None:
 async def run_one_problem(
     problem: Problem,
     model_key: str,
-    max_tokens: int,
     timeout: float,
     semaphore: asyncio.Semaphore,
     logs_dir: Path | None,
@@ -110,7 +106,6 @@ async def run_one_problem(
             "uv", "run", "python", "-m", "open_dirac.one_shot",
             str(problem.yaml_path),
             "--model", model_key,
-            "--max-tokens", str(max_tokens),
         ]
 
         start = time.monotonic()
@@ -205,8 +200,6 @@ async def run_batch(args: argparse.Namespace) -> int:
         args.output_dir = args.resume
         if args.model is None:
             args.model = gen_cfg.get("model_key")
-        if args.max_tokens is None:
-            args.max_tokens = gen_cfg.get("max_tokens")
         if run_cfg.get("problems_dir"):
             args.problems_dir = Path(run_cfg["problems_dir"])
         if run_cfg.get("problems_subset"):
@@ -214,8 +207,6 @@ async def run_batch(args: argparse.Namespace) -> int:
         print(f"Resuming from {args.resume}", file=sys.stderr)
 
     resolve_model(args, args.output_dir)
-    if args.max_tokens is None:
-        args.max_tokens = ONESHOT_MAX_TOKENS
 
     critpt_model = resolve_critpt_model_string(args.model)
 
@@ -257,7 +248,6 @@ async def run_batch(args: argparse.Namespace) -> int:
     generation_config = {
         "system": "open_dirac_one_shot",
         "model_key": args.model,
-        "max_tokens": args.max_tokens,
         "use_python": False,
         "use_web_search": False,
         "use_golden_for_prev_steps": False,
@@ -283,7 +273,7 @@ async def run_batch(args: argparse.Namespace) -> int:
         nonlocal completed_count, succeeded, failed
 
         result = await run_one_problem(
-            problem, args.model, args.max_tokens,
+            problem, args.model,
             args.timeout, semaphore, logs_dir,
         )
 

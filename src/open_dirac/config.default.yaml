@@ -2,9 +2,8 @@
 # This is the single source of truth for all default values.
 # Do NOT hardcode defaults in Python — they are read from this file.
 
-model: gemini-3-flash-preview
+model: gemini-3-flash-preview-medium
 verify_model: claude-4.6-opus
-max_tokens: 65536
 max_iterations: 25
 critic_every_n: 4
 sympy_timeout_seconds: 60

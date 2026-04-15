@@ -17,11 +17,16 @@ from open_dirac.config import Config, DEFAULTS, _YAML_CONFIG_FIELDS, load_config
 
 class TestDefaults:
     def test_defaults_has_required_keys(self):
-        required = {"model", "verify_model", "max_tokens", "max_iterations",
+        # max_tokens is intentionally absent — it's sourced from models.yaml
+        required = {"model", "verify_model", "max_iterations",
                      "critic_every_n",
                      "sympy_timeout_seconds",
                      "max_tool_rounds", "tool_output_limit", "min_er_for_completion"}
         assert required.issubset(DEFAULTS.keys())
+
+    def test_max_tokens_not_in_defaults(self):
+        # max_tokens is derived from models.yaml, not config.default.yaml
+        assert "max_tokens" not in DEFAULTS
 
     def test_defaults_model_is_string(self):
         assert isinstance(DEFAULTS["model"], str) and DEFAULTS["model"]
@@ -90,54 +95,64 @@ class TestLoadConfigYaml:
 
 class TestBuildConfig:
     def test_defaults_only(self):
-        args = Namespace(config=None, model=None, max_tokens=None,
+        args = Namespace(config=None, model=None,
                          max_iterations=None, workspace_dir=None,
 )
         cfg = build_config(args)
         assert cfg.model == DEFAULTS["model"]
         assert cfg.verify_model == DEFAULTS["verify_model"]
         assert cfg.max_iterations == DEFAULTS["max_iterations"]
-        assert cfg.max_tokens == DEFAULTS["max_tokens"]
+        # max_tokens resolved from models.yaml for the default model
+        assert cfg.max_tokens > 0
 
     def test_cli_overrides_defaults(self):
-        args = Namespace(config=None, model="cli-model",
-                         max_tokens=None, max_iterations=5,
+        args = Namespace(config=None, model="claude-4.6-opus",
+                         max_iterations=5,
                          workspace_dir=None, critic_every_n=None,
                          sympy_timeout_seconds=None)
         cfg = build_config(args)
-        assert cfg.model == "cli-model"
+        assert cfg.model == "claude-4.6-opus"
         assert cfg.max_iterations == 5
-        assert cfg.max_tokens == DEFAULTS["max_tokens"]  # default preserved
+        # max_tokens tracks the model's declared max_output_tokens
+        assert cfg.max_tokens == 128000
 
     def test_yaml_overrides_defaults(self, tmp_path):
         cfg_file = tmp_path / "config.yaml"
-        cfg_file.write_text(yaml.dump({"model": "custom-model", "max_iterations": 50}))
-        args = Namespace(config=str(cfg_file), model=None, max_tokens=None,
+        cfg_file.write_text(yaml.dump({"model": "claude-4.6-sonnet", "max_iterations": 50}))
+        args = Namespace(config=str(cfg_file), model=None,
                          max_iterations=None, workspace_dir=None,
 )
         cfg = build_config(args)
-        assert cfg.model == "custom-model"
+        assert cfg.model == "claude-4.6-sonnet"
         assert cfg.max_iterations == 50
+        assert cfg.max_tokens == 65536  # from models.yaml
 
     def test_cli_overrides_yaml(self, tmp_path):
         cfg_file = tmp_path / "config.yaml"
-        cfg_file.write_text(yaml.dump({"model": "yaml-model", "max_iterations": 50}))
-        args = Namespace(config=str(cfg_file), model="cli-model", max_tokens=None,
+        cfg_file.write_text(yaml.dump({"model": "claude-4.6-sonnet", "max_iterations": 50}))
+        args = Namespace(config=str(cfg_file), model="claude-4.6-opus",
                          max_iterations=None, workspace_dir=None,
 )
         cfg = build_config(args)
-        assert cfg.model == "cli-model"
+        assert cfg.model == "claude-4.6-opus"
         assert cfg.max_iterations == 50  # from YAML
+        assert cfg.max_tokens == 128000  # tracks CLI-selected model
 
-    def test_partial_overlap(self, tmp_path):
+    def test_max_tokens_not_settable_via_yaml(self, tmp_path):
+        """max_tokens is ignored in config YAML (models.yaml is the source)."""
         cfg_file = tmp_path / "config.yaml"
-        cfg_file.write_text(yaml.dump({"max_tokens": 8192}))
-        args = Namespace(config=str(cfg_file), model=None, max_tokens=None,
+        cfg_file.write_text(yaml.dump(
+            {"model": "claude-4.6-sonnet", "max_tokens": 8192}
+        ))
+        args = Namespace(config=str(cfg_file), model=None,
                          max_iterations=10, workspace_dir=None,
 )
-        cfg = build_config(args)
-        assert cfg.max_tokens == 8192  # from YAML
-        assert cfg.max_iterations == 10  # from CLI
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            cfg = build_config(args)
+        # Attempted override is ignored; value comes from models.yaml
+        assert cfg.max_tokens == 65536
+        assert cfg.max_iterations == 10
 
 
 # ---------------------------------------------------------------------------
@@ -160,12 +175,18 @@ class TestMainParser:
         parser = build_parser()
         args = parser.parse_args([
             "p.yaml", "--config", "c.yaml", "--model", "m",
-            "--max-tokens", "1024", "--max-iterations", "3",
+            "--max-iterations", "3",
             "--workspace-dir", "/tmp/ws",
         ])
         assert args.config == Path("c.yaml")
-        assert args.max_tokens == 1024
         assert args.workspace_dir == Path("/tmp/ws")
+
+    def test_max_tokens_flag_removed(self):
+        """--max-tokens is no longer a valid CLI flag."""
+        from open_dirac.main import build_parser
+        parser = build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["p.yaml", "--max-tokens", "1024"])
 
     def test_bad_int_exits(self):
         from open_dirac.main import build_parser
@@ -178,7 +199,6 @@ class TestMainParser:
         parser = build_parser()
         args = parser.parse_args(["p.yaml"])
         assert args.model is None
-        assert args.max_tokens is None
         assert args.max_iterations is None
         assert args.workspace_dir is None
 
@@ -194,17 +214,15 @@ class TestVerifyParser:
         args = parser.parse_args(["workspaces/run1"])
         assert args.workspace_dir == Path("workspaces/run1")
         assert args.model == DEFAULTS["verify_model"]
-        assert args.max_tokens == DEFAULTS["max_tokens"]
 
-    def test_custom_values(self):
+    def test_custom_model(self):
         from open_dirac.verification.verify import build_verify_parser
         parser = build_verify_parser()
-        args = parser.parse_args(["ws", "--model", "opus", "--max-tokens", "8192"])
+        args = parser.parse_args(["ws", "--model", "opus"])
         assert args.model == "opus"
-        assert args.max_tokens == 8192
 
-    def test_bad_int_exits(self):
+    def test_max_tokens_flag_removed(self):
         from open_dirac.verification.verify import build_verify_parser
         parser = build_verify_parser()
         with pytest.raises(SystemExit):
-            parser.parse_args(["ws", "--max-tokens", "xyz"])
+            parser.parse_args(["ws", "--max-tokens", "8192"])

@@ -97,7 +97,6 @@ async def run_one(
     run_index: int,
     problem_path: Path,
     model_key: str | None,
-    max_tokens: int | None,
     config_path: Path | None,
     workspace_dir: Path,
     timeout: float,
@@ -110,8 +109,6 @@ async def run_one(
     ]
     if model_key:
         cmd.extend(["--model", model_key])
-    if max_tokens is not None:
-        cmd.extend(["--max-tokens", str(max_tokens)])
     if config_path:
         cmd.extend(["--config", str(config_path)])
 
@@ -214,7 +211,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
         nonlocal completed
         result = await run_one(
             run_index, args.problem, args.model,
-            args.max_tokens, args.config,
+            args.config,
             workspace_dirs[run_index],
             args.timeout, semaphore,
         )
@@ -331,8 +328,6 @@ def main():
     parser.add_argument("problem", type=Path, help="Path to problem YAML file")
     parser.add_argument("--model", type=str, default=None,
                         help=f"Model key from models.yaml (default: {DEFAULTS['model']})")
-    parser.add_argument("--max-tokens", type=int, default=None,
-                        help="Max output tokens per run")
     parser.add_argument("--config", type=Path, default=None,
                         help="Config YAML file to pass through")
     parser.add_argument("--runs", type=int, required=True,

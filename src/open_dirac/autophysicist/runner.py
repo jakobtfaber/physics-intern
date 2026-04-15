@@ -245,10 +245,6 @@ def main() -> None:
         help=f"Model key from models.yaml (default: {DEFAULTS['model']})",
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=None,
-        help="Max output tokens per LLM call",
-    )
-    parser.add_argument(
         "--config", type=Path, default=None,
         help="Path to config YAML file",
     )

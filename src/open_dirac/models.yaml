@@ -37,6 +37,7 @@ gpt-5.4-high:
   env_key: OPENAI_API_KEY
   input_cost: 2.50
   output_cost: 15.00
+  max_output_tokens: 128000
   reasoning_effort: high
 
 gpt-5.4-medium:
@@ -45,6 +46,7 @@ gpt-5.4-medium:
   env_key: OPENAI_API_KEY
   input_cost: 2.50
   output_cost: 15.00
+  max_output_tokens: 128000
   reasoning_effort: medium
 
 gpt-5.4-pro:
@@ -53,6 +55,7 @@ gpt-5.4-pro:
   env_key: OPENAI_API_KEY
   input_cost: 30.00
   output_cost: 180.00
+  max_output_tokens: 128000
   reasoning_effort: medium
 
 gpt-5.4-mini-medium:
@@ -61,6 +64,7 @@ gpt-5.4-mini-medium:
   env_key: OPENAI_API_KEY
   input_cost: 0.75
   output_cost: 4.5
+  max_output_tokens: 128000
   reasoning_effort: medium
 
 # ============================================================================
@@ -73,6 +77,7 @@ gemini-3.1-pro-preview:
   env_key: GOOGLE_API_KEY
   input_cost: 2.00
   output_cost: 12.00
+  max_output_tokens: 65536
   thinking_level: high
 
 gemini-3-flash-preview-medium:
@@ -81,6 +86,7 @@ gemini-3-flash-preview-medium:
   env_key: GOOGLE_API_KEY
   input_cost: 0.5
   output_cost: 3.00
+  max_output_tokens: 65536
   thinking_level: medium
 
 gemini-3-flash-preview-high:
@@ -89,6 +95,7 @@ gemini-3-flash-preview-high:
   env_key: GOOGLE_API_KEY
   input_cost: 0.5
   output_cost: 3.00
+  max_output_tokens: 65536
   thinking_level: high
 
 # ============================================================================
@@ -102,6 +109,7 @@ deepseek-v3.2:
   env_key: HF_TOKEN
   input_cost: 0.56
   output_cost: 1.68
+  max_output_tokens: 65536
   reasoning_format: think_tags
   hf_provider: novita
 
@@ -111,6 +119,7 @@ kimi-k2.5:
   env_key: HF_TOKEN
   input_cost: 0.50
   output_cost: 2.80
+  max_output_tokens: 65536
   reasoning_format: separate_field
 
 glm-5:
@@ -119,6 +128,7 @@ glm-5:
   env_key: HF_TOKEN
   input_cost: 1.00
   output_cost: 3.20
+  max_output_tokens: 65536
   reasoning_format: separate_field
 
 glm-5.1:
@@ -127,6 +137,7 @@ glm-5.1:
   env_key: HF_TOKEN
   input_cost: 1.40
   output_cost: 4.40
+  max_output_tokens: 65536
   reasoning_format: separate_field
   hf_provider: together
 
@@ -136,6 +147,7 @@ gpt-oss-120b:
   env_key: HF_TOKEN
   input_cost: 0.25
   output_cost: 0.69
+  max_output_tokens: 65536
   reasoning_format: separate_field
 
 minimax-m2.5:
@@ -144,6 +156,7 @@ minimax-m2.5:
   env_key: HF_TOKEN
   input_cost: 0.30
   output_cost: 1.20
+  max_output_tokens: 65536
 
 qwen-3.5-397B-A17B:
   provider: huggingface
@@ -151,6 +164,7 @@ qwen-3.5-397B-A17B:
   env_key: HF_TOKEN
   input_cost: 0.60
   output_cost: 3.60
+  max_output_tokens: 65536
   reasoning_format: think_tags
 
 # ============================================================================
@@ -163,6 +177,7 @@ Qwen/Qwen3.5-4B:
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
+  max_output_tokens: 65536
   reasoning_format: think_tags
   tool_mode: api
   serve:
@@ -177,6 +192,7 @@ nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16:
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
+  max_output_tokens: 65536
   reasoning_format: think_tags
   tool_mode: xml_text
   serve:
@@ -193,6 +209,7 @@ nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
+  max_output_tokens: 65536
   reasoning_format: think_tags
   tool_mode: xml_text
   serve:
@@ -217,6 +234,7 @@ nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8:
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
+  max_output_tokens: 65536
   reasoning_format: think_tags
   tool_mode: xml_text
   serve:
@@ -241,6 +259,7 @@ nvidia/Nemotron-Cascade-2-30B-A3B:
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
+  max_output_tokens: 65536
   reasoning_format: think_tags
   tool_mode: xml_text
   serve:

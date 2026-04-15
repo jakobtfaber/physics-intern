@@ -903,8 +903,6 @@ def build_verify_parser() -> "argparse.ArgumentParser":
                         help="Path to workspace directory")
     parser.add_argument("--model", type=str, default=DEFAULTS["verify_model"],
                         help=f"LLM model (default: {DEFAULTS['verify_model']})")
-    parser.add_argument("--max-tokens", type=int, default=DEFAULTS["max_tokens"],
-                        help=f"Max output tokens (default: {DEFAULTS['max_tokens']})")
     return parser
 
 
@@ -918,7 +916,6 @@ def main():
         sys.exit(1)
 
     model = args.model
-    max_tokens = args.max_tokens
 
     # Load workspace (single call — loads everything including process data)
     console.print(f"[bold]Loading workspace:[/] {workspace_dir}")
@@ -963,7 +960,7 @@ def main():
     render_formal_evaluation(formal_eval)
 
     # Single diagnosis pass
-    config = Config(model=model, max_tokens=max_tokens, workspace_dir=workspace_dir)
+    config = Config(model=model, workspace_dir=workspace_dir)
     system, user_content = build_diagnosis_prompt(
         contents, formal_eval=formal_eval,
         known_answer=known_answer, reference_content=reference_content,

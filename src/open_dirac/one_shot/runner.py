@@ -29,10 +29,6 @@ from ..verification.evaluate import evaluate_response
 from ..providers import create_provider, LLMProvider, ProviderResponse
 from ..verification.verify import load_reference_file
 
-# One-shot runs produce a single long response; default engine max_tokens (65536)
-# is too low. This constant is used when neither CLI nor config YAML overrides it.
-ONE_SHOT_MAX_TOKENS = 128_000
-
 # ---------------------------------------------------------------------------
 # System prompt — distilled from the one-shot/prompt_template_default.yaml
 # ---------------------------------------------------------------------------
@@ -316,10 +312,6 @@ def main() -> None:
         help=f"Model key from models.yaml (default: {DEFAULTS['model']})",
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=None,
-        help=f"Max output tokens (default: {ONE_SHOT_MAX_TOKENS})",
-    )
-    parser.add_argument(
         "--config", type=Path, default=None,
         help="Path to config YAML file (overrides defaults)",
     )
@@ -350,9 +342,6 @@ def main() -> None:
 
     # --- Model / provider resolution ---
     config = build_config(args)
-    # One-shot needs more output tokens than the engine default
-    if args.max_tokens is None and config.max_tokens == DEFAULTS["max_tokens"]:
-        config.max_tokens = ONE_SHOT_MAX_TOKENS
 
     provider = create_provider(
         config.provider,

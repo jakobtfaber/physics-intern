@@ -46,12 +46,13 @@ class TestConfigPersistence:
     def test_config_load_with_model_override_re_resolves(self, tmp_path):
         config = Config(workspace_dir=str(tmp_path))
         config.save(tmp_path)
-        # Overriding model should clear provider/model_id for re-resolution
-        loaded = Config.load(tmp_path, overrides={"model": "gpt-4o"})
-        # The provider should have been re-resolved by __post_init__
-        assert loaded.model == "gpt-4o"
-        # model_id should be re-resolved (not the old one)
-        assert loaded.model_id != "" or loaded.model_id == "gpt-4o"
+        # Overriding model should clear provider/model_id so __post_init__
+        # re-resolves them from models.yaml (along with max_tokens).
+        loaded = Config.load(tmp_path, overrides={"model": "claude-4.6-opus"})
+        assert loaded.model == "claude-4.6-opus"
+        assert loaded.provider == "anthropic"
+        assert loaded.model_id == "claude-opus-4-6"
+        assert loaded.max_tokens == 128000  # re-resolved from models.yaml
 
     def test_config_load_missing_file(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="No config.json"):

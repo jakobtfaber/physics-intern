@@ -41,7 +41,6 @@ from ..verification.verify import (
 )
 from ..one_shot.runner import (
     SYSTEM_PROMPT,
-    ONE_SHOT_MAX_TOKENS,
     build_user_message,
     _call_with_retry,
 )
@@ -397,10 +396,6 @@ def main() -> None:
         help=f"Model key from models.yaml (default: {DEFAULTS['model']})",
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=None,
-        help=f"Max output tokens per LLM call (default: {ONE_SHOT_MAX_TOKENS})",
-    )
-    parser.add_argument(
         "--config", type=Path, default=None,
         help="Path to config YAML file (overrides defaults)",
     )
@@ -447,9 +442,6 @@ def main() -> None:
 
     # --- Model / provider resolution ---
     config = build_config(args)
-    # RSA needs more output tokens than the engine default
-    if args.max_tokens is None and config.max_tokens == DEFAULTS["max_tokens"]:
-        config.max_tokens = ONE_SHOT_MAX_TOKENS
 
     provider = create_provider(
         config.provider,

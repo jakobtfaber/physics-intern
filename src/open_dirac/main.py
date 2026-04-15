@@ -31,8 +31,6 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Path to config YAML file")
     parser.add_argument("--model", type=str, default=None,
                         help="LLM model to use")
-    parser.add_argument("--max-tokens", type=int, default=None,
-                        help="Max output tokens per LLM call")
     parser.add_argument("--max-iterations", type=int, default=None,
                         help="Maximum iterations")
     parser.add_argument("--workspace-dir", type=Path, default=None,
@@ -137,7 +135,7 @@ def _main_resume(args) -> None:
 
     # Collect CLI overrides that should apply on resume
     overrides = {}
-    for key in ("model", "max_tokens", "max_iterations"):
+    for key in ("model", "max_iterations"):
         value = getattr(args, key.replace("-", "_"), None)
         if value is not None:
             overrides[key] = value

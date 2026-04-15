@@ -115,7 +115,6 @@ async def run_one(
     run_index: int,
     problem_path: Path,
     model_key: str | None,
-    max_tokens: int | None,
     config_path: Path | None,
     rsa_N: int | None,
     rsa_K: int | None,
@@ -134,8 +133,6 @@ async def run_one(
     ]
     if model_key:
         cmd.extend(["--model", model_key])
-    if max_tokens is not None:
-        cmd.extend(["--max-tokens", str(max_tokens)])
     if config_path:
         cmd.extend(["--config", str(config_path)])
     if rsa_N is not None:
@@ -327,7 +324,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
         nonlocal completed
         result = await run_one(
             run_index, args.problem, args.model,
-            args.max_tokens, args.config,
+            args.config,
             args.N, args.K, args.T,
             args.rsa_concurrency,
             workspace_dirs[run_index],
@@ -410,7 +407,6 @@ async def run_multiple(args: argparse.Namespace) -> int:
         "problem_path": str(args.problem),
         "model": args.model or DEFAULTS["model"],
         "rsa_params": {"N": args.N, "K": args.K, "T": args.T},
-        "max_tokens": args.max_tokens,
         "num_runs": n,
         "concurrency": concurrency,
         "timeout_s": args.timeout,
@@ -458,8 +454,6 @@ def main():
     parser.add_argument("problem", type=Path, help="Path to problem YAML file")
     parser.add_argument("--model", type=str, default=None,
                         help=f"Model key from models.yaml (default: {DEFAULTS['model']})")
-    parser.add_argument("--max-tokens", type=int, default=None,
-                        help="Max output tokens per LLM call (default: RSA runner default)")
     parser.add_argument("--config", type=Path, default=None,
                         help="Config YAML file to pass through")
     parser.add_argument("-N", type=int, default=None,

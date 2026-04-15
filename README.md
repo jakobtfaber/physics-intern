@@ -55,7 +55,6 @@ open_dirac [problem.yaml] [options]
   --model MODEL               LLM model key (default: from config.default.yaml, resolved via models.yaml)
   --replay DIR                Replay console log from a workspace (no run)
   --max-iterations N          Max loop iterations (default: 25)
-  --max-tokens N              Max output tokens per LLM call (default: 65536)
   --workspace-dir DIR         Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
   --resume DIR                Resume from existing workspace if DIR exists
   --config FILE               Path to config YAML file (overrides defaults)
@@ -64,6 +63,8 @@ open_dirac [problem.yaml] [options]
 ### Configuration
 
 All defaults live in `config.default.yaml` (single source of truth). Override with a config YAML file (`--config`) or individual CLI flags. The precedence is: CLI flags > config file > `config.default.yaml`.
+
+The `max_output_tokens` budget per LLM call is **not** a general default — it is defined per-model in `models.yaml` and cannot be overridden via CLI or config YAML.
 
 ### Verification
 
@@ -81,7 +82,6 @@ uv run python -m open_dirac.verification workspaces/<run_dir>/
 python -m open_dirac.verification <workspace_dir> [options]
 
   --model MODEL              LLM model (default: claude-4.6-opus)
-  --max-tokens N             Max output tokens (default: 65536)
 ```
 
 The verifier writes `VERIFICATION.md` into the workspace. It evaluates each Established Result for mathematical/physical validity, runs a process audit, checks chain coherence between results, and outputs a verdict: VALID, PARTIALLY_VALID, INVALID, or INCONCLUSIVE. The problem definition is auto-loaded from `problem.yaml` in the workspace (copied there by `main.py` at run start).
@@ -110,7 +110,6 @@ open_dirac_autophysicist <problem.yaml> [options]
 
   problem.yaml                Problem YAML file (required)
   --model MODEL               LLM model key (default: from config.default.yaml)
-  --max-tokens N              Max output tokens per LLM call
   --config FILE               Path to config YAML file
   --max-iterations N          Max Manager iterations (default: 50)
   --token-budget N            Per-iteration token budget for wind-down trigger (default: 64000)
@@ -148,7 +147,6 @@ uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_ma
 python -m open_dirac.one_shot <problem.yaml> [options]
 
   --model MODEL              LLM model key (default: from config.default.yaml)
-  --max-tokens N             Max output tokens (default: 128000)
   --config FILE              Path to config YAML file (overrides defaults)
   --runs N                   Number of runs for batch benchmarking
   --output-dir DIR           Directory for batch result JSON files (default: results/one_shot/)
@@ -175,7 +173,6 @@ python -m open_dirac.rsa <problem.yaml> [options]
   -N INT                     Population size (default: 6)
   -K INT                     Aggregation subset size (default: 2)
   -T INT                     Number of rounds (default: 4)
-  --max-tokens N             Max output tokens per call (default: 128000)
   --config FILE              Path to config YAML file (overrides defaults)
   --concurrency N            Max parallel LLM calls within a round (default: N)
   --workspace-dir DIR        Workspace directory (default: auto-generated under workspaces/)
@@ -348,6 +345,10 @@ Models are registered in `models.yaml`. Use the friendly key with `--model`:
 | `gpt-oss-120b` | HuggingFace | gpt-oss-120b |
 | `minimax-m2.5` | HuggingFace | MiniMax-M2.5 |
 | `qwen-3.5-397B-A17B` | HuggingFace | Qwen3.5-397B-A17B |
+
+### Known limitations
+
+- **OpenAI `gpt-5.4` + tools + `reasoning_effort`**: not supported on `/v1/chat/completions`. The API returns a 400 error when both function tools and `reasoning_effort` are passed together for `gpt-5.4`, and suggests migrating to `/v1/responses`. As a result, agentic loops (which always attach tools) currently run these models at the API default reasoning effort; the `reasoning_effort` configured in `models.yaml` only takes effect for tool-free calls (e.g. one-shot baseline).
 
 ## Architecture
 

@@ -29,10 +29,16 @@ DEFAULTS = _load_package_defaults()
 
 @dataclass
 class Config:
-    """OpenDirac configuration."""
+    """OpenDirac configuration.
+
+    ``max_tokens`` is the resolved maximum output-token budget per LLM call.
+    It is *not* user-configurable — the single source of truth is the
+    ``max_output_tokens`` field of the model's entry in ``models.yaml``.
+    ``__post_init__`` populates it from there.
+    """
     model: str = DEFAULTS["model"]
     verify_model: str = DEFAULTS["verify_model"]
-    max_tokens: int = DEFAULTS["max_tokens"]
+    max_tokens: int = 0   # resolved from models.yaml in __post_init__
     max_iterations: int = DEFAULTS["max_iterations"]
     critic_every_n: int = DEFAULTS["critic_every_n"]
     sympy_timeout_seconds: int = DEFAULTS["sympy_timeout_seconds"]
@@ -106,13 +112,27 @@ class Config:
                 self.input_cost = resolved.get("input_cost", 0.0)
                 self.output_cost = resolved.get("output_cost", 0.0)
                 self.reasoning = resolved.get("reasoning", {})
-                # Use model-specific max output tokens when user hasn't overridden
-                model_max = resolved.get("max_output_tokens", 0)
-                if model_max and self.max_tokens == DEFAULTS["max_tokens"]:
-                    self.max_tokens = model_max
             else:
                 # Default to anthropic for backward compatibility
                 self.provider = "anthropic"
+        # Resolve max_tokens from models.yaml — the single source of truth.
+        # Runs on every init (including resume) so the value always reflects
+        # the current registry even if the persisted config.json is stale.
+        if resolved:
+            model_max = resolved.get("max_output_tokens")
+            if not model_max:
+                raise ValueError(
+                    f"models.yaml entry for {self.model!r} is missing the "
+                    f"required 'max_output_tokens' field. Every model must "
+                    f"declare its maximum output token budget."
+                )
+            self.max_tokens = int(model_max)
+        elif not self.max_tokens:
+            raise ValueError(
+                f"Model {self.model!r} is not registered in models.yaml and "
+                f"no max_tokens is set. Add the model to models.yaml with a "
+                f"'max_output_tokens' field."
+            )
         # If model_id wasn't resolved, fall back to model (direct API id)
         if not self.model_id:
             self.model_id = self.model
@@ -126,8 +146,9 @@ class Config:
 
 
 # Fields settable via config.yaml (workspace_dir, logs_dir, api_key excluded)
+# max_tokens is intentionally excluded — it is derived from models.yaml only.
 _YAML_CONFIG_FIELDS = frozenset({
-    "model", "verify_model", "max_tokens", "max_iterations", "critic_every_n",
+    "model", "verify_model", "max_iterations", "critic_every_n",
     "sympy_timeout_seconds",
     "max_tool_rounds", "progress_check_interval",
     "computation_token_alert", "tool_output_limit", "stall_threshold", "stall_recompute_limit",
@@ -209,9 +230,10 @@ def build_config(args: Namespace) -> Config:
     if getattr(args, "config", None) is not None:
         kwargs.update(load_config_yaml(Path(args.config)))
 
-    # Layer 2: CLI args override (only non-None values)
+    # Layer 2: CLI args override (only non-None values).
+    # max_tokens is intentionally absent — derived from models.yaml.
     cli_fields = {
-        "model", "max_tokens", "max_iterations", "workspace_dir",
+        "model", "max_iterations", "workspace_dir",
     }
     for field_name in cli_fields:
         cli_name = field_name.replace("-", "_")
