@@ -11,6 +11,7 @@ Usage:
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 # Add src to path so we can import open_dirac
@@ -82,17 +83,28 @@ class Check:
         self.detail = detail
 
 
-def test_reasoning(provider, model_id, max_tokens) -> list[Check]:
+class Measurement:
+    def __init__(self, label: str, elapsed_s: float, output_tokens: int):
+        self.label = label
+        self.elapsed_s = elapsed_s
+        self.output_tokens = output_tokens
+        self.tokens_per_sec = output_tokens / elapsed_s if elapsed_s > 0 else 0.0
+
+
+def test_reasoning(provider, model_id, max_tokens) -> tuple[list[Check], list[Measurement]]:
     """Turn 1: simple reasoning prompt, no tools."""
     checks = []
     console.print("\n[bold]Turn 1: Reasoning (no tools)[/]")
 
+    t0 = time.perf_counter()
     resp = provider.call(
         model=model_id,
         max_tokens=min(max_tokens, 4096),
         system="You are a helpful assistant. Think step by step.",
         messages=[{"role": "user", "content": "What is 7 * 13? Show your reasoning."}],
     )
+    elapsed = time.perf_counter() - t0
+    m = Measurement("reasoning", elapsed, resp.output_tokens)
 
     console.print(f"  text:              {repr(resp.text[:120])}{'...' if len(resp.text) > 120 else ''}")
     console.print(f"  input_tokens:      {resp.input_tokens}")
@@ -101,6 +113,8 @@ def test_reasoning(provider, model_id, max_tokens) -> list[Check]:
     console.print(f"  answer_tokens:     {resp.answer_tokens}")
     console.print(f"  reasoning_content: {len(resp.reasoning_content)} chars")
     console.print(f"  stop_reason:       {resp.stop_reason}")
+    console.print(f"  [cyan]elapsed:           {elapsed:.2f}s[/]")
+    console.print(f"  [cyan]throughput:         {m.tokens_per_sec:.1f} tok/s[/]")
 
     checks.append(Check(
         "text non-empty",
@@ -142,14 +156,15 @@ def test_reasoning(provider, model_id, max_tokens) -> list[Check]:
         resp.stop_reason == "end_turn",
         resp.stop_reason))
 
-    return checks
+    return checks, [m]
 
 
-def test_tool_call(provider, model_id, max_tokens) -> list[Check]:
+def test_tool_call(provider, model_id, max_tokens) -> tuple[list[Check], list[Measurement]]:
     """Turn 2: prompt that should trigger a tool call."""
     checks = []
     console.print("\n[bold]Turn 2: Tool call[/]")
 
+    t0 = time.perf_counter()
     resp = provider.call(
         model=model_id,
         max_tokens=min(max_tokens, 4096),
@@ -157,6 +172,8 @@ def test_tool_call(provider, model_id, max_tokens) -> list[Check]:
         messages=[{"role": "user", "content": "Please use the calculate tool to compute 7 * 13."}],
         tools=[TOOL_DEF],
     )
+    elapsed = time.perf_counter() - t0
+    m = Measurement("tool_call", elapsed, resp.output_tokens)
 
     tc_summary = f"{len(resp.tool_calls)} calls" if resp.tool_calls else "none"
     console.print(f"  text:              {repr(resp.text[:80])}")
@@ -168,6 +185,8 @@ def test_tool_call(provider, model_id, max_tokens) -> list[Check]:
     console.print(f"  reasoning_tokens:  {resp.reasoning_tokens}")
     console.print(f"  answer_tokens:     {resp.answer_tokens}")
     console.print(f"  stop_reason:       {resp.stop_reason}")
+    console.print(f"  [cyan]elapsed:           {elapsed:.2f}s[/]")
+    console.print(f"  [cyan]throughput:         {m.tokens_per_sec:.1f} tok/s[/]")
 
     checks.append(Check(
         "tool_calls present",
@@ -192,15 +211,17 @@ def test_tool_call(provider, model_id, max_tokens) -> list[Check]:
             resp.answer_tokens > 0,
             str(resp.answer_tokens)))
 
-    return checks
+    return checks, [m]
 
 
-def test_tool_round_trip(provider, model_id, max_tokens) -> list[Check]:
+def test_tool_round_trip(provider, model_id, max_tokens) -> tuple[list[Check], list[Measurement]]:
     """Turn 3: complete tool round-trip — call tool, then get final answer."""
     checks = []
+    measurements = []
     console.print("\n[bold]Turn 3: Tool round-trip (call + result + final answer)[/]")
 
     # First: get the tool call
+    t0 = time.perf_counter()
     resp1 = provider.call(
         model=model_id,
         max_tokens=min(max_tokens, 4096),
@@ -208,10 +229,14 @@ def test_tool_round_trip(provider, model_id, max_tokens) -> list[Check]:
         messages=[{"role": "user", "content": "Use calculate to compute 17 + 25."}],
         tools=[TOOL_DEF],
     )
+    elapsed1 = time.perf_counter() - t0
+    m1 = Measurement("round_trip_call", elapsed1, resp1.output_tokens)
+    measurements.append(m1)
+    console.print(f"  [cyan]call elapsed:      {elapsed1:.2f}s ({m1.tokens_per_sec:.1f} tok/s)[/]")
 
     if not resp1.tool_calls:
         checks.append(Check("tool call obtained", False, "no tool call in response"))
-        return checks
+        return checks, measurements
 
     checks.append(Check("tool call obtained", True, resp1.tool_calls[0]["name"]))
 
@@ -228,6 +253,7 @@ def test_tool_round_trip(provider, model_id, max_tokens) -> list[Check]:
     }]))
 
     # Second: get final answer using tool result
+    t1 = time.perf_counter()
     resp2 = provider.call(
         model=model_id,
         max_tokens=min(max_tokens, 4096),
@@ -235,11 +261,15 @@ def test_tool_round_trip(provider, model_id, max_tokens) -> list[Check]:
         messages=messages,
         tools=[TOOL_DEF],
     )
+    elapsed2 = time.perf_counter() - t1
+    m2 = Measurement("round_trip_answer", elapsed2, resp2.output_tokens)
+    measurements.append(m2)
 
     console.print(f"  final text:        {repr(resp2.text[:120])}")
     console.print(f"  output_tokens:     {resp2.output_tokens}")
     console.print(f"  reasoning_tokens:  {resp2.reasoning_tokens}")
     console.print(f"  answer_tokens:     {resp2.answer_tokens}")
+    console.print(f"  [cyan]answer elapsed:     {elapsed2:.2f}s ({m2.tokens_per_sec:.1f} tok/s)[/]")
 
     checks.append(Check(
         "final answer non-empty",
@@ -256,7 +286,53 @@ def test_tool_round_trip(provider, model_id, max_tokens) -> list[Check]:
         "42" in resp2.text,
         resp2.text[:80]))
 
-    return checks
+    return checks, measurements
+
+
+THROUGHPUT_PROMPT = """\
+Write a detailed, multi-paragraph explanation of Noether's theorem: \
+what it states, its mathematical formulation, its proof sketch for classical \
+mechanics, and three concrete examples (energy conservation from time-translation \
+symmetry, momentum conservation from spatial-translation symmetry, and angular \
+momentum conservation from rotational symmetry). \
+Be thorough — aim for at least 800 words."""
+
+
+def test_throughput(provider, model_id, max_tokens) -> tuple[list[Check], list[Measurement]]:
+    """Extended generation to get a reliable throughput measurement."""
+    checks = []
+    console.print("\n[bold]Throughput: Extended generation[/]")
+
+    t0 = time.perf_counter()
+    resp = provider.call(
+        model=model_id,
+        max_tokens=min(max_tokens, 8192),
+        system="You are a knowledgeable physics professor. Give detailed, thorough answers.",
+        messages=[{"role": "user", "content": THROUGHPUT_PROMPT}],
+    )
+    elapsed = time.perf_counter() - t0
+    m = Measurement("throughput_extended", elapsed, resp.output_tokens)
+
+    console.print(f"  text length:       {len(resp.text)} chars")
+    console.print(f"  input_tokens:      {resp.input_tokens}")
+    console.print(f"  output_tokens:     {resp.output_tokens}")
+    console.print(f"  reasoning_tokens:  {resp.reasoning_tokens}")
+    console.print(f"  answer_tokens:     {resp.answer_tokens}")
+    console.print(f"  stop_reason:       {resp.stop_reason}")
+    console.print(f"  [cyan]elapsed:           {elapsed:.2f}s[/]")
+    console.print(f"  [cyan]throughput:         {m.tokens_per_sec:.1f} tok/s[/]")
+
+    checks.append(Check(
+        "extended: output_tokens > 200",
+        resp.output_tokens > 200,
+        str(resp.output_tokens)))
+
+    checks.append(Check(
+        "extended: invariant output = reasoning + answer",
+        resp.output_tokens == resp.reasoning_tokens + resp.answer_tokens,
+        f"{resp.output_tokens} == {resp.reasoning_tokens} + {resp.answer_tokens}"))
+
+    return checks, [m]
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
@@ -297,16 +373,28 @@ def main():
     console.print(f"  reasoning config: {info.get('reasoning', {})}")
 
     all_checks: list[Check] = []
+    all_measurements: list[Measurement] = []
 
     # Turn 1: reasoning
-    all_checks.extend(test_reasoning(provider, model_id, max_tokens))
+    checks, measurements = test_reasoning(provider, model_id, max_tokens)
+    all_checks.extend(checks)
+    all_measurements.extend(measurements)
 
     # Turn 2 & 3: tool calls
     if not args.skip_tools:
-        all_checks.extend(test_tool_call(provider, model_id, max_tokens))
-        all_checks.extend(test_tool_round_trip(provider, model_id, max_tokens))
+        checks, measurements = test_tool_call(provider, model_id, max_tokens)
+        all_checks.extend(checks)
+        all_measurements.extend(measurements)
+        checks, measurements = test_tool_round_trip(provider, model_id, max_tokens)
+        all_checks.extend(checks)
+        all_measurements.extend(measurements)
     else:
         console.print("\n[dim]Skipping tool call tests (--skip-tools)[/]")
+
+    # Extended throughput test
+    checks, measurements = test_throughput(provider, model_id, max_tokens)
+    all_checks.extend(checks)
+    all_measurements.extend(measurements)
 
     # Summary table
     console.print()
@@ -327,6 +415,37 @@ def main():
 
     console.print(table)
     console.print(f"\n[bold]{n_pass} passed, {n_fail} failed[/]")
+
+    # Throughput summary
+    if all_measurements:
+        console.print()
+        tp_table = Table(title=f"Throughput: {args.model_key}")
+        tp_table.add_column("Call", style="white")
+        tp_table.add_column("Elapsed", justify="right")
+        tp_table.add_column("Output tokens", justify="right")
+        tp_table.add_column("Throughput", justify="right", style="cyan")
+
+        total_tokens = 0
+        total_elapsed = 0.0
+        for m in all_measurements:
+            tp_table.add_row(
+                m.label,
+                f"{m.elapsed_s:.2f}s",
+                str(m.output_tokens),
+                f"{m.tokens_per_sec:.1f} tok/s",
+            )
+            total_tokens += m.output_tokens
+            total_elapsed += m.elapsed_s
+
+        avg_tps = total_tokens / total_elapsed if total_elapsed > 0 else 0.0
+        tp_table.add_section()
+        tp_table.add_row(
+            "[bold]total[/]",
+            f"[bold]{total_elapsed:.2f}s[/]",
+            f"[bold]{total_tokens}[/]",
+            f"[bold cyan]{avg_tps:.1f} tok/s[/]",
+        )
+        console.print(tp_table)
 
     sys.exit(0 if n_fail == 0 else 1)
 
