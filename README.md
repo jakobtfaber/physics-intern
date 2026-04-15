@@ -178,9 +178,11 @@ python -m open_dirac.rsa <problem.yaml> [options]
   --max-tokens N             Max output tokens per call (default: 128000)
   --config FILE              Path to config YAML file (overrides defaults)
   --concurrency N            Max parallel LLM calls within a round (default: N)
-  --output-dir DIR           Directory for result JSON files (default: results/rsa/)
+  --workspace-dir DIR        Workspace directory (default: auto-generated under workspaces/)
   -o FILE                    Save response with metadata to a Markdown file
 ```
+
+Each run creates a workspace under `workspaces/<timestamp>_<problem>_<model>_rsa/` containing `PROBLEM.md`, `ANSWER.md`, `VERIFICATION.md`, `config.json`, and `rsa_result.json` (full per-round metrics).
 
 #### Multiple concurrent RSA runs (pass@k)
 
@@ -191,7 +193,7 @@ uv run python scripts/run_multiple_rsa.py problems/critpt/yaml/Challenge_1_main.
   --runs 10 --concurrency 3 -N 6 -K 2 -T 4 --model claude-4.6-opus
 ```
 
-Each run writes its own RSA JSON (with per-round metrics) to `results/multiple_rsa/<batch>/runNNN/`, and an aggregate `summary.json` is produced at the batch root. Note that each RSA run itself fans out up to N concurrent LLM calls, so effective in-flight calls ≈ `--concurrency × N`.
+Each run produces its own workspace at `workspaces/<timestamp>_<problem>_<model>_rsa_runNNN/` (same naming pattern as the other modes), and an aggregate summary JSON is written to `results/multiple_rsa/`. Note that each RSA run itself fans out up to N concurrent LLM calls, so effective in-flight calls ≈ `--concurrency × N`.
 
 ### Serving Local Models with vLLM
 

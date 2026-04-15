@@ -2,12 +2,10 @@
 """Run open_dirac_rsa N times on a single problem with concurrency control.
 
 Reports pass@k results: how many RSA runs produced a correct majority-vote
-answer, based on the evaluation block in each run's RSA JSON output.
-
-Unlike vanilla/autophysicist, RSA has no workspace directory — each run
-produces a JSON file (written by the RSA runner to its ``--output-dir``)
-containing per-round metrics, token/cost totals, and evaluation. This script
-gives every run its own output dir and aggregates the resulting JSONs.
+answer, based on VERIFICATION.md formal evaluation in each workspace (same
+pattern as run_multiple.py and run_multiple_autophysicist.py). RSA-specific
+metrics (rounds, majority vote, per-round costs) are enriched from the
+workspace's rsa_result.json.
 
 Usage:
     uv run python scripts/run_multiple_rsa.py problems/critpt/yaml/Challenge_1_main.yaml --runs 10
@@ -33,8 +31,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from open_dirac.config import DEFAULTS  # noqa: E402
+from open_dirac.utils.markdown import parse_frontmatter  # noqa: E402
 
-DEFAULT_OUTPUT_BASE = PROJECT_ROOT / "results" / "multiple_rsa"
+DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 
 
 # ---------------------------------------------------------------------------
@@ -44,9 +43,13 @@ DEFAULT_OUTPUT_BASE = PROJECT_ROOT / "results" / "multiple_rsa"
 @dataclass
 class RunResult:
     run_index: int
-    output_dir: Path
-    evaluation: str  # "correct", "incorrect", "error", "no_eval"
+    workspace_dir: Path
+    formal_answer: str  # "correct", "incorrect", "inconclusive", "skipped", "no_verification", "no_answer", "error"
+    has_answer: bool
     duration_s: float
+    returncode: int | None = None
+    error: str | None = None
+    # RSA-specific (parsed from rsa_result.json)
     total_cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -55,82 +58,50 @@ class RunResult:
     total_calls: int = 0
     majority_vote: dict | None = None
     rounds: list | None = None
-    returncode: int | None = None
-    error: str | None = None
 
 
 # ---------------------------------------------------------------------------
-# Per-run result parsing (prefer the JSON written by the RSA runner)
+# Workspace result parsing
 # ---------------------------------------------------------------------------
 
-def _load_rsa_json(run_dir: Path) -> dict | None:
-    """Find and load the JSON file written by the RSA runner."""
-    if not run_dir.is_dir():
-        return None
-    jsons = sorted(run_dir.glob("*_rsa.json"))
-    if not jsons:
-        return None
-    try:
-        return json.loads(jsons[-1].read_text())
-    except Exception:
-        return None
+def parse_workspace_results(workspace_dir: Path) -> tuple[str, bool, dict | None]:
+    """Read formal verification results from a completed workspace.
 
+    Returns (formal_answer, has_answer, rsa_payload).
+    """
+    # Check ANSWER.md
+    answer_path = workspace_dir / "ANSWER.md"
+    has_answer = False
+    if answer_path.exists():
+        raw = answer_path.read_text().strip()
+        if raw and not raw.startswith("FORMATTER_REJECTION"):
+            has_answer = True
 
-def _parse_stderr_fallback(stderr_text: str) -> dict:
-    """Best-effort extraction of stats from RSA stderr if JSON missing."""
-    info: dict = {
-        "evaluation": "no_eval",
-        "total_cost_usd": 0.0,
-        "tokens": {"input": 0, "output": 0, "reasoning": 0, "answer": 0},
-    }
-    if "Evaluation:  CORRECT" in stderr_text:
-        info["evaluation"] = "correct"
-    elif "Evaluation:  INCORRECT" in stderr_text:
-        info["evaluation"] = "incorrect"
-    elif "Evaluation:  ERROR" in stderr_text:
-        info["evaluation"] = "error"
-    m = re.search(r"total:\s*[\d.]+s,\s*\$([\d.]+)", stderr_text)
-    if m:
-        info["total_cost_usd"] = float(m.group(1))
-    m = re.search(r"input=(\d+)", stderr_text)
-    if m:
-        info["tokens"]["input"] = int(m.group(1))
-    m = re.search(r"output=(\d+)", stderr_text)
-    if m:
-        info["tokens"]["output"] = int(m.group(1))
-    return info
+    # Check VERIFICATION.md (frontmatter format, same as vanilla/autophysicist)
+    formal_answer = "no_verification"
+    verif_path = workspace_dir / "VERIFICATION.md"
+    if verif_path.exists():
+        try:
+            fm, _ = parse_frontmatter(verif_path.read_text())
+            fa = fm.get("formal_answer", "")
+            if fa in ("correct", "incorrect", "inconclusive", "skipped"):
+                formal_answer = fa
+        except Exception:
+            pass
 
+    if not has_answer and formal_answer == "no_verification":
+        formal_answer = "no_answer"
 
-def extract_results(run_dir: Path, stderr_text: str) -> dict:
-    """Extract per-run metrics from the RSA JSON, falling back to stderr."""
-    payload = _load_rsa_json(run_dir)
-    if payload is None:
-        return _parse_stderr_fallback(stderr_text)
+    # Parse rsa_result.json for RSA-specific metrics
+    rsa_payload = None
+    rsa_json = workspace_dir / "rsa_result.json"
+    if rsa_json.exists():
+        try:
+            rsa_payload = json.loads(rsa_json.read_text())
+        except Exception:
+            pass
 
-    ev_block = payload.get("evaluation") or {}
-    if ev_block.get("correct") is True:
-        evaluation = "correct"
-    elif ev_block.get("correct") is False:
-        evaluation = "incorrect"
-    elif ev_block.get("error"):
-        evaluation = "error"
-    else:
-        evaluation = "no_eval"
-
-    rsa_params = payload.get("rsa_params") or {}
-    N = rsa_params.get("N") or 0
-    T = rsa_params.get("T") or 0
-
-    return {
-        "evaluation": evaluation,
-        "total_cost_usd": payload.get("total_cost_usd", 0.0),
-        "tokens": payload.get("tokens") or {
-            "input": 0, "output": 0, "reasoning": 0, "answer": 0,
-        },
-        "total_calls": N * T,
-        "majority_vote": payload.get("majority_vote"),
-        "rounds": payload.get("rounds"),
-    }
+    return formal_answer, has_answer, rsa_payload
 
 
 # ---------------------------------------------------------------------------
@@ -150,18 +121,16 @@ async def run_one(
     rsa_K: int | None,
     rsa_T: int | None,
     rsa_concurrency: int | None,
-    run_output_dir: Path,
+    workspace_dir: Path,
     timeout: float,
     semaphore: asyncio.Semaphore,
     print_lock: asyncio.Lock,
 ) -> RunResult:
     """Run a single open_dirac_rsa subprocess, streaming round progress."""
-    run_output_dir.mkdir(parents=True, exist_ok=True)
-
     cmd = [
         "uv", "run", "open_dirac_rsa",
         str(problem_path),
-        "--output-dir", str(run_output_dir),
+        "--workspace-dir", str(workspace_dir),
     ]
     if model_key:
         cmd.extend(["--model", model_key])
@@ -193,25 +162,27 @@ async def run_one(
                 env=env,
             )
 
-            stderr_lines: list[str] = []
+            stderr_tail: list[str] = []
 
             async def _drain_stdout():
                 """RSA writes the winning response to stdout — discard it
-                (per-run JSON already has what we need), just keep the pipe
+                (the workspace already has ANSWER.md), just keep the pipe
                 drained to avoid the child blocking on a full buffer."""
                 assert proc.stdout is not None
                 await proc.stdout.read()
 
             async def _stream_stderr():
-                """Detect 'Round X/Y' markers and print progress; retain all
-                lines so we can fall back to stderr parsing if needed."""
+                """Detect 'Round X/Y' markers and print progress; retain the
+                tail for error reporting."""
                 assert proc.stderr is not None
                 while True:
                     line = await proc.stderr.readline()
                     if not line:
                         break
                     text = line.decode(errors="replace")
-                    stderr_lines.append(text)
+                    stderr_tail.append(text)
+                    if len(stderr_tail) > 50:
+                        del stderr_tail[:-50]
                     m = _ROUND_RE.search(text)
                     if m:
                         elapsed_so_far = time.monotonic() - start
@@ -228,29 +199,16 @@ async def run_one(
             )
             elapsed = time.monotonic() - start
 
-            stderr_text = "".join(stderr_lines)
-            info = extract_results(run_output_dir, stderr_text)
+            formal_answer, has_answer, rsa_payload = parse_workspace_results(workspace_dir)
 
             error = None
-            if proc.returncode != 0:
-                tail = stderr_text[-500:]
+            if proc.returncode != 0 and not has_answer:
+                tail = "".join(stderr_tail)[-500:]
                 error = f"exit code {proc.returncode}: {tail}"
 
-            return RunResult(
-                run_index=run_index,
-                output_dir=run_output_dir,
-                evaluation=info["evaluation"],
-                duration_s=round(elapsed, 1),
-                total_cost_usd=info.get("total_cost_usd", 0.0),
-                input_tokens=info["tokens"].get("input", 0),
-                output_tokens=info["tokens"].get("output", 0),
-                reasoning_tokens=info["tokens"].get("reasoning", 0),
-                answer_tokens=info["tokens"].get("answer", 0),
-                total_calls=info.get("total_calls", 0),
-                majority_vote=info.get("majority_vote"),
-                rounds=info.get("rounds"),
-                returncode=proc.returncode,
-                error=error,
+            return _build_result(
+                run_index, workspace_dir, formal_answer, has_answer,
+                elapsed, proc.returncode, error, rsa_payload,
             )
 
         except asyncio.TimeoutError:
@@ -264,30 +222,59 @@ async def run_one(
             except (asyncio.TimeoutError, ProcessLookupError):
                 pass
             # Salvage whatever the child managed to write before the timeout.
-            info = extract_results(run_output_dir, "".join(stderr_lines) if 'stderr_lines' in locals() else "")
-            evaluation = info["evaluation"] if info["evaluation"] != "no_eval" else "error"
-            return RunResult(
-                run_index=run_index,
-                output_dir=run_output_dir,
-                evaluation=evaluation,
-                duration_s=round(elapsed, 1),
-                total_cost_usd=info.get("total_cost_usd", 0.0),
-                input_tokens=info["tokens"].get("input", 0),
-                output_tokens=info["tokens"].get("output", 0),
-                reasoning_tokens=info["tokens"].get("reasoning", 0),
-                answer_tokens=info["tokens"].get("answer", 0),
-                total_calls=info.get("total_calls", 0),
-                error=f"timeout after {timeout:.0f}s",
+            formal_answer, has_answer, rsa_payload = parse_workspace_results(workspace_dir)
+            if not has_answer:
+                formal_answer = "error"
+            return _build_result(
+                run_index, workspace_dir, formal_answer, has_answer,
+                elapsed, None,
+                f"timeout after {timeout:.0f}s" if not has_answer else None,
+                rsa_payload,
             )
         except Exception as exc:
             elapsed = time.monotonic() - start
             return RunResult(
                 run_index=run_index,
-                output_dir=run_output_dir,
-                evaluation="error",
+                workspace_dir=workspace_dir,
+                formal_answer="error",
+                has_answer=False,
                 duration_s=round(elapsed, 1),
                 error=f"{type(exc).__name__}: {exc}",
             )
+
+
+def _build_result(
+    run_index: int,
+    workspace_dir: Path,
+    formal_answer: str,
+    has_answer: bool,
+    elapsed: float,
+    returncode: int | None,
+    error: str | None,
+    rsa_payload: dict | None,
+) -> RunResult:
+    """Build a RunResult, pulling RSA-specific metrics from the workspace JSON."""
+    tokens = (rsa_payload or {}).get("tokens") or {}
+    rsa_params = (rsa_payload or {}).get("rsa_params") or {}
+    N = rsa_params.get("N") or 0
+    T = rsa_params.get("T") or 0
+    return RunResult(
+        run_index=run_index,
+        workspace_dir=workspace_dir,
+        formal_answer=formal_answer,
+        has_answer=has_answer,
+        duration_s=round(elapsed, 1),
+        returncode=returncode,
+        error=error,
+        total_cost_usd=(rsa_payload or {}).get("total_cost_usd", 0.0),
+        input_tokens=tokens.get("input", 0),
+        output_tokens=tokens.get("output", 0),
+        reasoning_tokens=tokens.get("reasoning", 0),
+        answer_tokens=tokens.get("answer", 0),
+        total_calls=N * T,
+        majority_vote=(rsa_payload or {}).get("majority_vote"),
+        rounds=(rsa_payload or {}).get("rounds"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -300,14 +287,17 @@ async def run_multiple(args: argparse.Namespace) -> int:
     concurrency = args.concurrency
     semaphore = asyncio.Semaphore(concurrency)
 
+    # Generate workspace directories with a shared timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_model = (args.model or DEFAULTS["model"]).replace("/", "-").replace(":", "-")
     problem_stem = args.problem.stem
+    workspace_base = args.workspace_base
 
-    batch_dir = args.output_dir / f"{timestamp}_{problem_stem}_{safe_model}_rsa"
-    batch_dir.mkdir(parents=True, exist_ok=True)
-
-    run_dirs = [batch_dir / f"run{i:03d}" for i in range(n)]
+    workspace_dirs = [
+        workspace_base
+        / f"{timestamp}_{problem_stem}_{safe_model}_rsa_run{i:03d}"
+        for i in range(n)
+    ]
 
     print(f"Problem:     {args.problem.name}", file=sys.stderr)
     if args.model:
@@ -324,7 +314,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
     print(f"Runs:        {n}", file=sys.stderr)
     print(f"Concurrency: {concurrency} runs", file=sys.stderr)
     print(f"Timeout:     {args.timeout}s per run", file=sys.stderr)
-    print(f"Output:      {batch_dir}/", file=sys.stderr)
+    print(f"Workspaces:  {workspace_base}/", file=sys.stderr)
     print("---", file=sys.stderr)
 
     start_time = datetime.now(timezone.utc)
@@ -340,14 +330,14 @@ async def run_multiple(args: argparse.Namespace) -> int:
             args.max_tokens, args.config,
             args.N, args.K, args.T,
             args.rsa_concurrency,
-            run_dirs[run_index],
+            workspace_dirs[run_index],
             args.timeout, semaphore, print_lock,
         )
         async with lock:
             completed += 1
             all_results.append(result)
-            status = result.evaluation.upper()
-            if result.error and result.evaluation == "error":
+            status = result.formal_answer.upper()
+            if result.error:
                 status = f"ERROR: {result.error[:80]}"
             cost_str = f", ${result.total_cost_usd:.4f}" if result.total_cost_usd else ""
             print(
@@ -378,9 +368,10 @@ async def run_multiple(args: argparse.Namespace) -> int:
 
     all_results.sort(key=lambda r: r.run_index)
 
-    counts: dict[str, int] = {"correct": 0, "incorrect": 0, "error": 0, "no_eval": 0}
+    # Count outcomes
+    counts: dict[str, int] = {}
     for r in all_results:
-        counts[r.evaluation] = counts.get(r.evaluation, 0) + 1
+        counts[r.formal_answer] = counts.get(r.formal_answer, 0) + 1
 
     total_cost = sum(r.total_cost_usd for r in all_results)
     wall_clock = (end_time - start_time).total_seconds()
@@ -388,21 +379,31 @@ async def run_multiple(args: argparse.Namespace) -> int:
     # Summary
     print("---", file=sys.stderr)
     parts = []
-    if counts["correct"]:
+    if counts.get("correct"):
         parts.append(f"{counts['correct']}/{n} correct")
-    if counts["incorrect"]:
+    if counts.get("incorrect"):
         parts.append(f"{counts['incorrect']} incorrect")
-    if counts["error"]:
+    if counts.get("inconclusive"):
+        parts.append(f"{counts['inconclusive']} inconclusive")
+    if counts.get("no_answer"):
+        parts.append(f"{counts['no_answer']} no answer")
+    if counts.get("no_verification"):
+        parts.append(f"{counts['no_verification']} no verification")
+    if counts.get("skipped"):
+        parts.append(f"{counts['skipped']} skipped (no ground truth)")
+    if counts.get("error"):
         parts.append(f"{counts['error']} errors")
-    if counts["no_eval"]:
-        parts.append(f"{counts['no_eval']} no evaluation")
     print(f"Results: {', '.join(parts) or '0 runs'}", file=sys.stderr)
     if total_cost > 0:
         print(f"Total cost: ${total_cost:.4f}", file=sys.stderr)
     print(f"Wall clock: {wall_clock:.0f}s", file=sys.stderr)
 
-    # Write aggregate summary JSON
-    summary_path = batch_dir / "summary.json"
+    # Write summary JSON
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{timestamp}_{problem_stem}_{safe_model}_rsa.json"
+    output_path = output_dir / filename
+
     payload = {
         "mode": "rsa",
         "problem": problem_stem,
@@ -420,8 +421,9 @@ async def run_multiple(args: argparse.Namespace) -> int:
         "runs": [
             {
                 "run_index": r.run_index,
-                "output_dir": str(r.output_dir),
-                "evaluation": r.evaluation,
+                "workspace": str(r.workspace_dir),
+                "formal_answer": r.formal_answer,
+                "has_answer": r.has_answer,
                 "duration_s": r.duration_s,
                 "total_cost_usd": r.total_cost_usd,
                 "total_calls": r.total_calls,
@@ -439,8 +441,8 @@ async def run_multiple(args: argparse.Namespace) -> int:
             for r in all_results
         ],
     }
-    summary_path.write_text(json.dumps(payload, indent=2, default=str))
-    print(f"Saved to {summary_path}", file=sys.stderr)
+    output_path.write_text(json.dumps(payload, indent=2, default=str))
+    print(f"Saved to {output_path}", file=sys.stderr)
 
     return 0
 
@@ -477,9 +479,11 @@ def main():
                              "so effective in-flight LLM calls ≈ concurrency × N.")
     parser.add_argument("--timeout", type=int, default=3600,
                         help="Per-run timeout in seconds (default: 3600)")
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_BASE,
-                        help=f"Base directory for batch output "
-                             f"(default: {DEFAULT_OUTPUT_BASE.relative_to(PROJECT_ROOT)}/)")
+    parser.add_argument("--workspace-base", type=Path, default=DEFAULT_WORKSPACE_BASE,
+                        help="Base directory for workspaces")
+    parser.add_argument("--output-dir", type=Path,
+                        default=PROJECT_ROOT / "results" / "multiple_rsa",
+                        help="Output directory for summary JSON")
     args = parser.parse_args()
 
     if args.runs < 1:

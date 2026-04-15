@@ -32,16 +32,18 @@ load_dotenv()
 import yaml
 
 from ..config import Config, DEFAULTS, build_config
+from ..console import console
 from ..providers import create_provider, LLMProvider
 from ..providers.base import strip_think_tags
-from ..verification.evaluate import evaluate_response, extract_answer_code
-from ..verification.verify import load_reference_file
+from ..verification.evaluate import extract_answer_code
+from ..verification.verify import (
+    run_formal_evaluation, render_formal_evaluation, write_formal_eval_report,
+)
 from ..one_shot.runner import (
     SYSTEM_PROMPT,
     ONE_SHOT_MAX_TOKENS,
     build_user_message,
     _call_with_retry,
-    _resolve_ground_truth,
 )
 
 
@@ -419,8 +421,8 @@ def main() -> None:
         help="Save response with metadata to a Markdown file",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("results/rsa"),
-        help="Directory for result JSON files (default: results/rsa/)",
+        "--workspace-dir", type=str, default=None,
+        help="Workspace directory (default: auto-generated under workspaces/)",
     )
     parser.add_argument(
         "--concurrency", type=int, default=None,
@@ -462,12 +464,32 @@ def main() -> None:
     N, K, T = args.N, args.K, args.T
     max_workers = args.concurrency or N
 
+    # --- Workspace (lightweight, no git — same shape as one-shot) ---
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_model = config.model.replace("/", "-").replace(":", "-")
+    workspace_root = Path(
+        args.workspace_dir
+        or f"workspaces/{timestamp}_{args.problem.stem}_{safe_model}_rsa"
+    )
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    config.workspace_dir = str(workspace_root)
+
+    # Seed the workspace with the problem before the LLM call so partial
+    # failures still leave a trace.
+    (workspace_root / "PROBLEM.md").write_text(f"# Problem\n\n{problem_text}\n")
+    problem_data = dict(problem_def)
+    problem_data["name"] = args.problem.stem
+    with open(workspace_root / "problem.yaml", "w") as f:
+        yaml.dump(problem_data, f, default_flow_style=False, sort_keys=False)
+    config.save(workspace_root)
+
     print(f"Model:       {config.model} ({config.model_id})", file=sys.stderr)
     print(f"Provider:    {config.provider}", file=sys.stderr)
     print(f"Problem:     {args.problem.name}", file=sys.stderr)
     print(f"RSA params:  N={N}, K={K}, T={T} ({N * T} total calls)", file=sys.stderr)
     print(f"Concurrency: {max_workers}", file=sys.stderr)
     print(f"Max tokens:  {config.max_tokens}", file=sys.stderr)
+    print(f"Workspace:   {workspace_root}", file=sys.stderr)
     print("---", file=sys.stderr)
 
     # --- Run RSA ---
@@ -477,24 +499,37 @@ def main() -> None:
         N=N, K=K, T=T, max_workers=max_workers,
     )
 
-    # --- Evaluation ---
-    eval_kwargs = _resolve_ground_truth(problem_def, args.problem)
-    if eval_kwargs is not None:
-        ev = evaluate_response(result["response_text"], **eval_kwargs)
-        if ev["correct"] is True:
-            print(f"Evaluation:  CORRECT ({ev['method']})", file=sys.stderr)
-        elif ev["correct"] is False:
-            print(f"Evaluation:  INCORRECT ({ev['method']})", file=sys.stderr)
-        else:
-            print(f"Evaluation:  ERROR — {ev['error']}", file=sys.stderr)
-        result["evaluation"] = ev
+    # --- Persist winning answer to workspace ---
+    (workspace_root / "ANSWER.md").write_text(
+        f"# Final Answer\n\n{result['response_text']}\n"
+    )
+
+    # --- Formal evaluation (writes VERIFICATION.md with frontmatter) ---
+    try:
+        ev = run_formal_evaluation(
+            str(workspace_root), problem_def, problem_path=args.problem,
+        )
+        render_formal_evaluation(ev)
+        write_formal_eval_report(ev, str(workspace_root))
+        result["evaluation"] = {
+            "correct": ev.correct,
+            "method": ev.method,
+            "error": ev.error,
+            "details": ev.details,
+            "skipped": ev.skipped,
+            "skip_reason": ev.skip_reason,
+        }
+    except Exception as exc:
+        console.print(
+            f"[yellow]Formal verification failed: {type(exc).__name__}: {exc}[/]"
+        )
 
     print("---", file=sys.stderr)
 
     # --- Output winning response to stdout ---
     print(result["response_text"])
 
-    # --- Save structured JSON ---
+    # --- Optional structured markdown report ---
     if args.output:
         report = (
             f"# RSA Result — {args.problem.stem}\n\n"
@@ -515,15 +550,7 @@ def main() -> None:
         args.output.write_text(report)
         print(f"\nSaved to {args.output}", file=sys.stderr)
 
-    # Save JSON results
-    results_dir = args.output_dir
-    results_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_model = config.model.replace("/", "-").replace(":", "-")
-    filename = f"{timestamp}_{args.problem.stem}_{safe_model}_rsa.json"
-    output_path = results_dir / filename
-
-    # Don't include full responses in JSON to keep file size reasonable
+    # --- Save RSA metrics JSON inside the workspace ---
     payload = {
         "problem": args.problem.stem,
         "problem_path": str(args.problem),
@@ -541,8 +568,9 @@ def main() -> None:
         "evaluation": result.get("evaluation"),
         "response_text": result["response_text"],
     }
-    output_path.write_text(json.dumps(payload, indent=2, default=str))
-    print(f"Saved to {output_path}", file=sys.stderr)
+    rsa_json_path = workspace_root / "rsa_result.json"
+    rsa_json_path.write_text(json.dumps(payload, indent=2, default=str))
+    print(f"Saved to {rsa_json_path}", file=sys.stderr)
 
 
 if __name__ == "__main__":
