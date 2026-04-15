@@ -148,6 +148,11 @@ Qwen/Qwen3.5-4B:
   output_cost: 0.0
   reasoning_format: think_tags
   tool_mode: api
+  serve:
+    reasoning_parser: qwen3
+    vllm_args:
+      - --enable-auto-tool-choice
+      - --tool-call-parser qwen3_coder
 
 nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16:
   provider: vllm
@@ -157,6 +162,13 @@ nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16:
   output_cost: 0.0
   reasoning_format: think_tags
   tool_mode: xml_text
+  serve:
+    reasoning_parser: nano_v3
+    vllm_args:
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser qwen3_coder
+      - --max-num-seqs 8
 
 nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:
   provider: vllm
@@ -166,6 +178,21 @@ nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:
   output_cost: 0.0
   reasoning_format: think_tags
   tool_mode: xml_text
+  serve:
+    gpus_per_node: 8
+    reasoning_parser: nemotron_v3
+    vllm_args:
+      - --async-scheduling
+      - --dtype auto
+      - --kv-cache-dtype fp8
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser qwen3_coder
+      - --gpu-memory-utilization 0.9
+      - --max-cudagraph-capture-size 128
+      - --enable-chunked-prefill
+      - --mamba-ssm-cache-dtype float16
+      - --enable-expert-parallel
 
 nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8:
   provider: vllm
@@ -175,6 +202,21 @@ nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8:
   output_cost: 0.0
   reasoning_format: think_tags
   tool_mode: xml_text
+  serve:
+    gpus_per_node: 8
+    reasoning_parser: nemotron_v3
+    vllm_args:
+      - --async-scheduling
+      - --dtype auto
+      - --kv-cache-dtype fp8
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser qwen3_coder
+      - --gpu-memory-utilization 0.9
+      - --max-cudagraph-capture-size 128
+      - --enable-chunked-prefill
+      - --mamba-ssm-cache-dtype float16
+      - --enable-expert-parallel
 
 nvidia/Nemotron-Cascade-2-30B-A3B:
   provider: vllm
@@ -184,3 +226,11 @@ nvidia/Nemotron-Cascade-2-30B-A3B:
   output_cost: 0.0
   reasoning_format: think_tags
   tool_mode: xml_text
+  serve:
+    reasoning_parser: nemotron_v3
+    vllm_args:
+      - --gpu-memory-utilization 0.9
+      - --trust-remote-code
+      - --mamba-ssm-cache-dtype float32
+      - --enable-auto-tool-choice
+      - --tool-call-parser qwen3_coder

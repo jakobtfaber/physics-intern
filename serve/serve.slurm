@@ -243,57 +243,10 @@ if [[ -z "$MODEL" ]]; then
 fi
 
 MODEL_SLUG="$(slugify "$MODEL")"
-DEFAULT_GPUS_PER_NODE="1"
-DEFAULT_REASONING_PARSER=""
-DEFAULT_VLLM_ARGS=()
 
-case "$MODEL" in
-  Qwen/Qwen3.5-4B)
-    DEFAULT_REASONING_PARSER="qwen3"
-    DEFAULT_VLLM_ARGS=(
-      --enable-auto-tool-choice
-      --tool-call-parser qwen3_coder
-    )
-    ;;
-  nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16)
-    DEFAULT_REASONING_PARSER="nano_v3"
-    DEFAULT_VLLM_ARGS=(
-      --trust-remote-code
-      --enable-auto-tool-choice
-      --tool-call-parser qwen3_coder
-      --max-num-seqs 8
-    )
-    ;;
-  nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16|nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8)
-    DEFAULT_GPUS_PER_NODE="8"
-    DEFAULT_REASONING_PARSER="nemotron_v3"
-    DEFAULT_VLLM_ARGS=(
-      --async-scheduling
-      --dtype auto
-      --kv-cache-dtype fp8
-      --trust-remote-code
-      --enable-auto-tool-choice
-      --tool-call-parser qwen3_coder
-      --gpu-memory-utilization 0.9
-      --max-cudagraph-capture-size 128
-      --enable-chunked-prefill
-      --mamba-ssm-cache-dtype float16
-      --enable-expert-parallel
-    )
-    ;;
-  nvidia/Nemotron-Cascade-2-30B-A3B)
-    DEFAULT_REASONING_PARSER="nemotron_v3"
-    DEFAULT_VLLM_ARGS=(
-      --gpu-memory-utilization 0.9
-      --trust-remote-code
-      --mamba-ssm-cache-dtype float32
-      --enable-auto-tool-choice
-      --tool-call-parser qwen3_coder
-    )
-    ;;
-  *)
-    ;;
-esac
+# Resolve model-specific serve defaults from models.yaml
+_RESOLVE_SCRIPT="${SCRIPT_DIR}/resolve_serve_config.py"
+eval "$(uv run --no-sync python "$_RESOLVE_SCRIPT" "$MODEL")"
 
 if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   if [[ -z "$NODES" ]]; then
