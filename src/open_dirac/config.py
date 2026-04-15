@@ -62,6 +62,7 @@ class Config:
     max_refuted_retries: int = DEFAULTS["max_refuted_retries"]
     auto_expire_iterations: int = DEFAULTS["auto_expire_iterations"]
     parse_retries: int = DEFAULTS["parse_retries"]
+    max_tokens_retries: int = DEFAULTS["max_tokens_retries"]
     pipeline_retry_max: int = DEFAULTS["pipeline_retry_max"]
     provider: str = ""
     workspace_dir: str = ""
@@ -162,6 +163,7 @@ _YAML_CONFIG_FIELDS = frozenset({
     "max_refuted_retries",
     "auto_expire_iterations",
     "parse_retries",
+    "max_tokens_retries",
     "pipeline_retry_max",
     "provider",
 })

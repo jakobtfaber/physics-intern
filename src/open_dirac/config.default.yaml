@@ -53,8 +53,18 @@ rq_evidence_cap: 3
 max_refuted_retries: 2
 
 # --- One-shot parse retry ---
-# Max continuation retries for one-shot agents on max_tokens or missing JSON output.
+# Max continuation retries for one-shot agents on missing/invalid JSON output.
+# Applies only to JSON parse failures — truncation retries are governed by
+# max_tokens_retries below.
 parse_retries: 2
+
+# --- Max-tokens continuation retry ---
+# Max continuation attempts when a response is truncated because it hit its
+# output token limit. Applied uniformly in call_llm, call_llm_continuation,
+# run_agent_loop (per round), and the one_shot / rsa runners. The helper
+# resends the visible-text portion of the truncated response as an assistant
+# turn and asks the model to continue from where it stopped.
+max_tokens_retries: 2
 
 # --- Pipeline retry ---
 # Max retries for mandatory pipeline stages (surveyor, planner).

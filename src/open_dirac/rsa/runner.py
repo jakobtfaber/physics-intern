@@ -39,6 +39,7 @@ from ..verification.evaluate import extract_answer_code
 from ..verification.verify import (
     run_formal_evaluation, render_formal_evaluation, write_formal_eval_report,
 )
+from ..llm import continue_on_max_tokens
 from ..one_shot.runner import (
     SYSTEM_PROMPT,
     build_user_message,
@@ -129,13 +130,22 @@ def _call_once(
 ) -> dict:
     """Execute a single LLM call and return a structured result dict."""
     start = time.time()
+    initial_messages = [{"role": "user", "content": user_message}]
     resp = _call_with_retry(
         provider,
         model=config.model_id,
         max_tokens=config.max_tokens,
         system=system,
-        messages=[{"role": "user", "content": user_message}],
+        messages=initial_messages,
     )
+    # If truncated, continue the response up to max_tokens_retries times.
+    if resp.stop_reason == "max_tokens":
+        resp = continue_on_max_tokens(
+            provider, resp, config,
+            model=config.model_id, max_tokens=config.max_tokens,
+            system=system, messages=initial_messages,
+            workspace_dir=config.workspace_dir, agent_name="rsa",
+        )
     duration = time.time() - start
 
     cost_usd = 0.0

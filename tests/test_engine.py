@@ -1365,7 +1365,11 @@ def unittest_any_string_containing(substring):
 
 
 class TestCallWithRetryNoRetry:
-    """_call_with_retry returns immediately on max_tokens — no retry loop."""
+    """_call_with_retry no longer retries on max_tokens — continuation is
+    handled upstream by continue_on_max_tokens in call_llm. This class tests
+    that a still-truncated response (after upstream continuation) is surfaced
+    correctly (alert + scaffold event) without triggering a second retry here.
+    """
 
     def _make_agent(self, tmp_path):
         """Create a minimal concrete agent for testing _call_with_retry."""
@@ -1450,7 +1454,7 @@ class TestCallWithRetryNoRetry:
         args, kwargs = mock_log.call_args
         assert args[1] == 3  # iteration
         assert kwargs["category"] == "loop_control"
-        assert kwargs["event"] == "max_tokens_no_retry"
+        assert kwargs["event"] == "max_tokens_unrecoverable"
         assert "test_agent" in kwargs["detail"]
 
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .config import Config
 from .console import console
-from .providers import LLMProvider, ProviderResponse, create_provider
+from .providers import LLMProvider, ProviderResponse, create_provider, strip_think_tags
 from .tool_call import ToolCall
 from .agents.computer.tools import ToolExecutor
 from .utils.categories import CompensationCategory as CC
@@ -238,6 +238,170 @@ def _call_provider_with_retry(provider: LLMProvider, config: Config,
     raise RuntimeError("unreachable")  # pragma: no cover
 
 
+# ---------------------------------------------------------------------------
+# Max-tokens continuation
+# ---------------------------------------------------------------------------
+
+CONTINUATION_PROMPT = (
+    "Your previous response was cut off because it hit the maximum output "
+    "token limit. Continue from exactly where you stopped — do not repeat "
+    "any text you have already written, resume at the next character."
+)
+
+
+def _merge_responses(
+    first: ProviderResponse, cont: ProviderResponse,
+) -> ProviderResponse:
+    """Merge a first (truncated) response with a continuation response.
+
+    text / reasoning_content / token counts are summed; stop_reason,
+    tool_calls and raw_content come from the continuation (which carries
+    the latest, non-truncated structured blocks). When the agentic loop
+    persists the assistant turn via provider.format_assistant_message,
+    we want the continuation's raw_content — not the truncated one.
+    """
+    return ProviderResponse(
+        text=first.text + cont.text,
+        input_tokens=first.input_tokens + cont.input_tokens,
+        output_tokens=first.output_tokens + cont.output_tokens,
+        stop_reason=cont.stop_reason,
+        reasoning_tokens=first.reasoning_tokens + cont.reasoning_tokens,
+        answer_tokens=first.answer_tokens + cont.answer_tokens,
+        tool_calls=cont.tool_calls,
+        raw_content=cont.raw_content,
+        reasoning_content=(first.reasoning_content or "") + (cont.reasoning_content or ""),
+    )
+
+
+def continue_on_max_tokens(
+    provider: LLMProvider,
+    first_response: ProviderResponse,
+    config: Config,
+    *,
+    model: str,
+    max_tokens: int,
+    system: str,
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    workspace_dir: str | Path = "",
+    iteration: int = 0,
+    agent_name: str = "",
+) -> ProviderResponse:
+    """If *first_response* was truncated, attempt continuation(s).
+
+    Sends back the visible answer portion of the truncated response (with
+    ``<think>`` blocks stripped) as an assistant turn and asks the model to
+    continue from where it stopped. Merged tokens are summed; stop_reason,
+    tool_calls and raw_content come from the latest continuation attempt.
+
+    Returns *first_response* unchanged when:
+      - stop_reason is not "max_tokens" — nothing to continue.
+      - The truncated response already produced ``tool_calls`` — partial
+        tool JSON can't be safely continued.
+      - The visible answer text is empty after ``strip_think_tags`` — the
+        model spent its budget on reasoning without emitting an answer.
+        Anthropic catches this one layer down via
+        ``_call_with_thinking_recovery``; for Gemini / OpenAI reasoning
+        models the CoT is opaque so we have nothing to send back; for OSS
+        models feeding back an unclosed ``<think>`` is unsafe.
+
+    If all ``config.max_tokens_retries`` attempts still end with
+    ``stop_reason == "max_tokens"``, returns the merged (still truncated)
+    response so downstream callers can log the unrecoverable truncation.
+    """
+    if first_response.stop_reason != "max_tokens":
+        return first_response
+
+    # Tool call already emitted — partial JSON, skip.
+    if first_response.tool_calls:
+        return first_response
+
+    # Visible text check. Three ways a truncation can leave nothing useful
+    # to feed back as the assistant turn:
+    #   1. resp.text is empty or whitespace (OpenAI / Gemini reasoning-only).
+    #   2. resp.text contains only complete <think>...</think> blocks —
+    #      strip_think_tags leaves it empty.
+    #   3. resp.text opened a <think> block that was never closed (truncated
+    #      mid-reasoning for DeepSeek-style models) — strip_think_tags does
+    #      NOT strip an unclosed block, so we detect it explicitly here.
+    raw_text = first_response.text or ""
+    visible = strip_think_tags(raw_text)
+    truncated_mid_think = (
+        "<think>" in raw_text and "</think>" not in raw_text
+    )
+    if not visible.strip() or truncated_mid_think:
+        if workspace_dir:
+            log_scaffold_event(
+                workspace_dir, iteration, CC.LOOP_CONTROL,
+                "max_tokens_reasoning_starved",
+                f"agent={agent_name}, output_tokens={first_response.output_tokens}",
+            )
+        return first_response
+
+    max_retries = config.max_tokens_retries
+    if max_retries <= 0:
+        return first_response
+
+    merged = first_response
+    for attempt in range(1, max_retries + 1):
+        # Send back the visible-only portion of the accumulated response,
+        # not raw_content — keeps the continuation turn clean across all
+        # provider reasoning conventions (thinking blocks, thought parts,
+        # inline <think> tags).
+        cont_visible = strip_think_tags(merged.text or "")
+        if not cont_visible.strip():
+            # Continuation stripped to empty (all-reasoning retry) — give up.
+            break
+        cont_messages = list(messages) + [
+            {"role": "assistant", "content": cont_visible},
+            {"role": "user", "content": CONTINUATION_PROMPT},
+        ]
+        if workspace_dir:
+            log_scaffold_event(
+                workspace_dir, iteration, CC.LOOP_CONTROL,
+                "max_tokens_continuation",
+                f"agent={agent_name}, attempt={attempt}/{max_retries}",
+            )
+        console.print(
+            f"[yellow]max_tokens reached — continuing response "
+            f"(attempt {attempt}/{max_retries})[/yellow]"
+        )
+        call_kwargs = dict(
+            model=model, max_tokens=max_tokens,
+            system=system, messages=provider.prepare_messages(cont_messages),
+        )
+        if tools:
+            call_kwargs["tools"] = tools
+        try:
+            cont_response = _call_provider_with_retry(
+                provider, config,
+                workspace_dir=workspace_dir, iteration=iteration,
+                **call_kwargs,
+            )
+        except Exception as exc:
+            console.print(
+                f"[yellow]Continuation call failed: {type(exc).__name__}: {exc} "
+                f"— returning best response so far[/yellow]"
+            )
+            return merged
+
+        merged = _merge_responses(merged, cont_response)
+
+        # Stop as soon as we get a clean finish (end_turn / tool_use).
+        if cont_response.stop_reason != "max_tokens":
+            return merged
+
+    # All retries exhausted; merged still has stop_reason="max_tokens".
+    if workspace_dir:
+        log_scaffold_event(
+            workspace_dir, iteration, CC.LOOP_CONTROL,
+            "max_tokens_retries_exhausted",
+            f"agent={agent_name}, attempts={max_retries}, "
+            f"output_tokens={merged.output_tokens}",
+        )
+    return merged
+
+
 @dataclass
 class LLMResponse:
     """Response from an LLM call."""
@@ -282,6 +446,7 @@ def call_llm(system: str, user_content: str, config: Config,
     log_path = _allocate_log_path(config, agent_name, iteration)
     _write_preliminary_log(log_path, system, user_content)
 
+    initial_messages = [{"role": "user", "content": user_content}]
     start = time.time()
     resp = _call_provider_with_retry(
         provider, config,
@@ -290,8 +455,17 @@ def call_llm(system: str, user_content: str, config: Config,
         model=config.model_id,
         max_tokens=config.max_tokens,
         system=system,
-        messages=[{"role": "user", "content": user_content}],
+        messages=initial_messages,
     )
+    # If the response was truncated, attempt continuation(s) in-place.
+    if resp.stop_reason == "max_tokens":
+        resp = continue_on_max_tokens(
+            provider, resp, config,
+            model=config.model_id, max_tokens=config.max_tokens,
+            system=system, messages=initial_messages,
+            workspace_dir=config.workspace_dir, iteration=iteration,
+            agent_name=agent_name,
+        )
     duration = time.time() - start
 
     llm_response = LLMResponse(
@@ -355,6 +529,14 @@ def call_llm_continuation(system: str, messages: list[dict], config: Config,
         system=system,
         messages=prepared,
     )
+    if resp.stop_reason == "max_tokens":
+        resp = continue_on_max_tokens(
+            provider, resp, config,
+            model=config.model_id, max_tokens=config.max_tokens,
+            system=system, messages=list(messages),
+            workspace_dir=config.workspace_dir, iteration=iteration,
+            agent_name=agent_name,
+        )
     duration = time.time() - start
 
     llm_response = LLMResponse(
@@ -585,6 +767,19 @@ def run_agent_loop(
                                        f"round={round_num}")
                 break
             raise
+        # If the round was truncated, try to continue in place before
+        # falling through to the max_tokens exit branch below. When the
+        # continuation completes cleanly (end_turn / tool_use), the round
+        # proceeds normally with the merged response.
+        if resp.stop_reason == "max_tokens":
+            resp = continue_on_max_tokens(
+                provider, resp, config,
+                model=config.model_id, max_tokens=config.max_tokens,
+                system=system, messages=messages,
+                tools=active_tools,
+                workspace_dir=config.workspace_dir, iteration=iteration,
+                agent_name=agent_name,
+            )
         duration = time.time() - start
 
         round_log.append({

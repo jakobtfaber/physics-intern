@@ -160,6 +160,10 @@ class BaseAgent(ABC):
 
         Both phases use the JSON error from :func:`extract_json_with_error` so
         the model knows *what* broke, not just that something was wrong.
+
+        Truncation (``stop_reason == "max_tokens"``) is handled by ``call_llm``
+        itself via :func:`continue_on_max_tokens`; this method only retries on
+        structural JSON parse failures.
         """
         from .parsing import extract_json_with_error
 
@@ -179,8 +183,11 @@ class BaseAgent(ABC):
             answer_tokens=response.answer_tokens,
         )
 
-        # Track original stop reason for final logging
-        original_stop_reason = response.stop_reason
+        # If call_llm's continuation retries were exhausted and the response
+        # is still truncated, surface the alert now — independent of whether
+        # a downstream JSON parse retry also runs below.
+        if response.stop_reason == "max_tokens":
+            self._log_max_tokens(response, iteration)
 
         # Accumulate across retries for merged response
         accumulated_text = response.text or ""
@@ -192,12 +199,10 @@ class BaseAgent(ABC):
 
         attempted_retry = False
         for attempt in range(max_retries):
-            # Decide whether a retry is needed
-            needs_retry = False
-            if response.stop_reason == "max_tokens":
-                needs_retry = True
-            elif not self._validate_response(response):
-                needs_retry = True
+            # Decide whether a retry is needed. Note: truncation is already
+            # retried upstream in call_llm via continue_on_max_tokens; here
+            # we only retry on structural JSON parse failures.
+            needs_retry = not self._validate_response(response)
 
             if not needs_retry:
                 return response  # valid — done
@@ -346,12 +351,10 @@ class BaseAgent(ABC):
                        f"text_len={len(response.text or '')}",
             )
 
-        if original_stop_reason == "max_tokens":
-            self._log_max_tokens(response, iteration)
         return response
 
     def _log_max_tokens(self, response: LLMResponse, iteration: int) -> None:
-        """Log max_tokens alert and scaffold event."""
+        """Log max_tokens alert when call_llm's continuation retries are exhausted."""
         self.metrics.alert(
             iteration,
             f"max_tokens_reached on {self.name} "
@@ -359,6 +362,6 @@ class BaseAgent(ABC):
         )
         log_scaffold_event(
             self.workspace.root, iteration,
-            category=CC.LOOP_CONTROL, event="max_tokens_no_retry",
+            category=CC.LOOP_CONTROL, event="max_tokens_unrecoverable",
             detail=f"agent={self.name}, output_tokens={response.output_tokens}",
         )

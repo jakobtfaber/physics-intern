@@ -25,6 +25,7 @@ load_dotenv()
 import yaml
 
 from ..config import Config, DEFAULTS, build_config
+from ..llm import continue_on_max_tokens
 from ..verification.evaluate import evaluate_response
 from ..providers import create_provider, LLMProvider, ProviderResponse
 from ..verification.verify import load_reference_file
@@ -136,13 +137,22 @@ def _run_once(
 ) -> dict:
     """Execute a single LLM call and return a structured result dict."""
     start = time.time()
+    initial_messages = [{"role": "user", "content": user_message}]
     resp = _call_with_retry(
         provider,
         model=config.model_id,
         max_tokens=config.max_tokens,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
+        messages=initial_messages,
     )
+    # If truncated, continue the response up to max_tokens_retries times.
+    if resp.stop_reason == "max_tokens":
+        resp = continue_on_max_tokens(
+            provider, resp, config,
+            model=config.model_id, max_tokens=config.max_tokens,
+            system=SYSTEM_PROMPT, messages=initial_messages,
+            workspace_dir=config.workspace_dir, agent_name="one_shot",
+        )
     duration = time.time() - start
 
     cost_usd = 0.0
