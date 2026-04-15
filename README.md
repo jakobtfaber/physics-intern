@@ -102,7 +102,7 @@ uv run open_dirac_autophysicist problems/tier1/hydrogen_fine_structure.yaml \
 
 # Resume an interrupted run
 uv run open_dirac_autophysicist problems/tier1/hydrogen_fine_structure.yaml \
-  --resume workspaces/autophysicist/<run_dir>
+  --resume workspaces/<run_dir>
 ```
 
 ```
@@ -181,6 +181,17 @@ python -m open_dirac.rsa <problem.yaml> [options]
   --output-dir DIR           Directory for result JSON files (default: results/rsa/)
   -o FILE                    Save response with metadata to a Markdown file
 ```
+
+#### Multiple concurrent RSA runs (pass@k)
+
+Run N independent RSA instances on the same problem to collect pass@k statistics:
+
+```bash
+uv run python scripts/run_multiple_rsa.py problems/critpt/yaml/Challenge_1_main.yaml \
+  --runs 10 --concurrency 3 -N 6 -K 2 -T 4 --model claude-4.6-opus
+```
+
+Each run writes its own RSA JSON (with per-round metrics) to `results/multiple_rsa/<batch>/runNNN/`, and an aggregate `summary.json` is produced at the batch root. Note that each RSA run itself fans out up to N concurrent LLM calls, so effective in-flight calls ≈ `--concurrency × N`.
 
 ### Serving Local Models with vLLM
 
@@ -285,6 +296,9 @@ The Python vLLM provider defaults to `http://localhost:8000/v1` but respects the
 |--------|---------|
 | `scripts/run_and_verify.sh` | Run a research session then verify results in one command |
 | `scripts/one_shot_batch.sh` | Batch-run the one-shot baseline across all problems in a folder |
+| `scripts/run_multiple.py` | Run N concurrent multi-agent (open_dirac) instances for pass@k evaluation |
+| `scripts/run_multiple_oneshot.py` | Run N concurrent one-shot instances for pass@k evaluation |
+| `scripts/run_multiple_rsa.py` | Run N concurrent RSA instances for pass@k evaluation |
 | `scripts/run_multiple_autophysicist.py` | Run N concurrent autophysicist instances for pass@k evaluation |
 | `scripts/test_model.py` | Smoke-test a model's reasoning and tool-call support (`--list` to show available models) |
 
@@ -521,6 +535,9 @@ scripts/
   run_and_verify.sh    — Run a problem then verify results in one command
   one_shot_batch.sh    — Batch-run one-shot baseline across multiple problems
   test_model.py        — Smoke-test a model's reasoning and tool-call support
+  run_multiple.py      — Run N concurrent open_dirac instances for pass@k
+  run_multiple_oneshot.py — Run N concurrent one-shot instances for pass@k
+  run_multiple_rsa.py  — Run N concurrent RSA instances for pass@k
   run_multiple_autophysicist.py — Run N concurrent autophysicist instances for pass@k
   run_critpt_open_dirac.py — Batch-run CritPt problems through the full pipeline
   run_critpt_oneshot.py — Batch-run CritPt problems through one-shot baseline

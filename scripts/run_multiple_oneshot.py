@@ -262,7 +262,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_model = (args.model or DEFAULTS["model"]).replace("/", "-").replace(":", "-")
-    filename = f"{args.problem.stem}_{safe_model}_{timestamp}.json"
+    filename = f"{timestamp}_{args.problem.stem}_{safe_model}_oneshot.json"
     output_path = output_dir / filename
 
     payload = {

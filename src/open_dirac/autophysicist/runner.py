@@ -313,9 +313,10 @@ def main() -> None:
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_problem = args.problem.stem.replace("/", "-")
+        safe_model = config.model.replace("/", "-").replace(":", "-")
         workspace_root = Path(
             args.workspace_dir
-            or f"workspaces/autophysicist/{safe_problem}_{timestamp}"
+            or f"workspaces/{timestamp}_{safe_problem}_{safe_model}_autophysicist"
         )
         workspace_root.mkdir(parents=True, exist_ok=True)
         start_iteration = 1

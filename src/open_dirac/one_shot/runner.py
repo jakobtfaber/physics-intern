@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -203,12 +204,33 @@ def _resolve_ground_truth(
 # Single-run mode (original behavior + evaluation)
 # ---------------------------------------------------------------------------
 
+def _write_verification_md(workspace_root: Path, ev: dict) -> None:
+    """Render the evaluate_response() dict as a Markdown report."""
+    if ev["correct"] is True:
+        verdict = "CORRECT"
+    elif ev["correct"] is False:
+        verdict = "INCORRECT"
+    else:
+        verdict = "ERROR"
+
+    lines = [
+        "# Automated Evaluation",
+        "",
+        f"- **Method**: {ev.get('method', 'unknown')}",
+        f"- **Result**: {verdict}",
+    ]
+    if ev.get("error"):
+        lines.append(f"- **Error**: {ev['error']}")
+    (workspace_root / "VERIFICATION.md").write_text("\n".join(lines) + "\n")
+
+
 def _run_single(
     args: argparse.Namespace,
     config: Config,
     provider: LLMProvider,
     user_message: str,
     problem_def: dict,
+    workspace_root: Path,
 ) -> None:
     """Run once, print to stdout, optionally save markdown — original behavior."""
     result = _run_once(provider, config, user_message)
@@ -225,6 +247,11 @@ def _run_single(
     if result["cost_usd"]:
         print(f"Est. cost:     ${result['cost_usd']:.4f}", file=sys.stderr)
 
+    # --- Persist answer to workspace ---
+    (workspace_root / "ANSWER.md").write_text(
+        f"# Final Answer\n\n{result['response_text']}\n"
+    )
+
     # --- Evaluation ---
     eval_kwargs = _resolve_ground_truth(problem_def, args.problem)
     if eval_kwargs is not None:
@@ -235,6 +262,7 @@ def _run_single(
             print(f"Evaluation:    INCORRECT ({ev['method']})", file=sys.stderr)
         else:
             print(f"Evaluation:    ERROR — {ev['error']}", file=sys.stderr)
+        _write_verification_md(workspace_root, ev)
 
     print("---", file=sys.stderr)
 
@@ -299,6 +327,10 @@ def main() -> None:
         "-o", "--output", type=Path, default=None,
         help="Save response with metadata to a Markdown file",
     )
+    parser.add_argument(
+        "--workspace-dir", type=str, default=None,
+        help="Workspace directory (default: auto-generated)",
+    )
     args = parser.parse_args()
 
     # --- Load problem YAML ---
@@ -332,13 +364,33 @@ def main() -> None:
     # --- Build prompt ---
     user_message = build_user_message(problem_text, answer_template)
 
-    print(f"Model:    {config.model} ({config.model_id})", file=sys.stderr)
-    print(f"Provider: {config.provider}", file=sys.stderr)
-    print(f"Problem:  {args.problem.name}", file=sys.stderr)
-    print(f"Tokens:   {config.max_tokens} max output", file=sys.stderr)
+    # --- Workspace (lightweight, no git) ---
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_model = config.model.replace("/", "-").replace(":", "-")
+    workspace_root = Path(
+        args.workspace_dir
+        or f"workspaces/{timestamp}_{args.problem.stem}_{safe_model}_oneshot"
+    )
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    config.workspace_dir = str(workspace_root)
+
+    # Seed the workspace with the problem before the LLM call so partial
+    # failures still leave a trace.
+    (workspace_root / "PROBLEM.md").write_text(f"# Problem\n\n{problem_text}\n")
+    problem_data = dict(problem_def)
+    problem_data["name"] = args.problem.stem
+    with open(workspace_root / "problem.yaml", "w") as f:
+        yaml.dump(problem_data, f, default_flow_style=False, sort_keys=False)
+    config.save(workspace_root)
+
+    print(f"Model:     {config.model} ({config.model_id})", file=sys.stderr)
+    print(f"Provider:  {config.provider}", file=sys.stderr)
+    print(f"Problem:   {args.problem.name}", file=sys.stderr)
+    print(f"Tokens:    {config.max_tokens} max output", file=sys.stderr)
+    print(f"Workspace: {workspace_root}", file=sys.stderr)
     print("---", file=sys.stderr)
 
-    _run_single(args, config, provider, user_message, problem_def)
+    _run_single(args, config, provider, user_message, problem_def, workspace_root)
 
 
 if __name__ == "__main__":

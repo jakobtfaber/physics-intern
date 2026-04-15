@@ -341,7 +341,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
     # Write JSON
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{problem_stem}_{safe_model}_{timestamp}.json"
+    filename = f"{timestamp}_{problem_stem}_{safe_model}_open_dirac.json"
     output_path = output_dir / filename
 
     payload = {

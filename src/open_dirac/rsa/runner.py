@@ -520,7 +520,7 @@ def main() -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_model = config.model.replace("/", "-").replace(":", "-")
-    filename = f"{args.problem.stem}_{safe_model}_rsa_{timestamp}.json"
+    filename = f"{timestamp}_{args.problem.stem}_{safe_model}_rsa.json"
     output_path = results_dir / filename
 
     # Don't include full responses in JSON to keep file size reasonable

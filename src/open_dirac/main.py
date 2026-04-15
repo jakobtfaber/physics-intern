@@ -83,7 +83,7 @@ def _main_fresh(args) -> None:
     if args.workspace_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_model = config.model.replace("/", "-").replace(":", "-")
-        run_name = f"{timestamp}_{args.problem.stem}_{safe_model}"
+        run_name = f"{timestamp}_{args.problem.stem}_{safe_model}_open_dirac"
         config.workspace_dir = str(Path("workspaces") / run_name)  # Config stores str
 
     # Print config summary

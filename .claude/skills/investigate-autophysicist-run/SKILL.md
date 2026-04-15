@@ -9,7 +9,7 @@ model: opus
 
 Read README.md to understand how the Autophysicist research mode works (single-agent iterative loop with ephemeral sub-agents).
 
-Given a workspace directory (under `workspaces/autophysicist/` in the OpenDirac project), perform a systematic post-mortem analysis of the run. The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
+Given a workspace directory (under `workspaces/` in the OpenDirac project — autophysicist runs end in `_autophysicist`; legacy runs may live under `workspaces/autophysicist/`), perform a systematic post-mortem analysis of the run. The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
 
 Check `references/` in the project root for a reference document matching the problem. These files describe what a correct answer looks like and what a typical successful run looks like for known problems. The reference is written for the vanilla multi-agent pipeline, but the correct answer and key pitfalls still apply.
 
