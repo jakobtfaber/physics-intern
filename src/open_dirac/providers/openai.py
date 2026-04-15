@@ -40,8 +40,7 @@ class OpenAIProvider(LLMProvider):
         )
         if tools:
             kwargs["tools"] = tools  # Already in OpenAI canonical format
-        elif self._reasoning_effort:
-            # reasoning_effort is incompatible with tools on /v1/chat/completions
+        if self._reasoning_effort:
             kwargs["reasoning_effort"] = self._reasoning_effort
 
         response = self._client.chat.completions.create(**kwargs)
