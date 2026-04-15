@@ -222,6 +222,7 @@ class VLLMProvider(LLMProvider):
 
         # Accumulate streamed chunks
         text_parts: list[str] = []
+        reasoning_parts: list[str] = []
         tc_acc: dict[int, dict] = {}  # index -> {id, name, arg_parts}
         finish_reason: str | None = None
         input_tokens = 0
@@ -243,6 +244,14 @@ class VLLMProvider(LLMProvider):
 
             if hasattr(delta, "content") and delta.content:
                 text_parts.append(delta.content)
+
+            # vLLM reasoning parsers (e.g. nemotron_v3) return reasoning
+            # in a separate field, stripped from content.
+            # Field was renamed from "reasoning_content" to "reasoning"
+            # in vLLM 0.19.0.
+            rc = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
+            if rc:
+                reasoning_parts.append(rc)
 
             # Accumulate structured tool call deltas (api mode)
             if hasattr(delta, "tool_calls") and delta.tool_calls:
@@ -323,6 +332,11 @@ class VLLMProvider(LLMProvider):
         # Reasoning token breakdown
         # ------------------------------------------------------------------
         reasoning_content = ""
+        # Server-side reasoning parser (e.g. nemotron_v3) already separated
+        # reasoning from content — use it directly.
+        if reasoning_parts:
+            reasoning_content = "".join(reasoning_parts)
+
         fmt = self._reasoning_format
         if not fmt and "</think>" in text:
             fmt = "think_tags"
@@ -330,7 +344,13 @@ class VLLMProvider(LLMProvider):
         reasoning_tokens = 0
         answer_tokens = output_tokens
         visible_text = text
-        if fmt == "think_tags":
+        if reasoning_content and not re.search(r'<think>', text):
+            # Reasoning was extracted server-side; text is already clean.
+            visible_text = text
+            answer_tokens = min(
+                estimate_answer_tokens(visible_text, tool_calls), output_tokens)
+            reasoning_tokens = output_tokens - answer_tokens
+        elif fmt == "think_tags":
             match = re.search(r'<think>(.*?)</think>', text, re.DOTALL)
             if match:
                 reasoning_content = match.group(1)

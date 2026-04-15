@@ -264,9 +264,9 @@ case "$MODEL" in
       --max-num-seqs 8
     )
     ;;
-  nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16)
+  nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16|nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8)
     DEFAULT_GPUS_PER_NODE="8"
-    DEFAULT_REASONING_PARSER="super_v3"
+    DEFAULT_REASONING_PARSER="nemotron_v3"
     DEFAULT_VLLM_ARGS=(
       --async-scheduling
       --dtype auto

@@ -167,6 +167,15 @@ nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:
   reasoning_format: think_tags
   tool_mode: xml_text
 
+nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8:
+  provider: vllm
+  model_id: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  reasoning_format: think_tags
+  tool_mode: xml_text
+
 nvidia/Nemotron-Cascade-2-30B-A3B:
   provider: vllm
   model_id: nvidia/Nemotron-Cascade-2-30B-A3B
