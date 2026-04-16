@@ -944,8 +944,12 @@ class TestDispatchFailureRecovery:
         assert engine.reviewer.run.call_count == 1
         assert engine.iteration == 2
 
-    def test_non_transient_error_propagates(self):
-        """A non-transient error (e.g. ValueError) propagates and crashes."""
+    def test_non_recoverable_error_propagates(self):
+        """A non-recoverable error (e.g. RuntimeError) propagates and crashes.
+
+        Note: TypeError/ValueError/KeyError/AttributeError are treated as
+        recoverable (likely malformed LLM output) and skip the iteration.
+        """
         engine = self._make_engine()
 
         task = Task(
@@ -954,11 +958,26 @@ class TestDispatchFailureRecovery:
             body="Research something.",
         )
         engine.orchestrator.parse_task = MagicMock(return_value=task)
-        engine.researcher.run = MagicMock(side_effect=ValueError("bug in code"))
+        engine.researcher.run = MagicMock(side_effect=RuntimeError("fatal bug"))
 
         import pytest
-        with pytest.raises(ValueError, match="bug in code"):
+        with pytest.raises(RuntimeError, match="fatal bug"):
             engine.run()
+
+    def test_llm_data_error_skips_iteration(self):
+        """TypeError/ValueError from malformed LLM output skip the iteration."""
+        engine = self._make_engine()
+
+        task = Task(
+            task_id="TASK-001", task_type=TaskType.RESEARCH,
+            assigned_to="researcher", iteration=1,
+            body="Research something.",
+        )
+        engine.orchestrator.parse_task = MagicMock(return_value=task)
+        engine.researcher.run = MagicMock(side_effect=TypeError("expected string, got list"))
+
+        # Should NOT raise — the engine skips the iteration
+        engine.run()
 
     def test_dispatch_failure_injects_violation(self):
         """Transient dispatch failure adds a violation for the orchestrator."""

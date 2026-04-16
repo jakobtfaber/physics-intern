@@ -32,6 +32,21 @@ from .verification.verify import (
 )
 
 
+# Errors that indicate malformed LLM output (wrong types in tool args, etc.)
+# rather than a true system failure.  These are recoverable — skip the
+# iteration rather than crashing the entire run.
+_LLM_DATA_ERRORS = (TypeError, ValueError, KeyError, AttributeError)
+
+
+def _is_recoverable(exc: Exception) -> bool:
+    """Return True if *exc* is safe to skip (transient API or malformed LLM data)."""
+    if _is_transient(exc):
+        return True
+    if isinstance(exc, _LLM_DATA_ERRORS):
+        return True
+    return False
+
+
 def _fmt_duration(seconds: float) -> str:
     """Format a duration as e.g. '6.3s' or '2m05s'."""
     if seconds < 60:
@@ -214,24 +229,24 @@ class OpenDirac:
                 )
                 continue
             except Exception as exc:
-                if not _is_transient(exc):
+                if not _is_recoverable(exc):
                     raise
                 self.metrics.alert(
                     self.iteration,
-                    f"Orchestrator failed (transient): {type(exc).__name__}: {exc}",
+                    f"Orchestrator failed (recoverable): {type(exc).__name__}: {exc}",
                 )
                 self._state.pending_violations.append(
                     Violation(
                         check="orchestrator_failure",
                         severity=ViolationSeverity.WARNING,
                         message=(
-                            f"Orchestrator failed with transient error: "
+                            f"Orchestrator failed (recoverable): "
                             f"{type(exc).__name__}: {str(exc)[:200]}"
                         ),
                     )
                 )
                 console.print(
-                    f"[yellow]Orchestrator failed (transient), skipping to "
+                    f"[yellow]Orchestrator failed (recoverable), skipping to "
                     f"next iteration: {exc}[/yellow]"
                 )
                 log_scaffold_event(
@@ -250,9 +265,20 @@ class OpenDirac:
             if violations:
                 self._state.pending_violations.extend(violations)
 
-            # 3. Enrichment for compute tasks
+            # 3. Enrichment for compute tasks (best-effort — never fatal)
             if task.task_type == TaskType.COMPUTE:
-                self._enrich_compute_task_with_prior_failures(task)
+                try:
+                    self._enrich_compute_task_with_prior_failures(task)
+                except Exception as exc:
+                    console.print(
+                        f"[yellow]Compute enrichment failed (non-fatal): "
+                        f"{type(exc).__name__}: {exc}[/yellow]"
+                    )
+                    log_scaffold_event(
+                        self.workspace.root, self.iteration, CC.LOOP_CONTROL,
+                        "enrichment_error",
+                        f"{type(exc).__name__}: {str(exc)[:200]}",
+                    )
 
             # 4. Termination gate
             if task.task_type == TaskType.TERMINATE:
@@ -321,7 +347,7 @@ class OpenDirac:
                 self._handle_parse_failure(task, exc)
                 continue
             except Exception as exc:
-                if not _is_transient(exc):
+                if not _is_recoverable(exc):
                     raise
                 self._handle_dispatch_error(task, exc)
                 continue
@@ -356,7 +382,7 @@ class OpenDirac:
                 except ParseFailureError as exc:
                     self._handle_parse_failure(review_task, exc)
                 except Exception as exc:
-                    if not _is_transient(exc):
+                    if not _is_recoverable(exc):
                         raise
                     self._handle_dispatch_error(review_task, exc)
 
@@ -380,7 +406,7 @@ class OpenDirac:
                 except ParseFailureError as exc:
                     self._handle_parse_failure(critic_task, exc)
                 except Exception as exc:
-                    if not _is_transient(exc):
+                    if not _is_recoverable(exc):
                         raise
                     self._handle_dispatch_error(critic_task, exc)
 
@@ -405,7 +431,7 @@ class OpenDirac:
                 except ParseFailureError as exc:
                     self._handle_parse_failure(critic_task, exc)
                 except Exception as exc:
-                    if not _is_transient(exc):
+                    if not _is_recoverable(exc):
                         raise
                     self._handle_dispatch_error(critic_task, exc)
 
@@ -681,7 +707,7 @@ class OpenDirac:
             except ContextTooLongError:
                 raise  # Deterministic — retrying won't help
             except Exception as exc:
-                if not _is_transient(exc) or attempt == max_retries:
+                if not _is_recoverable(exc) or attempt == max_retries:
                     console.print(
                         f"[red]{label} failed after {attempt + 1} attempt(s): "
                         f"{type(exc).__name__}: {exc}[/red]"

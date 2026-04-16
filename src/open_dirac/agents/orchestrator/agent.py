@@ -138,6 +138,14 @@ class OrchestratorAgent(BaseAgent):
 
     def _task_from_tool_data(self, data: dict, iteration: int) -> Task:
         """Build a Task from dispatch tool arguments."""
+        def _str(val: object, default: str = "") -> str:
+            """Coerce to str — LLMs sometimes return a list instead of a string."""
+            if val is None:
+                return default
+            if isinstance(val, list):
+                return "\n".join(str(v) for v in val)
+            return str(val)
+
         raw_type = data.get("task_type", "research")
         try:
             task_type = TaskType(raw_type)
@@ -150,9 +158,9 @@ class OrchestratorAgent(BaseAgent):
             assigned_to=assigned_to,
             priority=data.get("priority", "medium"),
             iteration=iteration,
-            target_claim=data.get("target_claim", ""),
-            body=data.get("description", ""),
-            background=data.get("background", ""),
+            target_claim=_str(data.get("target_claim")),
+            body=_str(data.get("description")),
+            background=_str(data.get("background")),
             method_hints=data.get("method_hints", []),
             assumptions=data.get("assumptions", []),
             relevant_results=data.get("relevant_results", []),

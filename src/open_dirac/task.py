@@ -60,7 +60,15 @@ class Task:
     answer_ers: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        """Normalize list fields that LLMs sometimes return as strings."""
+        """Normalize fields that LLMs sometimes return with wrong types."""
+        # String fields that LLMs sometimes return as lists
+        for attr in ("body", "background", "target_claim"):
+            val = getattr(self, attr)
+            if isinstance(val, list):
+                setattr(self, attr, "\n".join(str(v) for v in val))
+            elif val is not None and not isinstance(val, str):
+                setattr(self, attr, str(val))
+        # List fields that LLMs sometimes return as strings
         for attr in (
             "blocking_critiques",
             "method_hints",
