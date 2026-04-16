@@ -209,7 +209,7 @@ nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
-  max_output_tokens: 65536
+  max_output_tokens: 192000
   reasoning_format: think_tags
   tool_mode: xml_text
   serve:
