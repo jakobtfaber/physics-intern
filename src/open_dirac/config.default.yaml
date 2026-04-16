@@ -4,7 +4,7 @@
 
 model: gemini-3-flash-preview-medium
 verify_model: claude-4.6-opus
-max_iterations: 25
+max_iterations: 40
 critic_every_n: 4
 sympy_timeout_seconds: 60
 max_tool_rounds: 10
