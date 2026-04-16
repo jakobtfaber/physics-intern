@@ -59,6 +59,7 @@ Before outputting the completed template, verify every placeholder:
 - SymPy expressions must contain ONLY the declared symbols — no `sp.Function('...')`, no `...` (Ellipsis), no undefined names
 - MCQ answers must be a single letter from the specified set (e.g., one of `'A'`, `'B'`, `'C'`, `'D'`)
 - The `def answer(...)` function must be syntactically valid Python that returns the declared types
+- **Domain coverage**: check that every returned expression is defined across the full declared domain of each input parameter (read the docstring for domains). If the formula is undefined at a boundary point that belongs to the domain (e.g. division by zero, `log(0)`), wrap the expression in `sp.Piecewise` to return the correct limiting value at that point
 
 If you CANNOT fill every placeholder with a concrete, verified value from the Established Results, output EXACTLY this on the first line:
 

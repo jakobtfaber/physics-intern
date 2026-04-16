@@ -78,6 +78,10 @@ def _problem_guidelines() -> str:
         "final answer must depend on every parameter appearing in the template. "
         "A parameter's presence in the template does not guarantee it survives "
         "in the final expression.\n"
+        "- The answer must be valid for every value of the declared domain of "
+        "each parameter in the docstring. If a general formula is undefined at a boundary point "
+        "that belongs to the domain (e.g. 0/0, log(0)), use a Sympy "
+        "construct to return the correct limiting value there.\n"
         "</problem-guidelines>"
     )
 
