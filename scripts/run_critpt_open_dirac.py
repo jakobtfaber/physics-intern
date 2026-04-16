@@ -68,6 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help='Subset of problems, e.g. "1-10" or "1,5,30-40"')
     p.add_argument("--force", action="store_true",
                    help="Re-run problems even if submission JSON already exists")
+    p.add_argument("--fresh", action="store_true",
+                   help="Ignore existing workspaces; start every problem from scratch")
     p.add_argument("--dry-run", action="store_true",
                    help="Show what would be run without executing")
     return p
@@ -113,6 +115,7 @@ def plan_actions(
     workspace_base: Path,
     model_key: str,
     force: bool,
+    fresh: bool = False,
 ) -> list[ResumeAction]:
     """Determine the action for each problem."""
     completed = set() if force else find_completed_submissions(output_dir)
@@ -122,7 +125,7 @@ def plan_actions(
             actions.append(ResumeAction(problem=p, action="skip"))
             continue
 
-        ws = find_existing_workspace(p.problem_id, model_key, workspace_base)
+        ws = None if fresh else find_existing_workspace(p.problem_id, model_key, workspace_base)
         if ws:
             answer_path = ws / "ANSWER.md"
             if answer_path.exists():
@@ -339,6 +342,7 @@ async def run_batch(args: argparse.Namespace) -> int:
     # Plan actions (workspace-based resume logic)
     actions = plan_actions(
         problems, output_dir, args.workspace_base, args.model, args.force,
+        fresh=args.fresh,
     )
 
     n_skip = sum(1 for a in actions if a.action == "skip")
