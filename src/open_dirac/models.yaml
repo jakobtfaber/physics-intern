@@ -31,6 +31,15 @@ claude-4.6-sonnet:
 # OpenAI
 # ============================================================================
 
+gpt-5.4-xhigh:
+  provider: openai
+  model_id: gpt-5.4
+  env_key: OPENAI_API_KEY
+  input_cost: 2.50
+  output_cost: 15.00
+  max_output_tokens: 128000
+  reasoning_effort: xhigh
+
 gpt-5.4-high:
   provider: openai
   model_id: gpt-5.4

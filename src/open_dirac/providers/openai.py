@@ -1,18 +1,24 @@
-"""OpenAI provider adapter."""
+"""OpenAI provider adapter (Responses API).
 
+Uses /v1/responses unconditionally: /v1/chat/completions rejects function
+tools combined with reasoning_effort on the gpt-5 family. We run stateless
+(`store=False`) and pass `include=["reasoning.encrypted_content"]` so the
+reasoning trace is preserved across tool round-trips via an opaque blob
+echoed back in the next request — without relying on server-side state.
+"""
+
+import json
 import os
 
 from .base import LLMProvider, ProviderResponse
 
-_STOP_REASON_MAP = {
-    "stop": "end_turn",
-    "length": "max_tokens",
-    "tool_calls": "tool_use",
-}
+# Sentinel key used to carry replayed Responses output items through the
+# shared messages list without colliding with role-based dicts.
+_ITEMS_KEY = "_openai_items"
 
 
 class OpenAIProvider(LLMProvider):
-    """OpenAI API provider."""
+    """OpenAI API provider (Responses API)."""
 
     def __init__(self, api_key: str = "", reasoning_effort: str = "",
                  timeout: float = 600.0, **kwargs):
@@ -30,87 +36,143 @@ class OpenAIProvider(LLMProvider):
 
     def call(self, model: str, max_tokens: int, system: str,
              messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
-        # OpenAI uses system as first message
-        oai_messages = [{"role": "system", "content": system}] + messages
-
         kwargs = dict(
             model=model,
-            max_completion_tokens=max_tokens,
-            messages=oai_messages,
+            instructions=system,
+            input=self._messages_to_input(messages),
+            max_output_tokens=max_tokens,
+            store=False,
+            include=["reasoning.encrypted_content"],
         )
         if tools:
-            kwargs["tools"] = tools  # Already in OpenAI canonical format
+            kwargs["tools"] = self._transform_tools(tools)
         if self._reasoning_effort:
-            kwargs["reasoning_effort"] = self._reasoning_effort
+            kwargs["reasoning"] = {"effort": self._reasoning_effort}
 
-        response = self._client.chat.completions.create(**kwargs)
+        response = self._client.responses.create(**kwargs)
+        return self._build_response(response)
 
-        choice = response.choices[0]
-        text = choice.message.content or ""
+    # ── Messages → Responses input ─────────────────────────────────────────
 
-        # Extract tool calls
-        tool_calls = None
-        if choice.message.tool_calls:
-            import json
-            tool_calls = []
-            for tc in choice.message.tool_calls:
-                args_str = tc.function.arguments or ""
+    @staticmethod
+    def _messages_to_input(messages: list[dict]) -> list[dict]:
+        """Flatten our mixed message list into a Responses input array.
+
+        Entry shapes handled:
+          - {"role": "user"|"assistant", "content": str | [...]}  — plain turn
+          - {_ITEMS_KEY: [items...]}                              — replayed assistant items
+          - {"type": "function_call_output", ...}                 — tool result
+        """
+        out: list[dict] = []
+        for msg in messages:
+            if _ITEMS_KEY in msg:
+                out.extend(msg[_ITEMS_KEY])
+                continue
+            if msg.get("type") == "function_call_output":
+                out.append(msg)
+                continue
+            role = msg.get("role")
+            if role is None:
+                out.append(msg)
+                continue
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                part_type = "input_text" if role != "assistant" else "output_text"
+                out.append({
+                    "role": role,
+                    "content": [{"type": part_type, "text": content}],
+                })
+            else:
+                out.append({"role": role, "content": content})
+        return out
+
+    # ── Tool schema: chat-nested → responses-flat ─────────────────────────
+
+    @staticmethod
+    def _transform_tools(tools: list[dict]) -> list[dict]:
+        result = []
+        for t in tools:
+            fn = t["function"]
+            result.append({
+                "type": "function",
+                "name": fn["name"],
+                "description": fn.get("description", ""),
+                "parameters": fn.get("parameters", {}),
+                "strict": False,
+            })
+        return result
+
+    # ── Response parsing ───────────────────────────────────────────────────
+
+    def _build_response(self, response) -> ProviderResponse:
+        text_parts: list[str] = []
+        tool_calls: list[dict] = []
+        replay_items: list[dict] = []
+
+        for item in response.output:
+            kind = getattr(item, "type", None)
+            if kind == "message":
+                for c in item.content:
+                    if getattr(c, "type", None) == "output_text":
+                        text_parts.append(c.text)
+                replay_items.append(item.model_dump(exclude_none=True))
+            elif kind == "function_call":
+                args_str = item.arguments or ""
                 try:
                     parsed_args = json.loads(args_str) if args_str else {}
                 except (json.JSONDecodeError, ValueError):
-                    if tc.function.name == "execute_python":
-                        parsed_args = {"code": args_str}
-                    else:
-                        parsed_args = {"raw": args_str}
+                    parsed_args = {"raw": args_str}
                 tool_calls.append({
-                    "id": tc.id,
-                    "name": tc.function.name,
+                    "id": item.call_id,
+                    "name": item.name,
                     "input": parsed_args,
                 })
+                replay_items.append(item.model_dump(exclude_none=True))
+            elif kind == "reasoning":
+                replay_items.append(item.model_dump(exclude_none=True))
 
-        stop_reason = _STOP_REASON_MAP.get(choice.finish_reason, choice.finish_reason)
+        text = "".join(text_parts)
 
-        # Extract native reasoning token breakdown when available
+        if tool_calls:
+            stop_reason = "tool_use"
+        elif getattr(response, "status", None) == "incomplete":
+            details = getattr(response, "incomplete_details", None)
+            reason = getattr(details, "reason", "") if details else ""
+            stop_reason = "max_tokens" if reason == "max_output_tokens" else "end_turn"
+        else:
+            stop_reason = "end_turn"
+
+        usage = response.usage
+        input_tokens = getattr(usage, "input_tokens", 0) or 0
+        output_tokens = getattr(usage, "output_tokens", 0) or 0
         reasoning_tokens = 0
-        if hasattr(response.usage, 'completion_tokens_details') and response.usage.completion_tokens_details:
-            reasoning_tokens = getattr(response.usage.completion_tokens_details, 'reasoning_tokens', 0) or 0
-        answer_tokens = max(0, response.usage.completion_tokens - reasoning_tokens)
+        details = getattr(usage, "output_tokens_details", None)
+        if details is not None:
+            reasoning_tokens = getattr(details, "reasoning_tokens", 0) or 0
+        answer_tokens = max(0, output_tokens - reasoning_tokens)
 
         return ProviderResponse(
             text=text,
-            input_tokens=response.usage.prompt_tokens,
-            output_tokens=response.usage.completion_tokens,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             stop_reason=stop_reason,
             reasoning_tokens=reasoning_tokens,
             answer_tokens=answer_tokens,
-            tool_calls=tool_calls,
-            raw_content=choice.message,
+            tool_calls=tool_calls or None,
+            raw_content=replay_items,
         )
 
     def format_assistant_message(self, raw_content: object) -> dict:
-        # raw_content is the ChatCompletionMessage object
-        msg = {"role": "assistant", "content": raw_content.content}
-        if raw_content.tool_calls:
-            msg["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in raw_content.tool_calls
-            ]
-        return msg
+        # raw_content is the list of dumped output items (reasoning + message +
+        # function_call). Wrap in a sentinel dict; _messages_to_input unpacks it.
+        return {_ITEMS_KEY: raw_content}
 
     def build_tool_result_messages(self, tool_results: list[dict]) -> list[dict]:
-        """OpenAI: separate role='tool' message per result."""
-        messages = []
-        for tr in tool_results:
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tr["tool_call_id"],
-                "content": tr["output"],
-            })
-        return messages
+        return [
+            {
+                "type": "function_call_output",
+                "call_id": tr["tool_call_id"],
+                "output": tr["output"],
+            }
+            for tr in tool_results
+        ]
