@@ -145,7 +145,7 @@ class OpenDirac:
         # 3. Build engine without calling __init__
         engine = cls.__new__(cls)
         engine.config = config
-        engine.metrics = MetricsTracker()
+        engine.metrics = MetricsTracker.load(workspace_path)
         engine.workspace = WorkspaceManager(config)
         engine.workspace.attach()
         engine.config.logs_dir = str(engine.workspace.logs_dir)

@@ -20,9 +20,10 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
 from rich.console import Console
 from rich.table import Table
+
+from open_dirac.metrics import parse_metrics_table, parse_yaml_frontmatter
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
@@ -85,49 +86,6 @@ def find_existing_workspace(
 # ---------------------------------------------------------------------------
 # METRICS.md parsing
 # ---------------------------------------------------------------------------
-
-def parse_yaml_frontmatter(text: str) -> dict:
-    """Extract YAML frontmatter from a markdown file."""
-    m = re.match(r"^---\n(.*?\n)---", text, re.DOTALL)
-    if not m:
-        return {}
-    try:
-        return yaml.safe_load(m.group(1)) or {}
-    except yaml.YAMLError:
-        return {}
-
-
-def parse_metrics_table(text: str) -> list[dict]:
-    """Parse the per-iteration markdown table into rows."""
-    rows = []
-    in_table = False
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("| Iter"):
-            in_table = True
-            continue
-        if in_table and line.startswith("|---"):
-            continue
-        if in_table and line.startswith("|"):
-            parts = [c.strip() for c in line.split("|")[1:-1]]
-            if len(parts) >= 8:
-                try:
-                    rows.append({
-                        "iter": int(parts[0]),
-                        "agent": parts[1],
-                        "input_tokens": int(parts[2]),
-                        "output_tokens": int(parts[3]),
-                        "max_tokens_hit": parts[4].lower() == "yes",
-                        "rounds": int(parts[5]),
-                        "tool_calls": int(parts[6]),
-                        "duration_s": float(parts[7]),
-                    })
-                except (ValueError, IndexError):
-                    pass
-        elif in_table and not line.startswith("|"):
-            break
-    return rows
-
 
 def load_problem_metrics(problem_id: str, workspace: Path) -> ProblemMetrics | None:
     """Load metrics from a workspace's METRICS.md."""

@@ -1,5 +1,7 @@
 """Tests for metrics tracking."""
 
+from pathlib import Path
+
 from open_dirac.metrics import MetricsTracker
 
 
@@ -146,3 +148,104 @@ def test_no_reasoning_tokens_in_markdown_when_zero():
     md = m.to_markdown()
     assert "total_reasoning_tokens" not in md
     assert "total_answer_tokens" not in md
+
+
+# --- MetricsTracker.load() — resume rehydration ---
+
+def _write_metrics(tmp_path: Path, tracker: MetricsTracker) -> Path:
+    (tmp_path / "METRICS.md").write_text(tracker.to_markdown())
+    return tmp_path
+
+
+def test_load_round_trip_with_tool_calls(tmp_path):
+    """Round-trip: tool-use tracker rehydrates aggregates, calls, alerts."""
+    m = MetricsTracker()
+    m.record_call(1, "orchestrator", 1000, 500, 2.5, False)
+    m.record_call(2, "computationalist", 2000, 1000, 5.0, True,
+                  rounds=3, tool_calls=2, reasoning_tokens=400, answer_tokens=600)
+    m.alert(2, "max_tokens hit")
+    _write_metrics(tmp_path, m)
+
+    loaded = MetricsTracker.load(tmp_path)
+    assert loaded.total_input_tokens == 3000
+    assert loaded.total_output_tokens == 1500
+    assert loaded.total_reasoning_tokens == 400
+    assert loaded.total_answer_tokens == 600
+    assert loaded.total_tool_calls == 2
+    assert loaded.max_tokens_reached_count == 1
+    assert len(loaded.calls) == 2
+    assert len(loaded.alerts) == 1
+    assert loaded.alerts[0] == {"iteration": 2, "message": "max_tokens hit"}
+
+
+def test_load_round_trip_six_column_variant(tmp_path):
+    """6-column table (no tool use) parses correctly."""
+    m = MetricsTracker()
+    m.record_call(1, "orchestrator", 1000, 500, 2.5, False)
+    m.record_call(2, "researcher", 2000, 800, 3.0, False)
+    _write_metrics(tmp_path, m)
+
+    loaded = MetricsTracker.load(tmp_path)
+    assert loaded.total_input_tokens == 3000
+    assert loaded.total_output_tokens == 1300
+    assert len(loaded.calls) == 2
+    # 6-col rows default rounds=1, tool_calls=0
+    for c in loaded.calls:
+        assert c.rounds == 1
+        assert c.tool_calls == 0
+
+
+def test_load_missing_file(tmp_path):
+    """Missing METRICS.md → empty tracker, no exception."""
+    loaded = MetricsTracker.load(tmp_path)
+    assert loaded.total_input_tokens == 0
+    assert loaded.total_output_tokens == 0
+    assert loaded.calls == []
+    assert loaded.alerts == []
+
+
+def test_load_empty_file(tmp_path):
+    """Empty METRICS.md → empty tracker, no exception."""
+    (tmp_path / "METRICS.md").write_text("")
+    loaded = MetricsTracker.load(tmp_path)
+    assert loaded.calls == []
+    assert loaded.total_input_tokens == 0
+
+
+def test_load_malformed_frontmatter(tmp_path):
+    """Malformed YAML frontmatter → empty tracker, no exception."""
+    (tmp_path / "METRICS.md").write_text("---\n: : not valid: yaml\n---\ngarbage\n")
+    loaded = MetricsTracker.load(tmp_path)
+    assert loaded.calls == []
+    assert loaded.total_input_tokens == 0
+
+
+def test_load_then_append_accumulates(tmp_path):
+    """After load(), additional record_call()s stack on top of rehydrated state."""
+    m = MetricsTracker()
+    m.record_call(1, "orchestrator", 1000, 500, 2.5, False)
+    m.record_call(2, "researcher", 2000, 800, 3.0, False, reasoning_tokens=100, answer_tokens=200)
+    _write_metrics(tmp_path, m)
+
+    loaded = MetricsTracker.load(tmp_path)
+    loaded.record_call(3, "orchestrator", 500, 300, 1.5, True, tool_calls=4)
+
+    assert loaded.total_input_tokens == 3500
+    assert loaded.total_output_tokens == 1600
+    assert loaded.total_reasoning_tokens == 100
+    assert loaded.total_answer_tokens == 200
+    assert loaded.total_tool_calls == 4
+    assert loaded.max_tokens_reached_count == 1
+    assert len(loaded.calls) == 3
+
+
+def test_load_restores_last_critic_iteration(tmp_path):
+    """deep_critic rows set last_critic_iteration from the table."""
+    m = MetricsTracker()
+    m.record_call(1, "orchestrator", 100, 50, 1.0, False)
+    m.record_call(4, "deep_critic", 200, 100, 3.0, False)
+    m.record_call(5, "orchestrator", 150, 60, 1.2, False)
+    _write_metrics(tmp_path, m)
+
+    loaded = MetricsTracker.load(tmp_path)
+    assert loaded.last_critic_iteration == 4
