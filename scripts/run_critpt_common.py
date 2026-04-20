@@ -183,15 +183,16 @@ def find_completed_submissions(output_dir: Path) -> set[int]:
 # Output directory
 # ---------------------------------------------------------------------------
 
-def make_output_dir(args, default_base: Path) -> Path:
-    """Create and return the output directory for submission JSONs."""
+def make_output_dir(args, default_base: Path, create: bool = True) -> Path:
+    """Return the output directory for submission JSONs; create it unless `create=False`."""
     if args.output_dir:
         output_dir = args.output_dir
     else:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_model = args.model.replace("/", "-").replace(":", "-")
         output_dir = default_base / safe_model / ts
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if create:
+        output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 
 

@@ -215,9 +215,10 @@ async def run_batch(args: argparse.Namespace) -> int:
         print("Error: no problems found", file=sys.stderr)
         return 1
 
-    output_dir = make_output_dir(args, DEFAULT_RESULTS_BASE)
+    output_dir = make_output_dir(args, DEFAULT_RESULTS_BASE, create=not args.dry_run)
     logs_dir = output_dir / "logs"
-    logs_dir.mkdir(exist_ok=True)
+    if not args.dry_run:
+        logs_dir.mkdir(exist_ok=True)
 
     # Resume: skip completed
     n_skip = 0

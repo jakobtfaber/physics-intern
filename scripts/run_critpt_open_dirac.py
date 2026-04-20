@@ -337,7 +337,7 @@ async def run_batch(args: argparse.Namespace) -> int:
         print("Error: no problems found", file=sys.stderr)
         return 1
 
-    output_dir = make_output_dir(args, DEFAULT_RESULTS_BASE)
+    output_dir = make_output_dir(args, DEFAULT_RESULTS_BASE, create=not args.dry_run)
 
     # Plan actions (workspace-based resume logic)
     actions = plan_actions(
