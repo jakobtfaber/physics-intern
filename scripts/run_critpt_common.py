@@ -7,6 +7,7 @@ submission JSON writing, batch metadata, and orchestration helpers.
 from __future__ import annotations
 
 import json
+import os
 import re
 import signal
 import sys
@@ -248,6 +249,23 @@ def write_submission_json(
     return out_path
 
 
+def _problem_n_from_id(problem_id: str) -> int:
+    """Extract the challenge number from a problem_id like ``Challenge_5_main``."""
+    m = re.search(r"Challenge_(\d+)", problem_id or "")
+    return int(m.group(1)) if m else 0
+
+
+def _attempt_from_prior_entry(prior_entry: dict) -> dict:
+    """Strip a prior entry down to the shape stored in ``previous_attempts``.
+
+    Keeps the fields relevant to an attempt (duration, outcome, stats,
+    timestamp) and drops identity/bookkeeping fields (``problem_id``,
+    ``problem_n``, nested ``previous_attempts``).
+    """
+    drop = {"problem_id", "problem_n", "previous_attempts"}
+    return {k: v for k, v in prior_entry.items() if k not in drop}
+
+
 def write_batch_metadata(
     output_dir: Path,
     critpt_model: str,
@@ -259,10 +277,73 @@ def write_batch_metadata(
 ) -> None:
     """Write batch_metadata.json summarizing the run.
 
-    Includes both current-run results and previously completed submissions
-    found on disk, so metadata is accurate after resumed runs.  Cost/token
-    stats and workspace paths are included when available.
+    Merges with any pre-existing ``batch_metadata.json`` in ``output_dir`` so
+    that per-problem history (``previous_attempts``) and cumulative summary
+    fields survive ``--resume`` cycles. Malformed prior metadata is treated
+    as empty rather than crashing the writer. Written atomically via a tmp
+    file + ``os.replace`` so a mid-write interruption cannot corrupt the
+    merged file.
     """
+    # ---- Load prior metadata (tolerate missing / malformed) -----------------
+    final_path = output_dir / "batch_metadata.json"
+    prior: dict = {}
+    if final_path.exists():
+        try:
+            prior = json.loads(final_path.read_text())
+            if not isinstance(prior, dict):
+                prior = {}
+        except (json.JSONDecodeError, OSError):
+            prior = {}
+    prior_entries: dict[str, dict] = {
+        p["problem_id"]: p
+        for p in prior.get("problems", [])
+        if isinstance(p, dict) and p.get("problem_id")
+    }
+
+    # ---- Current-run entries; fold any prior attempt into previous_attempts -
+    timestamp_iso = end_time.isoformat()
+    merged_by_id: dict[str, dict] = {}
+    for r in all_results:
+        entry: dict = {
+            "problem_id": r.problem_id,
+            "problem_n": r.problem_n,
+            "success": r.success,
+            "duration_s": round(r.duration_s, 1),
+            "error": r.error,
+            "timestamp": timestamp_iso,
+        }
+        if r.stats is not None:
+            entry["stats"] = r.stats
+        if r.workspace_dir is not None:
+            entry["workspace"] = str(r.workspace_dir)
+
+        previous_attempts: list[dict] = []
+        prior_entry = prior_entries.get(r.problem_id)
+        if prior_entry is not None:
+            # Carry forward the prior entry's own history first (oldest-first),
+            # then the prior entry itself as the most recent prior attempt.
+            for pa in prior_entry.get("previous_attempts", []) or []:
+                if isinstance(pa, dict):
+                    previous_attempts.append(pa)
+            previous_attempts.append(_attempt_from_prior_entry(prior_entry))
+        if previous_attempts:
+            entry["previous_attempts"] = previous_attempts
+        merged_by_id[r.problem_id] = entry
+
+    # ---- Carry through problems present only in prior metadata --------------
+    for pid, pe in prior_entries.items():
+        if pid in merged_by_id:
+            continue
+        carry = dict(pe)
+        carry.setdefault("problem_n", _problem_n_from_id(pid))
+        merged_by_id[pid] = carry
+
+    problem_entries = sorted(
+        merged_by_id.values(),
+        key=lambda e: e.get("problem_n", _problem_n_from_id(e.get("problem_id", ""))),
+    )
+
+    # ---- Submission IDs on disk (authoritative for total_submissions) -------
     all_submission_ids: list[str] = []
     pattern = re.compile(r"Challenge_(\d+)_main\.json$")
     for f in sorted(output_dir.glob("Challenge_*_main.json")):
@@ -275,9 +356,37 @@ def write_batch_metadata(
             except (json.JSONDecodeError, KeyError):
                 pass
 
+    # ---- Cumulative summary across every attempt of every merged problem ---
+    def _iter_all_attempts(entries):
+        for e in entries:
+            yield e
+            for pa in e.get("previous_attempts", []) or []:
+                if isinstance(pa, dict):
+                    yield pa
+
+    total_duration = 0.0
+    total_cost = 0.0
+    total_input = 0
+    total_output = 0
+    for a in _iter_all_attempts(problem_entries):
+        total_duration += float(a.get("duration_s", 0) or 0)
+        s = a.get("stats") or {}
+        total_cost += float(s.get("cost_usd", 0) or 0)
+        total_input += int(s.get("input_tokens", 0) or 0)
+        total_output += int(s.get("output_tokens", 0) or 0)
+
     n_run_success = sum(1 for r in all_results if r.success)
     n_run_failed = sum(1 for r in all_results if not r.success)
-    total_duration = sum(r.duration_s for r in all_results)
+
+    this_wall_clock = round((end_time - start_time).total_seconds(), 1)
+    prior_summary = prior.get("summary") if isinstance(prior.get("summary"), dict) else {}
+    prior_cumulative = prior_summary.get(
+        "cumulative_wall_clock_s", prior_summary.get("wall_clock_s", 0.0)
+    )
+    try:
+        prior_cumulative = float(prior_cumulative or 0)
+    except (TypeError, ValueError):
+        prior_cumulative = 0.0
 
     summary: dict = {
         "total_submissions": len(all_submission_ids),
@@ -285,38 +394,19 @@ def write_batch_metadata(
         "this_run_success": n_run_success,
         "this_run_failed": n_run_failed,
         "total_compute_s": round(total_duration, 1),
-        "wall_clock_s": round((end_time - start_time).total_seconds(), 1),
+        "wall_clock_s": this_wall_clock,
+        "cumulative_wall_clock_s": round(prior_cumulative + this_wall_clock, 1),
     }
-
-    # Include cost/token stats when available
-    total_cost = sum((r.stats or {}).get("cost_usd", 0.0) for r in all_results)
     if total_cost > 0:
         summary["total_cost_usd"] = round(total_cost, 4)
-    total_input = sum((r.stats or {}).get("input_tokens", 0) for r in all_results)
-    total_output = sum((r.stats or {}).get("output_tokens", 0) for r in all_results)
     if total_input > 0:
         summary["total_input_tokens"] = total_input
     if total_output > 0:
         summary["total_output_tokens"] = total_output
 
-    # Build per-problem entries (include stats/workspace when present)
-    problem_entries = []
-    for r in sorted(all_results, key=lambda r: r.problem_n):
-        entry: dict = {
-            "problem_id": r.problem_id,
-            "success": r.success,
-            "duration_s": round(r.duration_s, 1),
-            "error": r.error,
-        }
-        if r.stats is not None:
-            entry["stats"] = r.stats
-        if r.workspace_dir is not None:
-            entry["workspace"] = str(r.workspace_dir)
-        problem_entries.append(entry)
-
     metadata = {
         "model": critpt_model,
-        "timestamp": end_time.isoformat(),
+        "timestamp": timestamp_iso,
         "generation_config": generation_config,
         "run_config": run_config,
         "num_submissions": len(all_submission_ids),
@@ -324,9 +414,10 @@ def write_batch_metadata(
         "summary": summary,
         "problems": problem_entries,
     }
-    (output_dir / "batch_metadata.json").write_text(
-        json.dumps(metadata, indent=2, ensure_ascii=False)
-    )
+
+    tmp_path = final_path.with_suffix(final_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
+    os.replace(tmp_path, final_path)
 
 
 # ---------------------------------------------------------------------------
