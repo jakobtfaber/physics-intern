@@ -20,7 +20,7 @@ min_er_for_completion: 3
 api_retry_max: 10
 api_retry_initial_delay: 10.0
 api_retry_max_delay: 60.0
-api_timeout: 600.0
+api_timeout: 2400.0
 
 # --- Budget hints (orchestrator context) ---
 # Iterations remaining before orchestrator injects BUDGET SYNTHESIS banner

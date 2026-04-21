@@ -299,7 +299,6 @@ async def run_one_problem(
             "problem_n": problem.n,
             "start_at": start,
             "last_line_at": start,
-            "last_iter_at": start,  # last time an ITERATION N marker fired
             "iter": 0,
             "api_retries": 0,
             "last_stall_warn_at": None,
@@ -335,7 +334,6 @@ async def run_one_problem(
                     m = _ITERATION_RE.search(text)
                     if m:
                         state["iter"] = int(m.group(1))
-                        state["last_iter_at"] = now
                         elapsed_so_far = now - start
                         async with print_lock:
                             print(
@@ -352,13 +350,11 @@ async def run_one_problem(
                         max_att = int(m.group(2))
                         exc_label = _exc_label(m.group(3))
                         if attempt >= 2:
-                            # "stall" = minutes since last iteration marker
-                            stall_min = int((now - state["last_iter_at"]) // 60)
                             async with print_lock:
                                 print(
                                     f"  C{problem.n}   ⚠ API  "
-                                    f"attempt {attempt}/{max_att} "
-                                    f"after {stall_min}m stall  ({exc_label})",
+                                    f"attempt {attempt}/{max_att}  "
+                                    f"({exc_label})",
                                     file=sys.stderr,
                                 )
                         continue

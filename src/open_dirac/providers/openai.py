@@ -31,6 +31,10 @@ class OpenAIProvider(LLMProvider):
         self._client = OpenAI(
             api_key=api_key or os.environ.get("OPENAI_API_KEY", ""),
             timeout=timeout,
+            # Disable the SDK's own retry loop; our wrapper in llm.py owns
+            # retries so we can log them, cap total wall-time predictably,
+            # and not multiply api_timeout by (1 + max_retries) per attempt.
+            max_retries=0,
         )
         self._reasoning_effort = reasoning_effort
 
