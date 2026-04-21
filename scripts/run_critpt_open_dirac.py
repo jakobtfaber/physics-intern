@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import signal
 import sys
 import time
@@ -152,6 +153,77 @@ def plan_actions(
 
 
 # ---------------------------------------------------------------------------
+# Live progress surfacing (per-iteration line + API/stall warnings)
+# ---------------------------------------------------------------------------
+
+_ITERATION_RE = re.compile(r"ITERATION\s+(\d+)")
+# Matches: "Transient API error (attempt K/M): {exc}"  — see src/open_dirac/llm.py
+_RETRY_RE = re.compile(r"Transient API error \(attempt (\d+)/(\d+)\)(?::\s*(.+))?")
+
+_STALL_WARN_AFTER_S = 15 * 60     # first warning after 15 min of silence
+_STALL_REWARN_EVERY_S = 30 * 60   # re-warn every 30 min while still silent
+_WATCHDOG_TICK_S = 60
+
+# Per-problem live state, keyed by problem_id. Accessed by the streamer,
+# the watchdog, and the final summary print. Writes are guarded by the
+# print lock that protects terminal output.
+_running: dict[str, dict] = {}
+
+
+def _exc_label(tail: str | None) -> str:
+    """Produce a short, informative label for the text after 'attempt K/M: '.
+
+    Notes `llm.py` emits `str(exc)`, not `type(exc).__name__`, so an
+    `APITimeoutError` appears here as `Request timed out.`. We map the
+    common shapes explicitly.
+    """
+    if not tail:
+        return "unknown"
+    tail = tail.strip()
+    if tail.startswith("Error code:"):
+        m = re.match(r"Error code:\s*(\d+)", tail)
+        if m:
+            return f"HTTP {m.group(1)}"
+    lower = tail.lower()
+    if "timed out" in lower or "timeout" in lower:
+        return "Timeout"
+    if "connection" in lower:
+        return "ConnectionError"
+    # Fallback: first capitalised token (works when a class name is in the message)
+    m = re.match(r"([A-Z][A-Za-z0-9_]*Error)", tail)
+    if m:
+        return m.group(1)
+    return tail[:40]
+
+
+async def _stall_watchdog(print_lock: asyncio.Lock) -> None:
+    """Tick every 60s; warn when any running problem has been silent too long."""
+    try:
+        while True:
+            await asyncio.sleep(_WATCHDOG_TICK_S)
+            now = time.monotonic()
+            to_warn: list[tuple[int, int]] = []  # (problem_n, silent_minutes)
+            for state in list(_running.values()):
+                silent_s = now - state["last_line_at"]
+                if silent_s < _STALL_WARN_AFTER_S:
+                    continue
+                last_warn = state.get("last_stall_warn_at")
+                if last_warn is not None and (now - last_warn) < _STALL_REWARN_EVERY_S:
+                    continue
+                state["last_stall_warn_at"] = now
+                to_warn.append((state["problem_n"], int(silent_s // 60)))
+            if to_warn:
+                async with print_lock:
+                    for pn, mins in to_warn:
+                        print(
+                            f"  C{pn}   ⚠ stalled {mins}m, no output",
+                            file=sys.stderr,
+                        )
+    except asyncio.CancelledError:
+        return
+
+
+# ---------------------------------------------------------------------------
 # Worker: run one problem
 # ---------------------------------------------------------------------------
 
@@ -163,6 +235,7 @@ async def run_one_problem(
     workspace_base: Path,
     timeout: float,
     semaphore: asyncio.Semaphore,
+    print_lock: asyncio.Lock,
 ) -> RunResult:
     """Run a single CritPt problem as a subprocess."""
     problem = action.problem
@@ -222,18 +295,89 @@ async def run_one_problem(
             cmd.extend(["--config", str(config_path)])
 
         start = time.monotonic()
+        state = {
+            "problem_n": problem.n,
+            "start_at": start,
+            "last_line_at": start,
+            "last_iter_at": start,  # last time an ITERATION N marker fired
+            "iter": 0,
+            "api_retries": 0,
+            "last_stall_warn_at": None,
+        }
+        _running[problem.problem_id] = state
+        stats = {"api_retries": 0}
+        stderr_tail: list[str] = []
+        proc = None
         try:
+            # PYTHONUNBUFFERED ensures stdout is flushed per-line so we can
+            # detect iteration markers and API-retry lines in real time.
+            env = {**os.environ, "PYTHONUNBUFFERED": "1"}
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(PROJECT_ROOT),
                 start_new_session=True,  # new process group for clean kill
+                env=env,
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout,
+
+            async def _stream_stdout():
+                assert proc.stdout is not None
+                while True:
+                    line = await proc.stdout.readline()
+                    if not line:
+                        break
+                    text = line.decode(errors="replace")
+                    now = time.monotonic()
+                    state["last_line_at"] = now
+                    state["last_stall_warn_at"] = None  # any output resets stall
+
+                    m = _ITERATION_RE.search(text)
+                    if m:
+                        state["iter"] = int(m.group(1))
+                        state["last_iter_at"] = now
+                        elapsed_so_far = now - start
+                        async with print_lock:
+                            print(
+                                f"  C{problem.n}   iter {m.group(1)}   "
+                                f"({elapsed_so_far:.0f}s)",
+                                file=sys.stderr,
+                            )
+                        continue
+
+                    m = _RETRY_RE.search(text)
+                    if m:
+                        state["api_retries"] += 1
+                        attempt = int(m.group(1))
+                        max_att = int(m.group(2))
+                        exc_label = _exc_label(m.group(3))
+                        if attempt >= 2:
+                            # "stall" = minutes since last iteration marker
+                            stall_min = int((now - state["last_iter_at"]) // 60)
+                            async with print_lock:
+                                print(
+                                    f"  C{problem.n}   ⚠ API  "
+                                    f"attempt {attempt}/{max_att} "
+                                    f"after {stall_min}m stall  ({exc_label})",
+                                    file=sys.stderr,
+                                )
+                        continue
+
+            async def _drain_stderr():
+                assert proc.stderr is not None
+                data = await proc.stderr.read()
+                text = data.decode(errors="replace")
+                for l in text.splitlines():
+                    stderr_tail.append(l)
+                if len(stderr_tail) > 50:
+                    del stderr_tail[:-50]
+
+            await asyncio.wait_for(
+                asyncio.gather(_stream_stdout(), _drain_stderr(), proc.wait()),
+                timeout=timeout,
             )
             elapsed = time.monotonic() - start
+            stats["api_retries"] = state["api_retries"]
 
             # Extract answer
             answer_code = None
@@ -246,8 +390,8 @@ async def run_one_problem(
             success = answer_code is not None
             error = None
             if proc.returncode != 0 and answer_code is None:
-                stderr_tail = stderr.decode(errors="replace")[-500:] if stderr else ""
-                error = f"exit code {proc.returncode}: {stderr_tail}"
+                tail = "".join(stderr_tail)[-500:]
+                error = f"exit code {proc.returncode}: {tail}"
             elif answer_code is None:
                 error = "no valid ANSWER.md produced"
 
@@ -260,17 +404,20 @@ async def run_one_problem(
                 duration_s=elapsed,
                 returncode=proc.returncode,
                 workspace_dir=workspace_dir,
+                stats=stats,
             )
 
         except asyncio.TimeoutError:
             elapsed = time.monotonic() - start
+            stats["api_retries"] = state["api_retries"]
             # Kill the entire process group (includes child computations)
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
+            except (ProcessLookupError, PermissionError, AttributeError):
                 pass
             try:
-                await asyncio.wait_for(proc.wait(), timeout=5)
+                if proc is not None:
+                    await asyncio.wait_for(proc.wait(), timeout=5)
             except (asyncio.TimeoutError, ProcessLookupError):
                 pass
             # Still try to extract answer from partial work
@@ -288,9 +435,11 @@ async def run_one_problem(
                 error=None if answer_code else f"timeout after {timeout:.0f}s",
                 duration_s=elapsed,
                 workspace_dir=workspace_dir,
+                stats=stats,
             )
         except Exception as exc:
             elapsed = time.monotonic() - start
+            stats["api_retries"] = state["api_retries"]
             return RunResult(
                 problem_n=problem.n,
                 problem_id=problem.problem_id,
@@ -299,7 +448,10 @@ async def run_one_problem(
                 error=f"{type(exc).__name__}: {exc}",
                 duration_s=elapsed,
                 workspace_dir=workspace_dir,
+                stats=stats,
             )
+        finally:
+            _running.pop(problem.problem_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -405,6 +557,7 @@ async def run_batch(args: argparse.Namespace) -> int:
     failed = 0
     all_results: list[RunResult] = []
     lock = asyncio.Lock()
+    print_lock = asyncio.Lock()
 
     async def worker(action: ResumeAction) -> RunResult:
         nonlocal completed, succeeded, failed
@@ -412,7 +565,7 @@ async def run_batch(args: argparse.Namespace) -> int:
         result = await run_one_problem(
             action, args.model, args.max_iterations,
             args.config, args.workspace_base,
-            args.timeout, semaphore,
+            args.timeout, semaphore, print_lock,
         )
 
         if result.success:
@@ -427,27 +580,38 @@ async def run_batch(args: argparse.Namespace) -> int:
             all_results.append(result)
 
             status = "OK" if result.success else f"FAIL: {result.error}"
+            retries = (result.stats or {}).get("api_retries", 0) if result.stats else 0
+            retry_note = f", {retries} API retries" if retries else ""
             if result.duration_s > 0:
                 print(
                     f"[{completed}/{total}] C{result.problem_n} "
-                    f"({action.action}, {result.duration_s:.0f}s) {status}",
+                    f"({action.action}, {result.duration_s:.0f}s) "
+                    f"{status}{retry_note}",
                     file=sys.stderr,
                 )
             else:
                 print(
                     f"[{completed}/{total}] C{result.problem_n} "
-                    f"({action.action}) {status}",
+                    f"({action.action}) {status}{retry_note}",
                     file=sys.stderr,
                 )
 
         return result
 
     tasks = [asyncio.create_task(worker(a)) for a in to_run]
+    watchdog = asyncio.create_task(_stall_watchdog(print_lock))
 
     loop = asyncio.get_running_loop()
     setup_signal_handler(loop, tasks)
 
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        watchdog.cancel()
+        try:
+            await watchdog
+        except (asyncio.CancelledError, Exception):
+            pass
 
     for i, r in enumerate(results):
         if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
