@@ -70,6 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Re-run problems even if submission JSON already exists")
     p.add_argument("--fresh", action="store_true",
                    help="Ignore existing workspaces; start every problem from scratch")
+    p.add_argument("--no-sibling-history", action="store_true",
+                   help="Do not fold prior attempts from sibling output dirs "
+                        "into batch_metadata.json")
     p.add_argument("--dry-run", action="store_true",
                    help="Show what would be run without executing")
     return p
@@ -463,6 +466,7 @@ async def run_batch(args: argparse.Namespace) -> int:
     write_batch_metadata(
         output_dir, critpt_model, all_results,
         generation_config, run_config, start_time, end_time,
+        include_sibling_history=not args.resume and not args.no_sibling_history,
     )
     print_final_summary(
         all_results, total, succeeded, failed,
