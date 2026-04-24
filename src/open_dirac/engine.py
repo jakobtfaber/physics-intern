@@ -9,7 +9,8 @@ from rich.text import Text
 
 from .config import Config
 from .console import console, replay_log
-from .llm import _is_transient, ContextTooLongError, ParseFailureError
+from .llm import ParseFailureError
+from .providers import ContextTooLongError, is_transient
 from .metrics import MetricsTracker
 from .task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
@@ -40,7 +41,7 @@ _LLM_DATA_ERRORS = (TypeError, ValueError, KeyError, AttributeError)
 
 def _is_recoverable(exc: Exception) -> bool:
     """Return True if *exc* is safe to skip (transient API or malformed LLM data)."""
-    if _is_transient(exc):
+    if is_transient(exc):
         return True
     if isinstance(exc, _LLM_DATA_ERRORS):
         return True

@@ -43,8 +43,8 @@ from ..llm import continue_on_max_tokens
 from ..one_shot.runner import (
     SYSTEM_PROMPT,
     build_user_message,
-    _call_with_retry,
 )
+from ..providers import call_with_retry
 
 
 # ---------------------------------------------------------------------------
@@ -131,8 +131,19 @@ def _call_once(
     """Execute a single LLM call and return a structured result dict."""
     start = time.time()
     initial_messages = [{"role": "user", "content": user_message}]
-    resp = _call_with_retry(
+
+    def _on_retry(exc: Exception, attempt: int, max_retries: int) -> None:
+        print(
+            f"  Transient error (attempt {attempt + 1}/{max_retries}): {exc}",
+            file=sys.stderr,
+        )
+
+    resp = call_with_retry(
         provider,
+        max_retries=config.api_retry_max,
+        initial_delay=config.api_retry_initial_delay,
+        max_delay=config.api_retry_max_delay,
+        on_retry=_on_retry,
         model=config.model_id,
         max_tokens=config.max_tokens,
         system=system,

@@ -7,10 +7,11 @@ from types import SimpleNamespace
 
 from rich.console import Console
 
+from ._openai_compat import build_raw_tool_call, strip_tool_messages
 from .base import (
     LLMProvider,
     ProviderResponse,
-    estimate_answer_tokens,
+    split_reasoning_tokens,
     strip_think_tags,
 )
 
@@ -24,25 +25,9 @@ _STOP_REASON_MAP = {
 class HuggingFaceProvider(LLMProvider):
     """HuggingFace Inference Providers via native InferenceClient."""
 
-    @staticmethod
-    def _strip_tool_messages(messages: list[dict]) -> list[dict]:
-        """Remove tool-call artifacts from messages for text-only calls.
-
-        OSS models served via HF Inference Providers may generate tool calls
-        even when tools are not provided, if the conversation history contains
-        tool-call messages.  Stripping these prevents output_parse_failed and
-        'Tool choice is none, but model called a tool' errors.
-        """
-        cleaned = []
-        for msg in messages:
-            if msg.get("role") == "tool":
-                continue
-            if "tool_calls" in msg:
-                msg = {k: v for k, v in msg.items() if k != "tool_calls"}
-                if not msg.get("content"):
-                    msg["content"] = "[prior tool interaction omitted]"
-            cleaned.append(msg)
-        return cleaned
+    # Back-compat alias — prefer importing ``strip_tool_messages`` from
+    # ``._openai_compat`` directly.
+    _strip_tool_messages = staticmethod(strip_tool_messages)
 
     def __init__(self, api_key: str = "", hf_provider: str | None = None,
                  timeout: float | None = None, reasoning_format: str = "",
@@ -219,7 +204,7 @@ class HuggingFaceProvider(LLMProvider):
             kwargs["tools"] = tools  # Already in OpenAI canonical format
         else:
             # Strip tool-call history so OSS models don't hallucinate tool calls
-            kwargs["messages"] = self._strip_tool_messages(hf_messages)
+            kwargs["messages"] = strip_tool_messages(hf_messages)
 
         try:
             stream = self._client.chat.completions.create(**kwargs)
@@ -310,13 +295,7 @@ class HuggingFaceProvider(LLMProvider):
                     "name": tc["name"],
                     "input": parsed_args,
                 })
-                raw_tool_calls.append(SimpleNamespace(
-                    id=tc_id,
-                    function=SimpleNamespace(
-                        name=tc["name"],
-                        arguments=args_str,
-                    ),
-                ))
+                raw_tool_calls.append(build_raw_tool_call(tc_id, tc["name"], args_str))
 
         stop_reason = _STOP_REASON_MAP.get(finish_reason,
                                             finish_reason or "end_turn")
@@ -341,24 +320,20 @@ class HuggingFaceProvider(LLMProvider):
         answer_tokens = output_tokens
         if fmt == "separate_field":
             # Models like Kimi, GPT-OSS: completion_tokens includes reasoning.
-            answer_tokens = min(
-                estimate_answer_tokens(text, tool_calls), output_tokens)
-            reasoning_tokens = output_tokens - answer_tokens
+            reasoning_tokens, answer_tokens = split_reasoning_tokens(
+                output_tokens, text, tool_calls)
         elif fmt == "think_tags":
             # Models like DeepSeek, Qwen: reasoning in <think>...</think> tags.
             # Extract reasoning content from tags, estimate answer from visible text.
             if not reasoning_content and "</think>" in text:
-                # Extract think content for reasoning_content
-                import re
                 match = re.search(r'<think>(.*?)</think>', text, re.DOTALL)
                 if match:
                     reasoning_content = match.group(1)
                 elif "</think>" in text:
                     reasoning_content = text.split("</think>", 1)[0]
             visible_text = strip_think_tags(text)
-            answer_tokens = min(
-                estimate_answer_tokens(visible_text, tool_calls), output_tokens)
-            reasoning_tokens = output_tokens - answer_tokens
+            reasoning_tokens, answer_tokens = split_reasoning_tokens(
+                output_tokens, visible_text, tool_calls)
 
         return ProviderResponse(
             text=text,

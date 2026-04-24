@@ -3,6 +3,7 @@
 import json
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 
@@ -62,6 +63,42 @@ def estimate_answer_tokens(text: str, tool_calls: list[dict] | None = None) -> i
             args_str = json.dumps(tc.get("input", {}))
             content_words += len(args_str.split())
     return int(content_words * 1.3)
+
+
+def split_reasoning_tokens(
+    output_tokens: int, visible_text: str, tool_calls: list[dict] | None = None,
+) -> tuple[int, int]:
+    """Return (reasoning_tokens, answer_tokens) from total output and visible content.
+
+    Estimates answer tokens from visible text + tool-call args, takes everything
+    else as reasoning. Clamps answer to ``output_tokens`` to preserve the
+    invariant ``output_tokens = reasoning_tokens + answer_tokens``.
+    """
+    answer_tokens = min(estimate_answer_tokens(visible_text, tool_calls), output_tokens)
+    reasoning_tokens = output_tokens - answer_tokens
+    return reasoning_tokens, answer_tokens
+
+
+def transform_earlier_assistant_turns(
+    messages: list[dict], transform: Callable[[dict], dict],
+) -> list[dict]:
+    """Apply ``transform`` to assistant messages before the final assistant one.
+
+    The most recent assistant message and all non-assistant messages pass
+    through unchanged. Used by providers that strip thinking from older turns
+    to cap O(rounds^2) context growth from accumulated reasoning.
+    """
+    last_asst_idx = -1
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "assistant":
+            last_asst_idx = i
+            break
+    if last_asst_idx < 0:
+        return messages
+    return [
+        transform(msg) if (msg.get("role") == "assistant" and i < last_asst_idx) else msg
+        for i, msg in enumerate(messages)
+    ]
 
 
 def strip_think_tags(text: str) -> str:

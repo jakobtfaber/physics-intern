@@ -1,7 +1,6 @@
 """LLM wrapper for OpenDirac — provider-agnostic via providers/ adapters."""
 
 import json
-import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -10,7 +9,16 @@ from pathlib import Path
 
 from .config import Config
 from .console import console
-from .providers import LLMProvider, ProviderResponse, create_provider, strip_think_tags
+from .providers import (
+    ContextTooLongError,
+    LLMProvider,
+    ProviderResponse,
+    call_with_retry,
+    create_provider,
+    is_provider_side_400,
+    is_tool_call_failure,
+    strip_think_tags,
+)
 from .tool_call import ToolCall
 from .agents.computer.tools import ToolExecutor
 from .utils.categories import CompensationCategory as CC
@@ -35,124 +43,6 @@ def _get_provider(config: Config) -> LLMProvider:
     return _provider_cache[key]
 
 
-_TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
-_TRANSIENT_EXC_NAMES = {"ConnectionError", "TimeoutError", "ReadTimeout",
-                         "ConnectTimeout", "ConnectionResetError",
-                         "RemoteDisconnected", "BrokenPipeError",
-                         "APITimeoutError", "APIConnectionError",
-                         "APIStatusError", "ServerError",
-                         "RemoteProtocolError"}
-
-
-def _extract_status_code(exc: Exception) -> int | None:
-    """Extract a numeric HTTP status code from an exception, or None.
-
-    Providers store status codes in various attributes and formats — e.g.
-    google-genai sets .status to the string 'Bad Gateway' while .code holds
-    the int 502.  We try several common attribute names and silently skip
-    non-numeric values.
-    """
-    for attr in ("status_code", "code", "status"):
-        val = getattr(exc, attr, None)
-        if val is not None:
-            try:
-                return int(val)
-            except (ValueError, TypeError):
-                continue
-    resp = getattr(exc, "response", None)
-    if resp is not None:
-        for attr in ("status_code", "status"):
-            val = getattr(resp, attr, None)
-            if val is not None:
-                try:
-                    return int(val)
-                except (ValueError, TypeError):
-                    continue
-    return None
-
-
-def _is_tool_call_failure(exc: Exception) -> bool:
-    """Return True if *exc* is a tool-call generation failure.
-
-    Covers both JSON parse failures and OSS models ignoring tool_choice=none.
-    """
-    msg = str(exc).lower()
-    return any(p in msg for p in (
-        "tool_use_failed",
-        "failed to parse tool call arguments",
-        "output_parse_failed",      # HF backend can't parse non-tool output
-        "tool choice",              # "Tool choice is none, but model called a tool"
-    ))
-
-
-_PROVIDER_SIDE_400_PATTERNS = {
-    "post processor",       # HuggingFace "gpt oss post processor" internal error
-    "internal error",
-    "backend error",
-    "input validation",     # HuggingFace context-length / format rejection
-}
-
-
-def _is_provider_side_400(exc: Exception) -> bool:
-    """Return True if *exc* is an HTTP 400 from a provider-side processing failure.
-
-    These are input-dependent (deterministic), not truly transient — retrying
-    the identical request will almost always produce the same error.  We still
-    allow a small number of retries (capped in _call_provider_with_retry) but
-    give up early instead of burning all 10 attempts.
-    """
-    status = _extract_status_code(exc)
-    if status == 400:
-        msg_lower = str(exc).lower()
-        return any(p in msg_lower for p in _PROVIDER_SIDE_400_PATTERNS)
-    return False
-
-
-# ---------------------------------------------------------------------------
-# Context-too-long detection
-# ---------------------------------------------------------------------------
-
-_CONTEXT_TOO_LONG_PATTERNS = (
-    "maximum context length",     # OpenAI / vLLM
-    "prompt is too long",         # Anthropic
-    "input is too long",          # HuggingFace
-    "context window",             # generic
-    "token limit",                # generic
-    "reduce the length",          # OpenAI suggestion text
-    "prompt_too_long",            # Google Gemini error code
-    "context_length_exceeded",    # OpenAI error code
-    "max_tokens",                 # vLLM variants
-)
-
-
-def _is_context_too_long(exc: Exception) -> bool:
-    """Return True if *exc* is a context-length / prompt-too-long rejection."""
-    status = _extract_status_code(exc)
-    if status is not None and status not in (400, 413):
-        return False
-    msg_lower = str(exc).lower()
-    return any(p in msg_lower for p in _CONTEXT_TOO_LONG_PATTERNS)
-
-
-class ContextTooLongError(Exception):
-    """Raised when a provider rejects a request because the context is too long.
-
-    Attributes:
-        input_tokens:  Reported input token count (0 if not parseable).
-        max_context:   Model's reported context limit (0 if not parseable).
-        original:      The original provider exception.
-    """
-
-    def __init__(self, original: Exception):
-        self.original = original
-        self.input_tokens, self.max_context = _parse_context_error(original)
-        super().__init__(
-            f"Context too long: ~{self.input_tokens} input tokens "
-            f"(model limit {self.max_context}). "
-            f"Original: {original}"
-        )
-
-
 class ParseFailureError(Exception):
     """Raised when an agent exhausts parse retries without valid output.
 
@@ -170,73 +60,32 @@ class ParseFailureError(Exception):
         )
 
 
-def _parse_context_error(exc: Exception) -> tuple[int, int]:
-    """Extract (input_tokens, max_context) from a context-length error message."""
-    msg = str(exc)
-    input_tokens = 0
-    max_context = 0
-    # OpenAI / vLLM: "contains at least 65537 input tokens"
-    m = re.search(r"(?:contains|has)\s+(?:at\s+least\s+)?(\d+)\s+(?:input[_ ])?tokens", msg)
-    if m:
-        input_tokens = int(m.group(1))
-    # OpenAI / vLLM: "maximum context length is 131072 tokens"
-    m = re.search(r"maximum\s+context\s+length\s+(?:is|of)\s+(\d+)", msg)
-    if m:
-        max_context = int(m.group(1))
-    return input_tokens, max_context
-
-
-def _is_transient(exc: Exception) -> bool:
-    """Return True if *exc* looks like a transient / retryable API error."""
-    # Context-too-long is deterministic — retrying wastes time and money
-    if isinstance(exc, ContextTooLongError) or _is_context_too_long(exc):
-        return False
-    # Tool-call generation failures are stochastic — retry may produce valid JSON
-    if _is_tool_call_failure(exc):
-        return True
-    # Check HTTP status code via robust extraction
-    status = _extract_status_code(exc)
-    if status is not None and status in _TRANSIENT_STATUS_CODES:
-        return True
-    # Provider-side 400s (post processor crashes, etc.) — retryable but capped
-    if _is_provider_side_400(exc):
-        return True
-    # Check exception type name anywhere in the MRO
-    for cls in type(exc).__mro__:
-        if cls.__name__ in _TRANSIENT_EXC_NAMES:
-            return True
-    return False
-
-
 def _call_provider_with_retry(provider: LLMProvider, config: Config,
                                workspace_dir: str | Path = "",
                                iteration: int = 0,
                                **call_kwargs) -> ProviderResponse:
-    """Retry provider.call() on transient errors with exponential backoff."""
-    delay = config.api_retry_initial_delay
-    for attempt in range(config.api_retry_max + 1):
-        try:
-            return provider.call(**call_kwargs)
-        except Exception as exc:
-            # Context-too-long is deterministic — raise immediately, no retry
-            if _is_context_too_long(exc):
-                raise ContextTooLongError(exc) from exc
-            if not _is_transient(exc) or attempt == config.api_retry_max:
-                raise
-            # Provider-side 400s are deterministic — cap at 1 retry (2 attempts total)
-            if _is_provider_side_400(exc) and attempt >= 1:
-                raise
-            console.print(
-                f"[yellow]Transient API error (attempt {attempt + 1}/"
-                f"{config.api_retry_max}): {exc}[/yellow]"
-            )
-            if workspace_dir:
-                log_scaffold_event(workspace_dir, iteration, CC.CALL_RELIABILITY, "api_retry",
-                                   f"attempt={attempt + 1}/{config.api_retry_max}, {type(exc).__name__}")
-            time.sleep(min(delay, config.api_retry_max_delay))
-            delay *= 2
-    # Unreachable — the loop always returns or raises
-    raise RuntimeError("unreachable")  # pragma: no cover
+    """Retry provider.call() on transient errors with workspace-aware logging.
+
+    Thin wrapper around ``providers.retry.call_with_retry`` that plumbs console
+    and workspace observability. Retry policy itself lives in providers/retry.py.
+    """
+    def _on_retry(exc: Exception, attempt: int, max_retries: int) -> None:
+        console.print(
+            f"[yellow]Transient API error (attempt {attempt + 1}/"
+            f"{max_retries}): {exc}[/yellow]"
+        )
+        if workspace_dir:
+            log_scaffold_event(workspace_dir, iteration, CC.CALL_RELIABILITY, "api_retry",
+                               f"attempt={attempt + 1}/{max_retries}, {type(exc).__name__}")
+
+    return call_with_retry(
+        provider,
+        max_retries=config.api_retry_max,
+        initial_delay=config.api_retry_initial_delay,
+        max_delay=config.api_retry_max_delay,
+        on_retry=_on_retry,
+        **call_kwargs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -743,7 +592,7 @@ def run_agent_loop(
                                    f"round={round_num}, input_tokens={exc.input_tokens}")
             break
         except Exception as exc:
-            if _is_tool_call_failure(exc):
+            if is_tool_call_failure(exc):
                 console.print(
                     f"[yellow]Tool-call generation failed after retries "
                     f"(round {round_num}): {exc} — falling back to "
@@ -755,7 +604,7 @@ def run_agent_loop(
                     log_scaffold_event(config.workspace_dir, iteration, CC.CALL_RELIABILITY, "tool_call_failure_fallback",
                                        f"round={round_num}")
                 break
-            if _is_provider_side_400(exc):
+            if is_provider_side_400(exc):
                 console.print(
                     f"[yellow]Provider-side 400 after retries "
                     f"(round {round_num}): {exc} — falling back to "
