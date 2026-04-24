@@ -87,40 +87,9 @@ class TestOpenAISmoke:
         _assert_basic_response(resp)
         assert resp.output_tokens == resp.reasoning_tokens + resp.answer_tokens
 
-    def test_with_reasoning_and_tools(self):
-        """Regression: reasoning_effort must be passed even when tools are set."""
-        provider = create_provider(
-            "openai",
-            api_key=os.environ["OPENAI_API_KEY"],
-            reasoning_effort="low",
-        )
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "add",
-                "description": "Add two integers and return the sum.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "a": {"type": "integer"},
-                        "b": {"type": "integer"},
-                    },
-                    "required": ["a", "b"],
-                },
-            },
-        }]
-        resp = provider.call(
-            model="gpt-5.4",
-            max_tokens=MAX_TOKENS,
-            system="Use the add tool to compute sums.",
-            messages=[{"role": "user", "content": "Use the add tool to compute 2+2."}],
-            tools=tools,
-        )
-        # Reasoning tokens must be present — confirms reasoning_effort took effect.
-        assert resp.reasoning_tokens > 0, (
-            "reasoning_effort was silently dropped when tools were passed"
-        )
-        assert resp.output_tokens == resp.reasoning_tokens + resp.answer_tokens
+    # Regression coverage for reasoning_effort being dropped when tools are
+    # set lives in tests/test_openai_provider.py — that's a request-shape
+    # check, not a model-behavior check, so it doesn't belong as a smoke test.
 
 
 # ── Google ──────────────────────────────────────────────────────────────────
