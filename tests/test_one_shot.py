@@ -1,14 +1,10 @@
 """Tests for the one-shot runner (open_dirac.one_shot.runner)."""
 
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from open_dirac.one_shot.runner import (
-    _resolve_ground_truth,
-    build_user_message,
-)
+from open_dirac.one_shot.runner import build_user_message
 from open_dirac.providers.retry import is_transient as _is_transient
 
 
@@ -88,52 +84,3 @@ class TestIsTransient:
         exc = Exception("error")
         exc.status = 504
         assert _is_transient(exc)
-
-
-# ---------------------------------------------------------------------------
-# _resolve_ground_truth
-# ---------------------------------------------------------------------------
-
-class TestResolveGroundTruth:
-
-    def test_answer_in_problem_def(self, tmp_path):
-        problem_def = {"problem": "Compute X", "answer": "42"}
-        result = _resolve_ground_truth(problem_def, tmp_path / "problem.yaml")
-        assert result == {"problem_def": problem_def}
-
-    def test_numeric_answer(self, tmp_path):
-        problem_def = {"problem": "Compute X", "answer": 3.14}
-        result = _resolve_ground_truth(problem_def, tmp_path / "problem.yaml")
-        assert result is not None
-        assert result["problem_def"]["answer"] == 3.14
-
-    def test_empty_string_answer_falls_through(self, tmp_path):
-        """Empty string answer is not treated as having a ground truth."""
-        problem_def = {"problem": "Compute X", "answer": "  "}
-        with patch("open_dirac.one_shot.runner.load_reference_file", return_value=(None, None)):
-            result = _resolve_ground_truth(problem_def, tmp_path / "problem.yaml")
-        assert result is None
-
-    def test_no_answer_no_reference(self, tmp_path):
-        problem_def = {"problem": "Compute X"}
-        with patch("open_dirac.one_shot.runner.load_reference_file", return_value=(None, None)):
-            result = _resolve_ground_truth(problem_def, tmp_path / "problem.yaml")
-        assert result is None
-
-    def test_reference_file_with_def_answer(self, tmp_path):
-        problem_def = {"problem": "Compute X"}
-        ref_code = "def answer():\n    return 42"
-        with patch("open_dirac.one_shot.runner.load_reference_file", return_value=(ref_code, None)):
-            result = _resolve_ground_truth(problem_def, tmp_path / "problem.yaml")
-        assert result is not None
-        assert result["reference_code"] == ref_code
-
-    def test_reference_file_expression(self, tmp_path):
-        """Legacy expression-style reference is patched into problem_def."""
-        problem_def = {"problem": "Compute X"}
-        with patch("open_dirac.one_shot.runner.load_reference_file", return_value=("pi/4", None)):
-            result = _resolve_ground_truth(problem_def, tmp_path / "problem.yaml")
-        assert result is not None
-        assert result["problem_def"]["answer"] == "pi/4"
-        # Original problem_def should not be mutated
-        assert "answer" not in problem_def

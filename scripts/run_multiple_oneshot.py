@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from open_dirac.config import DEFAULTS  # noqa: E402
+from open_dirac.utils.markdown import parse_frontmatter  # noqa: E402
 
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 
@@ -38,7 +39,11 @@ DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 @dataclass
 class RunResult:
     run_index: int
-    evaluation: str  # "correct", "incorrect", "error", "no_eval"
+    # Mirrors formal_answer values from the frontmatter written by
+    # write_formal_eval_report, plus "no_answer" and "error" for runner
+    # outcomes that never produced a VERIFICATION.md.
+    evaluation: str  # correct | incorrect | inconclusive | skipped |
+                     # no_verification | no_answer | error
     duration_s: float
     input_tokens: int = 0
     output_tokens: int = 0
@@ -50,11 +55,11 @@ class RunResult:
 
 
 # ---------------------------------------------------------------------------
-# Stderr parsing
+# Stderr / workspace parsing
 # ---------------------------------------------------------------------------
 
 def parse_oneshot_stderr(stderr_text: str) -> dict:
-    """Parse structured info from open_dirac_oneshot stderr output."""
+    """Parse token / duration / cost stats from open_dirac_oneshot stderr."""
     info: dict = {}
 
     m = re.search(r"Input tokens:\s+(\d+)", stderr_text)
@@ -76,17 +81,37 @@ def parse_oneshot_stderr(stderr_text: str) -> dict:
     if m:
         info["cost_usd"] = float(m.group(1))
 
-    # Evaluation
-    if "Evaluation:    CORRECT" in stderr_text:
-        info["evaluation"] = "correct"
-    elif "Evaluation:    INCORRECT" in stderr_text:
-        info["evaluation"] = "incorrect"
-    elif "Evaluation:    ERROR" in stderr_text:
-        info["evaluation"] = "error"
-    else:
-        info["evaluation"] = "no_eval"
-
     return info
+
+
+def parse_workspace_eval(workspace_dir: Path) -> str:
+    """Return the formal-evaluation verdict from a completed workspace.
+
+    Mirrors the reader in run_multiple_rsa.py. One of:
+      - "correct" / "incorrect" / "inconclusive" / "skipped": read from
+        VERIFICATION.md's `formal_answer:` frontmatter
+      - "no_verification": ANSWER.md exists but VERIFICATION.md missing /
+        unparseable
+      - "no_answer": ANSWER.md missing or empty (runner never produced one)
+    """
+    answer_path = workspace_dir / "ANSWER.md"
+    has_answer = False
+    if answer_path.exists():
+        raw = answer_path.read_text().strip()
+        if raw:
+            has_answer = True
+
+    verif_path = workspace_dir / "VERIFICATION.md"
+    if verif_path.exists():
+        try:
+            fm, _ = parse_frontmatter(verif_path.read_text())
+            fa = fm.get("formal_answer", "")
+            if fa in ("correct", "incorrect", "inconclusive", "skipped"):
+                return fa
+        except Exception:
+            pass
+
+    return "no_verification" if has_answer else "no_answer"
 
 
 # ---------------------------------------------------------------------------
@@ -131,10 +156,13 @@ async def run_one(
             stderr_text = stderr.decode(errors="replace")
 
             info = parse_oneshot_stderr(stderr_text)
+            evaluation = parse_workspace_eval(workspace_dir)
+            if proc.returncode != 0 and evaluation == "no_answer":
+                evaluation = "error"
 
             return RunResult(
                 run_index=run_index,
-                evaluation=info.get("evaluation", "no_eval"),
+                evaluation=evaluation,
                 duration_s=info.get("duration_s", round(elapsed, 2)),
                 input_tokens=info.get("input_tokens", 0),
                 output_tokens=info.get("output_tokens", 0),
@@ -251,7 +279,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
     all_results.sort(key=lambda r: r.run_index)
 
     # Count outcomes
-    counts: dict[str, int] = {"correct": 0, "incorrect": 0, "error": 0, "no_eval": 0}
+    counts: dict[str, int] = {}
     for r in all_results:
         counts[r.evaluation] = counts.get(r.evaluation, 0) + 1
 
@@ -261,14 +289,20 @@ async def run_multiple(args: argparse.Namespace) -> int:
     # Summary
     print("---", file=sys.stderr)
     parts = []
-    if counts["correct"]:
+    if counts.get("correct"):
         parts.append(f"{counts['correct']}/{n} correct")
-    if counts["incorrect"]:
+    if counts.get("incorrect"):
         parts.append(f"{counts['incorrect']} incorrect")
-    if counts["error"]:
+    if counts.get("inconclusive"):
+        parts.append(f"{counts['inconclusive']} inconclusive")
+    if counts.get("skipped"):
+        parts.append(f"{counts['skipped']} skipped (no ground truth)")
+    if counts.get("no_answer"):
+        parts.append(f"{counts['no_answer']} no answer")
+    if counts.get("no_verification"):
+        parts.append(f"{counts['no_verification']} no verification")
+    if counts.get("error"):
         parts.append(f"{counts['error']} errors")
-    if counts["no_eval"]:
-        parts.append(f"{counts['no_eval']} no evaluation")
     print(f"Results: {', '.join(parts) or '0 runs'}", file=sys.stderr)
     if total_cost > 0:
         print(f"Total cost: ${total_cost:.4f}", file=sys.stderr)
