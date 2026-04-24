@@ -255,6 +255,190 @@ def test_initial_metadata_makes_killed_run_resumable(tmp_path):
     assert final["generation_config"]["model_key"] == "mk"
 
 
+def _call_sibling(output_dir: Path, results: list[RunResult], *,
+                  start: datetime, end: datetime,
+                  include_sibling_history: bool = True) -> dict:
+    """Variant of ``_call`` that opts into sibling-history folding."""
+    write_batch_metadata(
+        output_dir=output_dir,
+        critpt_model="provider/model",
+        all_results=results,
+        generation_config={"model_key": "mk"},
+        run_config={"timeout": 3600},
+        start_time=start,
+        end_time=end,
+        include_sibling_history=include_sibling_history,
+    )
+    return json.loads((output_dir / "batch_metadata.json").read_text())
+
+
+def test_sibling_history_folded_for_overlapping_problem(tmp_path):
+    """Sibling's attempt on the same problem lands in previous_attempts."""
+    sib = tmp_path / "20260418_100000"
+    cur = tmp_path / "20260420_100000"
+    sib.mkdir()
+    cur.mkdir()
+
+    _call(sib, [_r(5, success=False, duration_s=3600.0, error="timeout",
+                   stats={"cost_usd": 1.1, "input_tokens": 40000, "output_tokens": 8000})],
+          start=T0, end=T1)
+
+    r = _r(5, success=True, duration_s=200.0,
+           stats={"cost_usd": 0.42, "input_tokens": 12000, "output_tokens": 3000})
+    data = _call_sibling(cur, [r], start=T2, end=T2 + timedelta(seconds=210))
+
+    assert len(data["problems"]) == 1
+    p = data["problems"][0]
+    attempts = p.get("previous_attempts", [])
+    assert len(attempts) == 1
+    assert attempts[0]["error"] == "timeout"
+    assert attempts[0]["duration_s"] == 3600.0
+
+    s = data["summary"]
+    assert s["total_compute_s"] == pytest.approx(3800.0)
+    assert s["total_cost_usd"] == pytest.approx(1.52, abs=1e-9)
+    assert s["total_input_tokens"] == 52000
+
+
+def test_multiple_siblings_ordered_by_timestamp(tmp_path):
+    """Two siblings → previous_attempts ordered oldest-first."""
+    sib_old = tmp_path / "20260418_100000"
+    sib_new = tmp_path / "20260419_100000"
+    cur = tmp_path / "20260420_100000"
+    for d in (sib_old, sib_new, cur):
+        d.mkdir()
+
+    _call(sib_old, [_r(5, success=False, duration_s=1000.0, error="old",
+                       stats={"cost_usd": 0.5, "input_tokens": 1000, "output_tokens": 100})],
+          start=T0, end=T0 + timedelta(minutes=10))
+    _call(sib_new, [_r(5, success=False, duration_s=2000.0, error="new",
+                       stats={"cost_usd": 0.6, "input_tokens": 2000, "output_tokens": 200})],
+          start=T1, end=T1 + timedelta(minutes=20))
+
+    r = _r(5, success=True, duration_s=300.0,
+           stats={"cost_usd": 0.1, "input_tokens": 500, "output_tokens": 50})
+    data = _call_sibling(cur, [r], start=T2, end=T2 + timedelta(seconds=310))
+
+    attempts = data["problems"][0]["previous_attempts"]
+    assert [a["error"] for a in attempts] == ["old", "new"]
+
+
+def test_sibling_plus_same_dir_prior_no_duplication(tmp_path):
+    """Same-dir prior sits AFTER sibling history, not duplicated."""
+    sib = tmp_path / "20260418_100000"
+    cur = tmp_path / "20260420_100000"
+    sib.mkdir()
+    cur.mkdir()
+
+    _call(sib, [_r(5, success=False, duration_s=1000.0, error="sibling",
+                   stats={"cost_usd": 0.5, "input_tokens": 1000, "output_tokens": 100})],
+          start=T0, end=T0 + timedelta(minutes=10))
+
+    # First run in cur, writes a prior entry in-dir (sibling history gets folded
+    # already at this step, but there's no same-dir prior yet).
+    _call_sibling(cur, [_r(5, success=False, duration_s=500.0, error="same-dir-prior",
+                           stats={"cost_usd": 0.2, "input_tokens": 500, "output_tokens": 50})],
+                  start=T1, end=T1 + timedelta(minutes=5))
+
+    # Second run in cur — now there's both a sibling AND a same-dir prior.
+    r = _r(5, success=True, duration_s=300.0,
+           stats={"cost_usd": 0.1, "input_tokens": 200, "output_tokens": 20})
+    data = _call_sibling(cur, [r], start=T2, end=T2 + timedelta(seconds=310))
+
+    attempts = data["problems"][0]["previous_attempts"]
+    # Expect: sibling (oldest), same-dir-prior (next). Exactly 2 entries — no duplication.
+    assert len(attempts) == 2
+    assert attempts[0]["error"] == "sibling"
+    assert attempts[1]["error"] == "same-dir-prior"
+
+
+def test_sibling_only_problem_not_carried_into_current_dir(tmp_path):
+    """Option X: sibling-only problems never appear in current-dir metadata."""
+    sib = tmp_path / "20260418_100000"
+    cur = tmp_path / "20260420_100000"
+    sib.mkdir()
+    cur.mkdir()
+
+    _call(sib, [
+        _r(5, success=True, duration_s=100.0,
+           stats={"cost_usd": 0.1, "input_tokens": 1000, "output_tokens": 100}),
+        _r(7, success=True, duration_s=200.0,
+           stats={"cost_usd": 0.2, "input_tokens": 2000, "output_tokens": 200}),
+    ], start=T0, end=T1)
+
+    # Current run only touches problem 5.
+    r = _r(5, success=True, duration_s=50.0,
+           stats={"cost_usd": 0.05, "input_tokens": 500, "output_tokens": 50})
+    data = _call_sibling(cur, [r], start=T2, end=T2 + timedelta(seconds=60))
+
+    ids = [p["problem_id"] for p in data["problems"]]
+    assert ids == ["Challenge_5_main"], "problem 7 from sibling must not be carried over"
+    assert data["num_submissions"] == 0  # no JSONs exist in cur yet
+
+
+def test_malformed_sibling_metadata_skipped(tmp_path):
+    """Corrupt sibling metadata is skipped; valid sibling still folds."""
+    sib_bad = tmp_path / "20260417_100000"
+    sib_good = tmp_path / "20260418_100000"
+    cur = tmp_path / "20260420_100000"
+    for d in (sib_bad, sib_good, cur):
+        d.mkdir()
+    (sib_bad / "batch_metadata.json").write_text("{not json")
+
+    _call(sib_good, [_r(5, success=False, duration_s=1000.0, error="good-prior",
+                        stats={"cost_usd": 0.5, "input_tokens": 1000, "output_tokens": 100})],
+          start=T0, end=T1)
+
+    r = _r(5, success=True, duration_s=200.0,
+           stats={"cost_usd": 0.1, "input_tokens": 500, "output_tokens": 50})
+    data = _call_sibling(cur, [r], start=T2, end=T2 + timedelta(seconds=210))
+
+    attempts = data["problems"][0]["previous_attempts"]
+    assert len(attempts) == 1
+    assert attempts[0]["error"] == "good-prior"
+
+
+def test_sibling_scan_leaves_cumulative_wall_clock_same_dir_only(tmp_path):
+    """cumulative_wall_clock_s stays same-dir-only (no sibling pollution)."""
+    sib = tmp_path / "20260418_100000"
+    cur = tmp_path / "20260420_100000"
+    sib.mkdir()
+    cur.mkdir()
+
+    _call(sib, [_r(5, success=False, duration_s=1000.0, error="x",
+                   stats={"cost_usd": 0.5, "input_tokens": 1000, "output_tokens": 100})],
+          start=T0, end=T0 + timedelta(hours=2))
+
+    r = _r(5, success=True, duration_s=200.0,
+           stats={"cost_usd": 0.1, "input_tokens": 500, "output_tokens": 50})
+    data = _call_sibling(cur, [r], start=T2, end=T2 + timedelta(seconds=210))
+
+    s = data["summary"]
+    # No same-dir prior and sibling wall clock is NOT folded in.
+    assert s["wall_clock_s"] == pytest.approx(210.0)
+    assert s["cumulative_wall_clock_s"] == s["wall_clock_s"]
+
+
+def test_include_sibling_history_false_matches_today_behavior(tmp_path):
+    """With the flag off, a sibling dir's presence does not change output."""
+    sib = tmp_path / "20260418_100000"
+    cur = tmp_path / "20260420_100000"
+    sib.mkdir()
+    cur.mkdir()
+
+    _call(sib, [_r(5, success=False, duration_s=1000.0, error="sibling",
+                   stats={"cost_usd": 0.5, "input_tokens": 1000, "output_tokens": 100})],
+          start=T0, end=T1)
+
+    r = _r(5, success=True, duration_s=200.0,
+           stats={"cost_usd": 0.1, "input_tokens": 500, "output_tokens": 50})
+    # Default _call passes include_sibling_history unset → False.
+    data = _call(cur, [r], start=T2, end=T2 + timedelta(seconds=210))
+
+    p = data["problems"][0]
+    assert "previous_attempts" not in p
+
+
 def test_atomic_write_preserves_prior_on_replace_failure(tmp_path, monkeypatch):
     """If os.replace raises after the tmp file is written, the original survives."""
     r = _r(5, success=False, duration_s=100.0, error="x",

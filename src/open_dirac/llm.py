@@ -35,11 +35,12 @@ def _get_provider(config: Config) -> LLMProvider:
     return _provider_cache[key]
 
 
-_TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
+_TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 _TRANSIENT_EXC_NAMES = {"ConnectionError", "TimeoutError", "ReadTimeout",
                          "ConnectTimeout", "ConnectionResetError",
                          "RemoteDisconnected", "BrokenPipeError",
-                         "APITimeoutError", "ServerError",
+                         "APITimeoutError", "APIConnectionError",
+                         "APIStatusError", "ServerError",
                          "RemoteProtocolError"}
 
 

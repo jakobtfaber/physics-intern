@@ -266,6 +266,69 @@ def _attempt_from_prior_entry(prior_entry: dict) -> dict:
     return {k: v for k, v in prior_entry.items() if k not in drop}
 
 
+def _load_sibling_history(output_dir: Path) -> dict[str, list[dict]]:
+    """Collect per-problem attempt history from sibling ``batch_metadata.json``.
+
+    Scans the parent directory of ``output_dir`` for other batch output dirs
+    (excluding ``output_dir`` itself). For each sibling with a readable
+    ``batch_metadata.json``, flattens every per-problem entry into an
+    oldest-first chain of atomic attempts and indexes it by ``problem_id``.
+
+    Siblings are ordered by their top-level ``timestamp`` (falling back to
+    dir name) so that older siblings contribute older attempts first. Only
+    ``previous_attempts`` is populated from this return value; cumulative
+    wall-clock stays same-dir-only to keep its semantics clean across
+    independent batches.
+
+    Malformed or unreadable sibling metadata is skipped silently (same
+    policy as the same-dir merge in :func:`write_batch_metadata`).
+    """
+    try:
+        current = output_dir.resolve()
+    except OSError:
+        return {}
+    parent = current.parent
+    if not parent.exists():
+        return {}
+
+    siblings: list[tuple[str, dict]] = []
+    for sib in parent.iterdir():
+        try:
+            if not sib.is_dir() or sib.resolve() == current:
+                continue
+        except OSError:
+            continue
+        meta_path = sib / "batch_metadata.json"
+        if not meta_path.exists():
+            continue
+        try:
+            data = json.loads(meta_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        sort_key = str(data.get("timestamp") or sib.name)
+        siblings.append((sort_key, data))
+
+    siblings.sort(key=lambda x: x[0])
+
+    history: dict[str, list[dict]] = {}
+    for _, data in siblings:
+        for entry in data.get("problems", []) or []:
+            if not isinstance(entry, dict):
+                continue
+            pid = entry.get("problem_id")
+            if not pid:
+                continue
+            chain = history.setdefault(pid, [])
+            for pa in entry.get("previous_attempts", []) or []:
+                if isinstance(pa, dict):
+                    chain.append({**pa, "source": "sibling"})
+            chain.append({**_attempt_from_prior_entry(entry), "source": "sibling"})
+
+    return history
+
+
 def write_batch_metadata(
     output_dir: Path,
     critpt_model: str,
@@ -274,6 +337,8 @@ def write_batch_metadata(
     run_config: dict,
     start_time: datetime,
     end_time: datetime,
+    *,
+    include_sibling_history: bool = False,
 ) -> None:
     """Write batch_metadata.json summarizing the run.
 
@@ -300,6 +365,11 @@ def write_batch_metadata(
         if isinstance(p, dict) and p.get("problem_id")
     }
 
+    # ---- Sibling history (opt-in; only folds into previous_attempts) --------
+    sibling_history: dict[str, list[dict]] = (
+        _load_sibling_history(output_dir) if include_sibling_history else {}
+    )
+
     # ---- Current-run entries; fold any prior attempt into previous_attempts -
     timestamp_iso = end_time.isoformat()
     merged_by_id: dict[str, dict] = {}
@@ -318,12 +388,19 @@ def write_batch_metadata(
             entry["workspace"] = str(r.workspace_dir)
 
         previous_attempts: list[dict] = []
+        # Siblings first (oldest across all batches).
+        for pa in sibling_history.get(r.problem_id, []):
+            previous_attempts.append(pa)
         prior_entry = prior_entries.get(r.problem_id)
         if prior_entry is not None:
             # Carry forward the prior entry's own history first (oldest-first),
             # then the prior entry itself as the most recent prior attempt.
+            # Drop attempts that were folded from siblings on a prior write —
+            # they get re-added freshly from _load_sibling_history above, so
+            # keeping them here would double-count on repeated writes to the
+            # same output dir.
             for pa in prior_entry.get("previous_attempts", []) or []:
-                if isinstance(pa, dict):
+                if isinstance(pa, dict) and pa.get("source") != "sibling":
                     previous_attempts.append(pa)
             previous_attempts.append(_attempt_from_prior_entry(prior_entry))
         if previous_attempts:
