@@ -1,9 +1,7 @@
 """Independent verification of OpenDirac research workspaces."""
 
 import json
-import glob
 import re
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,12 +19,24 @@ import anthropic
 import yaml
 
 from ..config import Config, DEFAULTS
-from ..llm import LLMResponse  # noqa: F401 — reuse dataclass, call via streaming
-from ..utils.markdown import parse_frontmatter
-from ..utils.sandbox import ExecutionResult, execute_python
+from ..llm import LLMResponse
+from .workspace import (
+    WorkspaceContents,
+    RerunResult,
+    REFERENCES_DIR,  # noqa: F401 — re-exported for back-compat during slice
+    load_workspace,
+    load_reference_file,
+    rerun_computations,
+)
+from .formal_eval import (
+    FormalEvalResult,
+    run_formal_evaluation,
+    render_formal_evaluation,
+    write_formal_eval_report,
+    load_or_run_formal_eval,
+)
 
 PROMPTS_DIR = Path(__file__).parent
-REFERENCES_DIR = Path(__file__).parent.parent.parent.parent / "references"
 
 
 def _call_llm_streaming(system: str, user_content: str, config: Config) -> LLMResponse:
@@ -67,43 +77,8 @@ def _call_llm_streaming(system: str, user_content: str, config: Config) -> LLMRe
 
 
 # ---------------------------------------------------------------------------
-# Dataclasses
+# Dataclasses (diagnosis-only; workspace/formal-eval dataclasses moved to sibling modules)
 # ---------------------------------------------------------------------------
-
-@dataclass
-class WorkspaceContents:
-    """Loaded workspace files and metadata."""
-    workspace_dir: str
-    research_state: str = ""
-    critique_log: str = ""
-    evidence_log: str = ""
-    current_task: str = ""
-    computation_scripts: list[str] = field(default_factory=list)
-    terminated_cleanly: bool = False
-    frontmatter: dict = field(default_factory=dict)
-    metrics_md: str = ""
-    git_log: str = ""
-    event_log: str = ""
-    background_survey: str = ""
-
-
-@dataclass
-class RerunResult:
-    """Result of re-running a computation script."""
-    script_path: str
-    execution: ExecutionResult | None = None
-
-
-@dataclass
-class FormalEvalResult:
-    """Result of formal (symbolic/numerical) answer evaluation."""
-    correct: bool | None = None  # True/False/None (errored)
-    method: str = ""
-    error: str | None = None
-    details: str = ""
-    skipped: bool = False
-    skip_reason: str = ""
-
 
 @dataclass
 class DiagnosisEvent:
@@ -129,275 +104,6 @@ class DiagnosisResult:
     recommendations: list[str] = field(default_factory=list)
     raw_response: str = ""
     parse_warnings: list[str] = field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# Load workspace
-# ---------------------------------------------------------------------------
-
-def load_workspace(workspace_dir: str) -> WorkspaceContents:
-    """Read all relevant files from a completed workspace."""
-    ws = Path(workspace_dir)
-    contents = WorkspaceContents(workspace_dir=workspace_dir)
-
-    for fname, attr in [
-        ("RESEARCH_STATE.md", "research_state"),
-        ("CRITIQUE_LOG.md", "critique_log"),
-        ("EVIDENCE_LOG.md", "evidence_log"),
-        ("CURRENT_TASK.md", "current_task"),
-    ]:
-        path = ws / fname
-        if path.exists():
-            setattr(contents, attr, path.read_text())
-
-    # Parse frontmatter from CURRENT_TASK to check termination
-    if contents.current_task:
-        fm, _ = parse_frontmatter(contents.current_task)
-        contents.frontmatter = fm
-        contents.terminated_cleanly = fm.get("task_type") == "terminate"
-
-    # Also check RESEARCH_STATE status — the engine may exit via
-    # _should_terminate() which sets status: completed/partially_complete
-    # without writing a terminate task to CURRENT_TASK.
-    if not contents.terminated_cleanly and contents.research_state:
-        rs_fm, _ = parse_frontmatter(contents.research_state)
-        rs_status = rs_fm.get("status", "")
-        if rs_status in ("completed", "partially_complete"):
-            contents.terminated_cleanly = True
-
-    # Glob computation scripts
-    scripts = sorted(glob.glob(str(ws / "computations" / "*.py")))
-    contents.computation_scripts = scripts
-
-    # Process data
-    metrics_path = ws / "METRICS.md"
-    if metrics_path.exists():
-        contents.metrics_md = metrics_path.read_text()
-
-    event_log_path = ws / "EVENT_LOG.jsonl"
-    if event_log_path.exists():
-        contents.event_log = event_log_path.read_text()
-
-    # Background survey from JSON state (not in markdown snapshots)
-    from ..research_state import STATE_FILENAME
-    from ..rendering import render_background_survey
-
-    state_path = ws / STATE_FILENAME
-    if state_path.exists():
-        try:
-            from ..research_state import ResearchState
-            state = ResearchState.from_json(state_path.read_text())
-            if state.survey_background:
-                contents.background_survey = render_background_survey(state)
-        except Exception:
-            pass  # Non-critical — proceed without survey
-
-    # Git log from workspace (may not be a git repo)
-    try:
-        result = subprocess.run(
-            ["git", "log", "--oneline"],
-            cwd=str(ws),
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            contents.git_log = result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass  # Not a git repo or git not available
-
-    return contents
-
-
-# ---------------------------------------------------------------------------
-# Reference file loading
-# ---------------------------------------------------------------------------
-
-def load_reference_file(problem_path: Path | None) -> tuple[str | None, str | None]:
-    """Load reference file matching a problem YAML, if it exists.
-
-    Returns:
-        (answer_expr, full_content) where answer_expr is the content
-        of the first code block (a SymPy assignment string) and
-        full_content is the entire file text.  Both are None if no
-        reference file is found.
-    """
-    if problem_path is None:
-        return None, None
-
-    ref_path = REFERENCES_DIR / f"{problem_path.stem}.md"
-    if not ref_path.exists():
-        return None, None
-
-    content = ref_path.read_text()
-
-    # Extract first fenced code block
-    m = re.search(r"```(?:python)?\s*\n(.*?)```", content, re.DOTALL)
-    answer_expr = m.group(1).strip() if m else None
-
-    return answer_expr, content
-
-
-# ---------------------------------------------------------------------------
-# Formal answer evaluation
-# ---------------------------------------------------------------------------
-
-def run_formal_evaluation(
-    workspace_dir: str,
-    problem_def: dict | None,
-    *,
-    problem_path: Path | None = None,
-) -> FormalEvalResult:
-    """Run formal (symbolic/numerical) answer evaluation against ground truth.
-
-    Preconditions (all must be met, otherwise skip gracefully):
-    1. problem_def is provided and has an 'answer' field (or reference file fallback)
-    2. problem_def has an 'answer_template' field
-    3. ANSWER.md exists in the workspace
-    """
-    from .evaluate import evaluate_response
-
-    # Precondition 1: problem_def with answer
-    if not problem_def:
-        return FormalEvalResult(skipped=True, skip_reason="No problem definition or no answer field")
-
-    answer_val = problem_def.get("answer")
-    answer_empty = answer_val is None or (isinstance(answer_val, str) and not answer_val.strip())
-
-    reference_code: str | None = None
-    if answer_empty:
-        # Fallback: try reference file
-        ref_answer, _ = load_reference_file(problem_path)
-        if ref_answer:
-            if "def answer" in ref_answer:
-                # Function-style reference: direct exec+call comparison
-                reference_code = ref_answer
-                console.print("  [dim]Using answer function from reference file[/]")
-            else:
-                # Legacy expression-style reference
-                problem_def = dict(problem_def)  # shallow copy to avoid mutating caller's dict
-                problem_def["answer"] = ref_answer
-                console.print("  [dim]Using answer from reference file[/]")
-        else:
-            return FormalEvalResult(skipped=True, skip_reason="No problem definition or no answer field")
-
-    # Precondition 2: answer_template
-    if not problem_def.get("answer_template"):
-        return FormalEvalResult(skipped=True, skip_reason="No answer_template in problem definition")
-
-    # Precondition 3: ANSWER.md exists
-    answer_path = Path(workspace_dir) / "ANSWER.md"
-    if not answer_path.exists():
-        return FormalEvalResult(skipped=True, skip_reason="ANSWER.md not found in workspace")
-
-    raw_content = answer_path.read_text()
-    if not raw_content.strip():
-        return FormalEvalResult(skipped=True, skip_reason="ANSWER.md is empty")
-
-    # Wrap raw content in fences if not already fenced
-    if "```python" in raw_content:
-        fenced_content = raw_content
-    else:
-        fenced_content = f"```python\n{raw_content}\n```"
-
-    # Call evaluate_response
-    try:
-        eval_result = evaluate_response(
-            fenced_content, problem_def, reference_code=reference_code,
-        )
-    except Exception as exc:
-        return FormalEvalResult(
-            correct=None,
-            method="evaluation_error",
-            error=str(exc),
-            details="Exception during evaluate_response()",
-        )
-
-    return FormalEvalResult(
-        correct=eval_result.get("correct"),
-        method=eval_result.get("method", ""),
-        error=eval_result.get("error"),
-        details=eval_result.get("details", ""),
-    )
-
-
-def render_formal_evaluation(result: FormalEvalResult) -> None:
-    """Print the formal evaluation result to the console using Rich."""
-    if result.skipped:
-        console.print(f"[dim]  Skipped: {result.skip_reason}[/]")
-        return
-
-    if result.correct is True:
-        console.print("[green bold]  CORRECT[/]")
-    elif result.correct is False:
-        console.print("[red bold]  INCORRECT[/]")
-    else:
-        console.print("[yellow bold]  INCONCLUSIVE[/]")
-
-    if result.method:
-        console.print(f"  Method: {result.method}")
-    if result.error:
-        console.print(f"  [red]Error: {result.error}[/]")
-    if result.details:
-        console.print(f"  [dim]{result.details}[/]")
-    console.print()
-
-
-def write_formal_eval_report(result: FormalEvalResult, workspace_dir: str) -> None:
-    """Write VERIFICATION.md with just the formal evaluation section.
-
-    Called by the engine at end of run. The diagnosis pass later appends to this file.
-    """
-    lines = ["---"]
-    if result.skipped:
-        lines.append("formal_answer: skipped")
-    elif result.correct is True:
-        lines.append("formal_answer: correct")
-    elif result.correct is False:
-        lines.append("formal_answer: incorrect")
-    else:
-        lines.append("formal_answer: inconclusive")
-    lines.append("---\n")
-
-    lines.append("# Verification Report\n")
-
-    if result.skipped:
-        lines.append(f"## Formal Answer Evaluation: SKIPPED\n")
-        lines.append(f"- Reason: {result.skip_reason}\n")
-    else:
-        if result.correct is True:
-            verdict_str = "CORRECT"
-        elif result.correct is False:
-            verdict_str = "INCORRECT"
-        else:
-            verdict_str = "INCONCLUSIVE"
-        lines.append(f"## Formal Answer Evaluation: {verdict_str}\n")
-        if result.method:
-            lines.append(f"- Method: {result.method}")
-        if result.error:
-            lines.append(f"- Error: {result.error}")
-        if result.details:
-            lines.append(f"- Details: {result.details}")
-        lines.append("")
-
-    report_path = Path(workspace_dir) / "VERIFICATION.md"
-    report_path.write_text("\n".join(lines))
-    console.print(f"[green]Formal evaluation written to {report_path}[/]")
-
-
-# ---------------------------------------------------------------------------
-# Re-run computations
-# ---------------------------------------------------------------------------
-
-def rerun_computations(workspace_dir: str, timeout: int = 60) -> list[RerunResult]:
-    """Re-run all computation scripts in the workspace."""
-    ws = Path(workspace_dir)
-    scripts = sorted(glob.glob(str(ws / "computations" / "*.py")))
-    results = []
-    for script in scripts:
-        execution = execute_python(script, timeout=timeout, cwd=workspace_dir)
-        results.append(RerunResult(script_path=script, execution=execution))
-    return results
 
 
 # ---------------------------------------------------------------------------
@@ -861,34 +567,6 @@ def _summarize_event_log(raw_text: str, max_chars: int = 4096) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Load or recover formal eval from existing VERIFICATION.md
-# ---------------------------------------------------------------------------
-
-def _load_or_run_formal_eval(
-    workspace_dir: str,
-    problem_def: dict | None,
-    ref_lookup_path: Path | None,
-) -> FormalEvalResult:
-    """Read formal eval from existing VERIFICATION.md, or run it fresh."""
-    report_path = Path(workspace_dir) / "VERIFICATION.md"
-    if report_path.exists():
-        content = report_path.read_text()
-        fm, _ = parse_frontmatter(content)
-        formal_answer = fm.get("formal_answer", "")
-        if formal_answer == "correct":
-            return FormalEvalResult(correct=True, method="from_report")
-        elif formal_answer == "incorrect":
-            return FormalEvalResult(correct=False, method="from_report")
-        elif formal_answer == "inconclusive":
-            return FormalEvalResult(correct=None, method="from_report")
-        elif formal_answer == "skipped":
-            return FormalEvalResult(skipped=True, skip_reason="from_report")
-
-    # No existing report or no formal_answer field — run fresh
-    return run_formal_evaluation(workspace_dir, problem_def, problem_path=ref_lookup_path)
-
-
-# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -956,7 +634,7 @@ def main():
 
     # Formal answer evaluation (read from engine's report, or run fresh)
     console.print(f"\n[bold]Formal answer evaluation...[/]")
-    formal_eval = _load_or_run_formal_eval(workspace_dir, problem_def, ref_lookup_path)
+    formal_eval = load_or_run_formal_eval(workspace_dir, problem_def, ref_lookup_path)
     render_formal_evaluation(formal_eval)
 
     # Single diagnosis pass

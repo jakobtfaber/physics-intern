@@ -26,9 +26,8 @@ import yaml
 
 from ..config import Config, DEFAULTS, build_config
 from ..llm import continue_on_max_tokens
-from ..verification.evaluate import evaluate_response
 from ..providers import create_provider, LLMProvider, ProviderResponse, call_with_retry
-from ..verification.verify import load_reference_file
+from ..verification import evaluate_response, load_reference_file
 
 # ---------------------------------------------------------------------------
 # System prompt — distilled from the one-shot/prompt_template_default.yaml

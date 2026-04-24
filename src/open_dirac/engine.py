@@ -27,7 +27,7 @@ from .agents.formatter import FormatterAgent
 from .agents.surveyor import SurveyorAgent
 from .agents.planner import PlannerAgent
 from .agents.adjudicator import AdjudicatorAgent
-from .verification.verify import (
+from .verification import (
     run_formal_evaluation, render_formal_evaluation,
     write_formal_eval_report, load_reference_file,
 )

@@ -35,8 +35,8 @@ from ..config import Config, DEFAULTS, build_config
 from ..console import console
 from ..providers import create_provider, LLMProvider
 from ..providers.base import strip_think_tags
-from ..verification.evaluate import extract_answer_code
-from ..verification.verify import (
+from ..verification import (
+    extract_answer_code,
     run_formal_evaluation, render_formal_evaluation, write_formal_eval_report,
 )
 from ..llm import continue_on_max_tokens
