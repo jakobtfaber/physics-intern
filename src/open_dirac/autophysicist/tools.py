@@ -11,11 +11,29 @@ from .subagent import dispatch_subagent
 
 
 class ManagerToolExecutor:
-    """Executes the Manager's 4 tools and enforces budget/wind-down.
+    """Executes the Manager's tools and enforces the per-iteration budget.
 
     Conforms to the duck-type interface expected by ``run_agent_loop``:
     ``execute()``, ``active_tools``, ``stop_after_round``,
     ``exit_tool_name``, ``exit_tool_names``, ``end_round()``.
+
+    Wind-down contract (enforced in :meth:`end_round`):
+
+    * **Soft trigger** — fires once when either the running token total
+      reaches ``token_budget`` *or* ``_tool_call_count`` reaches
+      ``tool_call_cap``. Flips ``_wind_down`` so :attr:`active_tools`
+      returns :attr:`WIND_DOWN_TOOLS` (``dispatch_subagent`` removed) and
+      injects a user-visible warning. The Manager is expected to save
+      state and call ``end_turn``.
+    * **Hard trigger** — fires when the running total reaches
+      ``HARD_BUDGET_MULTIPLIER × token_budget`` (default 1.5×). Sets
+      ``stop_after_round = True`` so ``run_agent_loop`` exits even if the
+      Manager has not called ``end_turn``; any unsaved state is lost.
+
+    Token accounting: the Manager's own conversation tokens are supplied
+    by ``run_agent_loop`` via the ``on_round`` callback (see
+    :meth:`update_manager_tokens`). Sub-agent tokens are added here when
+    ``dispatch_subagent`` returns. The wind-down total is the sum of both.
     """
 
     # ---- Tool definitions (OpenAI canonical format) ----

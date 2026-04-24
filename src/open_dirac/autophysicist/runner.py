@@ -1,4 +1,17 @@
-"""Autophysicist: iterative Research Manager for theoretical physics."""
+"""Autophysicist: iterative Research Manager for theoretical physics.
+
+Single-agent, stateless-iteration scaffolding. Each outer-loop iteration
+rebuilds a fresh user message from PermanentMemory + the Scratchpad window
+via :func:`_build_user_content`; no conversation history carries over
+between iterations. The Manager's only durable state between iterations is
+what it explicitly wrote to ``PERMANENT_MEMORY.md`` or ``SCRATCHPAD.md``.
+
+The iteration counter is scaffolding-owned (persisted in ``.iteration`` and
+bumped by :func:`_write_iteration_counter`), not LLM-decided — this lets
+``--resume`` pick up exactly where a run left off. ``submit_final_answer``
+sets ``problem_solved`` on the executor and breaks the outer loop;
+:func:`_run_formal_verification` then runs once at the end of the run.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +27,7 @@ load_dotenv()
 
 import yaml  # noqa: E402
 
+from ..baselines.cli import load_problem  # noqa: E402
 from ..config import Config, DEFAULTS, build_config  # noqa: E402
 from ..console import console  # noqa: E402
 from ..llm import run_agent_loop, AgentResult  # noqa: E402
@@ -187,6 +201,10 @@ def _read_iteration_counter(workspace_root: Path) -> int:
     return 0
 
 
+# TODO(slice-7): this block mirrors engine.py._run_formal_verification() and
+# the simpler run/render/write sequence used by one_shot and rsa runners.
+# Slice 7 should decide whether to extract a shared helper (into verification/
+# or a new runner-utils module) rather than keep four near-duplicates.
 def _run_formal_verification(workspace_root: Path, problem_path: Path) -> None:
     """Run formal (symbolic/numerical) answer evaluation at end of run.
 
@@ -283,18 +301,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # --- Load problem ---
-    if not args.problem.exists():
-        print(f"Error: problem file not found: {args.problem}", file=sys.stderr)
-        sys.exit(1)
-
-    with open(args.problem) as f:
-        problem_def = yaml.safe_load(f)
-
-    problem_text = problem_def.get("problem", "")
-    if not problem_text:
-        print("Error: problem YAML has no 'problem' field", file=sys.stderr)
-        sys.exit(1)
-    answer_template = problem_def.get("answer_template", "")
+    problem_def, problem_text, answer_template = load_problem(args.problem)
 
     # --- Config ---
     config = build_config(args)

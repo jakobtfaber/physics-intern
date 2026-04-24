@@ -1,4 +1,21 @@
-"""Permanent memory and scratchpad for the autophysicist Research Manager."""
+"""Permanent memory and scratchpad for the autophysicist Research Manager.
+
+Because each iteration runs with fresh LLM context, these two files are the
+Manager's only durable state between iterations:
+
+* :class:`PermanentMemory` — append-only. Every entry ever written is
+  injected into every future iteration. Reserved for independently
+  verified results.
+* :class:`Scratchpad` — append-only on disk, but only the *last N* entries
+  (default ``window_size=5``) are injected into the next iteration.
+  Storage is full; visibility is windowed — the window is a render-time
+  concern, not a retention policy. Older entries still live in
+  ``SCRATCHPAD.md`` for git history and post-hoc analysis.
+
+Consequence for the Manager prompt: important intermediate results must be
+promoted to permanent memory *before* they scroll off the scratchpad
+window, otherwise the next iteration will not see them.
+"""
 
 from datetime import datetime, timezone
 from pathlib import Path
