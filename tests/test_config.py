@@ -1,6 +1,8 @@
 """Tests for config loading, YAML merge, and CLI parsers."""
 
-import tempfile
+import shlex
+import subprocess
+import sys
 import warnings
 from argparse import Namespace
 from pathlib import Path
@@ -9,6 +11,10 @@ import pytest
 import yaml
 
 from open_dirac.config import Config, DEFAULTS, _YAML_CONFIG_FIELDS, load_config_yaml, build_config
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MODELS_YAML = PROJECT_ROOT / "src" / "open_dirac" / "models.yaml"
+RESOLVE_SERVE_CONFIG = PROJECT_ROOT / "serve" / "resolve_serve_config.py"
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +159,111 @@ class TestBuildConfig:
         # Attempted override is ignored; value comes from models.yaml
         assert cfg.max_tokens == 65536
         assert cfg.max_iterations == 10
+
+
+# ---------------------------------------------------------------------------
+# Model registry resolution
+# ---------------------------------------------------------------------------
+
+class TestModelRegistryResolution:
+    def test_glm_5_1_local_vllm_key_resolves(self):
+        cfg = Config(model="zai-org/GLM-5.1")
+        assert cfg.provider == "vllm"
+        assert cfg.model_id == "zai-org/GLM-5.1"
+        assert cfg.max_tokens == 131072
+        assert cfg.reasoning["reasoning_format"] == "separate_field"
+        assert cfg.reasoning["tool_mode"] == "api"
+
+    def test_kimi_k2_6_local_vllm_key_resolves(self):
+        cfg = Config(model="moonshotai/Kimi-K2.6")
+        assert cfg.provider == "vllm"
+        assert cfg.model_id == "moonshotai/Kimi-K2.6"
+        assert cfg.max_tokens == 131072
+        assert cfg.reasoning["reasoning_format"] == "separate_field"
+        assert cfg.reasoning["tool_mode"] == "api"
+
+
+# ---------------------------------------------------------------------------
+# models.yaml `serve` block — consumed by serve/serve.slurm
+# ---------------------------------------------------------------------------
+
+class TestServeConfig:
+    """The serve.slurm script reads `serve.{nodes,gpus_per_node,vllm_args}` for
+    each model. These tests pin the contract for the two new huge models so a
+    drive-by yaml edit cannot silently break the launcher."""
+
+    @pytest.fixture(scope="class")
+    def registry(self) -> dict:
+        return yaml.safe_load(MODELS_YAML.read_text())
+
+    def test_glm_5_1_serve_block(self, registry):
+        serve = registry["zai-org/GLM-5.1"]["serve"]
+        assert serve["nodes"] == 3
+        assert serve["gpus_per_node"] == 8
+        args = " ".join(serve["vllm_args"])
+        assert "--enforce-eager" in args  # mandatory: DeepGEMM JIT crash without it
+        assert "--safetensors-load-strategy prefetch" in args  # 17x load speedup
+        assert "--trust-remote-code" in args
+
+    def test_kimi_k2_6_serve_block(self, registry):
+        serve = registry["moonshotai/Kimi-K2.6"]["serve"]
+        assert serve["nodes"] == 4
+        assert serve["gpus_per_node"] == 8
+        args = " ".join(serve["vllm_args"])
+        assert "--enable-expert-parallel" in args
+        assert "--safetensors-load-strategy prefetch" in args
+        # Champion config explicitly does NOT use --enforce-eager (CUDA graphs
+        # give the dominant 4x throughput win on Kimi).
+        assert "--enforce-eager" not in args
+
+
+# ---------------------------------------------------------------------------
+# serve/resolve_serve_config.py — bridges models.yaml → serve.slurm shell vars
+# ---------------------------------------------------------------------------
+
+def _run_resolver(model: str) -> dict[str, str]:
+    """Invoke resolve_serve_config.py and parse its KEY=value output."""
+    result = subprocess.run(
+        [sys.executable, str(RESOLVE_SERVE_CONFIG), model],
+        capture_output=True, text=True, check=True,
+    )
+    out: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        # Strip the array-form wrapper for DEFAULT_VLLM_ARGS, leave others quoted.
+        if v.startswith("( ") and v.endswith(" )"):
+            out[k] = v[2:-2]
+        else:
+            out[k] = shlex.split(v)[0] if v else ""
+    return out
+
+
+class TestResolveServeConfig:
+    """resolve_serve_config.py emits the shell vars serve.slurm relies on. The
+    `DEFAULT_MODEL_ID` line is new in this PR (used to support alias keys)."""
+
+    def test_emits_all_required_shell_vars_for_kimi(self):
+        out = _run_resolver("moonshotai/Kimi-K2.6")
+        assert out["DEFAULT_MODEL_ID"] == "moonshotai/Kimi-K2.6"
+        assert out["DEFAULT_NODES"] == "4"
+        assert out["DEFAULT_GPUS_PER_NODE"] == "8"
+        assert "--enable-expert-parallel" in out["DEFAULT_VLLM_ARGS"]
+
+    def test_emits_all_required_shell_vars_for_glm(self):
+        out = _run_resolver("zai-org/GLM-5.1")
+        assert out["DEFAULT_MODEL_ID"] == "zai-org/GLM-5.1"
+        assert out["DEFAULT_NODES"] == "3"
+        assert out["DEFAULT_GPUS_PER_NODE"] == "8"
+        assert "--enforce-eager" in out["DEFAULT_VLLM_ARGS"]
+
+    def test_unknown_model_falls_back_to_input_as_model_id(self):
+        """No registry entry → DEFAULT_MODEL_ID == input model, no nodes/args."""
+        out = _run_resolver("not/a-real-model-key")
+        assert out["DEFAULT_MODEL_ID"] == "not/a-real-model-key"
+        assert out["DEFAULT_NODES"] == ""
+        assert out["DEFAULT_VLLM_ARGS"] == ""
 
 
 # ---------------------------------------------------------------------------

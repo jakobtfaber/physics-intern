@@ -497,6 +497,26 @@ def write_batch_metadata(
     os.replace(tmp_path, final_path)
 
 
+def write_initial_batch_metadata(
+    output_dir: Path,
+    critpt_model: str,
+    generation_config: dict,
+    run_config: dict,
+    start_time: datetime,
+) -> None:
+    """Write a stub ``batch_metadata.json`` before any workers spawn.
+
+    Makes a partially-completed run resumable via ``--resume`` even if the
+    process is killed before the end-of-run ``write_batch_metadata`` call.
+    The stub records the run's configs and an empty problems list; the
+    end-of-run write merges per-problem results into it.
+    """
+    write_batch_metadata(
+        output_dir, critpt_model, [],
+        generation_config, run_config, start_time, start_time,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Orchestration helpers
 # ---------------------------------------------------------------------------

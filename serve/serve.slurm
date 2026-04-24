@@ -27,15 +27,17 @@ Examples:
   ./serve/serve.slurm --model Qwen/Qwen3.5-4B --nodes 1 --gpus-per-node 1
   ./serve/serve.slurm --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --nodes 1 --gpus-per-node 1
   ./serve/serve.slurm --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 --nodes 2 --gpus-per-node 8
+  ./serve/serve.slurm --model zai-org/GLM-5.1 --nodes 3 --gpus-per-node 8
+  ./serve/serve.slurm --model moonshotai/Kimi-K2.6 --nodes 4 --gpus-per-node 8
   ./serve/serve.slurm --model Qwen/Qwen3.5-4B --nodes 1 --gpus-per-node 1 --reasoning-parser qwen3
 
 Options:
   --model MODEL                    Hugging Face model repo id to serve.
-  --nodes N                        Node count. Defaults to 1 when self-submitting.
+  --nodes N                        Node count. Defaults to serve.nodes or 1 when self-submitting.
   --gpus-per-node N                GPU count per node. Defaults are model-specific.
   --partition NAME                 Slurm partition (default: hopper-prod).
   --cpus-per-task N                CPUs per task. Defaults to 11 * gpus-per-node.
-  --time HH:MM:SS                  Slurm time limit (default: 04:00:00).
+  --time HH:MM:SS                  Slurm time limit (default: 24:00:00).
   --port PORT                      vLLM API port (default: 8000).
   --served-model-name NAME         Model name exposed by the API (default: MODEL).
   --max-model-len TOKENS           Max model length (default: 262144).
@@ -148,7 +150,7 @@ NODES=""
 GPUS_PER_NODE=""
 PARTITION="hopper-prod"
 CPUS_PER_TASK=""
-TIME_LIMIT="04:00:00"
+TIME_LIMIT="24:00:00"
 PORT="8000"
 SERVED_MODEL_NAME=""
 MAX_MODEL_LEN="262144"
@@ -249,6 +251,9 @@ _RESOLVE_SCRIPT="${SCRIPT_DIR}/resolve_serve_config.py"
 eval "$(uv run --no-sync python "$_RESOLVE_SCRIPT" "$MODEL")"
 
 if [[ -z "${SLURM_JOB_ID:-}" ]]; then
+  if [[ -z "$NODES" ]]; then
+    NODES="$DEFAULT_NODES"
+  fi
   if [[ -z "$NODES" ]]; then
     NODES="1"
   fi
@@ -385,8 +390,15 @@ if ! is_pos_int "$PORT"; then
 fi
 
 if [[ -z "$SERVED_MODEL_NAME" ]]; then
-  SERVED_MODEL_NAME="$MODEL"
+  # Default the served name to the upstream HF repo (`model_id` from
+  # models.yaml) so OpenAI clients can call the API with the same name they
+  # use everywhere else. This matters for alias entries like
+  # `zai-org/GLM-5.1-runai` whose `model_id` is `zai-org/GLM-5.1`.
+  SERVED_MODEL_NAME="${DEFAULT_MODEL_ID:-$MODEL}"
 fi
+# Use the real HF repo id for vLLM's `serve` argument; the alias is only
+# meaningful inside open-dirac's models.yaml.
+MODEL_ID="${DEFAULT_MODEL_ID:-$MODEL}"
 if [[ -z "$REASONING_PARSER" ]]; then
   REASONING_PARSER="$DEFAULT_REASONING_PARSER"
 fi
@@ -412,7 +424,7 @@ if (( TP * PP != TOTAL_ASSIGNED_GPUS )); then
 fi
 
 VLLM_ARGS=(
-  serve "$MODEL"
+  serve "$MODEL_ID"
   --host 0.0.0.0
   --port "$PORT"
   --served-model-name "$SERVED_MODEL_NAME"
