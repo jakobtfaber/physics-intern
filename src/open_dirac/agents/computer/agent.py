@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from open_dirac.llm import AgentResult, ParseFailureError
+from open_dirac.llm import AgentResult, ParseFailureError, run_agent_loop
 from open_dirac.research_state import Evidence
+from open_dirac.tool_call import ToolCall
 
 from ..evidence_base import ENTITY_ID_RE, EvidenceAgent
 from .tools import ToolExecutor
@@ -19,6 +21,63 @@ class ComputerAgent(EvidenceAgent):
     prompt_file = "prompt.md"
     tools = ToolExecutor.COMPUTER_TOOLS
     raise_on_parse_failure = True
+
+    def _call_with_tools(
+        self,
+        context: str,
+        task: Task,
+        iteration: int,
+        on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
+    ) -> AgentResult:
+        """Run the tool-use agent loop with the computer's ToolExecutor."""
+        tool_executor = ToolExecutor(
+            workspace_root=self.workspace.root,
+            timeout=self.config.sympy_timeout_seconds,
+            output_limit=self.config.tool_output_limit,
+            task_type=task.task_type,
+        )
+        result = run_agent_loop(
+            system=self.system_prompt,
+            user_content=context,
+            config=self.config,
+            tool_executor=tool_executor,
+            tools=self.tools,
+            max_rounds=self.max_tool_rounds or self.config.max_tool_rounds,
+            agent_name=self.name,
+            iteration=iteration,
+            on_round=on_round,
+        )
+        self._last_script_names = list(getattr(tool_executor, "_script_names", []))
+
+        self.metrics.record_call(
+            iteration=iteration,
+            agent=self.name,
+            input_tokens=result.total_input_tokens,
+            output_tokens=result.total_output_tokens,
+            duration=result.duration,
+            max_tokens_hit=result.truncated,
+            rounds=result.rounds,
+            tool_calls=len(result.tool_calls),
+            truncated=result.truncated,
+            reasoning_tokens=result.total_reasoning_tokens,
+            answer_tokens=result.total_answer_tokens,
+        )
+
+        if result.truncated:
+            self.metrics.alert(
+                iteration,
+                f"tool_loop_truncated on {self.name} "
+                f"(rounds={result.rounds}, stop={result.stop_reason})"
+            )
+
+        if result.token_alert_fired:
+            self.metrics.alert(
+                iteration,
+                f"computation_token_alert on {self.name} "
+                f"(input={result.total_input_tokens})"
+            )
+
+        return result
 
     def process_response(self, response: AgentResult, task: Task, iteration: int):
         """Build Evidence from document_approach + submit_result and store on target entity."""

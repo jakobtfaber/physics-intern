@@ -9,10 +9,9 @@ from typing import ClassVar, TYPE_CHECKING
 
 from ..config import Config
 from ..console import console
-from ..llm import AgentResult, ContextTooLongError, LLMResponse, ParseFailureError, call_llm, call_llm_continuation, run_agent_loop
+from ..llm import AgentResult, ContextTooLongError, LLMResponse, ParseFailureError, call_llm, call_llm_continuation
 from ..metrics import MetricsTracker
 from ..tool_call import ToolCall
-from .computer.tools import ToolExecutor
 from ..utils.categories import CompensationCategory as CC
 from ..workspace import WorkspaceManager, log_scaffold_event
 
@@ -78,55 +77,10 @@ class BaseAgent(ABC):
         iteration: int,
         on_round: Callable[[int, str, list[ToolCall], int, int, int, int, float], None] | None = None,
     ) -> AgentResult:
-        """Run the tool-use agent loop."""
-        tool_executor = ToolExecutor(
-            workspace_root=self.workspace.root,
-            timeout=self.config.sympy_timeout_seconds,
-            output_limit=self.config.tool_output_limit,
-            task_type=task.task_type,
+        """Run the tool-use agent loop. Subclasses with ``tools`` must override."""
+        raise NotImplementedError(
+            f"{type(self).__name__} declares tools but does not implement _call_with_tools"
         )
-        result = run_agent_loop(
-            system=self.system_prompt,
-            user_content=context,
-            config=self.config,
-            tool_executor=tool_executor,
-            tools=self.tools,
-            max_rounds=self.max_tool_rounds or self.config.max_tool_rounds,
-            agent_name=self.name,
-            iteration=iteration,
-            on_round=on_round,
-        )
-        self._last_script_names = list(getattr(tool_executor, "_script_names", []))
-
-        self.metrics.record_call(
-            iteration=iteration,
-            agent=self.name,
-            input_tokens=result.total_input_tokens,
-            output_tokens=result.total_output_tokens,
-            duration=result.duration,
-            max_tokens_hit=result.truncated,
-            rounds=result.rounds,
-            tool_calls=len(result.tool_calls),
-            truncated=result.truncated,
-            reasoning_tokens=result.total_reasoning_tokens,
-            answer_tokens=result.total_answer_tokens,
-        )
-
-        if result.truncated:
-            self.metrics.alert(
-                iteration,
-                f"tool_loop_truncated on {self.name} "
-                f"(rounds={result.rounds}, stop={result.stop_reason})"
-            )
-
-        if result.token_alert_fired:
-            self.metrics.alert(
-                iteration,
-                f"computation_token_alert on {self.name} "
-                f"(input={result.total_input_tokens})"
-            )
-
-        return result
 
     def _validate_response(self, response: LLMResponse) -> bool:
         """Check whether the one-shot response is parseable.
