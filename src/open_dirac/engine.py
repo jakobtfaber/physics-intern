@@ -14,6 +14,14 @@ from .critique_routing import (
     invoke_planner_revision,
     route_critiques,
 )
+from .dispatcher import (
+    dispatch as _dispatcher_dispatch,
+    handle_context_too_long as _dispatcher_handle_context_too_long,
+    handle_dispatch_error as _dispatcher_handle_dispatch_error,
+    handle_parse_failure as _dispatcher_handle_parse_failure,
+    is_recoverable,
+    record_agent_failures as _dispatcher_record_agent_failures,
+)
 from .llm import ParseFailureError
 from .loop_state import (
     DispatchRecord,
@@ -22,7 +30,7 @@ from .loop_state import (
     build_context_suffix,
     render_pending_work,
 )
-from .providers import ContextTooLongError, is_transient
+from .providers import ContextTooLongError
 from .metrics import MetricsTracker
 from .task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
@@ -46,19 +54,7 @@ from .verification import (
 )
 
 
-# Errors that indicate malformed LLM output (wrong types in tool args, etc.)
-# rather than a true system failure.  These are recoverable — skip the
-# iteration rather than crashing the entire run.
-_LLM_DATA_ERRORS = (TypeError, ValueError, KeyError, AttributeError)
-
-
-def _is_recoverable(exc: Exception) -> bool:
-    """Return True if *exc* is safe to skip (transient API or malformed LLM data)."""
-    if is_transient(exc):
-        return True
-    if isinstance(exc, _LLM_DATA_ERRORS):
-        return True
-    return False
+_is_recoverable = is_recoverable  # backward-compat alias for local use
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -599,82 +595,20 @@ class OpenDirac:
 
     def _handle_context_too_long(self, task: Task, exc: ContextTooLongError) -> None:
         """Log context-too-long error and record for orchestrator — do not crash."""
-        self.metrics.alert(
-            self.iteration,
-            f"Context too long for {task.task_id}: {exc.input_tokens} input tokens "
-            f"(model limit {exc.max_context})",
-        )
-        self._state.agent_failures.append({
-            "task_id": task.task_id, "agent": task.task_type.value,
-            "event": "context_too_long",
-            "detail": (
-                f"Context exceeded model limit (~{exc.input_tokens} input tokens, "
-                f"limit {exc.max_context}). Simplify or decompose the task."
-            ),
-            "iteration": self.iteration,
-        })
-        console.print(
-            f"[yellow]Context too long for {task.task_id} — skipping "
-            f"(~{exc.input_tokens} input tokens, limit {exc.max_context})[/yellow]"
-        )
-        log_scaffold_event(
-            self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-            "context_too_long",
-            f"task={task.task_id}, input_tokens={exc.input_tokens}, "
-            f"max_context={exc.max_context}",
+        _dispatcher_handle_context_too_long(
+            task, exc, self.iteration, self._state, self.workspace, self.metrics,
         )
 
     def _handle_dispatch_error(self, task: Task, exc: Exception) -> None:
         """Handle transient dispatch errors — log and skip to next iteration."""
-        self.metrics.alert(
-            self.iteration,
-            f"Dispatch failed (transient): {type(exc).__name__}: {exc}",
+        _dispatcher_handle_dispatch_error(
+            task, exc, self.iteration, self._state, self.workspace, self.metrics,
         )
-        self._state.pending_violations.append(
-            Violation(
-                check="dispatch_failure",
-                severity=ViolationSeverity.WARNING,
-                message=(
-                    f"Agent dispatch failed with transient error: "
-                    f"{type(exc).__name__}: {str(exc)[:200]}"
-                ),
-            )
-        )
-        console.print(
-            f"[yellow]Dispatch failed (transient), skipping: {exc}[/yellow]"
-        )
-        log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL, "dispatch_failure",
-                           f"{type(exc).__name__}: {str(exc)[:200]}")
 
     def _handle_parse_failure(self, task: Task, exc: ParseFailureError) -> None:
-        """Handle evidence agent parse failure — log and report to orchestrator.
-
-        No evidence is stored.  The failure is appended to ``agent_failures``
-        so the orchestrator can decide whether to re-dispatch or decompose.
-        """
-        self.metrics.alert(
-            self.iteration,
-            f"Parse failure on {exc.agent_name}: {exc.detail}",
-        )
-        self._state.agent_failures.append({
-            "task_id": task.task_id,
-            "agent": exc.agent_name,
-            "event": "parse_failure",
-            "detail": (
-                f"Agent {exc.agent_name} failed to produce valid structured "
-                f"output after retries. No evidence was stored. "
-                f"Consider re-dispatching or decomposing the task."
-            ),
-            "iteration": self.iteration,
-        })
-        console.print(
-            f"[yellow]{exc.agent_name}: parse failure — no evidence stored. "
-            f"Reporting to orchestrator.[/yellow]"
-        )
-        log_scaffold_event(
-            self.workspace.root, self.iteration, CC.OUTPUT_NORMALIZATION,
-            "parse_failure_no_evidence",
-            f"agent={exc.agent_name}, task={task.task_id}, {exc.detail[:200]}",
+        """Handle evidence agent parse failure — log and report to orchestrator."""
+        _dispatcher_handle_parse_failure(
+            task, exc, self.iteration, self._state, self.workspace, self.metrics,
         )
 
     def _run_with_pipeline_retry(self, label: str, fn) -> None:
@@ -716,38 +650,9 @@ class OpenDirac:
 
     def _record_agent_failures(self, task: Task, agent_name: str, result):
         """Inspect agent result for failure signals and record for orchestrator context."""
-        from .llm import AgentResult
-
-        stop = getattr(result, "stop_reason", None)
-
-        # max_tokens truncation (one-shot or agentic)
-        if stop == "max_tokens":
-            out_tok = getattr(result, "output_tokens", None) or getattr(result, "total_output_tokens", None) or 0
-            self._state.agent_failures.append({
-                "task_id": task.task_id, "agent": agent_name,
-                "event": "max_tokens_truncation",
-                "detail": (
-                    f"Output hit token limit ({out_tok} tokens). "
-                    f"Decompose into smaller subtasks, each targeting a single "
-                    f"derivation step or sub-claim."
-                ),
-                "iteration": self.iteration,
-            })
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                               "agent_failure_max_tokens",
-                               f"task={task.task_id}, agent={agent_name}")
-
-        # max_rounds exhaustion (agentic only)
-        if stop == "max_rounds_forced" and isinstance(result, AgentResult):
-            self._state.agent_failures.append({
-                "task_id": task.task_id, "agent": agent_name,
-                "event": "max_rounds_exhaustion",
-                "detail": f"Exhausted {result.rounds} tool-use rounds without completing.",
-                "iteration": self.iteration,
-            })
-            log_scaffold_event(self.workspace.root, self.iteration, CC.LOOP_CONTROL,
-                               "agent_failure_max_rounds",
-                               f"task={task.task_id}, agent={agent_name}, rounds={result.rounds}")
+        _dispatcher_record_agent_failures(
+            task, agent_name, result, self.iteration, self._state, self.workspace,
+        )
 
     def _append_dispatch_record(self, task: Task):
         """Derive outcome from authoritative state and append a DispatchRecord."""
@@ -768,58 +673,17 @@ class OpenDirac:
 
     def _dispatch(self, task: Task) -> tuple[str, "LLMResponse | AgentResult"]:
         """Route task to the correct agent. Returns (agent_name, result)."""
-        from .llm import AgentResult, LLMResponse  # noqa: F811
-
-        tt = task.task_type
-
-        if tt == TaskType.RESEARCH:
-            console.print("[green]Researcher[/green] reasoning...")
-            self.researcher.research_state = self.research_state
-            result = self.researcher.run(task, self.iteration)
-            self._state.last_content_iteration = self.iteration
-            return "researcher", result
-
-        elif tt == TaskType.COMPUTE:
-            console.print("[magenta]Computer[/magenta] computing...")
-            self.computer.research_state = self.research_state
-            result = self.computer.run(task, self.iteration, on_round=self._on_compute_round)
-            self._state.last_content_iteration = self.iteration
-            return "computer", result
-
-        elif tt == TaskType.REVIEW:
-            console.print("[magenta]Reviewer[/magenta] reviewing...")
-            self.reviewer.research_state = self.research_state
-            result = self.reviewer.run(task, self.iteration, on_round=self._on_agent_round)
-            self._state.last_content_iteration = self.iteration
-            return "reviewer", result
-
-        elif tt == TaskType.FORMAT:
-            console.print("[cyan]Formatter[/cyan] producing ANSWER.md...")
-            self.formatter.research_state = self.research_state
-            result = self.formatter.run(task, self.iteration)
-            self._print_call_summary(result)
-            return "formatter", result
-
-        elif tt == TaskType.CRITIQUE:
-            console.print("[red]Deep Critic[/red] reviewing...")
-            self.critic.research_state = self.research_state
-            response = self.critic.run(task, self.iteration, on_round=self._on_agent_round)
-            if self.critic._no_critiques_filed:
-                console.print("[dim]Critic: no issues found[/dim]")
-            else:
-                crits = list(self.research_state.critiques.values())
-                recent = [c for c in crits if c.iteration_filed == self.iteration]
-                if recent:
-                    console.print(
-                        f"[red]Critic filed {len(recent)} critique(s)[/red]"
-                    )
-            return "deep_critic", response
-
-        else:
-            console.print(f"[yellow]Unknown task type '{tt}', defaulting to researcher[/yellow]")
-            self.researcher.research_state = self.research_state
-            result = self.researcher.run(task, self.iteration)
-            return "researcher", result
+        return _dispatcher_dispatch(
+            task, self.iteration, self.research_state, self._state,
+            researcher=getattr(self, "researcher", None),
+            computer=getattr(self, "computer", None),
+            reviewer=getattr(self, "reviewer", None),
+            critic=getattr(self, "critic", None),
+            formatter=getattr(self, "formatter", None),
+            on_compute_round=self._on_compute_round,
+            on_agent_round=self._on_agent_round,
+            print_call_summary=self._print_call_summary,
+        )
 
     def _should_trigger_critic(self) -> bool:
         """Check if the critic should auto-trigger after a VERIFIED review."""
