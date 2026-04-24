@@ -1,13 +1,18 @@
 """OpenDirac main loop engine."""
 
-import json
 from pathlib import Path
 
 from rich.panel import Panel
-from rich.text import Text
 
 from .config import Config
 from .console import console, replay_log
+from .console_reports import (
+    fmt_duration as _fmt_duration,
+    on_round_progress,
+    print_call_summary,
+    print_final_report,
+    print_task,
+)
 from .critique_routing import (
     adjudicate_er_critique,
     auto_promote,
@@ -32,6 +37,10 @@ from .loop_state import (
 )
 from .providers import ContextTooLongError
 from .metrics import MetricsTracker
+from .resume import (
+    find_last_critic_iteration as _find_last_critic_iteration,
+    reconstruct_loop_state as _reconstruct_loop_state,
+)
 from .task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
 from .research_state import ResearchState, Verdict
@@ -55,14 +64,6 @@ from .verification import (
 
 
 _is_recoverable = is_recoverable  # backward-compat alias for local use
-
-
-def _fmt_duration(seconds: float) -> str:
-    """Format a duration as e.g. '6.3s' or '2m05s'."""
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    m, s = divmod(int(seconds), 60)
-    return f"{m}m{s:02d}s"
 
 
 class OpenDirac:
@@ -1052,140 +1053,34 @@ class OpenDirac:
 
     def _print_task(self, task: Task):
         """Print task summary to console."""
-        text = Text()
-        text.append("Task: ", style="bold")
-        text.append(f"{task.task_id} ", style="cyan")
-        text.append(f"[{task.task_type}] ", style="yellow")
-        if task.target_claim:
-            text.append(f"{task.target_claim} ", style="bold magenta")
-        text.append(f"-> {task.assigned_to}", style="green")
-        console.print(text)
+        print_task(task)
 
     def _on_compute_round(self, round_num, stop_reason, tool_calls,
                           total_input, total_output,
                           round_input, round_output, round_duration,
                           round_reasoning=0, round_answer=0):
         """Progress callback for agent tool-use rounds."""
-        # Token breakdown: input + reasoning/answer split + speed
-        if round_reasoning:
-            tokens = f"{round_input:,}in + {round_output:,}out ({round_reasoning:,}r + {round_answer:,}a)"
-        else:
-            tokens = f"{round_input:,}in + {round_output:,}out"
-        tps = f"{round_output / round_duration:,.0f} t/s" if round_duration > 0 else ""
-        dur = _fmt_duration(round_duration)
-        detail = f"{tokens}, {dur}"
-        if tps:
-            detail += f", {tps}"
-        if stop_reason == "forced_partial":
-            console.print(f"  round {round_num}: forced final call ({detail})", style="dim magenta")
-            return
-        n_tools = len(tool_calls)
-        errors = sum(1 for tc in tool_calls if tc.is_error)
-        if errors:
-            status = f"{n_tools} tool call{'s' if n_tools != 1 else ''}, {errors} error{'s' if errors != 1 else ''}"
-        else:
-            status = f"{n_tools} tool call{'s' if n_tools != 1 else ''}"
-        console.print(f"  round {round_num}: {status} ({detail})", style="dim magenta")
+        on_round_progress(
+            round_num, stop_reason, tool_calls,
+            total_input, total_output,
+            round_input, round_output, round_duration,
+            round_reasoning, round_answer,
+        )
 
     # Alias so orchestrator/critic use the same callback
     _on_agent_round = _on_compute_round
 
     def _print_call_summary(self, result):
         """Print a one-line timing/token summary for one-shot LLM calls."""
-        from .llm import LLMResponse, AgentResult
-        if isinstance(result, AgentResult):
-            out = result.total_output_tokens
-            reasoning = result.total_reasoning_tokens
-            answer = result.total_answer_tokens
-            tokens = f"{result.total_input_tokens:,}in + {out:,}out"
-            if reasoning:
-                tokens += f" ({reasoning:,}r + {answer:,}a)"
-        elif isinstance(result, LLMResponse):
-            out = result.output_tokens
-            reasoning = result.reasoning_tokens
-            answer = result.answer_tokens
-            tokens = f"{result.input_tokens:,}in + {out:,}out"
-            if reasoning:
-                tokens += f" ({reasoning:,}r + {answer:,}a)"
-        else:
-            return
-        dur = _fmt_duration(result.duration)
-        tps = f", {out / result.duration:,.0f} t/s" if result.duration > 0 else ""
-        console.print(f"  ({tokens}, {dur}{tps})", style="dim")
+        print_call_summary(result)
 
     def _final_report(self):
         """Flush metrics and print final summary."""
         self._update_metrics()
         self._render_files_for_git()
         self.workspace.git_commit(f"Final metrics flush (iteration {self.iteration})")
-        console.rule("[bold green]SESSION COMPLETE[/bold green]")
-        console.print(f"Total iterations: {self.iteration}")
-        console.print(f"Total LLM calls: {len(self.metrics.calls)}")
-        console.print(f"Total input tokens: {self.metrics.total_input_tokens:,}")
-        console.print(f"Total output tokens: {self.metrics.total_output_tokens:,}")
-        if self.config.input_cost or self.config.output_cost:
-            cost = (self.metrics.total_input_tokens * self.config.input_cost
-                    + self.metrics.total_output_tokens * self.config.output_cost) / 1_000_000
-            console.print(f"Estimated cost: ${cost:.2f}")
-        console.print(f"Workspace: {self.workspace.root.resolve()}")
-        if self.metrics.alerts:
-            console.print(f"\n[yellow]Alerts ({len(self.metrics.alerts)}):[/yellow]")
-            for a in self.metrics.alerts[-5:]:
-                console.print(f"  [iter {a['iteration']}] {a['message']}")
+        print_final_report(
+            self.iteration, self.metrics, self.config, self.workspace.root,
+        )
 
 
-# ---------------------------------------------------------------------------
-# Resume helpers (module-level, pure functions)
-# ---------------------------------------------------------------------------
-
-def _reconstruct_loop_state(research_state: ResearchState) -> LoopState:
-    """Rebuild LoopState from a loaded ResearchState.
-
-    Only reconstructs durable fields — consumed-once banners are always
-    empty between iterations, so they default to empty.
-    """
-    state = LoopState()
-
-    # claim_failure_count: hypotheses with non-VERIFIED review that are still WORKING
-    for h in research_state.hypotheses.values():
-        if (h.review
-                and h.review.verdict in (Verdict.REFUTED, "INCONCLUSIVE")
-                and h.status == "working"):
-            state.claim_failure_count[h.id] = 1
-
-    # last_content_iteration: max iteration from evidence/review across entities
-    max_iter = 0
-    for h in research_state.hypotheses.values():
-        for ev in h.evidence:
-            if ev.iteration is not None:
-                max_iter = max(max_iter, ev.iteration)
-        if h.review and h.review.iteration is not None:
-            max_iter = max(max_iter, h.review.iteration)
-    for rq in research_state.research_questions.values():
-        for ev in rq.evidence:
-            if ev.iteration is not None:
-                max_iter = max(max_iter, ev.iteration)
-    state.last_content_iteration = max_iter
-
-    return state
-
-
-def _find_last_critic_iteration(workspace_path: Path | str) -> int:
-    """Parse EVENT_LOG.jsonl for the last deep_critic LLM call iteration."""
-    log_path = Path(workspace_path) / "EVENT_LOG.jsonl"
-    if not log_path.exists():
-        return 0
-    max_iter = 0
-    try:
-        for line in log_path.read_text().splitlines():
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if entry.get("kind") == "llm_call" and entry.get("agent") == "deep_critic":
-                max_iter = max(max_iter, entry.get("iter", 0))
-    except OSError:
-        return 0
-    return max_iter
