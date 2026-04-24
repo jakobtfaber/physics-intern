@@ -28,8 +28,6 @@ from ..baselines import (
     run_baseline_call,
     setup_workspace,
 )
-# Re-export for backward compatibility with tests/test_one_shot.py until Commit 3.
-from ..baselines import build_user_message as _build_user_message  # noqa: F401
 from ..config import Config, build_config
 from ..providers import LLMProvider
 from ..verification import run_formal_evaluation, write_formal_eval_report
