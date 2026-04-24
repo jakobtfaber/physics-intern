@@ -11,13 +11,11 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import anthropic
-import yaml
 from rich.table import Table
 
 from ..config import Config
 from ..console import console
-from ..llm import LLMResponse
+from ..llm import LLMResponse, _call_provider_with_retry, _get_provider
 from ..utils.markdown import parse_frontmatter, render_frontmatter
 from .event_summary import summarize_event_log
 from .formal_eval import FormalEvalResult
@@ -63,39 +61,31 @@ class DiagnosisResult:
 # ---------------------------------------------------------------------------
 
 def call_diagnosis_llm(system: str, user_content: str, config: Config) -> LLMResponse:
-    """Call the Anthropic API with streaming (required for Opus with high max_tokens)."""
-    client = anthropic.Anthropic(api_key=config.api_key)
+    """Call the configured LLM for the diagnosis pass via the provider layer.
+
+    One-shot call (no tools, no agent loop), retried on transient errors. The
+    provider handles its own streaming/batching internally.
+    """
+    provider = _get_provider(config)
     start = time.time()
-
-    chunks: list[str] = []
-    input_tokens = 0
-    output_tokens = 0
-    stop_reason = ""
-
-    with client.messages.stream(
+    resp = _call_provider_with_retry(
+        provider, config,
+        workspace_dir=config.workspace_dir,
         model=config.model_id,
         max_tokens=config.max_tokens,
         system=system,
         messages=[{"role": "user", "content": user_content}],
-    ) as stream:
-        for event in stream:
-            if hasattr(event, "type"):
-                if event.type == "content_block_delta" and hasattr(event.delta, "text"):
-                    chunks.append(event.delta.text)
-                elif event.type == "message_delta" and hasattr(event, "usage"):
-                    output_tokens = event.usage.output_tokens
-                    if hasattr(event.delta, "stop_reason"):
-                        stop_reason = event.delta.stop_reason
-                elif event.type == "message_start" and hasattr(event, "message"):
-                    input_tokens = event.message.usage.input_tokens
-
+    )
     duration = time.time() - start
     return LLMResponse(
-        text="".join(chunks),
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        stop_reason=stop_reason or "end_turn",
+        text=resp.text,
+        input_tokens=resp.input_tokens,
+        output_tokens=resp.output_tokens,
+        stop_reason=resp.stop_reason,
         duration=duration,
+        reasoning_tokens=resp.reasoning_tokens,
+        answer_tokens=resp.answer_tokens,
+        reasoning_content=resp.reasoning_content,
     )
 
 
