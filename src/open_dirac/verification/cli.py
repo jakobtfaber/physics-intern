@@ -7,8 +7,11 @@ The verification package is layered:
 - :mod:`.formal_eval`   — formal answer evaluation (consumed by the engine)
 - :mod:`.event_summary` — EVENT_LOG.jsonl → diagnosis-prompt text blocks
 - :mod:`.diagnosis`     — LLM-driven audit of a completed run
-- :mod:`.verify`        — CLI glue (this file)
+- :mod:`.cli`           — CLI glue (this file)
 """
+from __future__ import annotations
+
+import argparse
 import sys
 from pathlib import Path
 
@@ -30,9 +33,8 @@ from .formal_eval import load_or_run_formal_eval, render_formal_evaluation
 from .workspace import load_reference_file, load_workspace
 
 
-def build_verify_parser() -> "argparse.ArgumentParser":
+def build_verify_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser for verification."""
-    import argparse
     parser = argparse.ArgumentParser(
         prog="open_dirac.verification",
         description="Diagnosis of OpenDirac research workspaces.",
