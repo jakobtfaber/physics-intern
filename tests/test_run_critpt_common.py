@@ -12,7 +12,10 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
-from run_critpt_common import RunResult, write_batch_metadata  # noqa: E402
+from run_critpt_common import (  # noqa: E402
+    RunResult, write_batch_metadata, write_initial_batch_metadata,
+    load_resume_config, find_completed_submissions,
+)
 
 
 def _call(output_dir: Path, results: list[RunResult], *,
@@ -190,6 +193,66 @@ def test_summary_arithmetic_matches_sum_over_attempts(tmp_path):
     assert s["total_cost_usd"] == pytest.approx(1.0)
     assert s["total_input_tokens"] == 2000 + 800 + 1500
     assert s["total_output_tokens"] == 500 + 200 + 300
+
+
+def _write_submission(output_dir: Path, n: int, *, with_code: bool = True) -> None:
+    """Write a CritPt-style submission JSON for problem ``n``."""
+    payload: dict = {"problem_id": f"Challenge_{n}_main"}
+    if with_code:
+        payload["generated_code"] = "x = 1"
+    (output_dir / f"Challenge_{n}_main.json").write_text(json.dumps(payload))
+
+
+def test_find_completed_submissions_returns_only_problems_with_code(tmp_path):
+    """A submission counts as complete iff it has both ``problem_id`` and ``generated_code``."""
+    _write_submission(tmp_path, 1)
+    _write_submission(tmp_path, 3)
+    _write_submission(tmp_path, 5, with_code=False)  # incomplete (no code)
+    (tmp_path / "Challenge_7_main.json").write_text("{not json")  # corrupt
+    (tmp_path / "logs").mkdir()  # ignored: not a submission
+    (tmp_path / "batch_metadata.json").write_text("{}")  # ignored: wrong name
+
+    assert find_completed_submissions(tmp_path) == {1, 3}
+
+
+def test_find_completed_submissions_empty_dir_returns_empty(tmp_path):
+    assert find_completed_submissions(tmp_path) == set()
+
+
+def test_load_resume_config_missing_metadata_exits_cleanly(tmp_path):
+    """The resume contract requires batch_metadata.json; missing → SystemExit, not crash."""
+    with pytest.raises(SystemExit) as exc_info:
+        load_resume_config(tmp_path)
+    assert exc_info.value.code == 1
+
+
+def test_initial_metadata_makes_killed_run_resumable(tmp_path):
+    """Initial stub is a valid resume target and merges cleanly with later results."""
+    write_initial_batch_metadata(
+        output_dir=tmp_path,
+        critpt_model="provider/model",
+        generation_config={"model_key": "mk"},
+        run_config={"timeout": 3600, "problems_subset": "1-3"},
+        start_time=T0,
+    )
+
+    # Stub must be loadable by the resume path even with zero completed problems.
+    gen_cfg, run_cfg = load_resume_config(tmp_path)
+    assert gen_cfg["model_key"] == "mk"
+    assert run_cfg["problems_subset"] == "1-3"
+
+    stub = json.loads((tmp_path / "batch_metadata.json").read_text())
+    assert stub["problems"] == []
+    assert stub["summary"]["this_run_total"] == 0
+    assert stub["summary"]["wall_clock_s"] == 0.0
+
+    # End-of-run write merges results into the stub without losing configs.
+    r = _r(5, success=True, duration_s=200.0,
+           stats={"cost_usd": 0.4, "input_tokens": 10000, "output_tokens": 2000})
+    final = _call(tmp_path, [r], start=T1, end=T1 + timedelta(seconds=210))
+    assert len(final["problems"]) == 1
+    assert final["problems"][0]["problem_id"] == "Challenge_5_main"
+    assert final["generation_config"]["model_key"] == "mk"
 
 
 def test_atomic_write_preserves_prior_on_replace_failure(tmp_path, monkeypatch):

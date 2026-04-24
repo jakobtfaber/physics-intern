@@ -218,6 +218,30 @@ Running a local model is a two-step process: first **serve** the model with vLLM
   --serve-job 12345
 ```
 
+#### Huge-model example (GLM-5.1)
+
+> **Not recommended.** `zai-org/GLM-5.1` is roughly **10× slower** than
+> `moonshotai/Kimi-K2.6` on the same hardware (~7.5 vs ~86 tok/s single-request).
+> The bottleneck is `--enforce-eager`, which is required to avoid a DeepGEMM JIT
+> crash in GLM's `glm_moe_dsa` sparse-attention path during CUDA graph capture.
+> Eager mode disables CUDA graphs and `torch.compile`, which is the dominant
+> speedup we get on Kimi. Until that DeepGEMM/`torch.compile` interaction is
+> fixed upstream, prefer Kimi-K2.6 for evals on this stack.
+
+```bash
+./serve/serve.slurm \
+  --model zai-org/GLM-5.1 \
+  --nodes 3 \
+  --gpus-per-node 8
+
+./serve/eval.slurm \
+  --model zai-org/GLM-5.1 \
+  --problem problems/critpt/quantum_error_correction_main.yaml \
+  --serve-job <JOB_ID>
+```
+
+`zai-org/GLM-5.1` is very large; in our Slurm tests it required 3 nodes (`--nodes 3`) with 8 GPUs per node.
+
 #### Prerequisites
 
 - `uv sync --extra local`
@@ -227,6 +251,8 @@ Running a local model is a two-step process: first **serve** the model with vLLM
 #### Step 1: Serve the model
 
 Use `serve/serve.slurm`. The script self-submits with `sbatch`, launches one `vllm serve` rank per allocated node, stores Slurm logs under `serve/logs/`, and writes connection details to `serve/logs/vllm/<job_id>/endpoint.env`.
+
+For huge local models, the default serve wall time is 24 hours and `serve/eval.slurm` will wait up to 4 hours for the endpoint to become healthy before giving up.
 
 ```bash
 # Qwen on 1 node, 1 GPU
@@ -245,7 +271,19 @@ Use `serve/serve.slurm`. The script self-submits with `sbatch`, launches one `vl
 # Nemotron Super on 2 nodes, 8 GPUs per node
 ./serve/serve.slurm \
   --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
-  --nodes 1 \
+  --nodes 2 \
+  --gpus-per-node 8
+
+# GLM-5.1 on 3 nodes, 8 GPUs per node
+./serve/serve.slurm \
+  --model zai-org/GLM-5.1 \
+  --nodes 3 \
+  --gpus-per-node 8
+
+# Kimi-K2.6 on 4 nodes, 8 GPUs per node
+./serve/serve.slurm \
+  --model moonshotai/Kimi-K2.6 \
+  --nodes 4 \
   --gpus-per-node 8
 
 # Nemotron Cascade on 1 node, 1 GPU
@@ -257,12 +295,40 @@ Use `serve/serve.slurm`. The script self-submits with `sbatch`, launches one `vl
 
 The `--reasoning-parser` flag is exposed directly. Use it to enable built-in parsers such as `qwen3`. For `nano_v3` and `super_v3`, the script automatically attaches the matching plugin file from `serve/reasoning_parsers`.
 
+#### Performance tuning notes for huge models
+
+Per-model `vllm_args` in `models.yaml` already encode the fastest configuration we found on our cluster (4×H100 80 GB nodes, WekaFS-backed weights). The full experiment log is in the comments above each entry; the headline results:
+
+Load times below are wall time of `default_loader.py` "Loading weights took N seconds" on the slowest worker. They depend heavily on whether the OS page cache is warm.
+
+| Model | Tput (single req) | Tput (8-way batch) | Load (cold cache) | Load (warm cache) | Notes |
+|-------|-------------------|--------------------|-------------------|-------------------|-------|
+| `zai-org/GLM-5.1`      | ~7.5 tok/s | ~50 tok/s  | ~2.5h (no prefetch) → ~2 min (with prefetch, projected) | ~37 min (no prefetch) → **~2 min (with prefetch, chosen)** | `--enforce-eager` is **required** (DeepGEMM JIT crash without it). EP gives 0% gain. |
+| `moonshotai/Kimi-K2.6` | ~90 tok/s  | ~335 tok/s | ~78 min (no prefetch); prefetch on cold cache untested | ~6-9 min (no prefetch ≈ prefetch) | CUDA graphs (no `--enforce-eager`) give the dominant 4× throughput win; `--enable-expert-parallel` adds ~3-4%. |
+
+Two flags worth knowing whenever you add a new huge model on a networked filesystem:
+
+- `--safetensors-load-strategy prefetch` — pulls all shards into the OS page cache via background threads. Mandatory on WekaFS / Lustre / NFS where vLLM's auto-detection often misses and falls back to slow random mmap reads. Confirmed 17× speedup on GLM-5.1 even on a warm cache (282 shards); on Kimi-K2.6 (64 shards) it's a no-op once the cache is warm but still recommended for the very first load.
+- `--enable-expert-parallel` — for MoE models with many experts (Kimi has 384), shard them across the TP group rather than replicate. Free win for Kimi-class models.
+
+What does **not** help on H100:
+
+- `--load-format runai_streamer` — slower than `prefetch` on Weka (~6 min vs ~2 min for GLM on a warm cache).
+- FlashAttention 4 — only supported on Blackwell (SM100+); Hopper falls back to FA3 (which is already what we use).
+- ngram / EAGLE / Medusa / MTP / suffix speculative decoding for Kimi-K2.6 — all blocked: Kimi-K2.6 dropped MTP layers, no draft weights ship with it, suffix decoding's `arctic-inference` build needs C++20 `<span>` (GCC 9.4 lacks it), and ngram is incompatible with PP > 1 in vLLM 0.19.1. Pure-TP multi-node ngram works but is slower than the no-spec config because inter-node TP all-reduce dominates.
+- `--kv-cache-dtype fp8` for Kimi-K2.6 — ~18% slower single-request (per-step dequant) and the only benefit is ~50% KV-cache memory, which is unused: the champion runs at ~12-15% KV utilization at 8-way concurrency.
+- Reducing pipeline parallelism (PP=2/TP=8 on 2 nodes vs PP=4/TP=8 on 4 nodes) — gives linear per-GPU scaling (~43 vs ~90 tok/s single-req), no per-request latency win from fewer stages.
+
+To go faster than the per-replica ceiling here, the right axis is **data parallelism**: run more replicas of the 4-node Kimi serve and put a small OpenAI-compatible router in front so the eval client still sees one endpoint. That work is intentionally not in this PR.
+
 Local model keys match Hub repo IDs:
 
 - `Qwen/Qwen3.5-4B`
 - `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16`
 - `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`
 - `nvidia/Nemotron-Cascade-2-30B-A3B`
+- `moonshotai/Kimi-K2.6` (4 nodes; 1T-parameter MoE, native int4 quantization)
+- `zai-org/GLM-5.1` (3 nodes; sparse-attention MoE — see "Not recommended" note above)
 
 #### Step 2: Run the problem
 
@@ -286,6 +352,20 @@ uv run python -m open_dirac.one_shot \
 ```
 
 The Python vLLM provider defaults to `http://localhost:8000/v1` but respects the `VLLM_BASE_URL` environment variable, which overrides the default with the serve job's head node IP.
+
+#### Step 3 (optional): Full benchmark sweep
+
+To run the **entire CritPt set (70 problems) in parallel** against a vLLM serve job, use `serve/full_eval.slurm`. It auto-fans out via `scripts/run_critpt_oneshot.py`, with `--concurrency` parallel in-flight requests sharing the same endpoint:
+
+```bash
+./serve/full_eval.slurm \
+  --model moonshotai/Kimi-K2.6 \
+  --serve-job <SERVE_JOB_ID> \
+  --concurrency 8 \
+  --time 8:00:00
+```
+
+Submission JSONs land in `results/critpt_oneshot/<model_slug>/<timestamp>/`. To resume an interrupted run, pass `--resume <DIR>` pointing at that timestamped directory; completed problems are skipped automatically and the original generation/run config is reloaded from `batch_metadata.json`.
 
 ## Scripts
 

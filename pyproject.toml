@@ -15,17 +15,28 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov"]
+dev = ["pytest>=8.0"]
 openai = ["openai>=1.0"]
 google = ["google-genai>=1.0"]
 huggingface = ["huggingface-hub>=0.25"]
 all-providers = ["openai>=1.0", "google-genai>=1.0", "huggingface-hub>=0.25"]
 local = [
-    "vllm==0.19.0; sys_platform == 'linux'",
-    "flashinfer-python==0.6.6; sys_platform == 'linux'",
-    "flashinfer-cubin==0.6.6; sys_platform == 'linux'",
+    # vLLM 0.20.0 is tagged on GitHub (2026-04-23) but not yet on PyPI; the
+    # latest pypi release is 0.19.1. Bump to >=0.20 once it ships. vLLM
+    # already pins flashinfer-{python,cubin}==0.6.6 transitively, so we don't
+    # need to list them here.
+    "vllm>=0.19.1; sys_platform == 'linux'",
+    # GLM-5.1's `glm_moe_dsa` architecture requires transformers >= 5.5.4;
+    # vLLM only requires >=4.56.0 so we pin the floor explicitly.
+    "transformers>=5.5.4; sys_platform == 'linux'",
     "hf-transfer; sys_platform == 'linux'",
+    # GLM-5.1 needs DeepGEMM kernels for its sparse-attention indexer.
+    # Wheel is checked into the repo (it's not on PyPI); see [tool.uv.sources].
+    "deep-gemm; sys_platform == 'linux'",
 ]
+
+[tool.uv.sources]
+deep-gemm = { path = "deep_gemm-2.3.0+477618c-cp313-cp313-linux_x86_64.whl" }
 
 [project.scripts]
 open_dirac = "open_dirac.main:main"
