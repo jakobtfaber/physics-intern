@@ -540,29 +540,6 @@ class TestResearcherDerivationFile:
         ev = restored.research_questions["RQ-001"].evidence[0]
         assert ev.derivation_file == "RQ-001_005.md"
 
-    def test_legacy_json_missing_derivation_file(self):
-        """Legacy JSON without derivation_file deserializes to empty string."""
-        import json
-        data = {
-            "hypotheses": {
-                "WH-001": {
-                    "id": "WH-001",
-                    "evidence": {
-                        "type": "research",
-                        "reasoning": "some text",
-                        "method": "analytical",
-                        "result": "ok",
-                        "confidence": "exact",
-                    },
-                }
-            }
-        }
-        state = ResearchState.from_json(json.dumps(data))
-        assert len(state.hypotheses["WH-001"].evidence) == 1
-        ev = state.hypotheses["WH-001"].evidence[0]
-        assert ev.derivation_file == ""
-
-
 class TestResearcherConfig:
     def test_is_one_shot(self):
         assert ResearcherAgent.tools == []

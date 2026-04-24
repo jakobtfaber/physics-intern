@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from .research_state import CritiqueStatus, HypothesisStatus, Verdict
+from .state_transitions import demote_hypothesis
 from .utils.categories import CompensationCategory as CC
 from .workspace import log_scaffold_event
 
@@ -51,7 +52,7 @@ def check_er_demotion_safety(research_state: ResearchState) -> list[Violation]:
             continue
         # Check for REFUTED verification without a superseding VERIFIED
         if h.review and h.review.verdict == Verdict.REFUTED:
-            new_id = research_state.demote_hypothesis(hid)
+            new_id = demote_hypothesis(research_state, hid)
             if new_id:
                 violations.append(Violation(
                     check="er_demotion_safety",

@@ -11,10 +11,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from .workspace import WorkspaceManager
+from typing import Any
 
 
 # ---------------------------------------------------------------------------
@@ -308,57 +305,6 @@ class ResearchState:
                     pass
         return max(nums, default=0) + 1
 
-    def demote_hypothesis(self, hid: str) -> str | None:
-        """Demote ER→WH: update status, rename key, fix references.
-
-        Returns the new ID (e.g. 'WH-002') or None if hid not found / not ER.
-        """
-        if hid not in self.hypotheses or not hid.startswith("ER-"):
-            return None
-        num = hid.split("-")[1]
-        new_id = f"WH-{num}"
-        h = self.hypotheses.pop(hid)
-        h.id = new_id
-        h.status = HypothesisStatus.WORKING
-        self.hypotheses[new_id] = h
-        self.normalize_references()
-        return new_id
-
-    # --- Reference normalization ---
-
-    def normalize_references(self):
-        """Normalize hypothesis references after ID changes (promote/demote).
-
-        When auto-promotion or demotion safety renames WH-002 → ER-002 (or
-        vice versa), depends_on and resolved_to references may become stale.
-        This method fixes those backlinks by mapping the numeric suffix to the
-        current hypothesis ID.
-        """
-        # Build alias map: number -> current ID  (e.g., "002" -> "ER-002")
-        id_by_num: dict[str, str] = {}
-        for hid in self.hypotheses:
-            parts = hid.split("-")
-            if len(parts) == 2:
-                id_by_num[parts[1]] = hid
-
-        # Update depends_on references to current form
-        for h in self.hypotheses.values():
-            h.depends_on = [
-                id_by_num.get(dep.split("-")[1], dep)
-                if "-" in dep and dep.split("-")[0] in ("WH", "ER")
-                else dep
-                for dep in h.depends_on
-            ]
-
-        # Update resolved_to references in research questions
-        for rq in self.research_questions.values():
-            rq.resolved_to = [
-                id_by_num.get(ref.split("-")[1], ref)
-                if "-" in ref and ref.split("-")[0] in ("WH", "ER")
-                else ref
-                for ref in rq.resolved_to
-            ]
-
     # --- Serialization ---
 
     def to_json(self) -> str:
@@ -377,14 +323,11 @@ class ResearchState:
             status=data.get("status", "in_progress"),
             title=data.get("title", ""),
         )
-        def _parse_evidence_list(raw) -> list[Evidence]:
-            """Deserialize evidence — handles both legacy single-object and list."""
+        def _parse_evidence_list(raw: list[dict] | None) -> list[Evidence]:
             if not raw:
                 return []
-            items = raw if isinstance(raw, list) else [raw]
-            result: list[Evidence] = []
-            for edata in items:
-                result.append(Evidence(
+            return [
+                Evidence(
                     id=edata.get("id", ""),
                     type=edata.get("type", ""),
                     reasoning=edata.get("reasoning", ""),
@@ -401,18 +344,18 @@ class ResearchState:
                     iteration=edata.get("iteration"),
                     derivation_file=edata.get("derivation_file", ""),
                     refuted=edata.get("refuted", False),
-                ))
-            return result
+                )
+                for edata in raw
+            ]
 
         for hid, hdata in data.get("hypotheses", {}).items():
             evidence = _parse_evidence_list(hdata.get("evidence"))
             review = None
-            # Read "review" key, with backward-compat for legacy "verification"
-            vdata = hdata.get("review") or hdata.get("verification")
+            vdata = hdata.get("review")
             if vdata:
                 review = ReviewResult(
                     verdict=vdata.get("verdict", ""),
-                    summary=vdata.get("summary", "") or vdata.get("reasoning", ""),
+                    summary=vdata.get("summary", ""),
                     details=vdata.get("details", ""),
                     iteration=vdata.get("iteration"),
                 )
@@ -466,82 +409,18 @@ class ResearchState:
                 derivation_excerpt=fdata.get("derivation_excerpt", ""),
             ))
         state.critic_clean_reviews = data.get("critic_clean_reviews", [])
-        # Deserialize sanity_checks — handles 3 formats:
-        #   1. New: list[dict] with "id", "predicate", "rationale"
-        #   2. Legacy: list[dict] with "check" key
-        #   3. Legacy: list[str]
-        raw_checks = data.get("sanity_checks", [])
-        sc_counter = 1
-        for c in raw_checks:
-            if isinstance(c, dict) and "predicate" in c:
-                sc_id = c.get("id", f"SC-{sc_counter:03d}")
-                state.sanity_checks.append(SanityCheck(
-                    id=sc_id, predicate=c["predicate"],
-                    rationale=c.get("rationale", ""),
-                ))
-            elif isinstance(c, dict):
-                state.sanity_checks.append(SanityCheck(
-                    id=f"SC-{sc_counter:03d}",
-                    predicate=c.get("check", str(c)),
-                ))
-            else:
-                state.sanity_checks.append(SanityCheck(
-                    id=f"SC-{sc_counter:03d}", predicate=str(c),
-                ))
-            sc_counter += 1
-        # New flat fields
+        for c in data.get("sanity_checks", []):
+            state.sanity_checks.append(SanityCheck(
+                id=c["id"],
+                predicate=c["predicate"],
+                rationale=c.get("rationale", ""),
+            ))
         state.survey_background = data.get("survey_background", "")
         state.key_insights = data.get("key_insights", "")
         state.survey_methods = data.get("survey_methods", "")
         state.known_pitfalls = data.get("known_pitfalls", "")
         state.expected_answer_structure = data.get("expected_answer_structure", "")
         state.problem_summary = data.get("problem_summary", "")
-        # Backward compat: split merged survey_background containing ## Key Insights
-        if state.survey_background and not state.key_insights and "## Key Insights" in state.survey_background:
-            parts = state.survey_background.split("## Key Insights", 1)
-            bg = parts[0].replace("## Background", "").strip()
-            ki = parts[1].strip() if len(parts) > 1 else ""
-            state.survey_background = bg
-            state.key_insights = ki
-        # Backward compat: migrate old nested background_survey to flat fields
-        survey_data = data.get("background_survey")
-        if survey_data and isinstance(survey_data, dict):
-            bg = survey_data.get("background", "")
-            ki = survey_data.get("key_insights", "")
-            if not state.survey_background and bg:
-                state.survey_background = bg
-            if not state.key_insights and ki:
-                state.key_insights = ki
-            if not state.survey_methods:
-                state.survey_methods = survey_data.get("known_methods", "")
-            if not state.known_pitfalls:
-                state.known_pitfalls = survey_data.get("known_pitfalls", "")
-            if not state.conventions:
-                state.conventions = survey_data.get("conventions_and_definitions", "")
-            if not state.sanity_checks:
-                raw_sc = survey_data.get("sanity_checks", [])
-                if isinstance(raw_sc, str):
-                    lines = [line.lstrip("- ").strip() for line in raw_sc.splitlines() if line.strip()]
-                    raw_sc = lines
-                if isinstance(raw_sc, list):
-                    sc_num = 1
-                    for c in raw_sc:
-                        if isinstance(c, dict) and "predicate" in c:
-                            state.sanity_checks.append(SanityCheck(
-                                id=c.get("id", f"SC-{sc_num:03d}"),
-                                predicate=c["predicate"],
-                                rationale=c.get("rationale", ""),
-                            ))
-                        elif isinstance(c, dict):
-                            state.sanity_checks.append(SanityCheck(
-                                id=f"SC-{sc_num:03d}",
-                                predicate=c.get("check", str(c)),
-                            ))
-                        else:
-                            state.sanity_checks.append(SanityCheck(
-                                id=f"SC-{sc_num:03d}", predicate=str(c),
-                            ))
-                        sc_num += 1
         return state
 
     def save(self, workspace_root: Path) -> None:

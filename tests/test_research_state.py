@@ -269,55 +269,6 @@ class TestFailureTracking:
 
 
 # ---------------------------------------------------------------------------
-# Fix: normalize_references (stale WH/ER backlinks in depends_on)
-# ---------------------------------------------------------------------------
-
-class TestNormalizeReferences:
-
-    def test_updates_stale_depends_on_wh_to_er(self):
-        """depends_on referencing WH-002 should be updated when hypothesis is ER-002."""
-        state = ResearchState()
-        state.hypotheses["ER-002"] = Hypothesis(id="ER-002", status=HypothesisStatus.ESTABLISHED)
-        state.hypotheses["WH-003"] = Hypothesis(
-            id="WH-003", depends_on=["WH-002"],
-        )
-        state.normalize_references()
-        assert state.hypotheses["WH-003"].depends_on == ["ER-002"]
-
-    def test_updates_stale_depends_on_er_to_wh(self):
-        """depends_on referencing ER-001 should be updated when hypothesis was demoted to WH-001."""
-        state = ResearchState()
-        state.hypotheses["WH-001"] = Hypothesis(id="WH-001", status=HypothesisStatus.WORKING)
-        state.hypotheses["WH-003"] = Hypothesis(
-            id="WH-003", depends_on=["ER-001"],
-        )
-        state.normalize_references()
-        assert state.hypotheses["WH-003"].depends_on == ["WH-001"]
-
-    def test_idempotent(self):
-        """Calling normalize_references twice produces the same result."""
-        state = ResearchState()
-        state.hypotheses["ER-002"] = Hypothesis(id="ER-002", status=HypothesisStatus.ESTABLISHED)
-        state.hypotheses["WH-003"] = Hypothesis(
-            id="WH-003", depends_on=["WH-002"],
-        )
-        state.normalize_references()
-        deps_after_first = list(state.hypotheses["WH-003"].depends_on)
-        state.normalize_references()
-        assert state.hypotheses["WH-003"].depends_on == deps_after_first
-
-    def test_no_alias_match_preserves_dep(self):
-        """depends_on targeting a number that doesn't exist in hypotheses is left alone."""
-        state = ResearchState()
-        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
-        state.hypotheses["WH-002"] = Hypothesis(
-            id="WH-002", depends_on=["WH-099"],
-        )
-        state.normalize_references()
-        assert state.hypotheses["WH-002"].depends_on == ["WH-099"]
-
-
-# ---------------------------------------------------------------------------
 # New ResearchState fields
 # ---------------------------------------------------------------------------
 
@@ -435,33 +386,6 @@ class TestSurveyFieldSerialization:
         assert data["survey_background"] == ""
         assert data["survey_methods"] == ""
         assert data["known_pitfalls"] == ""
-
-    def test_backward_compat_old_background_survey_format(self):
-        """Old RESEARCH_GRAPH.json with nested background_survey migrates to flat fields."""
-        old_data = {
-            "hypotheses": {},
-            "critiques": {},
-            "research_questions": {},
-            "failed_approaches": [],
-            "background_survey": {
-                "background": "Black hole thermodynamics context",
-                "key_insights": "Surface gravity is key",
-                "known_methods": "Euclidean method, WKB",
-                "known_pitfalls": "Coordinate singularity confusion",
-                "conventions_and_definitions": "Natural units",
-                "sanity_checks": ["T -> 0 as M -> inf"],
-                "iteration_created": 0,
-                "iteration_updated": 0,
-            }
-        }
-        state = ResearchState.from_json(json.dumps(old_data))
-        assert "Black hole thermodynamics" in state.survey_background
-        assert "Surface gravity is key" in state.key_insights
-        assert state.survey_methods == "Euclidean method, WKB"
-        assert state.known_pitfalls == "Coordinate singularity confusion"
-        assert state.conventions == "Natural units"
-        assert state.sanity_checks == [SanityCheck(id="SC-001", predicate="T -> 0 as M -> inf")]
-
 
 # ---------------------------------------------------------------------------
 # Evidence and ReviewResult on Hypothesis
@@ -677,63 +601,6 @@ class TestNewQueryMethods:
 
 
 # ---------------------------------------------------------------------------
-# demote_hypothesis
-# ---------------------------------------------------------------------------
-
-class TestDemoteHypothesis:
-
-    def test_demotes_er_to_wh(self):
-        state = ResearchState()
-        state.hypotheses["ER-002"] = Hypothesis(
-            id="ER-002", statement="Energy conserved",
-            status=HypothesisStatus.ESTABLISHED,
-        )
-        new_id = state.demote_hypothesis("ER-002")
-        assert new_id == "WH-002"
-        assert "ER-002" not in state.hypotheses
-        assert "WH-002" in state.hypotheses
-        assert state.hypotheses["WH-002"].status == HypothesisStatus.WORKING
-        assert state.hypotheses["WH-002"].statement == "Energy conserved"
-
-    def test_fixes_depends_on_references(self):
-        state = ResearchState()
-        state.hypotheses["ER-002"] = Hypothesis(
-            id="ER-002", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.hypotheses["WH-003"] = Hypothesis(
-            id="WH-003", depends_on=["ER-002"],
-        )
-        state.demote_hypothesis("ER-002")
-        assert state.hypotheses["WH-003"].depends_on == ["WH-002"]
-
-    def test_returns_none_for_wh(self):
-        state = ResearchState()
-        state.hypotheses["WH-001"] = Hypothesis(
-            id="WH-001", status=HypothesisStatus.WORKING,
-        )
-        assert state.demote_hypothesis("WH-001") is None
-        # WH-001 should be unchanged
-        assert "WH-001" in state.hypotheses
-        assert state.hypotheses["WH-001"].status == HypothesisStatus.WORKING
-
-    def test_returns_none_for_missing(self):
-        state = ResearchState()
-        assert state.demote_hypothesis("ER-999") is None
-
-    def test_preserves_other_hypotheses(self):
-        state = ResearchState()
-        state.hypotheses["ER-002"] = Hypothesis(
-            id="ER-002", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.hypotheses["WH-001"] = Hypothesis(
-            id="WH-001", status=HypothesisStatus.WORKING,
-        )
-        state.demote_hypothesis("ER-002")
-        assert "WH-001" in state.hypotheses
-        assert state.hypotheses["WH-001"].status == HypothesisStatus.WORKING
-
-
-# ---------------------------------------------------------------------------
 # next_*_num methods
 # ---------------------------------------------------------------------------
 
@@ -865,31 +732,6 @@ class TestHypothesisDependsOn:
         assert state.hypotheses["WH-001"].depends_on == []
 
 
-class TestNormalizeReferencesDependsOn:
-    """Tests for normalize_references remapping depends_on entries."""
-
-    def test_depends_on_remapped_on_promotion(self):
-        """When WH-001 is promoted to ER-001, depends_on entries are remapped."""
-        state = ResearchState()
-        state.hypotheses["ER-001"] = Hypothesis(
-            id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.hypotheses["WH-002"] = Hypothesis(
-            id="WH-002", depends_on=["WH-001"],
-        )
-        state.normalize_references()
-        assert state.hypotheses["WH-002"].depends_on == ["ER-001"]
-
-    def test_depends_on_unchanged_when_no_rename(self):
-        state = ResearchState()
-        state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
-        state.hypotheses["WH-002"] = Hypothesis(
-            id="WH-002", depends_on=["WH-001"],
-        )
-        state.normalize_references()
-        assert state.hypotheses["WH-002"].depends_on == ["WH-001"]
-
-
 class TestUnestablishedDependencies:
     """Tests for unestablished_dependencies query."""
 
@@ -979,19 +821,6 @@ class TestResearchQuestionLifecycle:
         assert state.next_rq_num() == 1
         state.research_questions["RQ-001"] = ResearchQuestion(id="RQ-001")
         assert state.next_rq_num() == 2
-
-    def test_normalize_references_remaps_resolved_to(self):
-        from open_dirac.research_state import ResearchQuestion
-        state = ResearchState()
-        state.hypotheses["ER-001"] = Hypothesis(
-            id="ER-001", status=HypothesisStatus.ESTABLISHED,
-        )
-        state.research_questions["RQ-001"] = ResearchQuestion(
-            id="RQ-001", question="test", resolved_to=["WH-001"],
-        )
-        state.normalize_references()
-        assert state.research_questions["RQ-001"].resolved_to == ["ER-001"]
-
 
 # ---------------------------------------------------------------------------
 # Evidence on ResearchQuestion

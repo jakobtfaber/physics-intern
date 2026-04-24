@@ -15,6 +15,7 @@ from .metrics import MetricsTracker
 from .task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
 from .research_state import ResearchState, Verdict
+from .state_transitions import demote_hypothesis, normalize_references, promote_hypothesis
 from .rendering import render_research_state_md, render_evidence_log_md, render_critique_log_md
 from .validation import validate_post_integration, can_terminate, Violation, ViolationSeverity
 from .workspace import WorkspaceManager, log_scaffold_event
@@ -1159,7 +1160,7 @@ class OpenDirac:
             ]
             # Demote ER → WH and auto-abandon
             console.print(f"  [red]{crit.id} VALID — demoting {target_id}[/red]")
-            new_id = self.research_state.demote_hypothesis(target_id)
+            new_id = demote_hypothesis(self.research_state, target_id)
             if new_id:
                 h = self.research_state.hypotheses[new_id]
                 h.status = HypothesisStatus.ABANDONED
@@ -1175,7 +1176,7 @@ class OpenDirac:
             # Cascade: demote and auto-abandon dependents
             for dep_id in dependent_ids:
                 console.print(f"  [red]Cascade: demoting {dep_id} (depends on {target_id})[/red]")
-                dep_new_id = self.research_state.demote_hypothesis(dep_id)
+                dep_new_id = demote_hypothesis(self.research_state, dep_id)
                 if dep_new_id:
                     dep_h = self.research_state.hypotheses[dep_new_id]
                     dep_h.status = HypothesisStatus.ABANDONED
@@ -1387,15 +1388,7 @@ class OpenDirac:
                     f"(unestablished deps: {', '.join(unestablished)})[/dim]"
                 )
                 continue
-            # Promote
-            h = state.hypotheses.pop(current_id)
-            num = current_id.split("-")[1]
-            er_id = f"ER-{num}"
-            h.id = er_id
-            h.status = HypothesisStatus.ESTABLISHED
-            h.iteration_modified = self.iteration
-            state.hypotheses[er_id] = h
-            state.normalize_references()
+            er_id = promote_hypothesis(state, current_id, self.iteration)
             log_scaffold_event(
                 self.workspace.root, self.iteration, CC.STATE_INVARIANTS,
                 "auto_promote", f"{current_id} → {er_id}",
@@ -1720,7 +1713,7 @@ class OpenDirac:
 
         The state is now authoritative — no rebuild from markdown needed.
         """
-        self.research_state.normalize_references()
+        normalize_references(self.research_state)
         self.research_state.save(self.workspace.root)
 
     def _update_metrics(self):
