@@ -6,20 +6,14 @@ verify.py. Never read back by agents.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from ..utils.markdown import render_frontmatter
 from ..research_state import (
     CritiqueStatus,
-    Hypothesis,
     HypothesisStatus,
     ResearchState,
     RQStatus,
 )
-from .contexts import _dedup_failed_approaches
-
-if TYPE_CHECKING:
-    from ..task import Task
+from .shared import _dedup_failed_approaches
 
 
 def render_background_survey(state: ResearchState) -> str:
@@ -376,8 +370,3 @@ def render_critique_log_md(state: ResearchState) -> str:
 
     body = _critique_log_body(state)
     return render_frontmatter(meta, body)
-
-
-def render_task_md(task: Task) -> str:
-    """Render CURRENT_TASK.md from a Task object."""
-    return task.to_markdown()

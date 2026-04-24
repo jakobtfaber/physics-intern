@@ -4,19 +4,18 @@ import pytest
 
 from open_dirac.utils.markdown import parse_frontmatter
 from open_dirac.rendering import (
+    render_background_survey,
     render_critique_log_md,
+    render_evidence_log_md,
+    render_research_state_md,
+)
+from open_dirac.agents.critic.context import (
     render_critic_context,
     render_critic_previous_critiques,
-    render_evidence_log_md,
-    render_formatter_context,
-    render_orchestrator_critique_log,
-    render_orchestrator_research_state,
-    render_orchestrator_slim_state,
-    render_background_survey,
-    render_planner_revise_context,
-    render_research_state_md,
-    render_task_md,
 )
+from open_dirac.agents.formatter.context import render_formatter_context
+from open_dirac.agents.orchestrator.context import render_orchestrator_slim_state
+from open_dirac.agents.planner.context import render_planner_revise_context
 from open_dirac.research_state import (
     Critique,
     CritiqueStatus,
@@ -552,105 +551,6 @@ class TestRenderCritiqueLogMd:
 
 
 # ===========================================================================
-# render_task_md
-# ===========================================================================
-
-class TestRenderTaskMd:
-
-    def test_matches_to_markdown(self, sample_task):
-        rendered = render_task_md(sample_task)
-        expected = sample_task.to_markdown()
-        assert rendered == expected
-
-    def test_contains_frontmatter(self, sample_task):
-        md = render_task_md(sample_task)
-        meta, body = parse_frontmatter(md)
-        assert meta["task_id"] == "TASK-005"
-        assert meta["task_type"] == "review"
-        assert meta["assigned_to"] == "reviewer"
-        assert meta["priority"] == "high"
-        assert meta["iteration"] == 5
-
-    def test_body_present(self, sample_task):
-        md = render_task_md(sample_task)
-        assert "Verify that T_H = 1/(8 pi M)." in md
-
-    def test_resolve_task_has_blocking_critiques(self, resolve_task):
-        md = render_task_md(resolve_task)
-        assert "CRIT-001" in md
-        assert "blocking_critiques" in md
-
-
-# ===========================================================================
-# render_orchestrator_research_state
-# ===========================================================================
-
-class TestRenderOrchestratorResearchState:
-
-    def test_no_frontmatter(self, populated_state):
-        text = render_orchestrator_research_state(populated_state)
-        assert "---" not in text
-
-    def test_no_problem_statement(self, populated_state):
-        text = render_orchestrator_research_state(populated_state)
-        assert "<problem-statement>" not in text
-        assert "Derive the Hawking temperature" not in text
-
-    def test_conventions_included(self, populated_state):
-        text = render_orchestrator_research_state(populated_state)
-        assert "<conventions>" in text
-        assert "Natural units" in text
-
-    def test_hypotheses_included(self, populated_state):
-        text = render_orchestrator_research_state(populated_state)
-        assert 'id="ER-001"' in text
-        assert 'id="WH-002"' in text
-
-    def test_skips_empty_dead_ends(self, empty_state):
-        text = render_orchestrator_research_state(empty_state)
-        assert "<dead-ends>" not in text
-
-    def test_includes_populated_dead_ends(self, populated_state):
-        text = render_orchestrator_research_state(populated_state)
-        assert "<dead-ends>" in text
-        assert "Abandoned WH-003" in text
-
-    def test_evidence_summary_in_context(self, populated_state):
-        """Orchestrator context includes evidence summaries on hypotheses."""
-        text = render_orchestrator_research_state(populated_state)
-        assert 'type="compute"' in text
-
-    def test_verification_in_context(self, populated_state):
-        """Orchestrator context includes verification status on hypotheses."""
-        text = render_orchestrator_research_state(populated_state)
-        assert 'verdict="VERIFIED"' in text
-
-
-# ===========================================================================
-# render_orchestrator_critique_log
-# ===========================================================================
-
-class TestRenderOrchestratorCritiqueLog:
-
-    def test_empty_returns_compact(self, empty_state):
-        text = render_orchestrator_critique_log(empty_state)
-        assert text == ""
-
-    def test_no_frontmatter(self, populated_state):
-        text = render_orchestrator_critique_log(populated_state)
-        assert "---" not in text
-
-    def test_body_without_frontmatter(self, populated_state):
-        text = render_orchestrator_critique_log(populated_state)
-        # Only ACTIVE (unresolved) critiques shown to orchestrator
-        assert 'status="UNRESOLVED"' in text
-        assert "CRIT-001" in text
-        # CRIT-002 is resolved — should NOT appear in orchestrator context
-        assert 'status="RESOLVED"' not in text
-        assert "CRIT-002" not in text
-
-
-# ===========================================================================
 # render_critic_previous_critiques
 # ===========================================================================
 
@@ -792,15 +692,9 @@ class TestRenderBackgroundSurvey:
         text = render_background_survey(state)
         assert text == "(No background survey.)"
 
-    def test_background_survey_not_in_orchestrator_research_state(self):
-        """Background survey is not in render_orchestrator_research_state."""
-        state = self._make_survey_state()
-        text = render_orchestrator_research_state(state)
-        assert "<background-survey>" not in text
-
 
 # ===========================================================================
-# Collapsed resolved RQs in orchestrator context
+# Collapsed resolved RQs in orchestrator slim state
 # ===========================================================================
 
 class TestCollapsedResolvedRQs:
@@ -814,23 +708,10 @@ class TestCollapsedResolvedRQs:
             status=RQStatus.RESOLVED, resolved_to=["ER-001"],
             iteration_created=1, iteration_resolved=2,
         )
-        text = render_orchestrator_research_state(state)
+        text = render_orchestrator_slim_state(state)
         assert "RQ-001" not in text
         assert "What is X?" not in text
-        # No research-questions section at all when only resolved→ER RQs exist
         assert "research-questions" not in text
-
-    def test_abandoned_rq_one_liner(self):
-        from open_dirac.research_state import ResearchQuestion, RQStatus
-        state = ResearchState(problem_statement="Test")
-        state.research_questions["RQ-001"] = ResearchQuestion(
-            id="RQ-001", question="What is X?",
-            status=RQStatus.ABANDONED, resolution_reason="Dead end after 2 attempts",
-            iteration_created=1, iteration_resolved=3,
-        )
-        text = render_orchestrator_research_state(state)
-        assert '<rq id="RQ-001" status="ABANDONED">Closed: Dead end after 2 attempts</rq>' in text
-        assert "What is X?" not in text
 
 
 # ---------------------------------------------------------------------------

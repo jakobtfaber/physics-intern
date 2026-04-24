@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from open_dirac.llm import LLMResponse
-from open_dirac.rendering import render_formatter_context
 
 from ..base import BaseAgent
+from .context import render_formatter_context
 
 if TYPE_CHECKING:
     from open_dirac.config import Config

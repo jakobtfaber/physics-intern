@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from open_dirac.agents.formatter import FormatterAgent
+from open_dirac.agents.formatter.context import render_formatter_context
 from open_dirac.llm import LLMResponse
-from open_dirac.rendering import render_formatter_context
 from open_dirac.research_state import (
     Evidence,
     FailedApproach,

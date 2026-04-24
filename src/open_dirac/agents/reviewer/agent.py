@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from open_dirac.llm import LLMResponse, ParseFailureError
+from open_dirac.rendering import _render_sanity_checks, render_research_context_xml
 from open_dirac.research_state import ReviewResult
 
 from ..base import BaseAgent
@@ -125,8 +126,6 @@ class ReviewerAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build focused verification context: WH + evidence + light state."""
-        from open_dirac.rendering import render_research_context_xml
-
         parts: list[str] = []
 
         # 1. Research context — problem statement + answer template
@@ -151,7 +150,6 @@ class ReviewerAgent(BaseAgent):
                 er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
                 rs_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
             if self.research_state.sanity_checks:
-                from open_dirac.rendering import _render_sanity_checks
                 rs_parts.append(_render_sanity_checks(
                     self.research_state.sanity_checks,
                     tag="suggested-sanity-checks",

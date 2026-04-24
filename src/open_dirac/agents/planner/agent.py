@@ -6,11 +6,12 @@ import json
 from typing import TYPE_CHECKING
 
 from open_dirac.llm import LLMResponse
-from open_dirac.rendering import _problem_guidelines, render_planner_revise_context, render_background_survey_xml
+from open_dirac.rendering import _problem_guidelines, render_background_survey_xml
 from open_dirac.task import TaskType
 
 from ..base import BaseAgent
 from ..parsing import extract_json
+from .context import render_planner_revise_context
 
 if TYPE_CHECKING:
     from open_dirac.config import Config

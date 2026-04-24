@@ -11,6 +11,7 @@ import re
 from abc import abstractmethod
 from typing import TYPE_CHECKING
 
+from ..rendering import render_research_context_xml
 from ..research_state import Evidence
 from .base import BaseAgent
 
@@ -86,8 +87,6 @@ class EvidenceAgent(BaseAgent):
         self.research_state: ResearchState | None = None
 
     def build_context(self, task: Task, iteration: int) -> str:
-        from ..rendering import render_research_context_xml
-
         parts: list[str] = []
 
         # 1. Research context — problem statement + answer template

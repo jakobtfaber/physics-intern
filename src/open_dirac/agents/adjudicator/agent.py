@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from open_dirac.llm import LLMResponse
+from open_dirac.rendering import render_research_context_xml
 
 from ..base import BaseAgent
 from ..parsing import JSON_FENCE_RE, try_json_loads
@@ -66,8 +67,6 @@ class AdjudicatorAgent(BaseAgent):
 
     def build_context(self, task: Task, iteration: int) -> str:
         """Build neutral adjudication context."""
-        from open_dirac.rendering import render_research_context_xml
-
         if not self.research_state:
             return ""
 
