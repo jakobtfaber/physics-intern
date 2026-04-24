@@ -6,7 +6,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from open_dirac.config import Config
-from open_dirac.llm import _is_transient, _is_tool_call_failure, _is_provider_side_400, _extract_status_code, _call_provider_with_retry
+from open_dirac.llm import _call_provider_with_retry
+from open_dirac.providers.retry import (
+    is_transient as _is_transient,
+    is_tool_call_failure as _is_tool_call_failure,
+    is_provider_side_400 as _is_provider_side_400,
+    extract_status_code as _extract_status_code,
+)
 from open_dirac.providers.base import ProviderResponse
 
 
@@ -288,7 +294,7 @@ def test_retry_succeeds_after_transient_errors():
     ]
     config = _make_config()
 
-    with patch("open_dirac.llm.time.sleep") as mock_sleep:
+    with patch("open_dirac.providers.retry.time.sleep") as mock_sleep:
         result = _call_provider_with_retry(
             provider, config, model="m", max_tokens=100,
             system="s", messages=[],
@@ -310,7 +316,7 @@ def test_retry_respects_backoff():
     ]
     config = _make_config(api_retry_initial_delay=1.0, api_retry_max_delay=10.0)
 
-    with patch("open_dirac.llm.time.sleep") as mock_sleep:
+    with patch("open_dirac.providers.retry.time.sleep") as mock_sleep:
         result = _call_provider_with_retry(
             provider, config, model="m", max_tokens=100,
             system="s", messages=[],
@@ -333,7 +339,7 @@ def test_retry_caps_at_max_delay():
     ]
     config = _make_config(api_retry_initial_delay=5.0, api_retry_max_delay=8.0)
 
-    with patch("open_dirac.llm.time.sleep") as mock_sleep:
+    with patch("open_dirac.providers.retry.time.sleep") as mock_sleep:
         _call_provider_with_retry(
             provider, config, model="m", max_tokens=100,
             system="s", messages=[],
@@ -365,7 +371,7 @@ def test_exhausted_retries_raises():
     provider.call.side_effect = FakeHTTPError(503)
     config = _make_config(api_retry_max=2)
 
-    with patch("open_dirac.llm.time.sleep"):
+    with patch("open_dirac.providers.retry.time.sleep"):
         with pytest.raises(FakeHTTPError):
             _call_provider_with_retry(
                 provider, config, model="m", max_tokens=100,
@@ -397,7 +403,7 @@ def test_immediate_success_no_sleep():
     provider.call.return_value = _make_provider_response("instant")
     config = _make_config()
 
-    with patch("open_dirac.llm.time.sleep") as mock_sleep:
+    with patch("open_dirac.providers.retry.time.sleep") as mock_sleep:
         result = _call_provider_with_retry(
             provider, config, model="m", max_tokens=100,
             system="s", messages=[],
@@ -417,7 +423,7 @@ def test_retry_with_connection_error():
     ]
     config = _make_config()
 
-    with patch("open_dirac.llm.time.sleep"):
+    with patch("open_dirac.providers.retry.time.sleep"):
         result = _call_provider_with_retry(
             provider, config, model="m", max_tokens=100,
             system="s", messages=[],
@@ -436,7 +442,7 @@ def test_retry_with_timeout_error():
     ]
     config = _make_config()
 
-    with patch("open_dirac.llm.time.sleep"):
+    with patch("open_dirac.providers.retry.time.sleep"):
         result = _call_provider_with_retry(
             provider, config, model="m", max_tokens=100,
             system="s", messages=[],
@@ -451,7 +457,7 @@ def test_provider_side_400_capped_at_2_attempts():
     provider.call.side_effect = FakePostProcessorError()
     config = _make_config(api_retry_max=10)  # would do 11 attempts normally
 
-    with patch("open_dirac.llm.time.sleep"):
+    with patch("open_dirac.providers.retry.time.sleep"):
         with pytest.raises(FakePostProcessorError):
             _call_provider_with_retry(
                 provider, config, model="m", max_tokens=100,
@@ -471,7 +477,7 @@ def test_provider_side_400_succeeds_on_retry():
     ]
     config = _make_config(api_retry_max=10)
 
-    with patch("open_dirac.llm.time.sleep"):
+    with patch("open_dirac.providers.retry.time.sleep"):
         result = _call_provider_with_retry(
             provider, config, model="m", max_tokens=100,
             system="s", messages=[],
@@ -732,7 +738,7 @@ class TestPenultimateRoundMessage:
         config.progress_check_interval = 999
 
         with patch("open_dirac.llm._get_provider", return_value=provider), \
-             patch("open_dirac.llm.time.sleep"):
+             patch("open_dirac.providers.retry.time.sleep"):
             result = run_agent_loop(
                 system="test", user_content="test", config=config,
                 tool_executor=tool_executor,
@@ -778,7 +784,7 @@ class TestPenultimateRoundMessage:
         config.progress_check_interval = 999
 
         with patch("open_dirac.llm._get_provider", return_value=provider), \
-             patch("open_dirac.llm.time.sleep"):
+             patch("open_dirac.providers.retry.time.sleep"):
             result = run_agent_loop(
                 system="test", user_content="test", config=config,
                 tool_executor=tool_executor,

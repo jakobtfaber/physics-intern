@@ -26,9 +26,8 @@ import yaml
 
 from ..config import Config, DEFAULTS, build_config
 from ..llm import continue_on_max_tokens
-from ..verification.evaluate import evaluate_response
-from ..providers import create_provider, LLMProvider, ProviderResponse
-from ..verification.verify import load_reference_file
+from ..providers import create_provider, LLMProvider, ProviderResponse, call_with_retry
+from ..verification import evaluate_response, load_reference_file
 
 # ---------------------------------------------------------------------------
 # System prompt — distilled from the one-shot/prompt_template_default.yaml
@@ -68,46 +67,30 @@ present in the template."""
 
 
 # ---------------------------------------------------------------------------
-# Transient-error retry (minimal, self-contained)
+# Transient-error retry — delegates to providers.retry via _call_with_retry
 # ---------------------------------------------------------------------------
 
-_TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
-_TRANSIENT_EXC_NAMES = {
-    "ConnectionError", "TimeoutError", "ReadTimeout",
-    "ConnectTimeout", "ConnectionResetError",
-    "RemoteDisconnected", "BrokenPipeError", "APITimeoutError",
-}
-
-
-def _is_transient(exc: Exception) -> bool:
-    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
-    if status is None:
-        resp = getattr(exc, "response", None)
-        if resp is not None:
-            status = getattr(resp, "status_code", None)
-    if status is not None and int(status) in _TRANSIENT_STATUS_CODES:
-        return True
-    return any(cls.__name__ in _TRANSIENT_EXC_NAMES for cls in type(exc).__mro__)
-
-
 def _call_with_retry(
-    provider: LLMProvider, max_retries: int = 3, initial_delay: float = 2.0,
-    **call_kwargs,
+    provider: LLMProvider, config: Config, **call_kwargs,
 ) -> ProviderResponse:
-    delay = initial_delay
-    for attempt in range(max_retries + 1):
-        try:
-            return provider.call(**call_kwargs)
-        except Exception as exc:
-            if not _is_transient(exc) or attempt == max_retries:
-                raise
-            print(
-                f"  Transient error (attempt {attempt + 1}/{max_retries}): {exc}",
-                file=sys.stderr,
-            )
-            time.sleep(min(delay, 60.0))
-            delay *= 2
-    raise RuntimeError("unreachable")  # pragma: no cover
+    """Baseline wrapper around providers.retry.call_with_retry.
+
+    Logs retries to stderr (baselines have no workspace to log scaffold events to).
+    """
+    def _on_retry(exc: Exception, attempt: int, max_retries: int) -> None:
+        print(
+            f"  Transient error (attempt {attempt + 1}/{max_retries}): {exc}",
+            file=sys.stderr,
+        )
+
+    return call_with_retry(
+        provider,
+        max_retries=config.api_retry_max,
+        initial_delay=config.api_retry_initial_delay,
+        max_delay=config.api_retry_max_delay,
+        on_retry=_on_retry,
+        **call_kwargs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +123,7 @@ def _run_once(
     initial_messages = [{"role": "user", "content": user_message}]
     resp = _call_with_retry(
         provider,
+        config,
         model=config.model_id,
         max_tokens=config.max_tokens,
         system=SYSTEM_PROMPT,

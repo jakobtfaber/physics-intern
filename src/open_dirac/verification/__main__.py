@@ -1,4 +1,4 @@
 """Allow ``python -m open_dirac.verification``."""
-from .verify import main
+from .cli import main
 
 main()

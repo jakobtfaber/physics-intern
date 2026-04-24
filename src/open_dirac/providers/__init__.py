@@ -7,6 +7,15 @@ from .base import (
     estimate_reasoning_tokens,
     strip_think_tags,
 )
+from .retry import (
+    ContextTooLongError,
+    call_with_retry,
+    extract_status_code,
+    is_context_too_long,
+    is_provider_side_400,
+    is_tool_call_failure,
+    is_transient,
+)
 
 
 def create_provider(provider_name: str, api_key: str = "", **kwargs) -> LLMProvider:
@@ -34,4 +43,11 @@ __all__ = [
     "LLMProvider", "ProviderResponse",
     "estimate_answer_tokens", "estimate_reasoning_tokens", "strip_think_tags",
     "create_provider",
+    "ContextTooLongError",
+    "call_with_retry",
+    "extract_status_code",
+    "is_context_too_long",
+    "is_provider_side_400",
+    "is_tool_call_failure",
+    "is_transient",
 ]

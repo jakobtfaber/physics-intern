@@ -320,20 +320,20 @@ class TestMainParser:
 
 class TestVerifyParser:
     def test_basic_args(self):
-        from open_dirac.verification.verify import build_verify_parser
+        from open_dirac.verification.cli import build_verify_parser
         parser = build_verify_parser()
         args = parser.parse_args(["workspaces/run1"])
         assert args.workspace_dir == Path("workspaces/run1")
         assert args.model == DEFAULTS["verify_model"]
 
     def test_custom_model(self):
-        from open_dirac.verification.verify import build_verify_parser
+        from open_dirac.verification.cli import build_verify_parser
         parser = build_verify_parser()
         args = parser.parse_args(["ws", "--model", "opus"])
         assert args.model == "opus"
 
     def test_max_tokens_flag_removed(self):
-        from open_dirac.verification.verify import build_verify_parser
+        from open_dirac.verification.cli import build_verify_parser
         parser = build_verify_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(["ws", "--max-tokens", "8192"])

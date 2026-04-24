@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from open_dirac.one_shot.runner import (
-    _is_transient,
     _resolve_ground_truth,
     build_user_message,
 )
+from open_dirac.providers.retry import is_transient as _is_transient
 
 
 # ---------------------------------------------------------------------------

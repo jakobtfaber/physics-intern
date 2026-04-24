@@ -22,11 +22,13 @@ import os
 import re
 from types import SimpleNamespace
 
+from ._openai_compat import build_raw_tool_call, strip_tool_messages
 from .base import (
     LLMProvider,
     ProviderResponse,
-    estimate_answer_tokens,
+    split_reasoning_tokens,
     strip_think_tags,
+    transform_earlier_assistant_turns,
 )
 
 # ---------------------------------------------------------------------------
@@ -169,23 +171,9 @@ class VLLMProvider(LLMProvider):
             })
         return calls
 
-    @staticmethod
-    def _strip_tool_messages(messages: list[dict]) -> list[dict]:
-        """Remove tool-call artifacts from messages for text-only calls.
-
-        Prevents OSS models from hallucinating tool calls when the
-        conversation history contains tool-interaction messages.
-        """
-        cleaned = []
-        for msg in messages:
-            if msg.get("role") == "tool":
-                continue
-            if "tool_calls" in msg:
-                msg = {k: v for k, v in msg.items() if k != "tool_calls"}
-                if not msg.get("content"):
-                    msg["content"] = "[prior tool interaction omitted]"
-            cleaned.append(msg)
-        return cleaned
+    # Back-compat alias — prefer importing ``strip_tool_messages`` from
+    # ``._openai_compat`` directly.
+    _strip_tool_messages = staticmethod(strip_tool_messages)
 
     # ------------------------------------------------------------------
     # Core call — streaming
@@ -202,7 +190,7 @@ class VLLMProvider(LLMProvider):
 
         vllm_messages = [{"role": "system", "content": effective_system}]
         if not tools:
-            vllm_messages += self._strip_tool_messages(messages)
+            vllm_messages += strip_tool_messages(messages)
         else:
             vllm_messages += messages
 
@@ -301,13 +289,7 @@ class VLLMProvider(LLMProvider):
                     "name": tc["name"],
                     "input": parsed_args,
                 })
-                raw_tool_calls.append(SimpleNamespace(
-                    id=tc_id,
-                    function=SimpleNamespace(
-                        name=tc["name"],
-                        arguments=args_str,
-                    ),
-                ))
+                raw_tool_calls.append(build_raw_tool_call(tc_id, tc["name"], args_str))
         elif "<tool_call>" in text:
             # XML tool calls in text (xml_text mode)
             xml_calls = self._parse_xml_tool_calls(text)
@@ -346,10 +328,8 @@ class VLLMProvider(LLMProvider):
         visible_text = text
         if reasoning_content and not re.search(r'<think>', text):
             # Reasoning was extracted server-side; text is already clean.
-            visible_text = text
-            answer_tokens = min(
-                estimate_answer_tokens(visible_text, tool_calls), output_tokens)
-            reasoning_tokens = output_tokens - answer_tokens
+            reasoning_tokens, answer_tokens = split_reasoning_tokens(
+                output_tokens, visible_text, tool_calls)
         elif fmt == "think_tags":
             match = re.search(r'<think>(.*?)</think>', text, re.DOTALL)
             if match:
@@ -358,9 +338,8 @@ class VLLMProvider(LLMProvider):
                 # Bare </think> — chat template inserts opening <think>
                 reasoning_content = text.split("</think>", 1)[0]
             visible_text = strip_think_tags(text)
-            answer_tokens = min(
-                estimate_answer_tokens(visible_text, tool_calls), output_tokens)
-            reasoning_tokens = output_tokens - answer_tokens
+            reasoning_tokens, answer_tokens = split_reasoning_tokens(
+                output_tokens, visible_text, tool_calls)
 
         return ProviderResponse(
             # text is the visible answer only; thinking trace lives in
@@ -423,20 +402,10 @@ class VLLMProvider(LLMProvider):
         """Strip think tags from older assistant turns to save context."""
         if self._reasoning_format != "think_tags":
             return messages
-        # Find the last assistant message index
-        last_asst_idx = -1
-        for i in range(len(messages) - 1, -1, -1):
-            if messages[i].get("role") == "assistant":
-                last_asst_idx = i
-                break
-        if last_asst_idx < 0:
-            return messages
 
-        result = []
-        for i, msg in enumerate(messages):
-            if (msg.get("role") == "assistant" and i < last_asst_idx
-                    and isinstance(msg.get("content"), str)):
-                result.append({**msg, "content": strip_think_tags(msg["content"])})
-            else:
-                result.append(msg)
-        return result
+        def _strip_tags(msg: dict) -> dict:
+            if isinstance(msg.get("content"), str):
+                return {**msg, "content": strip_think_tags(msg["content"])}
+            return msg
+
+        return transform_earlier_assistant_turns(messages, _strip_tags)

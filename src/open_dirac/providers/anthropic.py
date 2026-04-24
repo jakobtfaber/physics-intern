@@ -2,7 +2,12 @@
 
 import anthropic
 
-from .base import LLMProvider, ProviderResponse, estimate_answer_tokens
+from .base import (
+    LLMProvider,
+    ProviderResponse,
+    split_reasoning_tokens,
+    transform_earlier_assistant_turns,
+)
 
 # Effort levels in descending order, used by _call_with_thinking_recovery
 # to step down when thinking exhausts the token budget.
@@ -110,12 +115,12 @@ class AnthropicProvider(LLMProvider):
                         "input": block.input,
                     })
 
-        # Estimate reasoning vs answer token split.
-        # Anthropic output_tokens includes thinking; estimate answer from visible
-        # text + tool call arguments, remainder is reasoning.
+        # Anthropic output_tokens includes thinking; remainder after visible
+        # answer is reasoning.
         output_tokens = response.usage.output_tokens
-        answer_tokens = min(estimate_answer_tokens(text, tool_calls), output_tokens)
-        reasoning_tokens = output_tokens - answer_tokens
+        reasoning_tokens, answer_tokens = split_reasoning_tokens(
+            output_tokens, text, tool_calls,
+        )
 
         return ProviderResponse(
             text=text,
@@ -142,34 +147,20 @@ class AnthropicProvider(LLMProvider):
         if not self._thinking:
             return messages
 
-        # Find the last assistant message index
-        last_asst_idx = -1
-        for i in range(len(messages) - 1, -1, -1):
-            if messages[i].get("role") == "assistant":
-                last_asst_idx = i
-                break
-        if last_asst_idx < 0:
-            return messages
+        def _strip_thinking_blocks(msg: dict) -> dict:
+            content = msg.get("content")
+            if not content or not isinstance(content, list):
+                return msg
+            filtered = [
+                block for block in content
+                if getattr(block, "type", None) not in ("thinking", "redacted_thinking")
+            ]
+            # All blocks were thinking — keep original to avoid empty content
+            if not filtered:
+                return msg
+            return {"role": "assistant", "content": filtered}
 
-        result = []
-        for i, msg in enumerate(messages):
-            if msg.get("role") == "assistant" and i < last_asst_idx:
-                content = msg.get("content")
-                if content and isinstance(content, list):
-                    filtered = [
-                        block for block in content
-                        if getattr(block, "type", None) not in ("thinking", "redacted_thinking")
-                    ]
-                    if filtered:
-                        result.append({"role": "assistant", "content": filtered})
-                    else:
-                        # All blocks were thinking — keep original to avoid empty content
-                        result.append(msg)
-                else:
-                    result.append(msg)
-            else:
-                result.append(msg)
-        return result
+        return transform_earlier_assistant_turns(messages, _strip_thinking_blocks)
 
     def build_tool_result_messages(self, tool_results: list[dict]) -> list[dict]:
         """Anthropic: single user message with tool_result content blocks."""
