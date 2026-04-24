@@ -16,14 +16,14 @@ from open_dirac.verification import (
     write_formal_eval_report,
     load_or_run_formal_eval,
 )
-from open_dirac.verification.verify import (
+from open_dirac.verification.diagnosis import (
     DiagnosisEvent,
     DiagnosisResult,
     build_diagnosis_prompt,
     parse_diagnosis,
     write_diagnosis_report,
-    _summarize_event_log,
 )
+from open_dirac.verification.event_summary import summarize_event_log as _summarize_event_log
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +355,7 @@ def test_build_diagnosis_prompt_without_known_answer(tmp_path):
 
 def test_build_diagnosis_prompt_with_rerun_results(tmp_path):
     from open_dirac.utils.sandbox import ExecutionResult
-    from open_dirac.verification.verify import RerunResult
+    from open_dirac.verification import RerunResult
 
     ws_dir = _make_workspace(tmp_path)
     contents = load_workspace(ws_dir)
