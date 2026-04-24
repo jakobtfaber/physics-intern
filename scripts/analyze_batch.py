@@ -48,6 +48,8 @@ class ProblemMetrics:
     total_answer_tokens: int = 0
     total_tool_calls: int = 0
     max_tokens_reached_count: int = 0
+    num_sanity_checks: int = 0
+    num_critiques: int = 0
     agent_stats: dict[str, AgentStats] = field(default_factory=dict)
 
 
@@ -114,6 +116,16 @@ def load_problem_metrics(problem_id: str, workspace: Path) -> ProblemMetrics | N
         total_tool_calls=fm.get("total_tool_calls", 0),
         max_tokens_reached_count=fm.get("max_tokens_reached_count", 0),
     )
+
+    # Counts from RESEARCH_GRAPH.json (source of truth for sanity checks & critiques)
+    graph_path = workspace / "RESEARCH_GRAPH.json"
+    if graph_path.exists():
+        try:
+            graph = json.loads(graph_path.read_text())
+            pm.num_sanity_checks = len(graph.get("sanity_checks", []) or [])
+            pm.num_critiques = len(graph.get("critiques", {}) or {})
+        except (json.JSONDecodeError, OSError):
+            pass
 
     # Parse per-iteration table for agent breakdown
     table_rows = parse_metrics_table(text)
@@ -210,6 +222,8 @@ def print_summary(
         "Reasoning tokens": [m.total_reasoning_tokens for m in all_metrics],
         "Answer tokens": [m.total_answer_tokens for m in all_metrics],
         "Tool calls": [m.total_tool_calls for m in all_metrics],
+        "Sanity checks": [m.num_sanity_checks for m in all_metrics],
+        "Critiques": [m.num_critiques for m in all_metrics],
     }
 
     table = Table(title="Distribution across problems")
@@ -315,6 +329,8 @@ def build_json_output(
         "reasoning_tokens": [m.total_reasoning_tokens for m in all_metrics],
         "answer_tokens": [m.total_answer_tokens for m in all_metrics],
         "tool_calls": [m.total_tool_calls for m in all_metrics],
+        "sanity_checks": [m.num_sanity_checks for m in all_metrics],
+        "critiques": [m.num_critiques for m in all_metrics],
     }
 
     agent_totals: dict[str, dict] = {}
@@ -349,6 +365,8 @@ def build_json_output(
                 "total_reasoning_tokens": m.total_reasoning_tokens,
                 "total_answer_tokens": m.total_answer_tokens,
                 "total_tool_calls": m.total_tool_calls,
+                "num_sanity_checks": m.num_sanity_checks,
+                "num_critiques": m.num_critiques,
             }
             for m in sorted(all_metrics, key=lambda m: m.problem_n)
         ],
