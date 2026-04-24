@@ -15,149 +15,25 @@ from __future__ import annotations
 
 import argparse
 import sys
-import time
-from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
 
-import yaml
-
-from ..config import Config, DEFAULTS, build_config
-from ..llm import continue_on_max_tokens
-from ..providers import create_provider, LLMProvider, ProviderResponse, call_with_retry
+from ..baselines import (
+    SYSTEM_PROMPT,
+    add_common_args,
+    build_user_message,
+    create_provider_from_config,
+    load_problem,
+    run_baseline_call,
+    setup_workspace,
+)
+# Re-export for backward compatibility with tests/test_one_shot.py until Commit 3.
+from ..baselines import build_user_message as _build_user_message  # noqa: F401
+from ..config import Config, build_config
+from ..providers import LLMProvider
 from ..verification import evaluate_response, load_reference_file
-
-# ---------------------------------------------------------------------------
-# System prompt — distilled from the one-shot/prompt_template_default.yaml
-# ---------------------------------------------------------------------------
-
-SYSTEM_PROMPT = """\
-You are a physics research assistant specialising in solving complex, \
-research-level problems using precise, step-by-step reasoning.
-
-**Input**
-
-Problems will be provided in Markdown format.
-
-**Output (Markdown format)**
-
-1. **Step-by-Step Derivation** — Show every non-trivial step in the solution. \
-Justify steps using relevant physical laws, theorems, or mathematical identities.
-
-2. **Mathematical Typesetting** — Use LaTeX for all mathematics: \
-`$...$` for inline expressions, `$$...$$` for display equations.
-
-3. **Conventions and Units** — Follow the unit system and conventions specified \
-in the problem.
-
-4. **Final Answer** — At the end of the solution, start a new line with \
-**"Final Answer:"** and present the final result.
-
-   For final answers involving numerical values, follow the precision \
-requirements specified in the problem. If no precision is specified:
-   - If an exact symbolic value is possible, provide it (e.g. $\\sqrt{2}$, $\\pi/4$).
-   - If exact form is not feasible, retain at least 12 significant digits.
-
-5. **Code Template** — If a Python code template is provided after the problem, \
-populate your final answer into it. This is purely for formatting/display; \
-do not perform additional reasoning or import modules beyond those already \
-present in the template."""
-
-
-# ---------------------------------------------------------------------------
-# Transient-error retry — delegates to providers.retry via _call_with_retry
-# ---------------------------------------------------------------------------
-
-def _call_with_retry(
-    provider: LLMProvider, config: Config, **call_kwargs,
-) -> ProviderResponse:
-    """Baseline wrapper around providers.retry.call_with_retry.
-
-    Logs retries to stderr (baselines have no workspace to log scaffold events to).
-    """
-    def _on_retry(exc: Exception, attempt: int, max_retries: int) -> None:
-        print(
-            f"  Transient error (attempt {attempt + 1}/{max_retries}): {exc}",
-            file=sys.stderr,
-        )
-
-    return call_with_retry(
-        provider,
-        max_retries=config.api_retry_max,
-        initial_delay=config.api_retry_initial_delay,
-        max_delay=config.api_retry_max_delay,
-        on_retry=_on_retry,
-        **call_kwargs,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Prompt construction
-# ---------------------------------------------------------------------------
-
-def build_user_message(problem_text: str, answer_template: str = "") -> str:
-    """Build the user message from problem text and optional code template."""
-    msg = problem_text.strip()
-    if answer_template:
-        msg += (
-            "\n\n---\n\n"
-            "**Answer template** — populate your final answer into this code template:\n\n"
-            f"```python\n{answer_template.strip()}\n```"
-        )
-    return msg
-
-
-# ---------------------------------------------------------------------------
-# Single run helper
-# ---------------------------------------------------------------------------
-
-def _run_once(
-    provider: LLMProvider,
-    config: Config,
-    user_message: str,
-) -> dict:
-    """Execute a single LLM call and return a structured result dict."""
-    start = time.time()
-    initial_messages = [{"role": "user", "content": user_message}]
-    resp = _call_with_retry(
-        provider,
-        config,
-        model=config.model_id,
-        max_tokens=config.max_tokens,
-        system=SYSTEM_PROMPT,
-        messages=initial_messages,
-    )
-    # If truncated, continue the response up to max_tokens_retries times.
-    if resp.stop_reason == "max_tokens":
-        resp = continue_on_max_tokens(
-            provider, resp, config,
-            model=config.model_id, max_tokens=config.max_tokens,
-            system=SYSTEM_PROMPT, messages=initial_messages,
-            workspace_dir=config.workspace_dir, agent_name="one_shot",
-        )
-    duration = time.time() - start
-
-    cost_usd = 0.0
-    if config.input_cost or config.output_cost:
-        cost_usd = (
-            resp.input_tokens * config.input_cost
-            + resp.output_tokens * config.output_cost
-        ) / 1_000_000
-
-    return {
-        "tokens": {
-            "input": resp.input_tokens,
-            "output": resp.output_tokens,
-            "reasoning": resp.reasoning_tokens or 0,
-            "answer": resp.answer_tokens or 0,
-        },
-        "duration_s": round(duration, 2),
-        "cost_usd": round(cost_usd, 6),
-        "stop_reason": resp.stop_reason,
-        "response_text": resp.text,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +99,11 @@ def _run_single(
     workspace_root: Path,
 ) -> None:
     """Run once, print to stdout, optionally save markdown — original behavior."""
-    result = _run_once(provider, config, user_message)
+    result = run_baseline_call(
+        provider, config,
+        system=SYSTEM_PROMPT, user_message=user_message,
+        agent_name="one_shot",
+    )
 
     # --- Report stats to stderr ---
     tokens = result["tokens"]
@@ -300,71 +180,23 @@ def main() -> None:
         prog="open_dirac.one_shot",
         description="One-shot LLM baseline for OpenDirac problems.",
     )
-    parser.add_argument("problem", type=Path, help="Path to problem YAML file")
-    parser.add_argument(
-        "--model", type=str, default=None,
-        help=f"Model key from models.yaml (default: {DEFAULTS['model']})",
-    )
-    parser.add_argument(
-        "--config", type=Path, default=None,
-        help="Path to config YAML file (overrides defaults)",
-    )
-    parser.add_argument(
-        "-o", "--output", type=Path, default=None,
-        help="Save response with metadata to a Markdown file",
-    )
-    parser.add_argument(
-        "--workspace-dir", type=str, default=None,
-        help="Workspace directory (default: auto-generated)",
-    )
+    add_common_args(parser)
     args = parser.parse_args()
 
     # --- Load problem YAML ---
-    if not args.problem.exists():
-        print(f"Error: problem file not found: {args.problem}", file=sys.stderr)
-        sys.exit(1)
-
-    with open(args.problem) as f:
-        problem_def = yaml.safe_load(f)
-
-    problem_text = problem_def.get("problem", "")
-    answer_template = problem_def.get("answer_template", "")
-
-    if not problem_text:
-        print("Error: problem YAML has no 'problem' field", file=sys.stderr)
-        sys.exit(1)
+    problem_def, problem_text, answer_template = load_problem(args.problem)
 
     # --- Model / provider resolution ---
     config = build_config(args)
-
-    provider = create_provider(
-        config.provider,
-        api_key=config.api_key,
-        timeout=config.api_timeout,
-        **config.reasoning,
-    )
+    provider = create_provider_from_config(config)
 
     # --- Build prompt ---
     user_message = build_user_message(problem_text, answer_template)
 
     # --- Workspace (lightweight, no git) ---
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_model = config.model.replace("/", "-").replace(":", "-")
-    workspace_root = Path(
-        args.workspace_dir
-        or f"workspaces/{timestamp}_{args.problem.stem}_{safe_model}_oneshot"
+    workspace_root = setup_workspace(
+        args, config, problem_def, problem_text, "oneshot",
     )
-    workspace_root.mkdir(parents=True, exist_ok=True)
-    config.workspace_dir = str(workspace_root)
-
-    # Seed the workspace with the problem before the LLM call so partial
-    # failures still leave a trace.
-    (workspace_root / "PROBLEM.md").write_text(f"# Problem\n\n{problem_text}\n")
-    problem_data = dict(problem_def)
-    problem_data["name"] = args.problem.stem
-    with open(workspace_root / "problem.yaml", "w") as f:
-        yaml.dump(problem_data, f, default_flow_style=False, sort_keys=False)
-    config.save(workspace_root)
 
     print(f"Model:     {config.model} ({config.model_id})", file=sys.stderr)
     print(f"Provider:  {config.provider}", file=sys.stderr)

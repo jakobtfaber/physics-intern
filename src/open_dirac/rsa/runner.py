@@ -5,8 +5,9 @@ Implements the RSA algorithm: maintain a population of N candidate solutions,
 iteratively refine by aggregating subsets of K candidates for T rounds.
 Total LLM calls = N * T.
 
-Uses the provider layer (open_dirac.providers + open_dirac.config) and reuses
-one-shot utilities for initial generation and retry logic.
+Uses the provider layer (open_dirac.providers + open_dirac.config) and the
+shared baseline helpers (open_dirac.baselines) for the initial generation,
+LLM call wrapper, and workspace setup.
 
 Usage:
     uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml
@@ -21,7 +22,6 @@ import random
 import re
 import sys
 import time
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -29,22 +29,25 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-import yaml
-
-from ..config import Config, DEFAULTS, build_config
+from ..baselines import (
+    SYSTEM_PROMPT,
+    add_common_args,
+    build_user_message,
+    create_provider_from_config,
+    load_problem,
+    run_baseline_call,
+    setup_workspace,
+)
+from ..config import Config, build_config
 from ..console import console
-from ..providers import create_provider, LLMProvider
+from ..providers import LLMProvider
 from ..providers.base import strip_think_tags
 from ..verification import (
     extract_answer_code,
-    run_formal_evaluation, render_formal_evaluation, write_formal_eval_report,
+    render_formal_evaluation,
+    run_formal_evaluation,
+    write_formal_eval_report,
 )
-from ..llm import continue_on_max_tokens
-from ..one_shot.runner import (
-    SYSTEM_PROMPT,
-    build_user_message,
-)
-from ..providers import call_with_retry
 
 
 # ---------------------------------------------------------------------------
@@ -116,68 +119,6 @@ def build_aggregation_message(
         )
 
     return "\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Single LLM call (reuses one-shot retry logic)
-# ---------------------------------------------------------------------------
-
-def _call_once(
-    provider: LLMProvider,
-    config: Config,
-    system: str,
-    user_message: str,
-) -> dict:
-    """Execute a single LLM call and return a structured result dict."""
-    start = time.time()
-    initial_messages = [{"role": "user", "content": user_message}]
-
-    def _on_retry(exc: Exception, attempt: int, max_retries: int) -> None:
-        print(
-            f"  Transient error (attempt {attempt + 1}/{max_retries}): {exc}",
-            file=sys.stderr,
-        )
-
-    resp = call_with_retry(
-        provider,
-        max_retries=config.api_retry_max,
-        initial_delay=config.api_retry_initial_delay,
-        max_delay=config.api_retry_max_delay,
-        on_retry=_on_retry,
-        model=config.model_id,
-        max_tokens=config.max_tokens,
-        system=system,
-        messages=initial_messages,
-    )
-    # If truncated, continue the response up to max_tokens_retries times.
-    if resp.stop_reason == "max_tokens":
-        resp = continue_on_max_tokens(
-            provider, resp, config,
-            model=config.model_id, max_tokens=config.max_tokens,
-            system=system, messages=initial_messages,
-            workspace_dir=config.workspace_dir, agent_name="rsa",
-        )
-    duration = time.time() - start
-
-    cost_usd = 0.0
-    if config.input_cost or config.output_cost:
-        cost_usd = (
-            resp.input_tokens * config.input_cost
-            + resp.output_tokens * config.output_cost
-        ) / 1_000_000
-
-    return {
-        "tokens": {
-            "input": resp.input_tokens,
-            "output": resp.output_tokens,
-            "reasoning": resp.reasoning_tokens or 0,
-            "answer": resp.answer_tokens or 0,
-        },
-        "duration_s": round(duration, 2),
-        "cost_usd": round(cost_usd, 6),
-        "stop_reason": resp.stop_reason,
-        "response_text": resp.text,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +212,11 @@ def _run_rsa_round(
         agg_message = build_aggregation_message(
             problem_text, answer_template, subset,
         )
-        return _call_once(provider, config, AGGREGATION_SYSTEM_PROMPT, agg_message)
+        return run_baseline_call(
+            provider, config,
+            system=AGGREGATION_SYSTEM_PROMPT, user_message=agg_message,
+            agent_name="rsa",
+        )
 
     new_population: list[str] = [None] * N  # type: ignore[list-item]
     call_results: list[dict] = [None] * N  # type: ignore[list-item]
@@ -325,7 +270,11 @@ def run_rsa(
     init_results: list[dict] = [None] * N  # type: ignore[list-item]
 
     def _generate_one(slot: int) -> dict:
-        return _call_once(provider, config, SYSTEM_PROMPT, user_message)
+        return run_baseline_call(
+            provider, config,
+            system=SYSTEM_PROMPT, user_message=user_message,
+            agent_name="rsa",
+        )
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_generate_one, i): i for i in range(N)}
@@ -411,15 +360,7 @@ def main() -> None:
         prog="open_dirac.rsa",
         description="RSA (Recursive Self-Aggregation) runner for OpenDirac problems.",
     )
-    parser.add_argument("problem", type=Path, help="Path to problem YAML file")
-    parser.add_argument(
-        "--model", type=str, default=None,
-        help=f"Model key from models.yaml (default: {DEFAULTS['model']})",
-    )
-    parser.add_argument(
-        "--config", type=Path, default=None,
-        help="Path to config YAML file (overrides defaults)",
-    )
+    add_common_args(parser)
     parser.add_argument(
         "-N", type=int, default=6,
         help="Population size (default: 6)",
@@ -433,43 +374,17 @@ def main() -> None:
         help="Number of rounds (default: 4)",
     )
     parser.add_argument(
-        "-o", "--output", type=Path, default=None,
-        help="Save response with metadata to a Markdown file",
-    )
-    parser.add_argument(
-        "--workspace-dir", type=str, default=None,
-        help="Workspace directory (default: auto-generated under workspaces/)",
-    )
-    parser.add_argument(
         "--concurrency", type=int, default=None,
         help="Max parallel LLM calls within a round (default: N)",
     )
     args = parser.parse_args()
 
     # --- Load problem YAML ---
-    if not args.problem.exists():
-        print(f"Error: problem file not found: {args.problem}", file=sys.stderr)
-        sys.exit(1)
-
-    with open(args.problem) as f:
-        problem_def = yaml.safe_load(f)
-
-    problem_text = problem_def.get("problem", "")
-    answer_template = problem_def.get("answer_template", "")
-
-    if not problem_text:
-        print("Error: problem YAML has no 'problem' field", file=sys.stderr)
-        sys.exit(1)
+    problem_def, problem_text, answer_template = load_problem(args.problem)
 
     # --- Model / provider resolution ---
     config = build_config(args)
-
-    provider = create_provider(
-        config.provider,
-        api_key=config.api_key,
-        timeout=config.api_timeout,
-        **config.reasoning,
-    )
+    provider = create_provider_from_config(config)
 
     # --- Build initial prompt ---
     user_message = build_user_message(problem_text, answer_template)
@@ -478,23 +393,10 @@ def main() -> None:
     max_workers = args.concurrency or N
 
     # --- Workspace (lightweight, no git — same shape as one-shot) ---
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_model = config.model.replace("/", "-").replace(":", "-")
-    workspace_root = Path(
-        args.workspace_dir
-        or f"workspaces/{timestamp}_{args.problem.stem}_{safe_model}_rsa"
+    workspace_root = setup_workspace(
+        args, config, problem_def, problem_text, "rsa",
     )
-    workspace_root.mkdir(parents=True, exist_ok=True)
-    config.workspace_dir = str(workspace_root)
-
-    # Seed the workspace with the problem before the LLM call so partial
-    # failures still leave a trace.
-    (workspace_root / "PROBLEM.md").write_text(f"# Problem\n\n{problem_text}\n")
-    problem_data = dict(problem_def)
-    problem_data["name"] = args.problem.stem
-    with open(workspace_root / "problem.yaml", "w") as f:
-        yaml.dump(problem_data, f, default_flow_style=False, sort_keys=False)
-    config.save(workspace_root)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     print(f"Model:       {config.model} ({config.model_id})", file=sys.stderr)
     print(f"Provider:    {config.provider}", file=sys.stderr)
