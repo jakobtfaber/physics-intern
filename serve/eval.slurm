@@ -33,6 +33,18 @@ Examples:
     --problem problems/critpt/quantum_error_correction_main.yaml \
     --serve-job 22071810
 
+  # Huge local vLLM model
+  ./serve/eval.slurm \
+    --model zai-org/GLM-5.1 \
+    --problem problems/critpt/quantum_error_correction_main.yaml \
+    --serve-job 22071810
+
+  # Local vLLM Kimi-K2.6
+  ./serve/eval.slurm \
+    --model moonshotai/Kimi-K2.6 \
+    --problem problems/critpt/quantum_error_correction_main.yaml \
+    --serve-job 22071810
+
   # Batch run (10 samples)
   ./serve/eval.slurm \
     --model qwen-3.5-0.8b-local \
@@ -54,7 +66,7 @@ Options:
                        exports VLLM_BASE_URL to reach the head node IP.
   --partition NAME     Slurm partition (default: hopper-cpu; overridden to
                        hopper-prod when --serve-job is used).
-  --time HH:MM:SS      Slurm time limit (default: 02:00:00).
+  --time HH:MM:SS      Slurm time limit (default: 08:00:00).
   -h, --help           Show this message.
 USAGE
 }
@@ -74,7 +86,7 @@ PROBLEM=""
 RUNS=""
 SERVE_JOB=""
 PARTITION=""
-TIME_LIMIT="02:00:00"
+TIME_LIMIT="08:00:00"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -210,11 +222,11 @@ if [[ -n "$SERVE_JOB" ]]; then
   export VLLM_BASE_URL="${BASE_URL}"
   echo "Serve job ${SERVE_JOB}: endpoint ${BASE_URL}"
 
-  # Wait for vLLM to be ready (models can take 10+ minutes to compile).
+  # Wait for vLLM to be ready (huge models can take a long time to load).
   echo "Waiting for vLLM endpoint to be ready..."
   HEALTH_URL="http://${HEAD_IP}:${PORT:-8000}/health"
   WAIT_SECS=0
-  MAX_WAIT=1800  # 30 minutes
+  MAX_WAIT=14400  # 4 hours
   until curl -sf "$HEALTH_URL" >/dev/null 2>&1; do
     if (( WAIT_SECS >= MAX_WAIT )); then
       echo "Timed out waiting for vLLM after ${MAX_WAIT}s" >&2

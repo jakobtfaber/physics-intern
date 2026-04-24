@@ -20,6 +20,7 @@ def main():
     models_yaml = Path(__file__).resolve().parent.parent / "src" / "open_dirac" / "models.yaml"
 
     serve: dict = {}
+    model_id: str = model
     try:
         with open(models_yaml) as f:
             registry = yaml.safe_load(f)
@@ -27,9 +28,13 @@ def main():
             entry = registry.get(model)
             if entry and isinstance(entry, dict):
                 serve = entry.get("serve") or {}
+                # Allow an alias key (e.g. zai-org/GLM-5.1-runai) to resolve
+                # to a different upstream HF repo via `model_id`.
+                model_id = entry.get("model_id") or model
     except (OSError, yaml.YAMLError) as exc:
         print(f"Warning: could not read {models_yaml}: {exc}", file=sys.stderr)
 
+    nodes = str(serve.get("nodes", ""))
     gpus = str(serve.get("gpus_per_node", 1))
     parser = serve.get("reasoning_parser", "")
     vllm_args = serve.get("vllm_args", [])
@@ -42,6 +47,8 @@ def main():
     for arg in vllm_args:
         tokens.extend(shlex.split(str(arg)))
 
+    print(f"DEFAULT_MODEL_ID={shlex.quote(model_id)}")
+    print(f"DEFAULT_NODES={shlex.quote(nodes)}")
     print(f"DEFAULT_GPUS_PER_NODE={shlex.quote(gpus)}")
     print(f"DEFAULT_REASONING_PARSER={shlex.quote(parser)}")
     quoted = " ".join(shlex.quote(t) for t in tokens)

@@ -30,7 +30,7 @@ from run_critpt_common import (
     resolve_critpt_model_string, discover_problems,
     load_resume_config, find_completed_submissions,
     resolve_model, make_output_dir,
-    write_submission_json, write_batch_metadata,
+    write_submission_json, write_batch_metadata, write_initial_batch_metadata,
     save_raw_response, setup_signal_handler, print_final_summary,
 )
 from open_dirac.verification.evaluate import extract_answer_code  # noqa: E402
@@ -266,6 +266,10 @@ async def run_batch(args: argparse.Namespace) -> int:
     # Run with semaphore-controlled concurrency
     semaphore = asyncio.Semaphore(args.concurrency)
     start_time = datetime.now(timezone.utc)
+    # Stub metadata so a killed run is resumable before any workers finish.
+    write_initial_batch_metadata(
+        output_dir, critpt_model, generation_config, run_config, start_time,
+    )
     total = len(problems)
     completed_count = 0
     succeeded = 0

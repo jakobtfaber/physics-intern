@@ -279,3 +279,131 @@ nvidia/Nemotron-Cascade-2-30B-A3B:
       - --mamba-ssm-cache-dtype float32
       - --enable-auto-tool-choice
       - --tool-call-parser qwen3_coder
+
+# GLM-5.1: 3 nodes (24 H100), prefetch loader + eager. ~7.5 tok/s single-req.
+#
+# Experiments tried (all kept here as a record - none beat this config):
+# - --safetensors-load-strategy prefetch  → CHOSEN. Worker weight load went
+#   from 2214s (~37 min, warm page cache, no prefetch) to 128s (~2 min, warm
+#   page cache, prefetch) — a ~17x speedup just from running the shard reads
+#   in background threads. Cold-cache, no-prefetch was even worse: a first
+#   load only reached 29% of 282 shards in 44 min before we cancelled it,
+#   projecting to ~2.5h total.
+# - --load-format runai_streamer  → REJECTED. ~6 min load vs ~2 min prefetch
+#   on a warm cache. Multi-threaded direct CPU→GPU streaming is slower than
+#   letting the OS page cache stay warm.
+# - --enforce-eager  → REQUIRED. Without it, GLM's `glm_moe_dsa` sparse-
+#   attention indexer hits CUDA_ERROR_FILE_NOT_FOUND in DeepGEMM's JIT during
+#   torch.compile graph capture. Eager skips the capture path.
+# - --enable-expert-parallel  → REJECTED. Measured 7.5 tok/s, identical to
+#   baseline. GLM has fewer experts than Kimi (32 vs 384), so PP=3/TP=8
+#   already distributes them well; explicit EP adds nothing.
+# - ngram speculative decoding → BLOCKED. vLLM 0.19.1 explicitly disallows
+#   spec decoding with PP > 1 (see vLLM bugs #30436, #35521).
+zai-org/GLM-5.1:
+  provider: vllm
+  model_id: zai-org/GLM-5.1
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  max_output_tokens: 131072
+  reasoning_format: separate_field
+  tool_mode: api
+  serve:
+    nodes: 3
+    gpus_per_node: 8
+    vllm_args:
+      - --max-model-len 163840
+      - --trust-remote-code
+      - --safetensors-load-strategy prefetch
+      - --enforce-eager
+
+# Kimi-K2.6: 4 nodes (32 H100). ~90 tok/s single-request, ~335 tok/s aggregate
+# at 8-way concurrency. ~4x faster than the original eager-mode baseline.
+#
+# Experiments tried (all kept here as a record):
+# - WINNERS:
+#   - drop --enforce-eager  → 4x throughput (~22 → ~90 tok/s). Kimi's CUDA
+#     graphs / torch.compile path works fine, unlike GLM's. Single biggest
+#     win in the whole sweep.
+#   - --enable-expert-parallel  → +3-4% on single-request, marginal but free.
+#   - --safetensors-load-strategy prefetch  → KEPT but only matters on a
+#     COLD page cache. First-ever Kimi load on cold WekaFS took 4692s
+#     (~78 min, no prefetch). Subsequent warm-cache loads were 380-560s
+#     (~6-9 min) regardless of whether prefetch was on. So this flag is
+#     defensive: it should give a similar ~10x speedup the first time the
+#     cluster touches Kimi, and is a no-op afterwards.
+# - DEAD ENDS:
+#   - --enable-expert-parallel WITH --enforce-eager → 20.8 tok/s, no win.
+#     The CUDA-graph speedup is the dominant factor; EP only helps once
+#     graphs are on.
+#   - MTP speculative decoding → BLOCKED. Kimi-K2.6's HF config has
+#     num_nextn_predict_layers=0 (K2.6 dropped K2's MTP layers).
+#   - EAGLE/Medusa speculative decoding → BLOCKED. No draft weights ship
+#     with K2.6.
+#   - Suffix speculative decoding → BLOCKED. Requires arctic-inference,
+#     which fails to build here (CMake needs C++20 <span>; system GCC 9.4
+#     lacks it).
+#   - ngram / ngram_gpu speculative decoding (PP=4) → CRASHED. vLLM 0.19.1
+#     spec decoding is unsupported with PP > 1: hit two different bugs.
+#     #30436 (drafter attr accessed on non-last PP rank) is workaroundable
+#     with a one-line `hasattr(self, "drafter")` guard around the spec-decode
+#     metadata block in `vllm/v1/worker/gpu_model_runner.py` (~line 2310);
+#     PR #31266 will fix this upstream. The second bug (a scheduler
+#     `total_num_scheduled_tokens > 0` assert) has no good workaround. So
+#     don't bother applying the patch unless you've also resolved that.
+#   - ngram speculative decoding (PP=2/TP=8) → CRASHED. Same PP+spec issue.
+#   - ngram speculative decoding (single-node TP=8/PP=1/EP) → CRASHED with
+#     a torch._inductor JIT autotuning CUDA_ERROR_FILE_NOT_FOUND
+#     (analogous to GLM's DeepGEMM crash); would have needed --enforce-eager
+#     which kills the throughput win.
+#   - ngram speculative decoding (multi-node TP=16/PP=1/EP, with explicit
+#     `--tp 16 --pp 1` to override serve.slurm's PP=nodes default) → RAN
+#     successfully but only 40-45 tok/s (half the champion). Inter-node TP
+#     all-reduce on IB is 10x slower than intra-node NVLink, and ngram's
+#     12-16% acceptance rate isn't enough to compensate. Also: max-model-len
+#     had to drop from 262k to 131k and gpu-memory-utilization from 0.9 to
+#     0.85 to avoid mid-generation OOM with the ngram drafter buffers.
+#   - --kv-cache-dtype fp8 (champion + fp8 KV-cache) → REJECTED. Warm
+#     single-req ~74 tok/s vs ~90 bf16 (~18% slower from per-step dequant
+#     overhead). The only benefit is ~50% KV-cache memory, which we don't
+#     need: the champion runs at ~12-15% KV utilization at 8-way concurrency.
+#   - PP=2/TP=8 on 2 nodes (half the champion's resources) → ~43 tok/s
+#     single-req vs 90 tok/s on 32 GPUs. Linear per-GPU scaling, no
+#     per-request win from fewer pipeline stages. Confirms that further PP
+#     reduction does not unlock single-request latency on Kimi.
+#   - Data-parallel scaling across replicas was not exercised here — needs
+#     a tiny OpenAI-compatible router in front to keep the eval client
+#     unchanged. Punted to a follow-up PR. This is the right next axis when
+#     more nodes are available.
+# - NOT APPLICABLE:
+#   - FlashAttention 4 → not supported on H100 (FA4 needs SM100+ Blackwell;
+#     also doesn't support MLA's non-standard head dims). Kimi already uses
+#     FA3, which IS the latest FA on Hopper.
+moonshotai/Kimi-K2.6:
+  provider: vllm
+  model_id: moonshotai/Kimi-K2.6
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  # Half of --max-model-len so prompts (a few thousand tokens) fit alongside
+  # the generation budget without overflowing the model's context window.
+  max_output_tokens: 131072
+  reasoning_format: separate_field
+  tool_mode: api
+  serve:
+    nodes: 4
+    gpus_per_node: 8
+    vllm_args:
+      - --max-model-len 262144
+      - --trust-remote-code
+      - --safetensors-load-strategy prefetch
+      - --enable-expert-parallel
+
+# NOTE: deepseek-ai/DeepSeek-V4-Pro (1.6T MoE, novel CSA+HCA attention,
+# released 2026-04-24) is NOT runnable on our stack. Two blockers:
+#   1. transformers does not recognise model_type="deepseek_v4".
+#   2. vLLM 0.19.1's model registry has no DeepseekV4ForCausalLM entry; only
+#      V2/V3/V3.2 + GlmMoeDsa. Even hacking transformers won't help - vLLM
+#      has no kernels for the new sparse attention.
+# Revisit once vLLM 0.20+ ships DSV4 support.
