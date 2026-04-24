@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch, PropertyMock, call
 
 from open_dirac.config import Config
-from open_dirac.engine import DispatchRecord, LoopState
+from open_dirac.loop_state import DispatchRecord, LoopState
 from open_dirac.research_state import Evidence, Hypothesis, ResearchState, ReviewResult
 from open_dirac.task import Task, TaskType
 from open_dirac.validation import Violation, ViolationSeverity
