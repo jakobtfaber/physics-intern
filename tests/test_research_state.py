@@ -3,7 +3,7 @@
 import json
 import pytest
 
-from open_dirac.research_state import (
+from open_dirac.state.research_state import (
     ResearchState,
     Hypothesis,
     HypothesisStatus,
@@ -457,7 +457,7 @@ class TestEvidenceOnHypothesis:
 
     def test_evidence_summary_on_rq_round_trip(self):
         """Evidence.summary on RQ survives JSON serialization."""
-        from open_dirac.research_state import ResearchQuestion
+        from open_dirac.state.research_state import ResearchQuestion
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is X?",
@@ -779,7 +779,7 @@ class TestResearchQuestionLifecycle:
     """Tests for ResearchQuestion entity and queries."""
 
     def test_json_round_trip(self):
-        from open_dirac.research_state import ResearchQuestion, RQStatus
+        from open_dirac.state.research_state import ResearchQuestion, RQStatus
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001",
@@ -804,7 +804,7 @@ class TestResearchQuestionLifecycle:
         assert state.research_questions == {}
 
     def test_open_research_questions(self):
-        from open_dirac.research_state import ResearchQuestion, RQStatus
+        from open_dirac.state.research_state import ResearchQuestion, RQStatus
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="Open one", status=RQStatus.OPEN,
@@ -816,7 +816,7 @@ class TestResearchQuestionLifecycle:
         assert state.open_research_questions()[0].id == "RQ-001"
 
     def test_next_rq_num(self):
-        from open_dirac.research_state import ResearchQuestion
+        from open_dirac.state.research_state import ResearchQuestion
         state = ResearchState()
         assert state.next_rq_num() == 1
         state.research_questions["RQ-001"] = ResearchQuestion(id="RQ-001")
@@ -830,7 +830,7 @@ class TestResearchQuestionEvidence:
     """Evidence can be attached to research questions."""
 
     def test_rq_evidence_round_trip(self):
-        from open_dirac.research_state import ResearchQuestion
+        from open_dirac.state.research_state import ResearchQuestion
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is F?",
@@ -846,7 +846,7 @@ class TestResearchQuestionEvidence:
         assert rq.evidence[0].type == "research"
 
     def test_rq_no_evidence_default(self):
-        from open_dirac.research_state import ResearchQuestion
+        from open_dirac.state.research_state import ResearchQuestion
         rq = ResearchQuestion(id="RQ-001", question="Test")
         assert not rq.evidence
 
@@ -859,7 +859,7 @@ class TestCritiqueEvidence:
     """Evidence can be attached to critiques."""
 
     def test_critique_evidence_round_trip(self):
-        from open_dirac.research_state import Critique, Severity, CritiqueStatus
+        from open_dirac.state.research_state import Critique, Severity, CritiqueStatus
         state = ResearchState()
         state.critiques["CRIT-001"] = Critique(
             id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
@@ -878,13 +878,13 @@ class TestCritiqueEvidence:
         assert crit.evidence[0].iteration == 4
 
     def test_critique_no_evidence_default(self):
-        from open_dirac.research_state import Critique
+        from open_dirac.state.research_state import Critique
         crit = Critique(id="CRIT-001")
         assert not crit.evidence
 
     def test_critique_no_evidence_round_trip(self):
         """Critique without evidence survives round-trip (backward compat)."""
-        from open_dirac.research_state import Critique, Severity, CritiqueStatus
+        from open_dirac.state.research_state import Critique, Severity, CritiqueStatus
         state = ResearchState()
         state.critiques["CRIT-001"] = Critique(
             id="CRIT-001", targets=["STRATEGY"], severity=Severity.MEDIUM,

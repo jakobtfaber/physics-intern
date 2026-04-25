@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from .console import console
 from .llm import AgentResult, LLMResponse, ParseFailureError
 from .providers import ContextTooLongError, is_transient
-from .task import Task, TaskType
+from .state.task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
 from .validation import Violation, ViolationSeverity
 from .workspace import log_scaffold_event
@@ -26,9 +26,9 @@ if TYPE_CHECKING:
     from .agents.formatter import FormatterAgent
     from .agents.researcher import ResearcherAgent
     from .agents.reviewer import ReviewerAgent
-    from .loop_state import LoopState
+    from .state.loop_state import LoopState
     from .metrics import MetricsTracker
-    from .research_state import ResearchState
+    from .state.research_state import ResearchState
     from .workspace import WorkspaceManager
 
 

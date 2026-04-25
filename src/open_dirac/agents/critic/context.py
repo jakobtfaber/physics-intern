@@ -7,7 +7,7 @@ from ...rendering.shared import (
     render_background_survey_xml,
     render_research_context_xml,
 )
-from ...research_state import (
+from ...state.research_state import (
     CritiqueStatus,
     Hypothesis,
     HypothesisStatus,

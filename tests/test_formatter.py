@@ -7,7 +7,7 @@ import pytest
 from open_dirac.agents.formatter import FormatterAgent
 from open_dirac.agents.formatter.context import render_formatter_context
 from open_dirac.llm import LLMResponse
-from open_dirac.research_state import (
+from open_dirac.state.research_state import (
     Evidence,
     FailedApproach,
     Hypothesis,
@@ -18,7 +18,7 @@ from open_dirac.research_state import (
     RQStatus,
     Verdict,
 )
-from open_dirac.task import Task, TaskType
+from open_dirac.state.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------

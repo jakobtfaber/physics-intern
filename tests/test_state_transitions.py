@@ -1,12 +1,12 @@
 """Tests for state_transitions: demote_hypothesis, promote_hypothesis, normalize_references."""
 
-from open_dirac.research_state import (
+from open_dirac.state.research_state import (
     Hypothesis,
     HypothesisStatus,
     ResearchQuestion,
     ResearchState,
 )
-from open_dirac.state_transitions import (
+from open_dirac.state.state_transitions import (
     demote_hypothesis,
     normalize_references,
     promote_hypothesis,

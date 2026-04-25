@@ -12,8 +12,8 @@ from .context import render_formatter_context
 if TYPE_CHECKING:
     from open_dirac.config import Config
     from open_dirac.metrics import MetricsTracker
-    from open_dirac.research_state import ResearchState
-    from open_dirac.task import Task
+    from open_dirac.state.research_state import ResearchState
+    from open_dirac.state.task import Task
     from open_dirac.workspace import WorkspaceManager
 
 _REJECTION_PREFIX = "FORMATTER_REJECTION:"

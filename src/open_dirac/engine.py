@@ -28,7 +28,7 @@ from .dispatcher import (
     record_agent_failures as _dispatcher_record_agent_failures,
 )
 from .llm import ParseFailureError
-from .loop_state import (
+from .state.loop_state import (
     DispatchRecord,
     LoopState,
     append_dispatch_record,
@@ -41,10 +41,10 @@ from .resume import (
     find_last_critic_iteration as _find_last_critic_iteration,
     reconstruct_loop_state as _reconstruct_loop_state,
 )
-from .task import Task, TaskType
+from .state.task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
-from .research_state import ResearchState, Verdict
-from .state_transitions import normalize_references
+from .state.research_state import ResearchState, Verdict
+from .state.state_transitions import normalize_references
 from .rendering import render_research_state_md, render_evidence_log_md, render_critique_log_md
 from .validation import validate_post_integration, can_terminate, Violation, ViolationSeverity
 from .workspace import WorkspaceManager, log_scaffold_event
@@ -553,7 +553,7 @@ class OpenDirac:
         if survey.get("conventions_and_definitions") and not self.research_state.conventions:
             self.research_state.conventions = survey["conventions_and_definitions"].strip()
         if survey.get("sanity_checks") and not self.research_state.sanity_checks:
-            from .research_state import SanityCheck
+            from .state.research_state import SanityCheck
             for item in survey["sanity_checks"]:
                 sc_num = self.research_state.next_sc_num()
                 if isinstance(item, dict):
@@ -766,7 +766,7 @@ class OpenDirac:
         h = self.research_state.hypotheses.get(target_id)
         if not h or not h.evidence or not h.review:
             return None
-        from .research_state import HypothesisStatus
+        from .state.research_state import HypothesisStatus
         if h.status == HypothesisStatus.ABANDONED:
             return None
         # Check if any evidence is newer than the review
@@ -929,7 +929,7 @@ class OpenDirac:
 
     def _auto_expire_critiques(self) -> None:
         """Auto-expire MEDIUM/LOW critiques older than auto_expire_iterations."""
-        from .research_state import CritiqueStatus, Severity
+        from .state.research_state import CritiqueStatus, Severity
 
         ttl = self.config.auto_expire_iterations
         if ttl <= 0:
@@ -998,7 +998,7 @@ class OpenDirac:
 
     def _force_abandon_working_hypotheses(self):
         """Circuit breaker: auto-abandon all remaining WHs after repeated termination blocks."""
-        from .research_state import FailedApproach, HypothesisStatus
+        from .state.research_state import FailedApproach, HypothesisStatus
 
         working = self.research_state.working_hypotheses()
         if not working:

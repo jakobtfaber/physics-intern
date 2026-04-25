@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from open_dirac.config import Config
 from open_dirac.utils.markdown import render_frontmatter
-from open_dirac.task import Task, TaskType
+from open_dirac.state.task import Task, TaskType
 from open_dirac.workspace import log_llm_call, log_scaffold_event
 
 
@@ -51,7 +51,7 @@ class TestValidatePostIntegrationLogs:
         """Set up state with phantom VERIFIED label, verify EVENT_LOG.jsonl gets state_invariants event."""
         from open_dirac.workspace import WorkspaceManager
         from open_dirac.validation import validate_post_integration
-        from open_dirac.research_state import ResearchState, Hypothesis
+        from open_dirac.state.research_state import ResearchState, Hypothesis
 
         config = Config(workspace_dir=str(tmp_path / "ws"))
         ws = WorkspaceManager(config)

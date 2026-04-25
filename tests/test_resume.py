@@ -10,7 +10,7 @@ from open_dirac.engine import (
     OpenDirac, LoopState, _reconstruct_loop_state, _find_last_critic_iteration,
 )
 from open_dirac.workspace import WorkspaceManager
-from open_dirac.research_state import (
+from open_dirac.state.research_state import (
     ResearchState, Hypothesis, HypothesisStatus, Evidence, ReviewResult,
     Verdict, ResearchQuestion, RQStatus,
 )

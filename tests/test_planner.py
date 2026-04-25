@@ -6,7 +6,7 @@ from open_dirac.agents.planner import PlannerAgent, _parse_planner_json
 from open_dirac.config import Config
 from open_dirac.engine import LoopState
 from open_dirac.llm import LLMResponse
-from open_dirac.research_state import (
+from open_dirac.state.research_state import (
     Evidence,
     FailedApproach,
     Hypothesis,
@@ -16,7 +16,7 @@ from open_dirac.research_state import (
     ReviewResult,
     RQStatus,
 )
-from open_dirac.task import Task, TaskType
+from open_dirac.state.task import Task, TaskType
 
 
 class TestPlannerBuildContext:
@@ -655,7 +655,7 @@ class TestTaskTypePlanRevise:
         assert TaskType.PLAN_REVISE == "plan_revise"
 
     def test_plan_revise_maps_to_planner(self):
-        from open_dirac.task import TASK_TYPE_AGENT_MAP
+        from open_dirac.state.task import TASK_TYPE_AGENT_MAP
         assert TASK_TYPE_AGENT_MAP[TaskType.PLAN_REVISE] == "planner"
 
     def test_task_from_frontmatter_plan_revise(self):

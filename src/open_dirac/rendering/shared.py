@@ -7,7 +7,7 @@ Per-agent context builders live next to each agent in
 
 from __future__ import annotations
 
-from ..research_state import (
+from ..state.research_state import (
     FailedApproach,
     ResearchState,
     SanityCheck,

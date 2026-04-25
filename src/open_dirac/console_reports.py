@@ -16,7 +16,7 @@ from .llm import AgentResult, LLMResponse
 if TYPE_CHECKING:
     from .config import Config
     from .metrics import MetricsTracker
-    from .task import Task
+    from .state.task import Task
 
 
 def fmt_duration(seconds: float) -> str:

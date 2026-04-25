@@ -16,7 +16,7 @@ from open_dirac.agents.critic.context import (
 from open_dirac.agents.formatter.context import render_formatter_context
 from open_dirac.agents.orchestrator.context import render_orchestrator_slim_state
 from open_dirac.agents.planner.context import render_planner_revise_context
-from open_dirac.research_state import (
+from open_dirac.state.research_state import (
     Critique,
     CritiqueStatus,
     Evidence,
@@ -29,7 +29,7 @@ from open_dirac.research_state import (
     ReviewResult,
     SanityCheck,
 )
-from open_dirac.task import Task, TaskType
+from open_dirac.state.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +286,7 @@ class TestRenderResearchStateMd:
         assert "**Depends on:**" not in md
 
     def test_research_questions_section_rendered(self):
-        from open_dirac.research_state import ResearchQuestion, RQStatus
+        from open_dirac.state.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is F(p)?",
@@ -365,7 +365,7 @@ class TestRenderEvidenceLogMd:
 
     def test_rq_evidence_rendered(self):
         """Evidence on research questions appears in evidence log."""
-        from open_dirac.research_state import ResearchQuestion, RQStatus
+        from open_dirac.state.research_state import ResearchQuestion, RQStatus
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is F?",
@@ -425,7 +425,7 @@ class TestRenderEvidenceLogMd:
 
     def test_promoted_rq_shows_cross_reference(self):
         """When RQ evidence was copied to a WH, the RQ entry should be a short cross-reference."""
-        from open_dirac.research_state import ResearchQuestion, RQStatus
+        from open_dirac.state.research_state import ResearchQuestion, RQStatus
         ev = Evidence(
             type="compute", method="symbolic", approach="Long approach text " * 50,
             result="T = 1/(8*pi*M)", reasoning="Full reasoning " * 50, iteration=2,
@@ -701,7 +701,7 @@ class TestCollapsedResolvedRQs:
 
     def test_resolved_rq_to_er_omitted(self):
         """Resolved RQ pointing to an ER is omitted (already in established-results)."""
-        from open_dirac.research_state import ResearchQuestion, RQStatus
+        from open_dirac.state.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is X?",
@@ -720,7 +720,7 @@ class TestCollapsedResolvedRQs:
 
 class TestPlannerReviseEnrichedContext:
     def test_enriched_er_shows_deps_evidence_review(self):
-        from open_dirac.research_state import ResearchQuestion, RQStatus
+        from open_dirac.state.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test problem")
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001",
@@ -754,7 +754,7 @@ class TestPlannerReviseEnrichedContext:
         assert "WH-002" not in text
 
     def test_rq_not_shown_in_revise_context(self):
-        from open_dirac.research_state import ResearchQuestion, RQStatus
+        from open_dirac.state.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001",
@@ -792,7 +792,7 @@ class TestPlannerReviseEnrichedContext:
         assert "<critic-clean-reviews>" not in text
 
     def test_only_ers_in_research_state(self):
-        from open_dirac.research_state import ResearchQuestion, RQStatus
+        from open_dirac.state.research_state import ResearchQuestion, RQStatus
         state = ResearchState(problem_statement="Test")
         state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", statement="Established claim",

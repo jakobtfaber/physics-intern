@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...rendering.shared import _dedup_failed_approaches, _render_sanity_checks
-from ...research_state import (
+from ...state.research_state import (
     HypothesisStatus,
     ResearchState,
     RQStatus,

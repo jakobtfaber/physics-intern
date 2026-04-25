@@ -10,14 +10,14 @@ import time
 from typing import TYPE_CHECKING, ClassVar
 
 from open_dirac.console import console
-from open_dirac.tool_call import ToolCall
+from open_dirac.state.tool_call import ToolCall
 from open_dirac.utils.categories import CompensationCategory as CC
 from open_dirac.workspace import log_scaffold_event
 
 from .tool_schemas import ORCHESTRATOR_TOOL_DEFINITIONS
 
 if TYPE_CHECKING:
-    from open_dirac.research_state import ResearchState
+    from open_dirac.state.research_state import ResearchState
     from open_dirac.workspace import WorkspaceManager
 
 
@@ -133,7 +133,7 @@ class OrchestratorToolExecutor:
         self, state, ers: list, whs: list, open_rqs: list,
     ) -> list[str]:
         """Build conditional guidance lines for the state injection."""
-        from open_dirac.research_state import HypothesisStatus, Verdict
+        from open_dirac.state.research_state import HypothesisStatus, Verdict
         guidance: list[str] = []
 
         er_count = len(ers)
@@ -244,7 +244,7 @@ class OrchestratorToolExecutor:
     # -- Mutation handlers --
 
     def _add_hypothesis(self, args: dict) -> str:
-        from open_dirac.research_state import CritiqueStatus, Hypothesis, HypothesisStatus, RQStatus, Severity
+        from open_dirac.state.research_state import CritiqueStatus, Hypothesis, HypothesisStatus, RQStatus, Severity
 
         state = self.research_state
         if not state:
@@ -341,7 +341,7 @@ class OrchestratorToolExecutor:
         return msg
 
     def _abandon_hypothesis(self, args: dict) -> str:
-        from open_dirac.research_state import FailedApproach, HypothesisStatus
+        from open_dirac.state.research_state import FailedApproach, HypothesisStatus
 
         state = self.research_state
         if not state:
@@ -439,7 +439,7 @@ class OrchestratorToolExecutor:
         return "Note appended."
 
     def _add_research_question(self, args: dict) -> str:
-        from open_dirac.research_state import CritiqueStatus, ResearchQuestion, Severity
+        from open_dirac.state.research_state import CritiqueStatus, ResearchQuestion, Severity
 
         state = self.research_state
         if not state:
@@ -486,7 +486,7 @@ class OrchestratorToolExecutor:
         return f"Added {rq_id} — {question}."
 
     def _abandon_research_question(self, args: dict) -> str:
-        from open_dirac.research_state import RQStatus
+        from open_dirac.state.research_state import RQStatus
 
         state = self.research_state
         if not state:
@@ -584,7 +584,7 @@ class OrchestratorToolExecutor:
         if prefix == "RQ":
             rq = state.research_questions.get(target_claim)
             if rq:
-                from open_dirac.research_state import RQStatus
+                from open_dirac.state.research_state import RQStatus
                 if rq.status != RQStatus.OPEN:
                     return (
                         f"Error: {target_claim} is {rq.status.value} and cannot receive "
@@ -654,7 +654,7 @@ class OrchestratorToolExecutor:
 
         Returns error string or None if valid.
         """
-        from open_dirac.research_state import Verdict
+        from open_dirac.state.research_state import Verdict
 
         state = self.research_state
         if state is None:

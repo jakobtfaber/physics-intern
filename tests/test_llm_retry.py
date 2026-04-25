@@ -520,7 +520,7 @@ class TestPenultimateRoundMessage:
         """CRITICAL message appears at round max_rounds - 1 when max_rounds >= 4."""
         from open_dirac.llm import run_agent_loop
         from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.tool_call import ToolCall
+        from open_dirac.state.tool_call import ToolCall
 
         max_rounds = 5
         provider = MagicMock()
@@ -573,7 +573,7 @@ class TestPenultimateRoundMessage:
         """CRITICAL message does NOT appear when max_rounds < 4."""
         from open_dirac.llm import run_agent_loop
         from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.tool_call import ToolCall
+        from open_dirac.state.tool_call import ToolCall
 
         max_rounds = 3
         provider = MagicMock()
@@ -622,7 +622,7 @@ class TestPenultimateRoundMessage:
         """When the forced final call raises, result.text is empty (honest failure)."""
         from open_dirac.llm import run_agent_loop
         from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.tool_call import ToolCall
+        from open_dirac.state.tool_call import ToolCall
 
         max_rounds = 3
         provider = MagicMock()
@@ -667,7 +667,7 @@ class TestPenultimateRoundMessage:
         """Progress check injection does not break the agent loop."""
         from open_dirac.llm import run_agent_loop
         from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.tool_call import ToolCall
+        from open_dirac.state.tool_call import ToolCall
 
         max_rounds = 5
         provider = MagicMock()
@@ -706,7 +706,7 @@ class TestPenultimateRoundMessage:
         """run_agent_loop degrades to forced text-only call on tool_use_failed error."""
         from open_dirac.llm import run_agent_loop
         from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.tool_call import ToolCall
+        from open_dirac.state.tool_call import ToolCall
 
         max_rounds = 5
         provider = MagicMock()
@@ -756,7 +756,7 @@ class TestPenultimateRoundMessage:
         """run_agent_loop degrades to forced text-only call on provider-side 400."""
         from open_dirac.llm import run_agent_loop
         from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.tool_call import ToolCall
+        from open_dirac.state.tool_call import ToolCall
 
         max_rounds = 5
         provider = MagicMock()
@@ -809,7 +809,7 @@ class TestPenultimateRoundMessage:
         """The forced text-only call uses a user message, not a mutated system prompt."""
         from open_dirac.llm import run_agent_loop
         from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.tool_call import ToolCall
+        from open_dirac.state.tool_call import ToolCall
 
         max_rounds = 2
         provider = MagicMock()

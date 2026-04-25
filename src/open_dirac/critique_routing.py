@@ -21,16 +21,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .console import console
-from .state_transitions import demote_hypothesis, promote_hypothesis
-from .task import Task, TaskType
+from .state.state_transitions import demote_hypothesis, promote_hypothesis
+from .state.task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
 from .workspace import log_scaffold_event
 
 if TYPE_CHECKING:
     from .agents.adjudicator import AdjudicatorAgent
     from .agents.planner import PlannerAgent
-    from .loop_state import LoopState
-    from .research_state import Critique, ResearchState
+    from .state.loop_state import LoopState
+    from .state.research_state import Critique, ResearchState
     from .workspace import WorkspaceManager
 
 
@@ -49,7 +49,7 @@ def route_critiques(
     Phase 2: Route strategy/coordination critiques (and any ER demotions
              from phase 1) to the planner for strategy revision.
     """
-    from .research_state import CritiqueStatus
+    from .state.research_state import CritiqueStatus
 
     new_critiques = [
         c for c in research_state.critiques.values()
@@ -115,7 +115,7 @@ def adjudicate_er_critique(
 
     Returns dict with demotion info if ER was overturned, else None.
     """
-    from .research_state import CritiqueStatus, HypothesisStatus, ResearchQuestion
+    from .state.research_state import CritiqueStatus, HypothesisStatus, ResearchQuestion
 
     target_id = crit.targets[0] if crit.targets else None
     if not target_id or target_id not in research_state.hypotheses:
@@ -147,7 +147,7 @@ def adjudicate_er_critique(
     reasoning = result.get("reasoning", "")[:200]
 
     if adjudication == "valid":
-        from .research_state import FailedApproach
+        from .state.research_state import FailedApproach
         # Collect dependents before first demotion (normalize_references
         # rewrites depends_on from ER-NNN to WH-NNN after demotion)
         dependent_ids = [
@@ -241,7 +241,7 @@ def invoke_planner_revision(
     on_round,
 ) -> None:
     """Invoke the planner in revise mode to assess strategy after critiques/demotions."""
-    from .research_state import CritiqueStatus, HypothesisStatus
+    from .state.research_state import CritiqueStatus, HypothesisStatus
 
     # Build trigger text
     trigger_parts: list[str] = []
@@ -273,7 +273,7 @@ def invoke_planner_revision(
         console.print("  [green]Strategy updated[/green]")
 
     if planner.parsed_sanity_checks is not None:
-        from .research_state import SanityCheck
+        from .state.research_state import SanityCheck
         new_checks: list[SanityCheck] = []
         for item in planner.parsed_sanity_checks:
             if isinstance(item, dict):
@@ -308,7 +308,7 @@ def invoke_planner_revision(
                         f"PLANNER CONCERN on {eid}: {concern}"
                     )
             elif act == "abandon" and eid in research_state.hypotheses:
-                from .research_state import FailedApproach
+                from .state.research_state import FailedApproach
                 h = research_state.hypotheses[eid]
                 if h.status == HypothesisStatus.ABANDONED:
                     console.print(f"  [dim]{eid} already abandoned, skipping[/dim]")
@@ -379,7 +379,7 @@ def auto_promote(
     After promotion, cascades: scans remaining WHs for VERIFIED ones
     whose dependencies are now all established, and promotes those too.
     """
-    from .research_state import HypothesisStatus, Verdict
+    from .state.research_state import HypothesisStatus, Verdict
 
     # Seed the cascade with the initial candidate
     candidates = [wh_id]

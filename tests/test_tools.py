@@ -8,7 +8,7 @@ from open_dirac.config import Config
 from open_dirac.llm import AgentResult, run_agent_loop
 from open_dirac.providers.base import ProviderResponse
 from open_dirac.agents.computer.tools import ToolExecutor
-from open_dirac.tool_call import ToolCall
+from open_dirac.state.tool_call import ToolCall
 
 
 def _make_executor(timeout: int = 60) -> ToolExecutor:
@@ -246,7 +246,7 @@ class TestActiveToolsLifecycle:
 
     def test_initial_tools_before_approach(self):
         """Before approach, only document_approach and submit_result are available."""
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         tools = executor.active_tools
@@ -255,7 +255,7 @@ class TestActiveToolsLifecycle:
 
     def test_tools_after_approach(self):
         """After document_approach, execute_python replaces it."""
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         executor.execute("document_approach", {"approach": "test"})
@@ -265,7 +265,7 @@ class TestActiveToolsLifecycle:
 
     def test_progress_check_exposes_report_progress(self):
         """Setting _progress_check_pending adds report_progress to tools."""
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         executor._approach_documented = True
@@ -276,7 +276,7 @@ class TestActiveToolsLifecycle:
 
     def test_report_progress_clears_pending(self):
         """Calling report_progress removes it from next tool set."""
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         executor._approach_documented = True
@@ -291,7 +291,7 @@ class TestActiveToolsLifecycle:
 
     def test_non_compute_returns_initial(self):
         """Non-COMPUTE task type gets initial tool set (document_approach + submit_result)."""
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.RESEARCH)
         tools = executor.active_tools
@@ -358,7 +358,7 @@ class TestSubmitResult:
 
 class TestToolSetsForTaskType:
     def test_computer_tools(self):
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
         tools = ToolExecutor.tools_for_task_type(TaskType.COMPUTE)
         names = {t["function"]["name"] for t in tools}
         assert names == {"document_approach", "execute_python", "submit_result"}
@@ -378,7 +378,7 @@ class TestExitToolName:
         assert OrchestratorToolExecutor.exit_tool_names == frozenset(expected)
 
     def test_report_progress_mentions_submit_result(self):
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
         root = Path(tempfile.mkdtemp())
         executor = ToolExecutor(workspace_root=root, task_type=TaskType.COMPUTE)
         tc = executor.execute("report_progress", {
@@ -1002,7 +1002,7 @@ class TestReadyToConcludeRecovery:
     @patch("open_dirac.llm._get_provider")
     def test_ready_conclude_recovery_then_exit_tool(self, mock_get_provider):
         """report_progress(ready=True) → end_turn with text → recovery → submit_result → executor_stop."""
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
 
         provider = _mock_provider()
         mock_get_provider.return_value = provider
@@ -1091,7 +1091,7 @@ class TestReadyToConcludeRecovery:
     @patch("open_dirac.llm._get_provider")
     def test_ready_conclude_recovery_second_end_turn_falls_through(self, mock_get_provider):
         """Recovery once → model again end_turn with text → falls through to normal end_turn."""
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
 
         provider = _mock_provider()
         mock_get_provider.return_value = provider
@@ -1241,7 +1241,7 @@ class TestForcedFinalWithExitTool:
     @patch("open_dirac.llm._get_provider")
     def test_forced_final_includes_exit_tool_when_ready(self, mock_get_provider):
         """max_rounds hit + ready_to_conclude → forced call with exit tool → executor_stop."""
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
 
         provider = _mock_provider()
         mock_get_provider.return_value = provider

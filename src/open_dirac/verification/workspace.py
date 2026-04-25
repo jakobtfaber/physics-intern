@@ -83,13 +83,13 @@ def load_workspace(workspace_dir: str) -> WorkspaceContents:
         contents.event_log = event_log_path.read_text()
 
     # Background survey from JSON state (not in markdown snapshots)
-    from ..research_state import STATE_FILENAME
+    from ..state.research_state import STATE_FILENAME
     from ..rendering import render_background_survey
 
     state_path = ws / STATE_FILENAME
     if state_path.exists():
         try:
-            from ..research_state import ResearchState
+            from ..state.research_state import ResearchState
             state = ResearchState.from_json(state_path.read_text())
             if state.survey_background:
                 contents.background_survey = render_background_survey(state)

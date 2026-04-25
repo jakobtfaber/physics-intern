@@ -54,7 +54,7 @@ class TestComputerProcessResponse:
 
     def _make_agent(self):
         from open_dirac.agents.computer import ComputerAgent
-        from open_dirac.research_state import ResearchState, ResearchQuestion
+        from open_dirac.state.research_state import ResearchState, ResearchQuestion
         agent = ComputerAgent.__new__(ComputerAgent)
         agent.research_state = ResearchState(problem_statement="test")
         rq_id = agent.research_state.next_entity_num()
@@ -67,11 +67,11 @@ class TestComputerProcessResponse:
         return AgentResult(text="", tool_calls=tool_calls)
 
     def _make_tc(self, name, tool_input, output="ok", is_error=False):
-        from open_dirac.tool_call import ToolCall
+        from open_dirac.state.tool_call import ToolCall
         return ToolCall(tool_name=name, tool_input=tool_input, output=output, is_error=is_error, duration=0.1)
 
     def test_approach_includes_assumptions_and_expected_outcome(self):
-        from open_dirac.task import Task, TaskType
+        from open_dirac.state.task import Task, TaskType
         agent = self._make_agent()
         rq_id = list(agent.research_state.research_questions.keys())[0]
         task = Task(task_id="T1", task_type=TaskType.COMPUTE, assigned_to="computer", body=f"Compute {rq_id}", target_claim=rq_id)
@@ -97,7 +97,7 @@ class TestComputerProcessResponse:
         assert "Expected outcome: Should match Hawking formula" in evidence.approach
 
     def test_approach_without_assumptions_or_expected_outcome(self):
-        from open_dirac.task import Task, TaskType
+        from open_dirac.state.task import Task, TaskType
         agent = self._make_agent()
         rq_id = list(agent.research_state.research_questions.keys())[0]
         task = Task(task_id="T1", task_type=TaskType.COMPUTE, assigned_to="computer", body=f"Compute {rq_id}", target_claim=rq_id)
@@ -119,7 +119,7 @@ class TestResearcherProcessResponse:
 
     def _make_agent(self):
         from open_dirac.agents.researcher import ResearcherAgent
-        from open_dirac.research_state import ResearchState, ResearchQuestion
+        from open_dirac.state.research_state import ResearchState, ResearchQuestion
         agent = ResearcherAgent.__new__(ResearcherAgent)
         agent.research_state = ResearchState(problem_statement="test")
         rq_id = f"RQ-{agent.research_state.next_entity_num():03d}"
@@ -132,7 +132,7 @@ class TestResearcherProcessResponse:
                            stop_reason="end_turn", duration=0.1)
 
     def test_evidence_from_json_block(self):
-        from open_dirac.task import Task, TaskType
+        from open_dirac.state.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body=f"Derive for {rq_id}", target_claim=rq_id)
@@ -155,7 +155,7 @@ class TestResearcherProcessResponse:
 
     def test_reasoning_is_full_response_text(self):
         """Evidence.reasoning is the full response text (derivation + JSON)."""
-        from open_dirac.task import Task, TaskType
+        from open_dirac.state.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body=f"Derive for {rq_id}", target_claim=rq_id)
@@ -173,7 +173,7 @@ class TestResearcherProcessResponse:
 
     def test_target_from_task_target_claim(self):
         """Target ID comes from task.target_claim."""
-        from open_dirac.task import Task, TaskType
+        from open_dirac.state.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body="Some task", target_claim=rq_id)
@@ -186,7 +186,7 @@ class TestResearcherProcessResponse:
         """When no JSON block, raise ParseFailureError (no degraded evidence)."""
         import pytest
         from open_dirac.llm import ParseFailureError
-        from open_dirac.task import Task, TaskType
+        from open_dirac.state.task import Task, TaskType
         agent, rq_id = self._make_agent()
         task = Task(task_id="T1", task_type=TaskType.RESEARCH, assigned_to="researcher",
                     body=f"Derive for {rq_id}", target_claim=rq_id)
@@ -200,13 +200,13 @@ class TestToolsForTaskType:
     """Test tools_for_task_type returns correct tool sets."""
 
     def test_research_tools(self):
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
         from open_dirac.agents.computer.tools import ToolExecutor
         names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.RESEARCH)}
         assert "submit_result" in names
 
     def test_compute_tools(self):
-        from open_dirac.task import TaskType
+        from open_dirac.state.task import TaskType
         from open_dirac.agents.computer.tools import ToolExecutor
         names = {t["function"]["name"] for t in ToolExecutor.tools_for_task_type(TaskType.COMPUTE)}
         assert "execute_python" in names

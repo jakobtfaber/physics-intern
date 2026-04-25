@@ -9,8 +9,8 @@ from open_dirac.rendering import (
     render_background_survey_xml,
     render_research_context_xml,
 )
-from open_dirac.task import Task, TaskType, TASK_TYPE_AGENT_MAP
-from open_dirac.tool_call import ToolCall
+from open_dirac.state.task import Task, TaskType, TASK_TYPE_AGENT_MAP
+from open_dirac.state.tool_call import ToolCall
 from open_dirac.utils.categories import CompensationCategory as CC
 from open_dirac.workspace import log_scaffold_event
 

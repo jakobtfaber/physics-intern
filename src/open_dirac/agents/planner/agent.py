@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from open_dirac.llm import LLMResponse
 from open_dirac.rendering import _problem_guidelines, render_background_survey_xml
-from open_dirac.task import TaskType
+from open_dirac.state.task import TaskType
 
 from ..base import BaseAgent
 from ..parsing import extract_json
@@ -16,8 +16,8 @@ from .context import render_planner_revise_context
 if TYPE_CHECKING:
     from open_dirac.config import Config
     from open_dirac.metrics import MetricsTracker
-    from open_dirac.research_state import ResearchState
-    from open_dirac.task import Task
+    from open_dirac.state.research_state import ResearchState
+    from open_dirac.state.task import Task
     from open_dirac.workspace import WorkspaceManager
 
 

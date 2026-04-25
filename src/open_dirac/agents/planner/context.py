@@ -8,7 +8,7 @@ from ...rendering.shared import (
     _render_sanity_checks,
     render_background_survey_xml,
 )
-from ...research_state import (
+from ...state.research_state import (
     Hypothesis,
     HypothesisStatus,
     ResearchState,

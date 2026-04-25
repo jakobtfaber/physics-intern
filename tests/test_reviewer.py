@@ -8,14 +8,14 @@ from open_dirac.agents.reviewer import ReviewerAgent, _parse_review_json
 import pytest
 
 from open_dirac.llm import LLMResponse, ParseFailureError
-from open_dirac.research_state import (
+from open_dirac.state.research_state import (
     Evidence,
     Hypothesis,
     HypothesisStatus,
     ResearchQuestion,
     ResearchState,
 )
-from open_dirac.task import Task, TaskType
+from open_dirac.state.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +382,7 @@ class TestComputerEvidenceFiltering:
         return AgentResult(text="", tool_calls=tool_calls)
 
     def _make_tc(self, name, tool_input, output="ok", is_error=False):
-        from open_dirac.tool_call import ToolCall
+        from open_dirac.state.tool_call import ToolCall
         return ToolCall(tool_name=name, tool_input=tool_input,
                         output=output, is_error=is_error, duration=0.1)
 

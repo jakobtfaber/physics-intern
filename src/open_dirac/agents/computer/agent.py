@@ -6,14 +6,14 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from open_dirac.llm import AgentResult, ParseFailureError, run_agent_loop
-from open_dirac.research_state import Evidence
-from open_dirac.tool_call import ToolCall
+from open_dirac.state.research_state import Evidence
+from open_dirac.state.tool_call import ToolCall
 
 from ..evidence_base import ENTITY_ID_RE, EvidenceAgent
 from .tools import ToolExecutor
 
 if TYPE_CHECKING:
-    from open_dirac.task import Task
+    from open_dirac.state.task import Task
 
 
 class ComputerAgent(EvidenceAgent):

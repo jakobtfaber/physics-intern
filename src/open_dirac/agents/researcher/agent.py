@@ -7,13 +7,13 @@ import re
 from typing import TYPE_CHECKING
 
 from open_dirac.llm import LLMResponse, ParseFailureError
-from open_dirac.research_state import Evidence
+from open_dirac.state.research_state import Evidence
 
 from ..evidence_base import ENTITY_ID_RE, EvidenceAgent
 from ..parsing import JSON_FENCE_RE, try_json_loads
 
 if TYPE_CHECKING:
-    from open_dirac.task import Task
+    from open_dirac.state.task import Task
 
 # ---------------------------------------------------------------------------
 # JSON parsing

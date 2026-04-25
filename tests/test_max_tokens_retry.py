@@ -311,7 +311,7 @@ def test_run_agent_loop_continues_mid_round(tmp_path):
     """A truncated round that continues into a clean tool call should
     fold the continuation into the round and proceed normally."""
     from open_dirac import llm
-    from open_dirac.tool_call import ToolCall
+    from open_dirac.state.tool_call import ToolCall
 
     config = _make_config(
         max_tokens_retries=1, max_tool_rounds=3,

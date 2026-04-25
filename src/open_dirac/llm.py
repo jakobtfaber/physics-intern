@@ -19,7 +19,7 @@ from .providers import (
     is_tool_call_failure,
     strip_think_tags,
 )
-from .tool_call import ToolCall
+from .state.tool_call import ToolCall
 from .agents.computer.tools import ToolExecutor
 from .utils.categories import CompensationCategory as CC
 from .workspace import log_llm_call, log_scaffold_event

@@ -3,9 +3,9 @@
 from unittest.mock import MagicMock, patch, PropertyMock, call
 
 from open_dirac.config import Config
-from open_dirac.loop_state import DispatchRecord, LoopState
-from open_dirac.research_state import Evidence, Hypothesis, ResearchState, ReviewResult
-from open_dirac.task import Task, TaskType
+from open_dirac.state.loop_state import DispatchRecord, LoopState
+from open_dirac.state.research_state import Evidence, Hypothesis, ResearchState, ReviewResult
+from open_dirac.state.task import Task, TaskType
 from open_dirac.validation import Violation, ViolationSeverity
 
 
@@ -100,7 +100,7 @@ class TestComputeVerdictTracking:
         return engine
 
     def _set_verification(self, engine, target, verdict_str, summary=""):
-        from open_dirac.research_state import Hypothesis, ReviewResult
+        from open_dirac.state.research_state import Hypothesis, ReviewResult
         if target not in engine.research_state.hypotheses:
             engine.research_state.hypotheses[target] = Hypothesis(id=target)
         engine.research_state.hypotheses[target].review = ReviewResult(
@@ -151,7 +151,7 @@ class TestComputeVerdictTracking:
 
     def test_refuted_keeps_working_and_increments_refuted_count(self):
         """REFUTED verdict keeps WH WORKING, increments refuted_count, no FailedApproach."""
-        from open_dirac.research_state import HypothesisStatus
+        from open_dirac.state.research_state import HypothesisStatus
         engine = self._make_engine()
         h = Hypothesis(id="WH-001", statement="Claim X = Y", evidence=[
             Evidence(type="compute", result="wrong", iteration=1),
@@ -362,10 +362,10 @@ class TestComputeVerdictTracking:
     def test_track_agent_result_stores_provenance(self):
         """_track_agent_result stores task_id and task_type in pending results."""
         engine = self._make_engine()
-        from open_dirac.research_state import Evidence
+        from open_dirac.state.research_state import Evidence
         rq = engine.research_state.research_questions.get("RQ-001")
         if rq is None:
-            from open_dirac.research_state import ResearchQuestion
+            from open_dirac.state.research_state import ResearchQuestion
             engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
                 id="RQ-001", question="What is T?",
             )
@@ -458,7 +458,7 @@ class TestComputeVerdictTracking:
     def test_empty_comp_log_noop(self):
         """No verification on target hypothesis, nothing happens."""
         engine = self._make_engine()
-        from open_dirac.research_state import Hypothesis
+        from open_dirac.state.research_state import Hypothesis
         engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
 
         task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
@@ -1106,7 +1106,7 @@ class TestAgentFailureRouting:
 
     def test_compute_verdict_appends_to_pending_verdicts(self):
         """REFUTED verdict below stall limit appends to pending_compute_verdicts."""
-        from open_dirac.research_state import Hypothesis, ReviewResult
+        from open_dirac.state.research_state import Hypothesis, ReviewResult
 
         engine = self._make_engine()
         engine.iteration = 5
@@ -1127,7 +1127,7 @@ class TestAgentFailureRouting:
 
     def test_compute_verdict_stall_signals_orchestrator(self):
         """At stall (count >= limit), verdict signal still goes to pending_compute_verdicts."""
-        from open_dirac.research_state import Hypothesis, ReviewResult
+        from open_dirac.state.research_state import Hypothesis, ReviewResult
 
         engine = self._make_engine()
         engine.iteration = 5
@@ -1292,7 +1292,7 @@ class TestExploreResultSuppression:
 
     def test_no_evidence_not_appended(self):
         """Hypothesis with no evidence NOT appended to pending_explore_results."""
-        from open_dirac.research_state import Hypothesis
+        from open_dirac.state.research_state import Hypothesis
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
         task = Task(task_id="TASK-003", task_type=TaskType.RESEARCH,
@@ -1304,7 +1304,7 @@ class TestExploreResultSuppression:
 
     def test_empty_result_explore_not_appended(self):
         """Evidence with empty result NOT appended to pending_explore_results."""
-        from open_dirac.research_state import Hypothesis, Evidence
+        from open_dirac.state.research_state import Hypothesis, Evidence
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
@@ -1319,7 +1319,7 @@ class TestExploreResultSuppression:
 
     def test_successful_explore_appended(self):
         """Successful evidence IS appended to pending_explore_results."""
-        from open_dirac.research_state import Hypothesis, Evidence
+        from open_dirac.state.research_state import Hypothesis, Evidence
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
@@ -1335,7 +1335,7 @@ class TestExploreResultSuppression:
 
     def test_critique_evidence_appended(self):
         """Evidence on a critique target IS appended to pending_explore_results."""
-        from open_dirac.research_state import Critique, Evidence, Severity, CritiqueStatus
+        from open_dirac.state.research_state import Critique, Evidence, Severity, CritiqueStatus
         engine = self._make_engine()
         engine.research_state.critiques["CRIT-001"] = Critique(
             id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
@@ -1358,7 +1358,7 @@ class TestExploreResultSuppression:
 
     def test_critique_no_evidence_not_appended(self):
         """Critique with no evidence NOT appended to pending_explore_results."""
-        from open_dirac.research_state import Critique, Severity, CritiqueStatus
+        from open_dirac.state.research_state import Critique, Severity, CritiqueStatus
         engine = self._make_engine()
         engine.research_state.critiques["CRIT-001"] = Critique(
             id="CRIT-001", targets=["WH-001"], severity=Severity.HIGH,
@@ -1554,7 +1554,7 @@ class TestTerminationCircuitBreaker:
 
     def test_force_abandon_working_hypotheses(self):
         """Auto-abandon all remaining WHs when circuit breaker fires."""
-        from open_dirac.research_state import Hypothesis, HypothesisStatus
+        from open_dirac.state.research_state import Hypothesis, HypothesisStatus
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING, statement="Claim A",
@@ -1592,7 +1592,7 @@ class TestTerminationCircuitBreaker:
 
     def test_no_abandon_when_no_working_hypotheses(self):
         """Force-abandon is a no-op when all hypotheses are already established/abandoned."""
-        from open_dirac.research_state import Hypothesis, HypothesisStatus
+        from open_dirac.state.research_state import Hypothesis, HypothesisStatus
         engine = self._make_engine()
         engine.research_state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
@@ -1723,7 +1723,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_compute_with_evidence(self):
         """Compute task with evidence on target RQ records confidence."""
         engine = self._make_engine()
-        from open_dirac.research_state import ResearchQuestion, Evidence
+        from open_dirac.state.research_state import ResearchQuestion, Evidence
         engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is T?",
         )
@@ -1743,7 +1743,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_compute_no_evidence(self):
         """Compute task with no evidence on target records 'no evidence'."""
         engine = self._make_engine()
-        from open_dirac.research_state import ResearchQuestion
+        from open_dirac.state.research_state import ResearchQuestion
         engine.research_state.research_questions["RQ-001"] = ResearchQuestion(
             id="RQ-001", question="What is T?",
         )
@@ -1756,7 +1756,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_research_on_hypothesis(self):
         """Research task targeting a WH reads evidence from hypothesis."""
         engine = self._make_engine()
-        from open_dirac.research_state import Hypothesis, Evidence
+        from open_dirac.state.research_state import Hypothesis, Evidence
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
             evidence=[Evidence(type="research", result="derived", confidence="approximate", iteration=2)],
@@ -1770,7 +1770,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_review_verdict(self):
         """Review task captures the reviewer's verdict."""
         engine = self._make_engine()
-        from open_dirac.research_state import Hypothesis, ReviewResult
+        from open_dirac.state.research_state import Hypothesis, ReviewResult
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001",
             review=ReviewResult(verdict="VERIFIED", summary="Correct.", iteration=3),
@@ -1787,7 +1787,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_review_promoted_wh(self):
         """Review task finds promoted WH via ER- fallback."""
         engine = self._make_engine()
-        from open_dirac.research_state import Hypothesis, ReviewResult, HypothesisStatus
+        from open_dirac.state.research_state import Hypothesis, ReviewResult, HypothesisStatus
         # Simulate post-promotion state: WH-001 gone, ER-001 present
         engine.research_state.hypotheses["ER-001"] = Hypothesis(
             id="ER-001", status=HypothesisStatus.ESTABLISHED,
@@ -1803,7 +1803,7 @@ class TestDispatchHistory:
     def test_append_dispatch_record_review_no_review(self):
         """Review task with no review result records 'no review produced'."""
         engine = self._make_engine()
-        from open_dirac.research_state import Hypothesis
+        from open_dirac.state.research_state import Hypothesis
         engine.research_state.hypotheses["WH-001"] = Hypothesis(id="WH-001")
         task = Task(task_id="TASK-003", task_type=TaskType.REVIEW,
                     assigned_to="reviewer", target_claim="WH-001")
@@ -1813,7 +1813,7 @@ class TestDispatchHistory:
 
     def test_append_dispatch_record_critique_with_critiques(self):
         """Critique task counts recent critiques from research state."""
-        from open_dirac.research_state import Critique, Severity, CritiqueStatus
+        from open_dirac.state.research_state import Critique, Severity, CritiqueStatus
         engine = self._make_engine()
         # Add 3 critiques filed this iteration
         for i in range(1, 4):
@@ -1930,7 +1930,7 @@ class TestAutoPromoteCascade:
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
-            from open_dirac.research_state import HypothesisStatus
+            from open_dirac.state.research_state import HypothesisStatus
             engine = OpenDirac.__new__(OpenDirac)
             engine.config = Config()
             engine.workspace = ws
@@ -1942,7 +1942,7 @@ class TestAutoPromoteCascade:
 
     def test_simple_promotion(self):
         """VERIFIED WH with no deps is promoted."""
-        from open_dirac.research_state import Hypothesis, HypothesisStatus, Verdict
+        from open_dirac.state.research_state import Hypothesis, HypothesisStatus, Verdict
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -1954,7 +1954,7 @@ class TestAutoPromoteCascade:
 
     def test_skipped_when_deps_unestablished(self):
         """VERIFIED WH with unestablished dep is NOT promoted."""
-        from open_dirac.research_state import Hypothesis, HypothesisStatus, Verdict
+        from open_dirac.state.research_state import Hypothesis, HypothesisStatus, Verdict
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -1969,7 +1969,7 @@ class TestAutoPromoteCascade:
 
     def test_cascade_promotes_dependent(self):
         """Promoting WH-001 cascades to promote WH-002 that depends on it."""
-        from open_dirac.research_state import Hypothesis, HypothesisStatus, Verdict
+        from open_dirac.state.research_state import Hypothesis, HypothesisStatus, Verdict
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -1988,7 +1988,7 @@ class TestAutoPromoteCascade:
 
     def test_cascade_chain_three_deep(self):
         """Cascade works through a chain: WH-001 -> WH-002 -> WH-003."""
-        from open_dirac.research_state import Hypothesis, HypothesisStatus, Verdict
+        from open_dirac.state.research_state import Hypothesis, HypothesisStatus, Verdict
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -2009,7 +2009,7 @@ class TestAutoPromoteCascade:
 
     def test_cascade_stops_at_unverified(self):
         """Cascade does not promote unverified WHs in the chain."""
-        from open_dirac.research_state import Hypothesis, HypothesisStatus, Verdict
+        from open_dirac.state.research_state import Hypothesis, HypothesisStatus, Verdict
         engine = self._make_engine()
         engine.research_state.hypotheses["WH-001"] = Hypothesis(
             id="WH-001", status=HypothesisStatus.WORKING,
@@ -2048,7 +2048,7 @@ class TestAutoExpireCritiques:
 
     def test_medium_critique_expires(self):
         """MEDIUM critique auto-expires after TTL iterations."""
-        from open_dirac.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.state.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=3)
         engine.iteration = 8
         engine.research_state.critiques["CRIT-001"] = Critique(
@@ -2064,7 +2064,7 @@ class TestAutoExpireCritiques:
 
     def test_low_critique_expires(self):
         """LOW critique auto-expires after TTL iterations."""
-        from open_dirac.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.state.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=3)
         engine.iteration = 10
         engine.research_state.critiques["CRIT-001"] = Critique(
@@ -2077,7 +2077,7 @@ class TestAutoExpireCritiques:
 
     def test_high_critique_never_expires(self):
         """HIGH critique is never auto-expired regardless of age."""
-        from open_dirac.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.state.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=3)
         engine.iteration = 100
         engine.research_state.critiques["CRIT-001"] = Critique(
@@ -2090,7 +2090,7 @@ class TestAutoExpireCritiques:
 
     def test_young_critique_not_expired(self):
         """MEDIUM critique younger than TTL is not expired."""
-        from open_dirac.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.state.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=3)
         engine.iteration = 7
         engine.research_state.critiques["CRIT-001"] = Critique(
@@ -2103,7 +2103,7 @@ class TestAutoExpireCritiques:
 
     def test_disabled_when_ttl_zero(self):
         """No expiry when auto_expire_iterations is 0."""
-        from open_dirac.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.state.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=0)
         engine.iteration = 100
         engine.research_state.critiques["CRIT-001"] = Critique(
@@ -2116,7 +2116,7 @@ class TestAutoExpireCritiques:
 
     def test_already_resolved_not_touched(self):
         """Already-resolved critiques are not re-expired."""
-        from open_dirac.research_state import Critique, CritiqueStatus, Severity
+        from open_dirac.state.research_state import Critique, CritiqueStatus, Severity
         engine = self._make_engine(auto_expire_iterations=3)
         engine.iteration = 100
         engine.research_state.critiques["CRIT-001"] = Critique(

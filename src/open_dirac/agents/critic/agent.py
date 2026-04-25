@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from open_dirac.console import console
 from open_dirac.llm import LLMResponse
-from open_dirac.research_state import Critique, CritiqueStatus, Severity
+from open_dirac.state.research_state import Critique, CritiqueStatus, Severity
 from open_dirac.utils.categories import CompensationCategory as CC
 from open_dirac.workspace import log_scaffold_event
 
@@ -17,8 +17,8 @@ from ..parsing import JSON_FENCE_RE, try_json_loads
 from .context import render_critic_context
 
 if TYPE_CHECKING:
-    from open_dirac.research_state import ResearchState
-    from open_dirac.task import Task
+    from open_dirac.state.research_state import ResearchState
+    from open_dirac.state.task import Task
 
 
 # ---------------------------------------------------------------------------

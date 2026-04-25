@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 from open_dirac.config import Config, DEFAULTS
 from open_dirac.llm import AgentResult, run_agent_loop
 from open_dirac.providers.base import ProviderResponse
-from open_dirac.research_state import (
+from open_dirac.state.research_state import (
     Evidence,
     Hypothesis,
     HypothesisStatus,
@@ -19,7 +19,7 @@ from open_dirac.research_state import (
     Verdict,
     ReviewResult,
 )
-from open_dirac.task import Task, TaskType
+from open_dirac.state.task import Task, TaskType
 from open_dirac.agents.computer.tools import ToolExecutor
 from open_dirac.validation import (
     Violation,
@@ -664,7 +664,7 @@ class TestShouldTriggerCritic:
             engine.metrics = MagicMock()
             engine.iteration = 7
             from open_dirac.engine import LoopState
-            from open_dirac.research_state import ResearchState
+            from open_dirac.state.research_state import ResearchState
             engine._state = LoopState()
             engine.research_state = ResearchState()
 

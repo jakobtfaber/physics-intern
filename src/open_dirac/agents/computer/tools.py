@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import ClassVar
 
 from open_dirac.utils.sandbox import execute_python
-from open_dirac.task import TaskType
-from open_dirac.tool_call import ToolCall  # noqa: F401 — re-export for backward compat
+from open_dirac.state.task import TaskType
+from open_dirac.state.tool_call import ToolCall  # noqa: F401 — re-export for backward compat
 
 
 class ToolExecutor:

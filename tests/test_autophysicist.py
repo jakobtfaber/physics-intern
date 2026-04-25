@@ -14,7 +14,7 @@ from open_dirac.autophysicist.subagent import (
 )
 from open_dirac.autophysicist.tools import ManagerToolExecutor
 from open_dirac.config import Config
-from open_dirac.tool_call import ToolCall
+from open_dirac.state.tool_call import ToolCall
 
 
 # ---------------------------------------------------------------------------

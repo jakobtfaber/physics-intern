@@ -14,8 +14,8 @@ from ..base import BaseAgent
 from ..parsing import JSON_FENCE_RE, try_json_loads
 
 if TYPE_CHECKING:
-    from open_dirac.research_state import ResearchState
-    from open_dirac.task import Task
+    from open_dirac.state.research_state import ResearchState
+    from open_dirac.state.task import Task
 
 
 _BARE_ADJUDICATION_RE = re.compile(r'\{[^{}]*"adjudication"[^{}]*\}', re.DOTALL)

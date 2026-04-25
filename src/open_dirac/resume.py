@@ -13,11 +13,11 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .loop_state import LoopState
-from .research_state import Verdict
+from .state.loop_state import LoopState
+from .state.research_state import Verdict
 
 if TYPE_CHECKING:
-    from .research_state import ResearchState
+    from .state.research_state import ResearchState
 
 
 def reconstruct_loop_state(research_state: ResearchState) -> LoopState:

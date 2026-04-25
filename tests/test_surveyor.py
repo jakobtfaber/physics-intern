@@ -3,8 +3,8 @@
 from unittest.mock import MagicMock
 
 from open_dirac.agents.surveyor import SurveyorAgent
-from open_dirac.research_state import ResearchState
-from open_dirac.task import Task, TaskType
+from open_dirac.state.research_state import ResearchState
+from open_dirac.state.task import Task, TaskType
 from open_dirac.llm import LLMResponse
 
 

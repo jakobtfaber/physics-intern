@@ -7,7 +7,7 @@ verify.py. Never read back by agents.
 from __future__ import annotations
 
 from ..utils.markdown import render_frontmatter
-from ..research_state import (
+from ..state.research_state import (
     CritiqueStatus,
     HypothesisStatus,
     ResearchState,

@@ -7,15 +7,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from .research_state import CritiqueStatus, HypothesisStatus, Verdict
-from .state_transitions import demote_hypothesis
+from .state.research_state import CritiqueStatus, HypothesisStatus, Verdict
+from .state.state_transitions import demote_hypothesis
 from .utils.categories import CompensationCategory as CC
 from .workspace import log_scaffold_event
 
 if TYPE_CHECKING:
     from .config import Config
     from .metrics import MetricsTracker
-    from .research_state import ResearchState
+    from .state.research_state import ResearchState
     from .workspace import WorkspaceManager
 
 
@@ -248,7 +248,7 @@ def can_terminate(
     research_state: ResearchState,
 ) -> tuple[bool, list[str]]:
     """Check preconditions before allowing the research loop to exit."""
-    from .research_state import RQStatus
+    from .state.research_state import RQStatus
 
     blockers: list[str] = []
 

@@ -12,13 +12,13 @@ from abc import abstractmethod
 from typing import TYPE_CHECKING
 
 from ..rendering import render_research_context_xml
-from ..research_state import Evidence
+from ..state.research_state import Evidence
 from .base import BaseAgent
 
 if TYPE_CHECKING:
     from ..llm import AgentResult, LLMResponse
-    from ..research_state import ResearchState
-    from ..task import Task
+    from ..state.research_state import ResearchState
+    from ..state.task import Task
 
 ENTITY_ID_RE = re.compile(r"(?:ER|WH|RQ)-\d+")
 _RELEVANT_ID_RE = re.compile(r"^(?:ER|WH|RQ)-\d+$")

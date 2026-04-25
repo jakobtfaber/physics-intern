@@ -10,7 +10,7 @@ from open_dirac.validation import (
     check_stale_unverified_labels,
     check_critique_resolution_consistency,
 )
-from open_dirac.research_state import (
+from open_dirac.state.research_state import (
     Critique,
     CritiqueStatus,
     Evidence,
