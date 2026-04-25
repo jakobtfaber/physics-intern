@@ -6,7 +6,7 @@ from open_dirac.core.config import Config
 from open_dirac.state.loop_state import DispatchRecord, LoopState
 from open_dirac.state.research_state import Evidence, Hypothesis, ResearchState, ReviewResult
 from open_dirac.state.task import Task, TaskType
-from open_dirac.validation import Violation, ViolationSeverity
+from open_dirac.control.validation import Violation, ViolationSeverity
 
 
 class TestSetResearchStatus:
@@ -618,7 +618,7 @@ class TestTerminationGate:
 
     def test_terminate_allowed_when_stub(self):
         """Stub can_terminate always returns True, so TERMINATE proceeds."""
-        from open_dirac.validation import can_terminate
+        from open_dirac.control.validation import can_terminate
         engine, _ = self._make_engine()
 
         # The stub always allows termination

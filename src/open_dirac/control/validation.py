@@ -7,16 +7,16 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from .state.research_state import CritiqueStatus, HypothesisStatus, Verdict
-from .state.state_transitions import demote_hypothesis
-from .utils.categories import CompensationCategory as CC
-from .core.workspace import log_scaffold_event
+from ..state.research_state import CritiqueStatus, HypothesisStatus, Verdict
+from ..state.state_transitions import demote_hypothesis
+from ..utils.categories import CompensationCategory as CC
+from ..core.workspace import log_scaffold_event
 
 if TYPE_CHECKING:
-    from .core.config import Config
-    from .core.metrics import MetricsTracker
-    from .state.research_state import ResearchState
-    from .core.workspace import WorkspaceManager
+    from ..core.config import Config
+    from ..core.metrics import MetricsTracker
+    from ..state.research_state import ResearchState
+    from ..core.workspace import WorkspaceManager
 
 
 class ViolationSeverity(StrEnum):
@@ -248,7 +248,7 @@ def can_terminate(
     research_state: ResearchState,
 ) -> tuple[bool, list[str]]:
     """Check preconditions before allowing the research loop to exit."""
-    from .state.research_state import RQStatus
+    from ..state.research_state import RQStatus
 
     blockers: list[str] = []
 

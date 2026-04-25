@@ -50,7 +50,7 @@ class TestValidatePostIntegrationLogs:
     def test_violations_are_logged(self, tmp_path):
         """Set up state with phantom VERIFIED label, verify EVENT_LOG.jsonl gets state_invariants event."""
         from open_dirac.core.workspace import WorkspaceManager
-        from open_dirac.validation import validate_post_integration
+        from open_dirac.control.validation import validate_post_integration
         from open_dirac.state.research_state import ResearchState, Hypothesis
 
         config = Config(workspace_dir=str(tmp_path / "ws"))

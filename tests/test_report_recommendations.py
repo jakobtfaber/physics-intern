@@ -21,7 +21,7 @@ from open_dirac.state.research_state import (
 )
 from open_dirac.state.task import Task, TaskType
 from open_dirac.agents.computer.tools import ToolExecutor
-from open_dirac.validation import (
+from open_dirac.control.validation import (
     Violation,
     ViolationSeverity,
     check_er_demotion_safety,

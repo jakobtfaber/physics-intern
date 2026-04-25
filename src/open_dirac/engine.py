@@ -13,13 +13,13 @@ from .core.console import (
     print_final_report,
     print_task,
 )
-from .critique_routing import (
+from .control.critique_routing import (
     adjudicate_er_critique,
     auto_promote,
     invoke_planner_revision,
     route_critiques,
 )
-from .dispatcher import (
+from .control.dispatcher import (
     dispatch as _dispatcher_dispatch,
     handle_context_too_long as _dispatcher_handle_context_too_long,
     handle_dispatch_error as _dispatcher_handle_dispatch_error,
@@ -37,7 +37,7 @@ from .state.loop_state import (
 )
 from .providers import ContextTooLongError
 from .core.metrics import MetricsTracker
-from .resume import (
+from .control.resume import (
     find_last_critic_iteration as _find_last_critic_iteration,
     reconstruct_loop_state as _reconstruct_loop_state,
 )
@@ -46,7 +46,7 @@ from .utils.categories import CompensationCategory as CC
 from .state.research_state import ResearchState, Verdict
 from .state.state_transitions import normalize_references
 from .rendering import render_research_state_md, render_evidence_log_md, render_critique_log_md
-from .validation import validate_post_integration, can_terminate, Violation, ViolationSeverity
+from .control.validation import validate_post_integration, can_terminate, Violation, ViolationSeverity
 from .core.workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
 from .agents.researcher import ResearcherAgent

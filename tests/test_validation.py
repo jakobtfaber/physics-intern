@@ -1,6 +1,6 @@
 """Tests for validation.py — post-integration validation and termination gates."""
 
-from open_dirac.validation import (
+from open_dirac.control.validation import (
     Violation,
     ViolationSeverity,
     validate_post_integration,
@@ -314,7 +314,7 @@ class TestValidatePostIntegration:
 
     def test_runs_four_checks(self):
         """Pipeline has exactly 4 checks."""
-        from open_dirac.validation import _DEFAULT_CHECKS
+        from open_dirac.control.validation import _DEFAULT_CHECKS
         assert len(_DEFAULT_CHECKS) == 4
 
 
