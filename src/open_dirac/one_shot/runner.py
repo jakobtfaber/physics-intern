@@ -2,7 +2,7 @@
 """One-shot LLM baseline for OpenDirac problems.
 
 Sends a single LLM call with the problem statement and collects the response.
-Uses the provider layer (open_dirac.providers + open_dirac.config) but nothing from
+Uses the provider layer (open_dirac.providers + open_dirac.core.config) but nothing from
 the engine, agents, or tools — suitable for comparing raw model capability
 against the multi-agent scaffolding.
 

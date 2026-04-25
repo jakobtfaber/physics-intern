@@ -5,7 +5,7 @@ Implements the RSA algorithm: maintain a population of N candidate solutions,
 iteratively refine by aggregating subsets of K candidates for T rounds.
 Total LLM calls = N * T.
 
-Uses the provider layer (open_dirac.providers + open_dirac.config) and the
+Uses the provider layer (open_dirac.providers + open_dirac.core.config) and the
 shared baseline helpers (open_dirac.baselines) for the initial generation,
 LLM call wrapper, and workspace setup.
 

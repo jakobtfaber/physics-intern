@@ -588,23 +588,26 @@ Problems are defined in YAML files under `problems/`. Each file contains a `prob
 ```
 src/open_dirac/
   main.py              — Entry point, CLI argument parsing (console_scripts: `open_dirac`)
-  engine.py            — Main loop driver: orchestrate → validate → enrich → dispatch → route critiques → git (delegates to the modules below)
-  loop_state.py        — `LoopState` dataclass + `reconstruct_loop_state` (extracted from engine.py)
-  dispatcher.py        — Task dispatch and dispatch error handlers (extracted from engine.py)
-  critique_routing.py  — Critique routing + `auto_promote` cascading WH→ER promotion (extracted from engine.py)
-  resume.py            — Workspace resume helpers (extracted from engine.py)
-  console_reports.py   — Console reporting helpers for the main loop (extracted from engine.py)
-  console.py           — Shared rich console setup
-  research_state.py    — ResearchState dataclass: authoritative structured state (hypotheses, evidence, critiques)
-  state_transitions.py — Mutation helpers for ResearchState (pushed out of research_state.py)
-  tool_call.py         — ToolCall dataclass shared across agents and LLM layer
-  config.py            — Config dataclass (model, provider, thresholds, timeouts)
-  config.default.yaml  — Single source of truth for all default values
+  engine.py            — Main loop driver: orchestrate → validate → enrich → dispatch → route critiques → git (delegates to control/ modules)
   llm.py               — Provider-agnostic LLM wrapper (call_llm, run_agent_loop) with retry + audit logging
-  task.py              — Task dataclass + TaskType enum + TASK_TYPE_AGENT_MAP for typed task handling
-  validation.py        — Post-integration checks (4 checks on ResearchState) + termination gates
-  workspace.py         — File I/O + git operations on workspace/ + log_scaffold_event() + log_llm_call()
-  metrics.py           — MetricsTracker (token counts, alerts, Markdown rendering)
+  config.default.yaml  — Single source of truth for all default values
+  models.yaml          — Model registry (friendly keys → provider + model_id + env_key + cost)
+  state/               — Authoritative structured state, shared dataclasses
+    research_state.py  — ResearchState dataclass: hypotheses, evidence, critiques
+    state_transitions.py — Mutation helpers for ResearchState
+    loop_state.py      — `LoopState` dataclass + `reconstruct_loop_state`
+    task.py            — Task dataclass + TaskType enum + TASK_TYPE_AGENT_MAP
+    tool_call.py       — ToolCall dataclass shared across agents and LLM layer
+  control/             — Loop-control modules (driven by engine.py)
+    dispatcher.py      — Task dispatch and dispatch error handlers
+    critique_routing.py — Critique routing + `auto_promote` cascading WH→ER promotion
+    validation.py      — Post-integration checks (4 checks on ResearchState) + termination gates
+    resume.py          — Workspace resume helpers
+  core/                — Shared infrastructure
+    config.py          — Config dataclass (model, provider, thresholds, timeouts)
+    metrics.py         — MetricsTracker (token counts, alerts, Markdown rendering)
+    workspace.py       — File I/O + git operations on workspace/ + log_scaffold_event() + log_llm_call()
+    console.py         — Shared rich console + reporting helpers (progress callbacks, task summaries, final report)
   agents/
     base.py            — BaseAgent ABC with template method + retry + tool-use dispatch
     evidence_base.py   — EvidenceAgent base class shared by researcher and computer
@@ -658,7 +661,6 @@ src/open_dirac/
     markdown.py        — YAML frontmatter parsing, section extraction, critique helpers
     sandbox.py         — Python script execution with timeout
     categories.py      — CompensationCategory enum (call_reliability, state_invariants, loop_control, output_normalization)
-  models.yaml          — Model registry (friendly keys → provider + model_id + env_key + cost)
 scripts/
   run_and_verify.sh    — Run a problem then verify results in one command
   one_shot_batch.sh    — Batch-run one-shot baseline across multiple problems
