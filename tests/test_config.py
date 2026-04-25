@@ -178,7 +178,7 @@ class TestModelRegistryResolution:
         cfg = Config(model="moonshotai/Kimi-K2.6")
         assert cfg.provider == "vllm"
         assert cfg.model_id == "moonshotai/Kimi-K2.6"
-        assert cfg.max_tokens == 131072
+        assert cfg.max_tokens == 200000
         assert cfg.reasoning["reasoning_format"] == "separate_field"
         assert cfg.reasoning["tool_mode"] == "api"
 
@@ -189,7 +189,7 @@ class TestModelRegistryResolution:
 
 class TestServeConfig:
     """The serve.slurm script reads `serve.{nodes,gpus_per_node,vllm_args}` for
-    each model. These tests pin the contract for the two new huge models so a
+    each model. These tests pin the contract for the huge local models so a
     drive-by yaml edit cannot silently break the launcher."""
 
     @pytest.fixture(scope="class")
@@ -201,7 +201,8 @@ class TestServeConfig:
         assert serve["nodes"] == 3
         assert serve["gpus_per_node"] == 8
         args = " ".join(serve["vllm_args"])
-        assert "--enforce-eager" in args  # mandatory: DeepGEMM JIT crash without it
+        # DeepGEMM JIT cache/toolkit setup in serve.slurm makes CUDA graphs usable.
+        assert "--enforce-eager" not in args
         assert "--safetensors-load-strategy prefetch" in args  # 17x load speedup
         assert "--trust-remote-code" in args
 
@@ -256,7 +257,8 @@ class TestResolveServeConfig:
         assert out["DEFAULT_MODEL_ID"] == "zai-org/GLM-5.1"
         assert out["DEFAULT_NODES"] == "3"
         assert out["DEFAULT_GPUS_PER_NODE"] == "8"
-        assert "--enforce-eager" in out["DEFAULT_VLLM_ARGS"]
+        assert "--enforce-eager" not in out["DEFAULT_VLLM_ARGS"]
+        assert "--safetensors-load-strategy" in out["DEFAULT_VLLM_ARGS"]
 
     def test_unknown_model_falls_back_to_input_as_model_id(self):
         """No registry entry → DEFAULT_MODEL_ID == input model, no nodes/args."""

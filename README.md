@@ -210,7 +210,7 @@ Running a local model is a two-step process: first **serve** the model with vLLM
 # as soon as the job starts (before the model finishes loading).
 
 # Step 2 — Run a problem against the served model
-# eval.slurm reads endpoint.env, waits for vLLM to be healthy (up to 30 min),
+# eval.slurm reads endpoint.env, waits for vLLM to be healthy (up to 4 h),
 # then launches the evaluation.
 ./serve/eval.slurm \
   --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 \
@@ -220,13 +220,9 @@ Running a local model is a two-step process: first **serve** the model with vLLM
 
 #### Huge-model example (GLM-5.1)
 
-> **Not recommended.** `zai-org/GLM-5.1` is roughly **10× slower** than
-> `moonshotai/Kimi-K2.6` on the same hardware (~7.5 vs ~86 tok/s single-request).
-> The bottleneck is `--enforce-eager`, which is required to avoid a DeepGEMM JIT
-> crash in GLM's `glm_moe_dsa` sparse-attention path during CUDA graph capture.
-> Eager mode disables CUDA graphs and `torch.compile`, which is the dominant
-> speedup we get on Kimi. Until that DeepGEMM/`torch.compile` interaction is
-> fixed upstream, prefer Kimi-K2.6 for evals on this stack.
+`zai-org/GLM-5.1` runs on 3 H100 nodes with the default `models.yaml` serve
+config. The script pins DeepGEMM's JIT cache to `/fsx` and uses the loaded
+CUDA 12.9 toolkit so GLM can run without `--enforce-eager`.
 
 ```bash
 ./serve/serve.slurm \
@@ -246,6 +242,9 @@ Running a local model is a two-step process: first **serve** the model with vLLM
 
 - `uv sync --extra local`
 - `uv run hf auth whoami`
+- The `local` extra installs `vllm`, the required `transformers` floor, and the
+  vendored `deep-gemm` wheel from `[tool.uv.sources]`; no manual DeepGEMM install
+  is needed for `zai-org/GLM-5.1`.
 - vendored Nemotron parser plugins live in `serve/reasoning_parsers/`
 
 #### Step 1: Serve the model
@@ -297,18 +296,36 @@ The `--reasoning-parser` flag is exposed directly. Use it to enable built-in par
 
 #### Performance tuning notes for huge models
 
-Per-model `vllm_args` in `models.yaml` already encode the fastest configuration we found on our cluster (4×H100 80 GB nodes, WekaFS-backed weights). The full experiment log is in the comments above each entry; the headline results:
+Per-model `vllm_args` in `models.yaml` already encode the fastest configuration we found on our cluster (H100 80 GB nodes, WekaFS-backed weights). The full experiment log is in the comments above each entry; the headline results:
 
 Load times below are wall time of `default_loader.py` "Loading weights took N seconds" on the slowest worker. They depend heavily on whether the OS page cache is warm.
 
-| Model | Tput (single req) | Tput (8-way batch) | Load (cold cache) | Load (warm cache) | Notes |
-|-------|-------------------|--------------------|-------------------|-------------------|-------|
-| `zai-org/GLM-5.1`      | ~7.5 tok/s | ~50 tok/s  | ~2.5h (no prefetch) → ~2 min (with prefetch, projected) | ~37 min (no prefetch) → **~2 min (with prefetch, chosen)** | `--enforce-eager` is **required** (DeepGEMM JIT crash without it). EP gives 0% gain. |
-| `moonshotai/Kimi-K2.6` | ~90 tok/s  | ~335 tok/s | ~78 min (no prefetch); prefetch on cold cache untested | ~6-9 min (no prefetch ≈ prefetch) | CUDA graphs (no `--enforce-eager`) give the dominant 4× throughput win; `--enable-expert-parallel` adds ~3-4%. |
+| Model | Tput (single req) | Tput (8-way batch) | Tput (16-way batch) | Load (cold cache) | Load (warm cache) | Notes |
+|-------|-------------------|--------------------|---------------------|-------------------|-------------------|-------|
+| `zai-org/GLM-5.1`      | ~46 tok/s | ~202 tok/s | ~333 tok/s | ~2.5h projected without prefetch | ~18-22 min with prefetch in the final run; earlier warm run was ~2 min | DeepGEMM JIT cache/toolkit setup lets this run without `--enforce-eager`; BF16 beats FP8 on our stack. |
+| `moonshotai/Kimi-K2.6` | ~92 tok/s | ~558 tok/s | ~920 tok/s | ~78 min without prefetch; prefetch on cold cache untested | ~6-11 min with warm cache | CUDA graphs (no `--enforce-eager`) give the dominant 4× throughput win; `--enable-expert-parallel` remains the chosen default. |
+
+For an apples-to-apples 4-node comparison, GLM-5.1 with TP=8/PP=4 measured
+~46 tok/s single-request, ~257 tok/s at 8-way concurrency, and ~383 tok/s at
+16-way concurrency. That improves aggregate throughput over the 3-node default,
+but not single-request latency, and the gain is smaller than the extra 33% GPU
+cost, so the default stays at 3 nodes.
+
+Kimi-K2.6 also fits on fewer nodes. With the same canonical flags:
+
+| Kimi nodes | Tput (single req) | Tput (8-way batch) | Tput (16-way batch) | Full-context KV headroom | Notes |
+|------------|-------------------|--------------------|---------------------|--------------------------|-------|
+| 2 | ~94 tok/s | ~569 tok/s | ~938 tok/s | 3.83× at 262k context | Best short-prompt cost/perf, but risky for full 8-way long-context sweeps. |
+| 3 | ~92 tok/s | ~547 tok/s | ~920 tok/s | 7.48× at 262k context | Almost enough for 8-way full-context use, still less headroom than 4 nodes. |
+| 4 | ~92 tok/s | ~558 tok/s | ~920 tok/s | 11.12× at 262k context | Chosen default for robust 8-way CritPt runs. |
+
+Kimi's `max_output_tokens` is intentionally `200000`. The old 131k cap left
+five hard one-shot CritPt problems without parseable answer code; rerunning just
+those with the higher cap completed the full 70/70 submission set.
 
 Two flags worth knowing whenever you add a new huge model on a networked filesystem:
 
-- `--safetensors-load-strategy prefetch` — pulls all shards into the OS page cache via background threads. Mandatory on WekaFS / Lustre / NFS where vLLM's auto-detection often misses and falls back to slow random mmap reads. Confirmed 17× speedup on GLM-5.1 even on a warm cache (282 shards); on Kimi-K2.6 (64 shards) it's a no-op once the cache is warm but still recommended for the very first load.
+- `--safetensors-load-strategy prefetch` — pulls all shards into the OS page cache via background threads. Mandatory on WekaFS / Lustre / NFS where vLLM's auto-detection often misses and falls back to slow random mmap reads. It is still the best loader we found for GLM/Kimi; exact wall time depends heavily on cluster cache state.
 - `--enable-expert-parallel` — for MoE models with many experts (Kimi has 384), shard them across the TP group rather than replicate. Free win for Kimi-class models.
 
 What does **not** help on H100:
@@ -316,6 +333,8 @@ What does **not** help on H100:
 - `--load-format runai_streamer` — slower than `prefetch` on Weka (~6 min vs ~2 min for GLM on a warm cache).
 - FlashAttention 4 — only supported on Blackwell (SM100+); Hopper falls back to FA3 (which is already what we use).
 - ngram / EAGLE / Medusa / MTP / suffix speculative decoding for Kimi-K2.6 — all blocked: Kimi-K2.6 dropped MTP layers, no draft weights ship with it, suffix decoding's `arctic-inference` build needs C++20 `<span>` (GCC 9.4 lacks it), and ngram is incompatible with PP > 1 in vLLM 0.19.1. Pure-TP multi-node ngram works but is slower than the no-spec config because inter-node TP all-reduce dominates.
+- `--async-scheduling`, `--mm-encoder-tp-mode data`, and the Kimi-K2.5 Eagle3 draft for Kimi-K2.6 — no throughput win or not runnable. K2.5 Eagle3 cannot be used with PP > 1, and TP-only Kimi trips the multimodal vision-tower path in vLLM 0.19.1.
+- `zai-org/GLM-5.1-FP8` on this pip/wheel stack — no-eager repeatedly fails in DeepGEMM FP8 warmup with `CUDA_ERROR_FILE_NOT_FOUND`, even with isolated DeepGEMM and TorchInductor caches. Eager FP8 serves, but the best measured MTP=3 run was only ~11 tok/s single-request and ~157 tok/s at 16-way concurrency.
 - `--kv-cache-dtype fp8` for Kimi-K2.6 — ~18% slower single-request (per-step dequant) and the only benefit is ~50% KV-cache memory, which is unused: the champion runs at ~12-15% KV utilization at 8-way concurrency.
 - Reducing pipeline parallelism (PP=2/TP=8 on 2 nodes vs PP=4/TP=8 on 4 nodes) — gives linear per-GPU scaling (~43 vs ~90 tok/s single-req), no per-request latency win from fewer stages.
 
@@ -328,7 +347,7 @@ Local model keys match Hub repo IDs:
 - `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`
 - `nvidia/Nemotron-Cascade-2-30B-A3B`
 - `moonshotai/Kimi-K2.6` (4 nodes; 1T-parameter MoE, native int4 quantization)
-- `zai-org/GLM-5.1` (3 nodes; sparse-attention MoE — see "Not recommended" note above)
+- `zai-org/GLM-5.1` (3 nodes; sparse-attention MoE)
 
 #### Step 2: Run the problem
 
