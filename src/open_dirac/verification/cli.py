@@ -20,8 +20,8 @@ load_dotenv()
 
 import yaml
 
-from ..config import Config, DEFAULTS
-from ..console import console
+from ..core.config import Config, DEFAULTS
+from ..core.console import console
 from .diagnosis import (
     build_diagnosis_prompt,
     call_diagnosis_llm,

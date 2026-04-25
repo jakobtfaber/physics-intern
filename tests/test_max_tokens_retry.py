@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from open_dirac.config import Config
+from open_dirac.core.config import Config
 from open_dirac.llm import (
     CONTINUATION_PROMPT,
     continue_on_max_tokens,

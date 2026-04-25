@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from open_dirac.config import Config
+from open_dirac.core.config import Config
 from open_dirac.llm import AgentResult, run_agent_loop
 from open_dirac.providers.base import ProviderResponse
 from open_dirac.agents.computer.tools import ToolExecutor

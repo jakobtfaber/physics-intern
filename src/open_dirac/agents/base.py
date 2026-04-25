@@ -7,13 +7,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar, TYPE_CHECKING
 
-from ..config import Config
-from ..console import console
+from ..core.config import Config
+from ..core.console import console
 from ..llm import AgentResult, ContextTooLongError, LLMResponse, ParseFailureError, call_llm, call_llm_continuation
-from ..metrics import MetricsTracker
+from ..core.metrics import MetricsTracker
 from ..state.tool_call import ToolCall
 from ..utils.categories import CompensationCategory as CC
-from ..workspace import WorkspaceManager, log_scaffold_event
+from ..core.workspace import WorkspaceManager, log_scaffold_event
 
 if TYPE_CHECKING:
     from ..state.task import Task

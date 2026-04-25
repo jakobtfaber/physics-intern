@@ -16,7 +16,7 @@ import yaml
 
 def _load_package_defaults() -> dict:
     """Load defaults from the config.default.yaml shipped with the package."""
-    path = Path(__file__).parent / "config.default.yaml"
+    path = Path(__file__).parent.parent / "config.default.yaml"
     with open(path) as f:
         data = yaml.safe_load(f)
     if not data or not isinstance(data, dict):
@@ -177,7 +177,7 @@ _PERSIST_FIELDS = _YAML_CONFIG_FIELDS | {
 
 def _resolve_model(model_key: str) -> dict | None:
     """Look up a model key in models.yaml, return {provider, model_id, env_key} or None."""
-    path = Path(__file__).parent / "models.yaml"
+    path = Path(__file__).parent.parent / "models.yaml"
     if not path.exists():
         return None
     try:

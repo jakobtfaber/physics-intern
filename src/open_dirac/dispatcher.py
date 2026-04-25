@@ -12,13 +12,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .console import console
+from .core.console import console
 from .llm import AgentResult, LLMResponse, ParseFailureError
 from .providers import ContextTooLongError, is_transient
 from .state.task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
 from .validation import Violation, ViolationSeverity
-from .workspace import log_scaffold_event
+from .core.workspace import log_scaffold_event
 
 if TYPE_CHECKING:
     from .agents.critic import CriticAgent
@@ -27,9 +27,9 @@ if TYPE_CHECKING:
     from .agents.researcher import ResearcherAgent
     from .agents.reviewer import ReviewerAgent
     from .state.loop_state import LoopState
-    from .metrics import MetricsTracker
+    from .core.metrics import MetricsTracker
     from .state.research_state import ResearchState
-    from .workspace import WorkspaceManager
+    from .core.workspace import WorkspaceManager
 
 
 # Errors that indicate malformed LLM output (wrong types in tool args, etc.)

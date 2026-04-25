@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import Config
+from ..core.config import Config
 from ..llm import call_llm, call_llm_continuation
 from ..utils.sandbox import execute_python
 

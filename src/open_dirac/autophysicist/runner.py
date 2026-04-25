@@ -28,14 +28,14 @@ load_dotenv()
 import yaml  # noqa: E402
 
 from ..baselines.cli import load_problem  # noqa: E402
-from ..config import Config, DEFAULTS, build_config  # noqa: E402
-from ..console import console  # noqa: E402
+from ..core.config import Config, DEFAULTS, build_config  # noqa: E402
+from ..core.console import console  # noqa: E402
 from ..llm import run_agent_loop, AgentResult  # noqa: E402
-from ..metrics import MetricsTracker  # noqa: E402
+from ..core.metrics import MetricsTracker  # noqa: E402
 from ..verification import (  # noqa: E402
     run_formal_evaluation, render_formal_evaluation, write_formal_eval_report,
 )
-from ..workspace import log_scaffold_event  # noqa: E402
+from ..core.workspace import log_scaffold_event  # noqa: E402
 
 from .memory import PermanentMemory, Scratchpad  # noqa: E402
 from .tools import ManagerToolExecutor  # noqa: E402

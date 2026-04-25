@@ -9,16 +9,16 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, ClassVar
 
-from open_dirac.console import console
+from open_dirac.core.console import console
 from open_dirac.state.tool_call import ToolCall
 from open_dirac.utils.categories import CompensationCategory as CC
-from open_dirac.workspace import log_scaffold_event
+from open_dirac.core.workspace import log_scaffold_event
 
 from .tool_schemas import ORCHESTRATOR_TOOL_DEFINITIONS
 
 if TYPE_CHECKING:
     from open_dirac.state.research_state import ResearchState
-    from open_dirac.workspace import WorkspaceManager
+    from open_dirac.core.workspace import WorkspaceManager
 
 
 # ---------------------------------------------------------------------------

@@ -5,8 +5,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..utils.markdown import render_frontmatter
 from .config import Config
-from .utils.markdown import render_frontmatter
 
 
 class WorkspaceManager:
@@ -116,7 +116,7 @@ Claims use ## ER-NNN (established, verified) or ## WH-NNN (working hypothesis, p
 
     def read_file_tail(self, filename: str, n_entries: int = 5) -> str:
         """Read the last N ## sections from a file."""
-        from .utils.markdown import tail_entries
+        from ..utils.markdown import tail_entries
         text = self.read_file(filename)
         if not text:
             return ""

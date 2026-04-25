@@ -12,7 +12,7 @@ from open_dirac.rendering import (
 from open_dirac.state.task import Task, TaskType, TASK_TYPE_AGENT_MAP
 from open_dirac.state.tool_call import ToolCall
 from open_dirac.utils.categories import CompensationCategory as CC
-from open_dirac.workspace import log_scaffold_event
+from open_dirac.core.workspace import log_scaffold_event
 
 from ..base import BaseAgent
 from .context import render_orchestrator_slim_state

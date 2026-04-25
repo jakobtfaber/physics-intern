@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import Config
-from .console import console
+from .core.config import Config
+from .core.console import console
 from .providers import (
     ContextTooLongError,
     LLMProvider,
@@ -22,7 +22,7 @@ from .providers import (
 from .state.tool_call import ToolCall
 from .agents.computer.tools import ToolExecutor
 from .utils.categories import CompensationCategory as CC
-from .workspace import log_llm_call, log_scaffold_event
+from .core.workspace import log_llm_call, log_scaffold_event
 
 _call_seq: dict[int, int] = {}
 _round_num = round  # save builtin before parameter shadowing

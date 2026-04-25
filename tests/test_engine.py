@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch, PropertyMock, call
 
-from open_dirac.config import Config
+from open_dirac.core.config import Config
 from open_dirac.state.loop_state import DispatchRecord, LoopState
 from open_dirac.state.research_state import Evidence, Hypothesis, ResearchState, ReviewResult
 from open_dirac.state.task import Task, TaskType
@@ -1412,7 +1412,7 @@ class TestCallWithRetryNoRetry:
         config = Config(workspace_dir=str(tmp_path))
         ws = MagicMock()
         ws.root = tmp_path
-        from open_dirac.metrics import MetricsTracker
+        from open_dirac.core.metrics import MetricsTracker
         metrics = MetricsTracker()
         return _StubAgent(config, ws, metrics), metrics
 

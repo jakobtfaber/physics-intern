@@ -3,8 +3,8 @@
 import inspect
 import json
 
-from open_dirac.config import Config
-from open_dirac.workspace import WorkspaceManager
+from open_dirac.core.config import Config
+from open_dirac.core.workspace import WorkspaceManager
 
 
 def _make_ws(tmp_path, init=True):

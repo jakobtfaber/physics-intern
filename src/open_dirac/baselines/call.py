@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 import time
 
-from ..config import Config
+from ..core.config import Config
 from ..llm import continue_on_max_tokens
 from ..providers import LLMProvider, call_with_retry
 

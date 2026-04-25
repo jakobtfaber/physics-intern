@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from open_dirac.baselines.call import run_baseline_call
-from open_dirac.config import Config
+from open_dirac.core.config import Config
 from open_dirac.providers.base import ProviderResponse
 
 

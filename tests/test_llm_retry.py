@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from open_dirac.config import Config
+from open_dirac.core.config import Config
 from open_dirac.llm import _call_provider_with_retry
 from open_dirac.providers.retry import (
     is_transient as _is_transient,

@@ -5,11 +5,11 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from open_dirac.config import Config, _PERSIST_FIELDS
+from open_dirac.core.config import Config, _PERSIST_FIELDS
 from open_dirac.engine import (
     OpenDirac, LoopState, _reconstruct_loop_state, _find_last_critic_iteration,
 )
-from open_dirac.workspace import WorkspaceManager
+from open_dirac.core.workspace import WorkspaceManager
 from open_dirac.state.research_state import (
     ResearchState, Hypothesis, HypothesisStatus, Evidence, ReviewResult,
     Verdict, ResearchQuestion, RQStatus,

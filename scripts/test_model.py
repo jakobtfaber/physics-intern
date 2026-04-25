@@ -24,7 +24,7 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
-from open_dirac.config import _resolve_model
+from open_dirac.core.config import _resolve_model
 from open_dirac.providers import create_provider
 
 console = Console()

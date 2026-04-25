@@ -11,7 +11,7 @@ load_dotenv()
 
 import yaml
 
-from .config import Config, DEFAULTS, build_config
+from .core.config import Config, DEFAULTS, build_config
 from .engine import OpenDirac
 
 
@@ -114,7 +114,7 @@ def _main_fresh(args) -> None:
 
 def _main_replay(args) -> None:
     """Replay console log from a workspace directory."""
-    from .console import replay_log
+    from .core.console import replay_log
 
     workspace_path = args.replay.resolve()
     log_path = workspace_path / "logs" / "console.log"

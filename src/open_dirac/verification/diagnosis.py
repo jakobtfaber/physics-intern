@@ -13,8 +13,8 @@ from pathlib import Path
 
 from rich.table import Table
 
-from ..config import Config
-from ..console import console
+from ..core.config import Config
+from ..core.console import console
 from ..llm import LLMResponse, _call_provider_with_retry, _get_provider
 from ..utils.markdown import parse_frontmatter, render_frontmatter
 from .event_summary import summarize_event_log

@@ -20,18 +20,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .console import console
+from .core.console import console
 from .state.state_transitions import demote_hypothesis, promote_hypothesis
 from .state.task import Task, TaskType
 from .utils.categories import CompensationCategory as CC
-from .workspace import log_scaffold_event
+from .core.workspace import log_scaffold_event
 
 if TYPE_CHECKING:
     from .agents.adjudicator import AdjudicatorAgent
     from .agents.planner import PlannerAgent
     from .state.loop_state import LoopState
     from .state.research_state import Critique, ResearchState
-    from .workspace import WorkspaceManager
+    from .core.workspace import WorkspaceManager
 
 
 def route_critiques(

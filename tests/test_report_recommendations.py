@@ -8,7 +8,7 @@ redundant critic skip.
 import re
 from unittest.mock import MagicMock, patch
 
-from open_dirac.config import Config, DEFAULTS
+from open_dirac.core.config import Config, DEFAULTS
 from open_dirac.llm import AgentResult, run_agent_loop
 from open_dirac.providers.base import ProviderResponse
 from open_dirac.state.research_state import (
@@ -693,6 +693,6 @@ class TestNewConfigFields:
         assert Config().computation_token_alert == 150_000
 
     def test_new_fields_in_yaml_config_fields(self):
-        from open_dirac.config import _YAML_CONFIG_FIELDS
+        from open_dirac.core.config import _YAML_CONFIG_FIELDS
         assert "progress_check_interval" in _YAML_CONFIG_FIELDS
         assert "computation_token_alert" in _YAML_CONFIG_FIELDS

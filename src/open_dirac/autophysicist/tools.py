@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import ClassVar
 
-from ..config import Config
+from ..core.config import Config
 from ..state.tool_call import ToolCall
 from .memory import PermanentMemory, Scratchpad
 from .subagent import dispatch_subagent

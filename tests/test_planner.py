@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from open_dirac.agents.planner import PlannerAgent, _parse_planner_json
-from open_dirac.config import Config
+from open_dirac.core.config import Config
 from open_dirac.engine import LoopState
 from open_dirac.llm import LLMResponse
 from open_dirac.state.research_state import (

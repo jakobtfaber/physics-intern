@@ -28,7 +28,7 @@ from ..baselines import (
     run_baseline_call,
     setup_workspace,
 )
-from ..config import Config, build_config
+from ..core.config import Config, build_config
 from ..providers import LLMProvider
 from ..verification import run_formal_evaluation, write_formal_eval_report
 

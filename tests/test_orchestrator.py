@@ -3,11 +3,11 @@
 import pytest
 
 from open_dirac.agents.orchestrator import OrchestratorAgent
-from open_dirac.config import Config
-from open_dirac.metrics import MetricsTracker
+from open_dirac.core.config import Config
+from open_dirac.core.metrics import MetricsTracker
 from open_dirac.state.research_state import ResearchState
 from open_dirac.state.task import Task, TaskType
-from open_dirac.workspace import WorkspaceManager
+from open_dirac.core.workspace import WorkspaceManager
 
 _EMPTY_TASK = Task(task_id="", task_type=TaskType.RESEARCH, assigned_to="orchestrator")
 

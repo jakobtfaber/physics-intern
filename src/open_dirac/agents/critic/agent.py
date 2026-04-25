@@ -6,11 +6,11 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from open_dirac.console import console
+from open_dirac.core.console import console
 from open_dirac.llm import LLMResponse
 from open_dirac.state.research_state import Critique, CritiqueStatus, Severity
 from open_dirac.utils.categories import CompensationCategory as CC
-from open_dirac.workspace import log_scaffold_event
+from open_dirac.core.workspace import log_scaffold_event
 
 from ..base import BaseAgent
 from ..parsing import JSON_FENCE_RE, try_json_loads

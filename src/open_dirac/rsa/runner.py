@@ -38,8 +38,8 @@ from ..baselines import (
     run_baseline_call,
     setup_workspace,
 )
-from ..config import Config, build_config
-from ..console import console
+from ..core.config import Config, build_config
+from ..core.console import console
 from ..providers import LLMProvider
 from ..providers.base import strip_think_tags
 from ..verification import (

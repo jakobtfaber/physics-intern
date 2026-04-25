@@ -14,11 +14,11 @@ from ..parsing import extract_json
 from .context import render_planner_revise_context
 
 if TYPE_CHECKING:
-    from open_dirac.config import Config
-    from open_dirac.metrics import MetricsTracker
+    from open_dirac.core.config import Config
+    from open_dirac.core.metrics import MetricsTracker
     from open_dirac.state.research_state import ResearchState
     from open_dirac.state.task import Task
-    from open_dirac.workspace import WorkspaceManager
+    from open_dirac.core.workspace import WorkspaceManager
 
 
 def _parse_planner_json(text: str) -> dict | None:

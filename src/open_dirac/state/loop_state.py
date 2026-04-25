@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from .research_state import Verdict
 
 if TYPE_CHECKING:
-    from .config import Config
+    from ..core.config import Config
     from .research_state import ResearchState
     from .task import Task
 

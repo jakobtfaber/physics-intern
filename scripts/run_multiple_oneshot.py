@@ -26,7 +26,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from open_dirac.config import DEFAULTS  # noqa: E402
+from open_dirac.core.config import DEFAULTS  # noqa: E402
 from open_dirac.utils.markdown import parse_frontmatter  # noqa: E402
 
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"

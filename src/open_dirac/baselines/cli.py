@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from ..config import DEFAULTS, Config
+from ..core.config import DEFAULTS, Config
 from ..providers import LLMProvider, create_provider
 
 

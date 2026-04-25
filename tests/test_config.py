@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from open_dirac.config import Config, DEFAULTS, _YAML_CONFIG_FIELDS, load_config_yaml, build_config
+from open_dirac.core.config import Config, DEFAULTS, _YAML_CONFIG_FIELDS, load_config_yaml, build_config
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODELS_YAML = PROJECT_ROOT / "src" / "open_dirac" / "models.yaml"

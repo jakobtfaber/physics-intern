@@ -22,7 +22,7 @@ MODELS_YAML = PROJECT_ROOT / "src" / "open_dirac" / "models.yaml"
 DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "yaml"
 
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
-from open_dirac.config import DEFAULTS  # noqa: E402
+from open_dirac.core.config import DEFAULTS  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

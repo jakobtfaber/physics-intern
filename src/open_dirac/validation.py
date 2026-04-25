@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING
 from .state.research_state import CritiqueStatus, HypothesisStatus, Verdict
 from .state.state_transitions import demote_hypothesis
 from .utils.categories import CompensationCategory as CC
-from .workspace import log_scaffold_event
+from .core.workspace import log_scaffold_event
 
 if TYPE_CHECKING:
-    from .config import Config
-    from .metrics import MetricsTracker
+    from .core.config import Config
+    from .core.metrics import MetricsTracker
     from .state.research_state import ResearchState
-    from .workspace import WorkspaceManager
+    from .core.workspace import WorkspaceManager
 
 
 class ViolationSeverity(StrEnum):

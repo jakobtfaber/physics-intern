@@ -105,7 +105,7 @@ class TestReviewerValidateResponse:
 
     def test_parse_retries_from_config(self):
         """parse_retries is now configured globally via Config.parse_retries."""
-        from open_dirac.config import Config
+        from open_dirac.core.config import Config
         config = Config()
         assert config.parse_retries == 2
 

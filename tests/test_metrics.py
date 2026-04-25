@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from open_dirac.metrics import MetricsTracker
+from open_dirac.core.metrics import MetricsTracker
 
 
 def test_record_call():

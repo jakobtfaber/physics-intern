@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..console import console
+from ..core.console import console
 from ..utils.markdown import parse_frontmatter
 from .evaluate import evaluate_response
 from .workspace import load_reference_file

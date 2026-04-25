@@ -4,9 +4,9 @@ from pathlib import Path
 
 from rich.panel import Panel
 
-from .config import Config
-from .console import console, replay_log
-from .console_reports import (
+from .core.config import Config
+from .core.console import console, replay_log
+from .core.console import (
     fmt_duration as _fmt_duration,
     on_round_progress,
     print_call_summary,
@@ -36,7 +36,7 @@ from .state.loop_state import (
     render_pending_work,
 )
 from .providers import ContextTooLongError
-from .metrics import MetricsTracker
+from .core.metrics import MetricsTracker
 from .resume import (
     find_last_critic_iteration as _find_last_critic_iteration,
     reconstruct_loop_state as _reconstruct_loop_state,
@@ -47,7 +47,7 @@ from .state.research_state import ResearchState, Verdict
 from .state.state_transitions import normalize_references
 from .rendering import render_research_state_md, render_evidence_log_md, render_critique_log_md
 from .validation import validate_post_integration, can_terminate, Violation, ViolationSeverity
-from .workspace import WorkspaceManager, log_scaffold_event
+from .core.workspace import WorkspaceManager, log_scaffold_event
 from .agents.orchestrator import OrchestratorAgent
 from .agents.researcher import ResearcherAgent
 from .agents.computer import ComputerAgent
