@@ -588,8 +588,15 @@ Problems are defined in YAML files under `problems/`. Each file contains a `prob
 ```
 src/open_dirac/
   main.py              — Entry point, CLI argument parsing (console_scripts: `open_dirac`)
-  engine.py            — Main loop (LoopState): orchestrate → validate → enrich → dispatch → route critiques → git
+  engine.py            — Main loop driver: orchestrate → validate → enrich → dispatch → route critiques → git (delegates to the modules below)
+  loop_state.py        — `LoopState` dataclass + `reconstruct_loop_state` (extracted from engine.py)
+  dispatcher.py        — Task dispatch and dispatch error handlers (extracted from engine.py)
+  critique_routing.py  — Critique routing + `auto_promote` cascading WH→ER promotion (extracted from engine.py)
+  resume.py            — Workspace resume helpers (extracted from engine.py)
+  console_reports.py   — Console reporting helpers for the main loop (extracted from engine.py)
+  console.py           — Shared rich console setup
   research_state.py    — ResearchState dataclass: authoritative structured state (hypotheses, evidence, critiques)
+  state_transitions.py — Mutation helpers for ResearchState (pushed out of research_state.py)
   tool_call.py         — ToolCall dataclass shared across agents and LLM layer
   config.py            — Config dataclass (model, provider, thresholds, timeouts)
   config.default.yaml  — Single source of truth for all default values
@@ -602,29 +609,38 @@ src/open_dirac/
     base.py            — BaseAgent ABC with template method + retry + tool-use dispatch
     evidence_base.py   — EvidenceAgent base class shared by researcher and computer
     parsing.py         — JSON parsing utilities for structured agent output
-    orchestrator/      — Plans tasks, mutates ResearchState via tools (agent.py, tools.py, prompt.md)
+    orchestrator/      — Plans tasks, mutates ResearchState via tools (agent.py, tools.py, tool_schemas.py, context.py, prompt.md)
     computer/          — Computational work via code execution (agent.py, tools.py, prompt.md)
     researcher/        — Analytical reasoning, one-shot structured JSON (agent.py, prompt.md)
     reviewer/          — Adversarial review, one-shot structured JSON (agent.py, prompt.md)
-    critic/            — Strategic audit, one-shot structured JSON (agent.py, prompt.md)
+    critic/            — Strategic audit, one-shot structured JSON (agent.py, context.py, prompt.md)
     adjudicator/       — Independent ER challenge evaluation (agent.py, prompt.md)
-    formatter/         — Produces ANSWER.md from final research state (agent.py, prompt.md)
-    planner/           — Research strategy: initial + revision mode (agent.py, prompt.md, prompt_revise.md)
+    formatter/         — Produces ANSWER.md from final research state (agent.py, context.py, prompt.md)
+    planner/           — Research strategy: initial + revision mode (agent.py, context.py, prompt.md, prompt_revise.md)
     surveyor/          — Background surveyor: maps the research landscape (agent.py, prompt.md)
   rendering/
     snapshots.py       — Snapshot renderers: state → Markdown (RESEARCH_STATE, EVIDENCE_LOG, CRITIQUE_LOG)
-    contexts.py        — Per-agent context renderers (orchestrator, critic, formatter, planner, etc.)
+    shared.py          — Shared context primitives (XML wrappers, sanity-check rendering, problem guidelines)
+                         (Per-agent context renderers now live in `agents/<name>/context.py`)
   verification/
-    verify.py          — Independent verification script (Claude Opus, streaming)
+    cli.py             — CLI entry for `python -m open_dirac.verification`
+    diagnosis.py       — Unified diagnosis pass (replaces verify.py + process_auditor)
+    diagnosis.md       — Diagnosis prompt
     evaluate.py        — Answer evaluation: symbolic (SymPy) and numerical comparison
-    verifier.md        — Verification prompt
-    process_auditor.md — Process audit prompt
+    formal_eval.py     — Formal evaluation API shared by one_shot/RSA/autophysicist
+    event_summary.py   — Event log summarisation for diagnosis
+    workspace.py       — Workspace loading helpers for verification
   autophysicist/
+    __main__.py        — Module entry point (`python -m open_dirac.autophysicist`)
     runner.py          — Autophysicist entry point: CLI, iteration loop, formal evaluation
     tools.py           — Tool executor: dispatch_subagent, memory writes, end_turn, submit_final_answer
     subagent.py        — Ephemeral sub-agent dispatch with optional sandboxed code execution
     memory.py          — PermanentMemory (append-only) and Scratchpad (rolling window)
     prompt.md          — Research Manager system prompt
+  baselines/
+    call.py            — Shared one-shot LLM call wrapper used by one_shot and RSA
+    cli.py             — Shared argparse + config loading for baseline runners
+    prompts.py         — Shared baseline prompt templates
   one_shot/
     runner.py          — One-shot LLM baseline runner (no scaffolding, for benchmarking)
   rsa/
@@ -635,6 +651,9 @@ src/open_dirac/
     openai.py          — OpenAI adapter
     google.py          — Google Gemini adapter
     huggingface.py     — HuggingFace Inference Providers adapter
+    vllm.py            — vLLM (OpenAI-compatible) adapter for locally served models
+    retry.py           — Shared transport retry / backoff helpers
+    _openai_compat.py  — OpenAI-compatible request/response shims used by openai.py and vllm.py
   utils/
     markdown.py        — YAML frontmatter parsing, section extraction, critique helpers
     sandbox.py         — Python script execution with timeout

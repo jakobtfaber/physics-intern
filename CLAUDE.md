@@ -22,7 +22,7 @@ These are non-obvious rules enforced by the scaffolding. Violating them will bre
 - **YAML frontmatter parsing always falls back to regex** — never crash the loop on parse failure.
 - **Workspace git is managed by the scaffolding loop**, not by agents.
 - **ERs are immutable** — only the adjudicator can demote them (via valid critique). No direct dispatch to ERs.
-- **WH→ER promotion is automatic** — `_auto_promote` in `engine.py` fires after VERIFIED review when dependencies are satisfied, with cascading.
+- **WH→ER promotion is automatic** — `auto_promote` in `critique_routing.py` (called via `engine._auto_promote`) fires after VERIFIED review when dependencies are satisfied, with cascading.
 - **Iteration counter is scaffolding-maintained** (`_update_research_iteration()`), not LLM-dependent.
 - **`BaseAgent.tools` class attribute determines mode** — non-empty → agentic loop (`run_agent_loop`), empty → one-shot (`call_llm`). Both go through the provider abstraction layer.
 
