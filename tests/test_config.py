@@ -210,8 +210,11 @@ class TestServeConfig:
         serve = registry["moonshotai/Kimi-K2.6"]["serve"]
         assert serve["nodes"] == 4
         assert serve["gpus_per_node"] == 8
+        assert serve["reasoning_parser"] == "kimi_k2"
         args = " ".join(serve["vllm_args"])
         assert "--enable-expert-parallel" in args
+        assert "--enable-auto-tool-choice" in args
+        assert "--tool-call-parser kimi_k2" in args
         assert "--safetensors-load-strategy prefetch" in args
         # Champion config explicitly does NOT use --enforce-eager (CUDA graphs
         # give the dominant 4x throughput win on Kimi).
@@ -250,7 +253,10 @@ class TestResolveServeConfig:
         assert out["DEFAULT_MODEL_ID"] == "moonshotai/Kimi-K2.6"
         assert out["DEFAULT_NODES"] == "4"
         assert out["DEFAULT_GPUS_PER_NODE"] == "8"
+        assert out["DEFAULT_REASONING_PARSER"] == "kimi_k2"
         assert "--enable-expert-parallel" in out["DEFAULT_VLLM_ARGS"]
+        assert "--enable-auto-tool-choice" in out["DEFAULT_VLLM_ARGS"]
+        assert "--tool-call-parser" in out["DEFAULT_VLLM_ARGS"]
 
     def test_emits_all_required_shell_vars_for_glm(self):
         out = _run_resolver("zai-org/GLM-5.1")

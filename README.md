@@ -323,10 +323,17 @@ Kimi's `max_output_tokens` is intentionally `200000`. The old 131k cap left
 five hard one-shot CritPt problems without parseable answer code; rerunning just
 those with the higher cap completed the full 70/70 submission set.
 
+Kimi also needs vLLM's `kimi_k2` tool and reasoning parsers for the full
+OpenDirac agent harness. The one-shot harness works without tools, but the
+agent loop sends OpenAI-style tool calls; vLLM rejects `tool_choice="auto"`
+unless the server is launched with `--enable-auto-tool-choice` and
+`--tool-call-parser kimi_k2`.
+
 Two flags worth knowing whenever you add a new huge model on a networked filesystem:
 
 - `--safetensors-load-strategy prefetch` — pulls all shards into the OS page cache via background threads. Mandatory on WekaFS / Lustre / NFS where vLLM's auto-detection often misses and falls back to slow random mmap reads. It is still the best loader we found for GLM/Kimi; exact wall time depends heavily on cluster cache state.
 - `--enable-expert-parallel` — for MoE models with many experts (Kimi has 384), shard them across the TP group rather than replicate. Free win for Kimi-class models.
+- `--enable-auto-tool-choice` with `--tool-call-parser kimi_k2` — required for Kimi when running the multi-agent OpenDirac harness, because its agents use API tool calls.
 
 What does **not** help on H100:
 

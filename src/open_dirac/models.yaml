@@ -404,6 +404,10 @@ zai-org/GLM-5.1:
 #   - 131k max output tokens → TOO LOW for the full one-shot CritPt sweep.
 #     Five hard problems reached max_tokens before emitting answer code. Raising
 #     max_output_tokens to 200k let the final retry finish all 70 submissions.
+#   - OpenDirac agent harness without Kimi tool parser → BROKEN. vLLM rejects
+#     requests with `tool_choice="auto"` unless the server is launched with
+#     --enable-auto-tool-choice and a matching --tool-call-parser. Kimi-K2.6
+#     uses vLLM's `kimi_k2` tool/reasoning parsers.
 #   - Data-parallel scaling across replicas was not exercised here — needs
 #     a tiny OpenAI-compatible router in front to keep the eval client
 #     unchanged. Punted to a follow-up PR. This is the right next axis when
@@ -427,11 +431,14 @@ moonshotai/Kimi-K2.6:
   serve:
     nodes: 4
     gpus_per_node: 8
+    reasoning_parser: kimi_k2
     vllm_args:
       - --max-model-len 262144
       - --trust-remote-code
       - --safetensors-load-strategy prefetch
       - --enable-expert-parallel
+      - --enable-auto-tool-choice
+      - --tool-call-parser kimi_k2
 
 # NOTE: deepseek-ai/DeepSeek-V4-Pro (1.6T MoE, novel CSA+HCA attention,
 # released 2026-04-24) is NOT runnable on our stack. Two blockers:
