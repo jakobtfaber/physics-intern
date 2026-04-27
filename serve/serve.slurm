@@ -323,6 +323,17 @@ fi
 
 export TORCH_COMPILE_DISABLE=1
 
+# DeepGEMM JIT compiles sparse-attention kernels (used by GLM-5.1 and DSv3-class
+# MoE models) at first call. Put cubins in the shared HF cache when available so
+# all Slurm ranks see the same writable path and kernels survive across jobs.
+# Also point JIT at the CUDA toolkit just loaded above.
+SHARED_CACHE_ROOT="${HUGGINGFACE_HUB_CACHE:-${REPO_ROOT}/.cache}"
+export DG_JIT_CACHE_DIR="${DG_JIT_CACHE_DIR:-${SHARED_CACHE_ROOT}/deep_gemm_jit}"
+mkdir -p "$DG_JIT_CACHE_DIR"
+if [[ -n "${CUDA_HOME:-}" && -x "${CUDA_HOME}/bin/nvcc" ]]; then
+  export DG_JIT_NVCC_COMPILER="${CUDA_HOME}/bin/nvcc"
+fi
+
 if ! uv run --no-sync hf auth whoami >/dev/null 2>&1; then
   echo "Hugging Face auth missing. Run 'uv run hf auth login' first." >&2
   exit 1

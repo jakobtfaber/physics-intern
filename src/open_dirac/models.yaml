@@ -280,26 +280,41 @@ nvidia/Nemotron-Cascade-2-30B-A3B:
       - --enable-auto-tool-choice
       - --tool-call-parser qwen3_coder
 
-# GLM-5.1: 3 nodes (24 H100), prefetch loader + eager. ~7.5 tok/s single-req.
+# GLM-5.1: 3 nodes (24 H100), prefetch loader + CUDA graphs. ~46 tok/s
+# single-request, ~202 tok/s aggregate at 8-way concurrency, ~333 tok/s at
+# 16-way concurrency.
 #
-# Experiments tried (all kept here as a record - none beat this config):
+# Experiments tried (all kept here as a record):
+# - WINNERS:
 # - --safetensors-load-strategy prefetch  → CHOSEN. Worker weight load went
 #   from 2214s (~37 min, warm page cache, no prefetch) to 128s (~2 min, warm
-#   page cache, prefetch) — a ~17x speedup just from running the shard reads
-#   in background threads. Cold-cache, no-prefetch was even worse: a first
-#   load only reached 29% of 282 shards in 44 min before we cancelled it,
-#   projecting to ~2.5h total.
-# - --load-format runai_streamer  → REJECTED. ~6 min load vs ~2 min prefetch
-#   on a warm cache. Multi-threaded direct CPU→GPU streaming is slower than
-#   letting the OS page cache stay warm.
-# - --enforce-eager  → REQUIRED. Without it, GLM's `glm_moe_dsa` sparse-
-#   attention indexer hits CUDA_ERROR_FILE_NOT_FOUND in DeepGEMM's JIT during
-#   torch.compile graph capture. Eager skips the capture path.
-# - --enable-expert-parallel  → REJECTED. Measured 7.5 tok/s, identical to
-#   baseline. GLM has fewer experts than Kimi (32 vs 384), so PP=3/TP=8
-#   already distributes them well; explicit EP adds nothing.
-# - ngram speculative decoding → BLOCKED. vLLM 0.19.1 explicitly disallows
-#   spec decoding with PP > 1 (see vLLM bugs #30436, #35521).
+#   page cache, prefetch) in the earlier run. Warm-cache reloads during the
+#   final sweep were still slower (~18-22 min on BF16), but prefetch remains
+#   the least bad loader for WekaFS.
+# - no --enforce-eager  → CHOSEN. The previous eager requirement was an
+#   environment issue: DeepGEMM JIT tried to use an unwritable/ephemeral cache
+#   and the old CUDA toolkit. serve.slurm now pins DG_JIT_CACHE_DIR to /fsx
+#   and DG_JIT_NVCC_COMPILER to the loaded cuda/12.9 toolkit, so GLM BF16 can
+#   use torch.compile/CUDA graphs. Throughput improved from ~7.5 tok/s eager
+#   to ~46 tok/s single-request.
+# - DEAD ENDS:
+#   - --load-format runai_streamer  → REJECTED. ~6 min load vs ~2 min prefetch
+#     on a warm cache in the original loader experiment.
+#   - --enable-expert-parallel  → REJECTED. Measured 7.5 tok/s under eager,
+#     identical to baseline. GLM has fewer experts than Kimi (32 vs 384), so
+#     PP=3/TP=8 already distributes them well; explicit EP adds nothing.
+#   - ngram speculative decoding → BLOCKED. vLLM 0.19.1 explicitly disallows
+#     spec decoding with PP > 1 (see vLLM bugs #30436, #35521).
+#   - 4-node BF16 (TP=8/PP=4) → REJECTED as default. This is the apples-to-
+#     apples comparison with Kimi's 4-node shape: ~46 tok/s single-request,
+#     ~257 tok/s aggregate at 8-way concurrency, and ~383 tok/s at 16-way.
+#     It improves aggregate throughput over 3 nodes but not single-request
+#     latency, and the gain is smaller than the extra 33% GPU cost.
+#   - zai-org/GLM-5.1-FP8 → REJECTED on this pip/wheel stack. FP8 no-eager
+#     repeatedly fails in DeepGEMM FP8 warmup with CUDA_ERROR_FILE_NOT_FOUND,
+#     even with isolated DeepGEMM and TorchInductor caches. Eager FP8 serves
+#     but is slow: official MTP=3 measured ~11 tok/s single-request, ~77 tok/s
+#     at 8-way concurrency, and ~157 tok/s at 16-way concurrency.
 zai-org/GLM-5.1:
   provider: vllm
   model_id: zai-org/GLM-5.1
@@ -316,10 +331,10 @@ zai-org/GLM-5.1:
       - --max-model-len 163840
       - --trust-remote-code
       - --safetensors-load-strategy prefetch
-      - --enforce-eager
 
-# Kimi-K2.6: 4 nodes (32 H100). ~90 tok/s single-request, ~335 tok/s aggregate
-# at 8-way concurrency. ~4x faster than the original eager-mode baseline.
+# Kimi-K2.6: 4 nodes (32 H100). ~92 tok/s single-request, ~558 tok/s aggregate
+# at 8-way concurrency and ~920 tok/s at 16-way concurrency. ~4x faster than
+# the original eager-mode baseline.
 #
 # Experiments tried (all kept here as a record):
 # - WINNERS:
@@ -372,6 +387,27 @@ zai-org/GLM-5.1:
 #     single-req vs 90 tok/s on 32 GPUs. Linear per-GPU scaling, no
 #     per-request win from fewer pipeline stages. Confirms that further PP
 #     reduction does not unlock single-request latency on Kimi.
+#   - Final reduced-node comparison with the canonical config:
+#     - 2 nodes (TP=8/PP=2) fits: ~94 tok/s single, ~569 tok/s at 8-way,
+#       ~938 tok/s at 16-way on short synthetic prompts, but KV capacity at
+#       full 262k context is only 3.83x. Good cost/perf for short prompts,
+#       risky as the default for full 8-way CritPt sweeps with long outputs.
+#     - 3 nodes (TP=8/PP=3) fits: ~92 tok/s single, ~547 tok/s at 8-way,
+#       ~920 tok/s at 16-way, with 7.48x full-context concurrency. Nearly
+#       enough for 8-way full-context use, but still less headroom than the
+#       4-node default's 11.12x.
+#   - Kimi-K2.5 recipe-inspired flags on K2.6 → NO WIN. Fresh canonical Kimi
+#     benchmarked ~92 tok/s single, ~558 tok/s aggregate at 8-way, and ~920
+#     tok/s at 16-way. --async-scheduling and --mm-encoder-tp-mode data tied
+#     that within noise. K2.5 Eagle3 draft is blocked: spec decoding cannot
+#     use PP>1, while TP=32/PP=1 fails during Kimi vision-tower init.
+#   - 131k max output tokens → TOO LOW for the full one-shot CritPt sweep.
+#     Five hard problems reached max_tokens before emitting answer code. Raising
+#     max_output_tokens to 200k let the final retry finish all 70 submissions.
+#   - OpenDirac agent harness without Kimi tool parser → BROKEN. vLLM rejects
+#     requests with `tool_choice="auto"` unless the server is launched with
+#     --enable-auto-tool-choice and a matching --tool-call-parser. Kimi-K2.6
+#     uses vLLM's `kimi_k2` tool/reasoning parsers.
 #   - Data-parallel scaling across replicas was not exercised here — needs
 #     a tiny OpenAI-compatible router in front to keep the eval client
 #     unchanged. Punted to a follow-up PR. This is the right next axis when
@@ -386,19 +422,23 @@ moonshotai/Kimi-K2.6:
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
-  # Half of --max-model-len so prompts (a few thousand tokens) fit alongside
-  # the generation budget without overflowing the model's context window.
-  max_output_tokens: 131072
+  # The hardest CritPt one-shot problems hit the old 131k cap before emitting
+  # parseable answer code. Keep a small buffer under the 262k context window for
+  # prompts while giving the model room to finish long reasoning traces.
+  max_output_tokens: 200000
   reasoning_format: separate_field
   tool_mode: api
   serve:
     nodes: 4
     gpus_per_node: 8
+    reasoning_parser: kimi_k2
     vllm_args:
       - --max-model-len 262144
       - --trust-remote-code
       - --safetensors-load-strategy prefetch
       - --enable-expert-parallel
+      - --enable-auto-tool-choice
+      - --tool-call-parser kimi_k2
 
 # NOTE: deepseek-ai/DeepSeek-V4-Pro (1.6T MoE, novel CSA+HCA attention,
 # released 2026-04-24) is NOT runnable on our stack. Two blockers:
