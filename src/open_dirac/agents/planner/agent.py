@@ -65,7 +65,7 @@ class PlannerAgent(BaseAgent):
             '  "revision_rationale": "...",\n'
             '  "entity_actions": [{"id": "...", "action": "keep|abandon", "reason": "..."}],\n'
             '  "sanity_checks": [{"id": "SC-001", "predicate": "...", "rationale": "..."}, {"predicate": "new check", "rationale": "..."}],\n'
-            '  "critique_assessments": [{"id": "CRIT-NNN", "verdict": "accepted|dismissed", "reason": "..."}]\n'
+            '  "critique_assessments": [{"id": "CRIT-NNN", "verdict": "accept|decline|dismiss", "reason": "..."}]\n'
             "}\n"
             "```"
         )

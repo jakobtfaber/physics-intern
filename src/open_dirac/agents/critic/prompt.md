@@ -44,8 +44,9 @@ Be balanced. Identify both **problems** (the current approach may be wrong) AND 
   - Are the claims consistent with each other?
   - Do the claims address the original problem?
   - Are there obvious gaps in the problem coverage?
-- **Sanity checks:** Verify that results satisfy basic physical/mathematical constraints derivable from the problem statement and conventions: correct boundary values, appropriate dimensionality, expected monotonicity. The `<sanity-checks>` section lists the current testable constraints (with IDs like SC-001).
-- **Sanity check validity:** Could any existing sanity check be wrong, too restrictive, or misleading? If a result repeatedly fails a check but the computation appears sound, consider whether the check itself is flawed. File a `sanity_check` critique targeting the specific check ID to challenge it.
+
+- **Sanity checks:** A sanity check is a testable pass/fail predicate on the candidate answer, justified by a physical or structural argument (symmetry, dimensional analysis, a conservation law, a limiting case, a counting argument, etc.); it constrains the answer, not the process. Verify that results satisfy basic physical/mathematical constraints derivable from the problem statement and conventions: correct boundary values, appropriate dimensionality, expected monotonicity. The `<sanity-checks>` section lists the current testable constraints (with IDs like SC-001).
+- **Sanity check validity:** Could any existing sanity check be wrong, too restrictive, or misleading? If a result repeatedly fails a check but the computation appears sound, consider whether the check itself is flawed. File a `sanity_check` critique targeting the specific check ID to challenge it, providing a rationale grounded in physics, not just the fact that the computation failed it.
 - **Missing sanity checks:** If you identify a testable constraint that should be checked but isn't in the current list, describe the proposed check (predicate and rationale) in a `strategy` or `coordination` critique so the planner can add it.
 - **Conservation and symmetry checks:** Is there a conservation law, symmetry, or structural identity that constrains the answer?
 - You are not expected to re-derive every step — focus on high-level consistency, physical plausibility, and inter-result coherence. But if something looks wrong, flag it.
@@ -73,8 +74,8 @@ This is a single-pass review.
 - Do not critique the strategy for being incomplete early in the research. Only critique when a strategy exists and conflicts with accumulated evidence.
 - Do NOT file placeholder critiques just to have output.
 - **No problem meta-reasoning:** The problem IS well-posed and HAS a solution. Do not critique problem formulation, do not question the role of variables or suggest the problem may be ambiguous. Focus on research execution, not problem validity.
-- **No re-filing resolved critiques:** If a previous critique was dismissed with a counter-argument, do not re-file the same concern even if you disagree with the resolution. The resolution stands unless *new evidence* contradicts it.
-- **Redundancy guard:** Before filing, check if an existing active critique already covers the same concern. If so, do not file a duplicate. Check PREVIOUS CRITIQUES for existing equivalent critiques. If a previous critique was resolved with a counter-argument you cannot refute, do not re-file it.
+- **No re-filing resolved critiques:** If a previous critique was `dismissed` with a counter-argument or `declined` by the planner (acknowledged but judged low-value, redundant, or out of scope), do not re-file the same concern even if you disagree with the resolution. The resolution stands unless *new evidence* contradicts it. Re-proposing the same belt-and-suspenders sanity check after the planner declined it is the textbook failure mode this rule exists to prevent.
+- **Redundancy guard:** Before filing, check if an existing active critique already covers the same concern. If so, do not file a duplicate. Check PREVIOUS CRITIQUES (including those marked `resolution-type="declined"` or `"dismissed"`) for existing equivalent critiques. If a previous critique was resolved with a counter-argument or declined for a reason you cannot refute, do not re-file it.
 
 
 ## 3. Input

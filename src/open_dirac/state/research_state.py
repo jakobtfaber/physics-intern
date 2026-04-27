@@ -117,7 +117,7 @@ class Critique:
     argument: str = ""
     status: CritiqueStatus = CritiqueStatus.ACTIVE
     resolution: str = ""
-    resolution_type: str = ""  # "dismissed" or "accepted"
+    resolution_type: str = ""  # "accepted", "declined", "dismissed", or "expired"
     target_type: str = ""  # "er", "strategy", "coordination" (from critic)
     iteration_filed: int = 0
     iteration_resolved: int | None = None

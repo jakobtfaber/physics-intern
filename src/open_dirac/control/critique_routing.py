@@ -398,28 +398,33 @@ def invoke_planner_revision(
 
     for c in strategy_critiques:
         assessment = assessments_by_id.get(c.id)
+        verdict = assessment.get("verdict", "").strip().lower() if assessment else ""
         c.status = CritiqueStatus.RESOLVED
         c.iteration_resolved = iteration
 
-        if assessment and assessment.get("verdict") == "dismiss":
+        if verdict == "dismiss":
             dismiss_reason = assessment.get("reason", "Dismissed by planner")[:200]
             c.resolution = f"Dismissed by planner: {dismiss_reason}"
             c.resolution_type = "dismissed"
-            console.print(
-                f"  [yellow]{c.id} dismissed by planner: {dismiss_reason[:60]}[/yellow]"
-            )
+            console.print(f"  [yellow]{c.id} dismissed by planner: {dismiss_reason[:60]}[/yellow]")
+        elif verdict == "decline":
+            decline_reason = assessment.get("reason", "Declined by planner")[:200]
+            c.resolution = f"Declined by planner: {decline_reason}"
+            c.resolution_type = "declined"
+            console.print(f"  [yellow]{c.id} declined by planner: {decline_reason[:60]}[/yellow]")
         else:
             c.resolution = f"Addressed in strategy revision: {rationale[:120]}"
             c.resolution_type = "accepted"
             console.print(f"  [green]{c.id} accepted by planner[/green]")
 
     accepted_ids = [c.id for c in strategy_critiques if c.resolution_type == "accepted"]
-    dismissed_ids = [
-        c.id for c in strategy_critiques if c.resolution_type == "dismissed"
-    ]
+    declined_ids = [c.id for c in strategy_critiques if c.resolution_type == "declined"]
+    dismissed_ids = [c.id for c in strategy_critiques if c.resolution_type == "dismissed"]
     label_parts: list[str] = []
     if accepted_ids:
         label_parts.append(f"accepted: {', '.join(accepted_ids)}")
+    if declined_ids:
+        label_parts.append(f"declined: {', '.join(declined_ids)}")
     if dismissed_ids:
         label_parts.append(f"dismissed: {', '.join(dismissed_ids)}")
     event_label = (
