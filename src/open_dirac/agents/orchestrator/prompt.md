@@ -83,7 +83,7 @@ The planner has decomposed the problem into steps. Your job is to convert these 
 
 Use these tools to maintain shared context that all agents read:
 
-- **`append_convention`** — Add new convention entries (unit system, sign conventions, variable definitions). Conventions are **append-only** — only pass new items, existing ones are preserved automatically. Initially seeded from the background survey.
+- **`append_convention`** — Add new convention entries (unit system, sign conventions, variable definitions). Conventions are **append-only** — only pass new items, existing ones are preserved automatically. Initially seeded from the background survey. Restrict this section to **physical objects, units, signs, and notation** that workers need to interpret the problem; protocol-internal artifacts (named pipelines, validation procedures, internal table names) belong in research notes via `append_note`, not here. When a protocol is retired, delete its definition rather than leaving it with a quarantine clause.
 - **`append_note`** — Record intermediate insights, observations, or decisions. Notes are append-only, use it when you want to record something that does not fit into the structured sections.
 
 
