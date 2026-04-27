@@ -56,6 +56,11 @@ Be balanced. Identify both **problems** (the current approach may be wrong) AND 
 - Is the unit system and notation consistent throughout?
 - Are conventions clearly defined and followed?
 
+**Answer-sufficiency / termination readiness:**
+- If the established results already determine the answer matching the requirements of `<answer-template>`, file a MEDIUM-severity `coordination` critique recommending the strategy revised toward termination.
+- The argument must enumerate which ERs constitute the answer, which WHs/RQs to abandon, and which strategy steps to drop. Do not file this critique merely because progress is slow.
+
+
 ### Workflow
 
 This is a single-pass review.

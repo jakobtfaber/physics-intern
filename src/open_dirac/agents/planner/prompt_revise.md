@@ -60,6 +60,7 @@ The revised strategy must follow the same rules as the initial strategy:
 - **Frame steps as investigations**, do not presuppose the form of the answer.
 - **Include null-checking steps** where appropriate.
 - **Completed steps** — steps that have already been executed and verified in the previous iteration should be compacted as a one-liner referencing the established result (e.g. "By ER-001, we have X = ...") unless the revision invalidates their premises, in which case they should be revised or abandoned.
+- **Answer-sufficiency revisions.** If a `coordination` critique argues the answer is already adequate, and you accept it, the revision must (a) drop the over-rigor strategy step entirely (b) mark the over-rigor WH `abandon` in `entity_actions` with a reason naming the answer-determining ERs, and (c) re-write the strategy as a short path to termination using those ERs. If you believe the answer is not yet adequate, you should `decline` the critique with a specific reason (e.g. the template requires a closed form, or the rigorous evidence and the numerical estimate disagree at template precision).
 
 
 ## 3. Input
