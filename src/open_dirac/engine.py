@@ -8,7 +8,6 @@ from .core.config import Config
 from .core.console import console, replay_log
 from .core.console import (
     on_round_progress,
-    print_call_summary,
     print_final_report,
     print_task,
 )
@@ -607,7 +606,6 @@ class OpenDirac:
             iteration=0,
         )
         result = self.surveyor.run(task, 0)
-        self._print_call_summary(result)
         self._apply_survey()
         self._sync_research_state()
         self._render_files_for_git()
@@ -677,7 +675,6 @@ class OpenDirac:
             iteration=0,
         )
         result = self.planner.run(task, 0)
-        self._print_call_summary(result)
         self._apply_strategy()
         self._sync_research_state()
         self._render_files_for_git()
@@ -809,7 +806,6 @@ class OpenDirac:
             formatter=getattr(self, "formatter", None),
             on_compute_round=self._on_compute_round,
             on_agent_round=self._on_agent_round,
-            print_call_summary=self._print_call_summary,
         )
 
     def _should_trigger_critic(self) -> bool:
@@ -1161,7 +1157,6 @@ class OpenDirac:
         )
         self.formatter.research_state = self.research_state
         result = self.formatter.run(fmt_task, self.iteration)
-        self._print_call_summary(result)
 
         rejection = self.formatter.rejection_reason
         if rejection:
@@ -1280,10 +1275,6 @@ class OpenDirac:
 
     # Alias so orchestrator/critic use the same callback
     _on_agent_round = _on_compute_round
-
-    def _print_call_summary(self, result):
-        """Print a one-line timing/token summary for one-shot LLM calls."""
-        print_call_summary(result)
 
     def _final_report(self):
         """Flush metrics and print final summary."""

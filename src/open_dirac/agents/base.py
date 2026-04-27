@@ -8,15 +8,8 @@ from pathlib import Path
 from typing import ClassVar, TYPE_CHECKING
 
 from ..core.config import Config
-from ..core.console import console
-from ..llm import (
-    AgentResult,
-    ContextTooLongError,
-    LLMResponse,
-    ParseFailureError,
-    call_llm,
-    call_llm_continuation,
-)
+from ..core.console import console, print_call_summary
+from ..llm import AgentResult, ContextTooLongError, LLMResponse, ParseFailureError, call_llm, call_llm_continuation
 from ..core.metrics import MetricsTracker
 from ..state.tool_call import ToolCall
 from ..utils.categories import CompensationCategory as CC
@@ -82,6 +75,7 @@ class BaseAgent(ABC):
             )
         else:
             response = self._call_with_retry(context, iteration)
+            print_call_summary(response)
         self.process_response(response, task, iteration)
         return response
 

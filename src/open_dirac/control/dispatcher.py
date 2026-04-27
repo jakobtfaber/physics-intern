@@ -65,7 +65,6 @@ def dispatch(
     formatter: FormatterAgent,
     on_compute_round,
     on_agent_round,
-    print_call_summary,
 ) -> tuple[str, LLMResponse | AgentResult]:
     """Route *task* to the correct agent and return ``(agent_name, result)``."""
     tt = task.task_type
@@ -95,7 +94,6 @@ def dispatch(
         console.print("[cyan]Formatter[/cyan] producing ANSWER.md...")
         formatter.research_state = research_state
         result = formatter.run(task, iteration)
-        print_call_summary(result)
         return "formatter", result
 
     elif tt == TaskType.CRITIQUE:
