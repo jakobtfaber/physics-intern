@@ -8,6 +8,7 @@ from .shared import (
     _dedup_failed_approaches,
     _problem_guidelines,
     _render_sanity_checks,
+    er_id_label,
     render_background_survey_xml,
     render_research_context_xml,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "_dedup_failed_approaches",
     "_problem_guidelines",
     "_render_sanity_checks",
+    "er_id_label",
     "render_background_survey",
     "render_background_survey_xml",
     "render_critique_log_md",

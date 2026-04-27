@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from open_dirac.llm import LLMResponse
-from open_dirac.rendering import render_research_context_xml
+from open_dirac.rendering import er_id_label, render_research_context_xml
 
 from ..base import BaseAgent
 from ..parsing import JSON_FENCE_RE, try_json_loads
@@ -93,12 +93,8 @@ class AdjudicatorAgent(BaseAgent):
         ers = self.research_state.established_hypotheses()
         other_ers = [er for er in ers if er.id != target_id]
         if other_ers:
-            er_lines = [f"- **{er.id}**: {er.statement}" for er in other_ers]
-            rs_parts.append(
-                "<established-results>\n"
-                + "\n".join(er_lines)
-                + "\n</established-results>"
-            )
+            er_lines = [f"- **{er_id_label(er)}**: {er.statement}" for er in other_ers]
+            rs_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
         if self.research_state.sanity_checks:
             checks_text = "\n".join(f"- {c}" for c in self.research_state.sanity_checks)
             rs_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")

@@ -39,6 +39,7 @@ Be rigorous in all three directions: do not dismiss valid concerns, do not accep
 For each active entity, determine:
 - `keep` — entity remains valid under the revised strategy. If you suspect the entity may be affected but lack certainty, add a `concern` field (e.g. `"concern": "ER-002 assumed X; revision questions this"`). Concerns will be evaluated by the critic and adjudicator on the next cycle.
 - `abandon` — entity is based on premises that the revision invalidates or contradicts. Do not abandon unless you are confident the premises are invalidated.
+- `obsolete` — **ERs only.** The ER is still correct, but the revision makes it irrelevant, or it has been superseded by a stronger result. The ER stays established and continues to satisfy dependencies; it is just flagged so downstream agents know to deprioritize it. For working hypotheses or research questions in the same situation, use `abandon` instead.
 
 ### Sanity Check Assessment
 
@@ -96,6 +97,7 @@ Produce a JSON block:
   "entity_actions": [
     {"id": "ER-001", "action": "keep"},
     {"id": "ER-002", "action": "keep", "concern": "may share assumptions with overturned claim"},
+    {"id": "ER-005", "action": "obsolete", "reason": "superseded by ER-007 which gives a stronger bound"},
     {"id": "WH-003", "action": "abandon", "reason": "premise invalidated by revision"},
     {"id": "RQ-004", "action": "keep"}
   ],

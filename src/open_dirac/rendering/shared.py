@@ -9,9 +9,22 @@ from __future__ import annotations
 
 from ..state.research_state import (
     FailedApproach,
+    Hypothesis,
     ResearchState,
     SanityCheck,
 )
+
+
+def er_id_label(h: Hypothesis) -> str:
+    """Display label for an ER ID, suffixed with '(obsolete)' if flagged.
+
+    Obsolete ERs are still ESTABLISHED and still satisfy dependencies; the
+    suffix is a visible cue to downstream agents that the result is no
+    longer central or has been superseded.
+    """
+    if h.obsolete:
+        return f"{h.id} (obsolete)"
+    return h.id
 
 
 def _dedup_failed_approaches(approaches: list[FailedApproach]) -> list[FailedApproach]:

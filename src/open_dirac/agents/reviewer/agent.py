@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from open_dirac.llm import LLMResponse, ParseFailureError
-from open_dirac.rendering import _render_sanity_checks, render_research_context_xml
+from open_dirac.rendering import _render_sanity_checks, er_id_label, render_research_context_xml
 from open_dirac.state.research_state import ReviewResult
 
 from ..base import BaseAgent
@@ -155,12 +155,8 @@ class ReviewerAgent(BaseAgent):
                 )
             ers = self.research_state.established_hypotheses()
             if ers:
-                er_lines = [f"- **{er.id}**: {er.statement}" for er in ers]
-                rs_parts.append(
-                    "<established-results>\n"
-                    + "\n".join(er_lines)
-                    + "\n</established-results>"
-                )
+                er_lines = [f"- **{er_id_label(er)}**: {er.statement}" for er in ers]
+                rs_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
             if self.research_state.sanity_checks:
                 rs_parts.append(
                     _render_sanity_checks(

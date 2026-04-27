@@ -387,6 +387,27 @@ def invoke_planner_revision(
                     f"{eid} ABANDONED by planner revision: {reason}"
                 )
                 console.print(f"  [red]{eid} abandoned: {reason[:60]}[/red]")
+            elif act == "obsolete" and eid in research_state.hypotheses:
+                h = research_state.hypotheses[eid]
+                # ER-only: obsolete is meaningless for working/refuted/abandoned
+                # entities (use abandon for those). Status stays ESTABLISHED so
+                # dependencies remain satisfied.
+                if h.status != HypothesisStatus.ESTABLISHED:
+                    console.print(
+                        f"  [yellow]{eid} cannot be marked obsolete (status={h.status}); "
+                        f"obsolete is for established results only — ignoring[/yellow]"
+                    )
+                    continue
+                if h.obsolete:
+                    console.print(f"  [dim]{eid} already obsolete, skipping[/dim]")
+                    continue
+                h.obsolete = True
+                h.obsolete_reason = reason
+                h.iteration_modified = iteration
+                loop_state.pending_system_events.append(
+                    f"{eid} marked OBSOLETE by planner revision: {reason}"
+                )
+                console.print(f"  [yellow]{eid} marked obsolete: {reason[:60]}[/yellow]")
 
     rationale = planner.parsed_revision_rationale or "No rationale provided."
 

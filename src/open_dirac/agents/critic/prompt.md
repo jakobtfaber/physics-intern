@@ -32,6 +32,7 @@ Be balanced. Identify both **problems** (the current approach may be wrong) AND 
 - Are dependencies between results correctly tracked?
 - Could an error in an early result propagate to later ones?
 - Are there systematic issues (e.g., inconsistent conventions across results)?
+- ERs marked `obsolete="true"` are still verified and still satisfy dependencies — they have been flagged as superseded or no longer central by the planner. Do not file critiques to revive them, to flag their inactivity, or to demand they be removed.
 
 **Scope Validation:**
 - Compare the structural complexity of the current results against `<expected-answer-structure>` from the background survey.

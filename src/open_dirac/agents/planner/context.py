@@ -6,6 +6,7 @@ from ...rendering.shared import (
     _dedup_failed_approaches,
     _problem_guidelines,
     _render_sanity_checks,
+    er_id_label,
     render_background_survey_xml,
 )
 from ...state.research_state import (
@@ -23,7 +24,8 @@ def _render_entity_detail(h: Hypothesis, is_er: bool = False) -> str:
         if h.status == HypothesisStatus.ESTABLISHED
         else (h.review.verdict if h.review else "PENDING REVIEW")
     )
-    lines = [f"{h.id}: {h.statement}, {status_tag}"]
+    label = er_id_label(h) if is_er else h.id
+    lines = [f"{label}: {h.statement}, {status_tag}"]
     deps = ", ".join(h.depends_on) if h.depends_on else "none"
     lines.append(f"  depends_on: {deps}")
     if is_er and h.derivation:

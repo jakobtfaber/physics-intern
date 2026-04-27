@@ -107,6 +107,10 @@ class Hypothesis:
     evidence: list[Evidence] = field(default_factory=list)
     review: ReviewResult | None = None
     refuted_count: int = 0
+    # Informational marker, ERs only: still ESTABLISHED and still satisfies
+    # dependencies, but flagged as superseded or no longer central.
+    obsolete: bool = False
+    obsolete_reason: str = ""
 
 
 @dataclass
@@ -401,6 +405,8 @@ class ResearchState:
                 evidence=evidence,
                 review=review,
                 refuted_count=hdata.get("refuted_count", 0),
+                obsolete=hdata.get("obsolete", False),
+                obsolete_reason=hdata.get("obsolete_reason", ""),
             )
         for crid, crdata in data.get("critiques", {}).items():
             crit_evidence = _parse_evidence_list(crdata.get("evidence"))

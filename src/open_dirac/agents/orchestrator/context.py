@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...rendering.shared import _dedup_failed_approaches, _render_sanity_checks
+from ...rendering.shared import _dedup_failed_approaches, _render_sanity_checks, er_id_label
 from ...state.research_state import (
     HypothesisStatus,
     ResearchState,
@@ -50,10 +50,8 @@ def render_orchestrator_slim_state(
         key=lambda h: h.id,
     )
     if ers:
-        er_lines = [f"- {h.id}: {h.statement}, VERIFIED" for h in ers]
-        parts.append(
-            "<established-results>\n" + "\n".join(er_lines) + "\n</established-results>"
-        )
+        er_lines = [f"- {er_id_label(h)}: {h.statement}, VERIFIED" for h in ers]
+        parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
 
     # Working Hypotheses — one-liner per WH
     whs = sorted(
