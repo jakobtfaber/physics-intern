@@ -46,6 +46,9 @@ Options:
   --pp N                           Pipeline parallel size.
   --pipeline-parallel-size N       Alias for --pp.
   --reasoning-parser NAME          Explicit reasoning parser override.
+  --idle-shutdown SECONDS          Auto-cancel the job if no requests AND
+                                   head-node GPU util is 0 for SECONDS
+                                   (default: 14400 = 4h; 0 disables).
   -h, --help                       Show this message.
   --                               Extra args passed through to vllm serve.
 
@@ -53,6 +56,8 @@ Notes:
   - The script self-submits with sbatch when run outside Slurm.
   - On multi-node jobs, rank 0 serves the OpenAI-compatible API and nonzero
     ranks join in --headless mode using vLLM's multiprocessing backend.
+  - The idle watchdog only arms once /metrics is reachable, so model load
+    time never counts against the idle window.
 USAGE
 }
 
@@ -135,6 +140,70 @@ cleanup() {
   done
 }
 
+# Background watchdog: cancels the Slurm job if vLLM has been idle for too long.
+# "Idle" = the Prometheus counter `vllm:request_success_total` has not advanced
+# AND the max GPU utilization on the head node has stayed at 0% for the whole
+# window. The timer is only armed after /metrics responds, so model loading
+# never trips the kill switch.
+start_idle_watchdog() {
+  local job_id="$1"
+  local port="$2"
+  local idle_seconds="$3"
+  local poll_interval="$4"
+  local metrics_url="http://localhost:${port}/metrics"
+  local now last_activity_ts=0 last_total="" total gpu activity
+  local server_seen=0
+
+  # Disable errexit/pipefail inside the watchdog: curl failing while vLLM is
+  # still loading is expected, and we don't want a transient pipe failure to
+  # take down the whole serve job.
+  set +e +o pipefail
+
+  echo "[watchdog] enabled: idle_seconds=${idle_seconds}, poll_interval=${poll_interval}, metrics=${metrics_url}" >&2
+
+  while sleep "$poll_interval"; do
+    now=$(date +%s)
+    total="$(curl -fsS --max-time 5 "$metrics_url" 2>/dev/null \
+      | awk '/^vllm:request_success_total[ {]/ { sum += $NF; ok = 1 } END { if (ok) print sum }')"
+    gpu="$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null \
+      | awk 'BEGIN { m = 0 } { v = $1 + 0; if (v > m) m = v } END { print m + 0 }')"
+
+    if [[ -z "$total" ]]; then
+      # vLLM not yet serving; hold the timer so model load never trips us.
+      last_activity_ts=$now
+      continue
+    fi
+
+    if (( server_seen == 0 )); then
+      server_seen=1
+      last_activity_ts=$now
+      last_total="$total"
+      echo "[watchdog] vLLM /metrics reachable; idle timer armed for ${idle_seconds}s." >&2
+      continue
+    fi
+
+    activity=0
+    if [[ "$total" != "$last_total" ]]; then
+      activity=1
+    fi
+    if [[ "$gpu" =~ ^[0-9]+$ ]] && (( gpu > 0 )); then
+      activity=1
+    fi
+    last_total="$total"
+
+    if (( activity == 1 )); then
+      last_activity_ts=$now
+      continue
+    fi
+
+    if (( now - last_activity_ts >= idle_seconds )); then
+      echo "[watchdog] no requests and GPU util=0 for $((now - last_activity_ts))s (>= ${idle_seconds}s); cancelling job ${job_id}." >&2
+      scancel "$job_id" >/dev/null 2>&1 || true
+      return 0
+    fi
+  done
+}
+
 on_signal() {
   echo "Received termination signal; stopping vLLM ranks." >&2
   exit 0
@@ -157,6 +226,8 @@ MAX_MODEL_LEN="262144"
 TP=""
 PP=""
 REASONING_PARSER=""
+IDLE_SHUTDOWN_SECONDS="${WATCHDOG_IDLE_SECONDS:-14400}"
+IDLE_POLL_INTERVAL="${WATCHDOG_POLL_INTERVAL:-60}"
 EXTRA_VLLM_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -219,6 +290,11 @@ while [[ $# -gt 0 ]]; do
     --reasoning-parser)
       require_value "$1" "${2:-}"
       REASONING_PARSER="$2"
+      shift 2
+      ;;
+    --idle-shutdown)
+      require_value "$1" "${2:-}"
+      IDLE_SHUTDOWN_SECONDS="$2"
       shift 2
       ;;
     -h|--help)
@@ -399,6 +475,14 @@ if ! is_pos_int "$PORT"; then
   echo "--port must be a positive integer." >&2
   exit 1
 fi
+if [[ ! "$IDLE_SHUTDOWN_SECONDS" =~ ^[0-9]+$ ]]; then
+  echo "--idle-shutdown must be a non-negative integer (got: ${IDLE_SHUTDOWN_SECONDS})." >&2
+  exit 1
+fi
+if [[ ! "$IDLE_POLL_INTERVAL" =~ ^[1-9][0-9]*$ ]]; then
+  echo "WATCHDOG_POLL_INTERVAL must be a positive integer (got: ${IDLE_POLL_INTERVAL})." >&2
+  exit 1
+fi
 
 if [[ -z "$SERVED_MODEL_NAME" ]]; then
   # Default the served name to the upstream HF repo (`model_id` from
@@ -523,6 +607,13 @@ launch_rank() {
 for idx in "${!NODE_NAMES[@]}"; do
   launch_rank "${NODE_NAMES[$idx]}" "$idx"
 done
+
+if (( IDLE_SHUTDOWN_SECONDS > 0 )); then
+  start_idle_watchdog "$SLURM_JOB_ID" "$PORT" "$IDLE_SHUTDOWN_SECONDS" "$IDLE_POLL_INTERVAL" &
+  PIDS+=("$!")
+else
+  echo "Idle watchdog disabled (--idle-shutdown 0)." >&2
+fi
 
 if wait -n "${PIDS[@]}"; then
   STATUS=0
