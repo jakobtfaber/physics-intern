@@ -134,11 +134,7 @@ def adjudicate_er_critique(
 
     Returns dict with demotion info if ER was overturned, else None.
     """
-    from ..state.research_state import (
-        CritiqueStatus,
-        HypothesisStatus,
-        ResearchQuestion,
-    )
+    from ..state.research_state import CritiqueStatus, HypothesisStatus, ReviewResult, Verdict
 
     target_id = crit.targets[0] if crit.targets else None
     if not target_id or target_id not in research_state.hypotheses:
@@ -251,18 +247,55 @@ def adjudicate_er_critique(
         return None
 
     else:  # needs_evidence
-        console.print(f"  [yellow]{crit.id} NEEDS EVIDENCE — creating RQ[/yellow]")
+        # Soft demotion: ER → WH carrying an INCONCLUSIVE review whose
+        # summary is the adjudicator's investigation_scope. Resolves the
+        # critique immediately (unblocks add_hypothesis/add_research_question
+        # gates) and lets the existing reviewer/auto-promotion machinery
+        # close the loop once evidence is gathered. Dependents are
+        # cascade-demoted but kept VERIFIED so they auto-re-promote when
+        # the parent is re-established.
         scope = result.get("investigation_scope", "Investigate the disputed claim.")
-        num = research_state.next_entity_num()
-        rq_id = f"RQ-{num:03d}"
-        research_state.research_questions[rq_id] = ResearchQuestion(
-            id=rq_id,
-            question=scope,
-            context=f"Created by adjudicator for {crit.id} targeting {target_id}.",
-            iteration_created=iteration,
+        console.print(
+            f"  [yellow]{crit.id} NEEDS EVIDENCE — soft-demoting {target_id}[/yellow]"
         )
+        dependent_ids = [
+            hid for hid, h in research_state.hypotheses.items()
+            if h.status == HypothesisStatus.ESTABLISHED
+            and target_id in h.depends_on
+        ]
+        new_id = demote_hypothesis(research_state, target_id)
+        if new_id:
+            h = research_state.hypotheses[new_id]
+            h.iteration_modified = iteration
+            h.review = ReviewResult(
+                verdict=Verdict.INCONCLUSIVE,
+                summary=f"Adjudicator requested more evidence: {scope}",
+                details=reasoning,
+                iteration=iteration,
+            )
+        for dep_id in dependent_ids:
+            console.print(
+                f"  [yellow]Cascade: demoting {dep_id} (depends on {target_id})[/yellow]"
+            )
+            dep_new_id = demote_hypothesis(research_state, dep_id)
+            if dep_new_id:
+                research_state.hypotheses[dep_new_id].iteration_modified = iteration
+                loop_state.pending_system_events.append(
+                    f"{dep_id} DEMOTED to {dep_new_id} "
+                    f"(depends on {new_id or target_id} pending evidence)"
+                )
+        crit.status = CritiqueStatus.RESOLVED
+        crit.resolution = f"Adjudicator requested more evidence: {scope[:200]}"
+        crit.resolution_type = "needs_evidence_demotion"
+        crit.iteration_resolved = iteration
         loop_state.pending_system_events.append(
-            f"{crit.id}: adjudicator needs evidence — created {rq_id}."
+            f"{target_id} DEMOTED to {new_id or target_id} pending evidence "
+            f"({crit.id}): {scope[:160]}"
+        )
+        log_scaffold_event(
+            workspace.root, iteration, CC.STATE_INVARIANTS,
+            "er_demotion_needs_evidence",
+            f"{target_id} → {new_id or '?'} per {crit.id}: {scope[:160]}",
         )
         return None
 
