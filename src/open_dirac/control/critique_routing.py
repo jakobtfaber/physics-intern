@@ -60,17 +60,9 @@ def route_critiques(
         return
 
     # Separate by target_type
-    er_critiques = [c for c in new_critiques if c.target_type == "er"]
-    strategy_critiques = [
-        c
-        for c in new_critiques
-        if c.target_type in ("strategy", "coordination", "sanity_check")
-    ]
-    untyped = [
-        c
-        for c in new_critiques
-        if c.target_type not in ("er", "strategy", "coordination", "sanity_check")
-    ]
+    er_critiques = [c for c in new_critiques if c.target_type == "ER"]
+    strategy_critiques = [c for c in new_critiques if c.target_type in ("strategy", "coordination", "sanity_check")]
+    untyped = [c for c in new_critiques if c.target_type not in ("ER", "strategy", "coordination", "sanity_check")]
 
     # Warn and auto-resolve untyped critiques
     for c in untyped:

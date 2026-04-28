@@ -122,7 +122,7 @@ class Critique:
     status: CritiqueStatus = CritiqueStatus.ACTIVE
     resolution: str = ""
     resolution_type: str = ""  # "accepted", "declined", "dismissed", or "expired"
-    target_type: str = ""  # "er", "strategy", "coordination" (from critic)
+    target_type: str = ""  # "ER", "strategy", "coordination", "sanity_check" (from critic)
     iteration_filed: int = 0
     iteration_resolved: int | None = None
     evidence: list[Evidence] = field(default_factory=list)
@@ -418,7 +418,7 @@ class ResearchState:
                 status=CritiqueStatus(crdata.get("status", "active")),
                 resolution=crdata.get("resolution", ""),
                 resolution_type=crdata.get("resolution_type", ""),
-                target_type=crdata.get("target_type", ""),
+                target_type=("ER" if crdata.get("target_type", "").lower() == "er" else crdata.get("target_type", "")),
                 iteration_filed=crdata.get("iteration_filed", 0),
                 iteration_resolved=crdata.get("iteration_resolved"),
                 evidence=crit_evidence,

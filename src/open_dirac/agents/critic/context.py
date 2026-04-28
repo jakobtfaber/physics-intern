@@ -145,7 +145,12 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
                 )
         if h.review:
             v = h.review
-            h_parts.append(f"Review: {v.verdict} — {v.summary}")
+            if h.status == HypothesisStatus.ESTABLISHED:
+                h_parts.append(
+                    f"Reviewer's verdict: {v.summary}"
+                )
+            else:
+                h_parts.append(f"Reviewer's verdict: {v.verdict} — {v.summary}")
             survived_critic = (
                 h.iteration_modified <= last_critic_iter
                 and critic_targets_since.get(h.id, 0) < h.iteration_modified

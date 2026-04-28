@@ -83,7 +83,7 @@ class CriticAgent(BaseAgent):
             '  "critiques": [\n'
             "    {\n"
             '      "target_id": "STRATEGY or WH-NNN or ER-NNN",\n'
-            '      "target_type": "er|strategy|coordination",\n'
+            '      "target_type": "ER|strategy|coordination|sanity_check",\n'
             '      "severity": "HIGH|MEDIUM|LOW",\n'
             '      "argument": "What is wrong and why it matters."\n'
             "    }\n"
@@ -168,6 +168,8 @@ class CriticAgent(BaseAgent):
 
             target_id = crit_data.get("target_id", "")
             target_type = crit_data.get("target_type", "")
+            if target_type.lower() == "er":
+                target_type = "ER"
             argument = crit_data.get("argument", "")
 
             crit = Critique(
