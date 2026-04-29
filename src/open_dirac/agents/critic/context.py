@@ -146,9 +146,7 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
         if h.review:
             v = h.review
             if h.status == HypothesisStatus.ESTABLISHED:
-                h_parts.append(
-                    f"Reviewer's verdict: {v.summary}"
-                )
+                h_parts.append(f"Reviewer's verdict: {v.summary}")
             else:
                 h_parts.append(f"Reviewer's verdict: {v.verdict} — {v.summary}")
             survived_critic = (
@@ -190,8 +188,14 @@ def render_critic_context(state: ResearchState, iteration: int) -> str:
         er_lines: list[str] = []
         for h in ers:
             obs_attr = ' obsolete="true"' if h.obsolete else ""
-            er_lines.append(f'<result id="{h.id}"{obs_attr}>\n' + "\n".join(_critic_hyp_parts(h)) + "\n</result>")
-        rs_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+            er_lines.append(
+                f'<result id="{h.id}"{obs_attr}>\n'
+                + "\n".join(_critic_hyp_parts(h))
+                + "\n</result>"
+            )
+        rs_parts.append(
+            "<established-results>\n" + "\n".join(er_lines) + "\n</established-results>"
+        )
 
     parts.append("<research-state>\n" + "\n\n".join(rs_parts) + "\n</research-state>")
 

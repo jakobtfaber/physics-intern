@@ -94,7 +94,11 @@ class AdjudicatorAgent(BaseAgent):
         other_ers = [er for er in ers if er.id != target_id]
         if other_ers:
             er_lines = [f"- **{er_id_label(er)}**: {er.statement}" for er in other_ers]
-            rs_parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+            rs_parts.append(
+                "<established-results>\n"
+                + "\n".join(er_lines)
+                + "\n</established-results>"
+            )
         if self.research_state.sanity_checks:
             checks_text = "\n".join(f"- {c}" for c in self.research_state.sanity_checks)
             rs_parts.append(f"<sanity-checks>\n{checks_text}\n</sanity-checks>")

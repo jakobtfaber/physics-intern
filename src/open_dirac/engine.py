@@ -605,7 +605,7 @@ class OpenDirac:
             assigned_to="surveyor",
             iteration=0,
         )
-        result = self.surveyor.run(task, 0)
+        self.surveyor.run(task, 0)
         self._apply_survey()
         self._sync_research_state()
         self._render_files_for_git()
@@ -674,7 +674,7 @@ class OpenDirac:
             assigned_to="planner",
             iteration=0,
         )
-        result = self.planner.run(task, 0)
+        self.planner.run(task, 0)
         self._apply_strategy()
         self._sync_research_state()
         self._render_files_for_git()
@@ -1156,7 +1156,7 @@ class OpenDirac:
             answer_ers=answer_ers or [],
         )
         self.formatter.research_state = self.research_state
-        result = self.formatter.run(fmt_task, self.iteration)
+        self.formatter.run(fmt_task, self.iteration)
 
         rejection = self.formatter.rejection_reason
         if rejection:

@@ -208,8 +208,16 @@ class TestPlannerReviseContext:
         # ER still shown
         assert "ER-001: kappa = 1/(4M), VERIFIED" in ctx
         # WHs are not shown in revise context (orchestrator-managed lifecycle)
-        assert "WH-002" not in ctx.split("<dead-ends>")[0] if "<dead-ends>" in ctx else "WH-002" not in ctx
-        assert "WH-003" not in ctx.split("<dead-ends>")[0] if "<dead-ends>" in ctx else "WH-003" not in ctx
+        assert (
+            "WH-002" not in ctx.split("<dead-ends>")[0]
+            if "<dead-ends>" in ctx
+            else "WH-002" not in ctx
+        )
+        assert (
+            "WH-003" not in ctx.split("<dead-ends>")[0]
+            if "<dead-ends>" in ctx
+            else "WH-003" not in ctx
+        )
         # RQs are now shown (read-only) so the planner has ground truth
         assert "<research-questions>" in ctx
         assert "RQ-001" in ctx

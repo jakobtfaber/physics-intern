@@ -9,7 +9,14 @@ from typing import ClassVar, TYPE_CHECKING
 
 from ..core.config import Config
 from ..core.console import console, print_call_summary
-from ..llm import AgentResult, ContextTooLongError, LLMResponse, ParseFailureError, call_llm, call_llm_continuation
+from ..llm import (
+    AgentResult,
+    ContextTooLongError,
+    LLMResponse,
+    ParseFailureError,
+    call_llm,
+    call_llm_continuation,
+)
 from ..core.metrics import MetricsTracker
 from ..state.tool_call import ToolCall
 from ..utils.categories import CompensationCategory as CC

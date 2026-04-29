@@ -97,7 +97,9 @@ def render_planner_revise_context(state: ResearchState, trigger_text: str) -> st
     for rq in sorted(state.research_questions.values(), key=lambda r: r.id):
         rq_lines.append(_render_rq_detail(rq))
     if rq_lines:
-        rs_parts.append("<research-questions>\n" + "\n\n".join(rq_lines) + "\n</research-questions>")
+        rs_parts.append(
+            "<research-questions>\n" + "\n\n".join(rq_lines) + "\n</research-questions>"
+        )
 
     # Dead Ends
     de_lines: list[str] = []

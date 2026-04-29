@@ -61,8 +61,16 @@ def route_critiques(
 
     # Separate by target_type
     er_critiques = [c for c in new_critiques if c.target_type == "ER"]
-    strategy_critiques = [c for c in new_critiques if c.target_type in ("strategy", "coordination", "sanity_check")]
-    untyped = [c for c in new_critiques if c.target_type not in ("ER", "strategy", "coordination", "sanity_check")]
+    strategy_critiques = [
+        c
+        for c in new_critiques
+        if c.target_type in ("strategy", "coordination", "sanity_check")
+    ]
+    untyped = [
+        c
+        for c in new_critiques
+        if c.target_type not in ("ER", "strategy", "coordination", "sanity_check")
+    ]
 
     # Warn and auto-resolve untyped critiques
     for c in untyped:
@@ -134,7 +142,12 @@ def adjudicate_er_critique(
 
     Returns dict with demotion info if ER was overturned, else None.
     """
-    from ..state.research_state import CritiqueStatus, HypothesisStatus, ReviewResult, Verdict
+    from ..state.research_state import (
+        CritiqueStatus,
+        HypothesisStatus,
+        ReviewResult,
+        Verdict,
+    )
 
     target_id = crit.targets[0] if crit.targets else None
     if not target_id or target_id not in research_state.hypotheses:
@@ -259,9 +272,9 @@ def adjudicate_er_critique(
             f"  [yellow]{crit.id} NEEDS EVIDENCE — soft-demoting {target_id}[/yellow]"
         )
         dependent_ids = [
-            hid for hid, h in research_state.hypotheses.items()
-            if h.status == HypothesisStatus.ESTABLISHED
-            and target_id in h.depends_on
+            hid
+            for hid, h in research_state.hypotheses.items()
+            if h.status == HypothesisStatus.ESTABLISHED and target_id in h.depends_on
         ]
         new_id = demote_hypothesis(research_state, target_id)
         if new_id:
@@ -293,7 +306,9 @@ def adjudicate_er_critique(
             f"({crit.id}): {scope[:160]}"
         )
         log_scaffold_event(
-            workspace.root, iteration, CC.STATE_INVARIANTS,
+            workspace.root,
+            iteration,
+            CC.STATE_INVARIANTS,
             "er_demotion_needs_evidence",
             f"{target_id} → {new_id or '?'} per {crit.id}: {scope[:160]}",
         )
@@ -448,7 +463,9 @@ def invoke_planner_revision(
                 loop_state.pending_system_events.append(
                     f"{eid} marked OBSOLETE by planner revision: {reason}"
                 )
-                console.print(f"  [yellow]{eid} marked obsolete: {reason[:60]}[/yellow]")
+                console.print(
+                    f"  [yellow]{eid} marked obsolete: {reason[:60]}[/yellow]"
+                )
 
     rationale = planner.parsed_revision_rationale or "No rationale provided."
 
@@ -468,12 +485,16 @@ def invoke_planner_revision(
             dismiss_reason = assessment.get("reason", "Dismissed by planner")[:200]
             c.resolution = f"Dismissed by planner: {dismiss_reason}"
             c.resolution_type = "dismissed"
-            console.print(f"  [yellow]{c.id} dismissed by planner: {dismiss_reason[:60]}[/yellow]")
+            console.print(
+                f"  [yellow]{c.id} dismissed by planner: {dismiss_reason[:60]}[/yellow]"
+            )
         elif verdict == "decline":
             decline_reason = assessment.get("reason", "Declined by planner")[:200]
             c.resolution = f"Declined by planner: {decline_reason}"
             c.resolution_type = "declined"
-            console.print(f"  [yellow]{c.id} declined by planner: {decline_reason[:60]}[/yellow]")
+            console.print(
+                f"  [yellow]{c.id} declined by planner: {decline_reason[:60]}[/yellow]"
+            )
         else:
             c.resolution = f"Addressed in strategy revision: {rationale[:120]}"
             c.resolution_type = "accepted"
@@ -481,7 +502,9 @@ def invoke_planner_revision(
 
     accepted_ids = [c.id for c in strategy_critiques if c.resolution_type == "accepted"]
     declined_ids = [c.id for c in strategy_critiques if c.resolution_type == "declined"]
-    dismissed_ids = [c.id for c in strategy_critiques if c.resolution_type == "dismissed"]
+    dismissed_ids = [
+        c.id for c in strategy_critiques if c.resolution_type == "dismissed"
+    ]
     label_parts: list[str] = []
     if accepted_ids:
         label_parts.append(f"accepted: {', '.join(accepted_ids)}")

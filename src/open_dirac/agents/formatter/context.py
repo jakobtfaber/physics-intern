@@ -88,8 +88,12 @@ def render_formatter_context(
             if h.review:
                 h_parts.append(f"Review verdict: {h.review.verdict}")
             obs_attr = ' obsolete="true"' if h.obsolete else ""
-            er_lines.append(f'<result id="{h.id}"{obs_attr}>\n' + "\n".join(h_parts) + "\n</result>")
-        parts.append("<established-results>\n" + "\n".join(er_lines) + "\n</established-results>")
+            er_lines.append(
+                f'<result id="{h.id}"{obs_attr}>\n' + "\n".join(h_parts) + "\n</result>"
+            )
+        parts.append(
+            "<established-results>\n" + "\n".join(er_lines) + "\n</established-results>"
+        )
     else:
         parts.append(
             "<established-results>\n(No established results.)\n</established-results>"
