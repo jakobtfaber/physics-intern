@@ -384,13 +384,29 @@ def invoke_planner_revision(
             eid = action.get("id", "")
             act = action.get("action", "keep")
             reason = action.get("reason", "")
+
+            # entity_actions apply only to hypotheses (WH/ER). RQs are
+            # orchestrator-managed; unknown IDs are dropped with a warning so
+            # planner mistakes don't fail silently.
+            if eid not in research_state.hypotheses:
+                if eid in research_state.research_questions:
+                    console.print(
+                        f"  [yellow]entity_actions: {eid} ({act}) — RQs are orchestrator-managed; "
+                        f"planner cannot mutate. Ignoring.[/yellow]"
+                    )
+                else:
+                    console.print(
+                        f"  [yellow]entity_actions: {eid} ({act}) — no such entity; ignoring.[/yellow]"
+                    )
+                continue
+
             if act == "keep":
                 concern = action.get("concern", "")
-                if concern and eid:
+                if concern:
                     loop_state.pending_system_events.append(
                         f"PLANNER CONCERN on {eid}: {concern}"
                     )
-            elif act == "abandon" and eid in research_state.hypotheses:
+            elif act == "abandon":
                 from ..state.research_state import FailedApproach
 
                 h = research_state.hypotheses[eid]
@@ -412,7 +428,7 @@ def invoke_planner_revision(
                     f"{eid} ABANDONED by planner revision: {reason}"
                 )
                 console.print(f"  [red]{eid} abandoned: {reason[:60]}[/red]")
-            elif act == "obsolete" and eid in research_state.hypotheses:
+            elif act == "obsolete":
                 h = research_state.hypotheses[eid]
                 # ER-only: obsolete is meaningless for working/refuted/abandoned
                 # entities (use abandon for those). Status stays ESTABLISHED so

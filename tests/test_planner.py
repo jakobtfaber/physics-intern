@@ -207,18 +207,12 @@ class TestPlannerReviseContext:
         assert "<established-results>" in ctx
         # ER still shown
         assert "ER-001: kappa = 1/(4M), VERIFIED" in ctx
-        # WHs and RQs are no longer shown in revise context
-        assert (
-            "WH-002" not in ctx.split("<dead-ends>")[0]
-            if "<dead-ends>" in ctx
-            else "WH-002" not in ctx
-        )
-        assert (
-            "WH-003" not in ctx.split("<dead-ends>")[0]
-            if "<dead-ends>" in ctx
-            else "WH-003" not in ctx
-        )
-        assert "RQ-001" not in ctx
+        # WHs are not shown in revise context (orchestrator-managed lifecycle)
+        assert "WH-002" not in ctx.split("<dead-ends>")[0] if "<dead-ends>" in ctx else "WH-002" not in ctx
+        assert "WH-003" not in ctx.split("<dead-ends>")[0] if "<dead-ends>" in ctx else "WH-003" not in ctx
+        # RQs are now shown (read-only) so the planner has ground truth
+        assert "<research-questions>" in ctx
+        assert "RQ-001" in ctx
 
     def test_revise_context_includes_dead_ends(self):
         agent = self._make_agent_with_entities()
@@ -300,8 +294,8 @@ class TestPlannerReviseContext:
         ctx = agent.build_context(task, iteration=5)
         assert ctx == ""
 
-    def test_revise_context_excludes_rqs(self):
-        """RQs are no longer shown in revise context."""
+    def test_revise_context_includes_rqs(self):
+        """RQs are now shown (read-only) so the planner has ground truth on RQ state."""
         config = Config()
         ws = MagicMock()
         ws.root = MagicMock()
@@ -322,7 +316,9 @@ class TestPlannerReviseContext:
             body="Trigger",
         )
         ctx = agent.build_context(task, iteration=5)
-        assert "RQ-001" not in ctx
+        assert "<research-questions>" in ctx
+        assert "RQ-001" in ctx
+        assert "Singular test" in ctx
 
 
 class TestPlannerReviseProcessResponse:

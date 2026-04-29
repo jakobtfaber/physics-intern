@@ -813,7 +813,8 @@ class TestPlannerReviseEnrichedContext:
         # WHs are no longer shown in revise context
         assert "WH-002" not in text
 
-    def test_rq_not_shown_in_revise_context(self):
+    def test_rqs_shown_in_revise_context(self):
+        """RQs are rendered (read-only) so the planner has ground truth on RQ state."""
         from open_dirac.state.research_state import ResearchQuestion, RQStatus
 
         state = ResearchState(problem_statement="Test")
@@ -831,8 +832,11 @@ class TestPlannerReviseEnrichedContext:
             ],
         )
         text = render_planner_revise_context(state, "trigger")
-        # RQs are no longer shown in revise context
-        assert "RQ-001" not in text
+        assert "<research-questions>" in text
+        assert "RQ-001" in text
+        assert "What is the leading term?" in text
+        # Evidence summaries surface so the planner can judge progress.
+        assert "Leading term is O(p^2)" in text
 
     def test_abandoned_entities_excluded(self):
         state = ResearchState(problem_statement="Test")
@@ -863,7 +867,7 @@ class TestPlannerReviseEnrichedContext:
         text = render_planner_revise_context(state, "trigger")
         assert "<critic-clean-reviews>" not in text
 
-    def test_only_ers_in_research_state(self):
+    def test_research_state_shows_ers_and_rqs_but_not_whs(self):
         from open_dirac.state.research_state import ResearchQuestion, RQStatus
 
         state = ResearchState(problem_statement="Test")
@@ -888,9 +892,11 @@ class TestPlannerReviseEnrichedContext:
         assert "<research-state>" in text
         assert "<established-results>" in text
         assert "ER-001" in text
-        # WHs and RQs no longer shown
+        # WHs are not shown (their lifecycle is orchestrator/reviewer-managed).
         assert "WH-002" not in text
-        assert "RQ-001" not in text
+        # RQs are shown read-only so the planner has ground truth.
+        assert "<research-questions>" in text
+        assert "RQ-001" in text
 
     def test_er_shows_derivation_excerpt(self):
         state = ResearchState(problem_statement="Test")
