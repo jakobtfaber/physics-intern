@@ -14,6 +14,19 @@ from open_dirac.state.task import Task, TaskType
 from open_dirac.control.validation import Violation, ViolationSeverity
 
 
+def _safe_path_mock() -> MagicMock:
+    """MagicMock safe for ``ws.root.__truediv__``.
+
+    A bare ``MagicMock`` has ``__int__`` → 1, so ``open(mock)`` silently
+    opens fd 1 (stdout) and the ``with`` block closes it.  This helper
+    returns a mock whose ``return_value.exists()`` → ``False``, preventing
+    the engine's ``_run_formal_verification`` from reaching ``open()``.
+    """
+    m = MagicMock()
+    m.return_value.exists.return_value = False
+    return m
+
+
 class TestSetResearchStatus:
     """Test _set_research_status updates research state."""
 
@@ -37,7 +50,7 @@ class TestEnrichComputeTask:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
             written = {}
 
@@ -106,7 +119,7 @@ class TestComputeVerdictTracking:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
@@ -715,7 +728,7 @@ class TestCriticCleanSignal:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
@@ -776,7 +789,7 @@ class TestTerminationGate:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
             written = {}
 
@@ -898,7 +911,7 @@ class TestCheckStatusField:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
             ws.read_file = MagicMock(return_value=state_text)
 
@@ -944,7 +957,7 @@ class TestZeroOutputStallHandling:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
             written = {}
 
@@ -993,7 +1006,7 @@ class TestDispatchNewAgents:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
@@ -1095,7 +1108,7 @@ class TestDispatchFailureRecovery:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
             ws.read_file = MagicMock(return_value="")
             ws.write_file = MagicMock()
@@ -1251,7 +1264,7 @@ class TestAgentFailureRouting:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
@@ -1441,7 +1454,7 @@ class TestProblemStatementPopulated:
             ws.init = MagicMock()
             ws.root = MagicMock()
             ws.root.name = "20260316_test_run"
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
@@ -1471,7 +1484,7 @@ class TestProblemStatementPopulated:
             ws.init = MagicMock()
             ws.root = MagicMock()
             ws.root.name = "test_run"
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
@@ -1492,7 +1505,7 @@ class TestSyncOnTermination:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
             ws.read_file = MagicMock(return_value="")
             ws.write_file = MagicMock()
@@ -1552,7 +1565,7 @@ class TestExploreResultSuppression:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
@@ -1826,7 +1839,7 @@ class TestSurveyorEngine:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
             ws.write_file = MagicMock()
             ws.git_commit = MagicMock()
@@ -1877,7 +1890,7 @@ class TestTerminationCircuitBreaker:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
             ws.write_file = MagicMock()
 
@@ -1973,7 +1986,7 @@ class TestRedundantCriticPassFix:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
@@ -2023,7 +2036,7 @@ class TestDispatchHistory:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
@@ -2391,7 +2404,7 @@ class TestAutoPromoteCascade:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
-            ws.root.__truediv__ = MagicMock()
+            ws.root.__truediv__ = _safe_path_mock()
             ws.logs_dir = "/tmp/logs"
 
             from open_dirac.engine import OpenDirac
