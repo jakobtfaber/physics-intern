@@ -64,9 +64,15 @@ class VLLMProvider(LLMProvider):
         ``"xml_text"`` for text-based XML tool calls (Nemotron style).
     """
 
-    def __init__(self, api_key: str = "", base_url: str = "http://localhost:8000/v1",
-                 timeout: float = 600.0, reasoning_format: str = "",
-                 tool_mode: str = "api", **kwargs):
+    def __init__(
+        self,
+        api_key: str = "",
+        base_url: str = "http://localhost:8000/v1",
+        timeout: float = 600.0,
+        reasoning_format: str = "",
+        tool_mode: str = "api",
+        **kwargs,
+    ):
         try:
             from openai import OpenAI
         except ImportError:
@@ -164,11 +170,13 @@ class VLLMProvider(LLMProvider):
                     arguments[key] = json.loads(raw_value)
                 except (json.JSONDecodeError, ValueError):
                     arguments[key] = raw_value
-            calls.append({
-                "id": f"xmlcall_{idx}",
-                "name": func_name,
-                "input": arguments,
-            })
+            calls.append(
+                {
+                    "id": f"xmlcall_{idx}",
+                    "name": func_name,
+                    "input": arguments,
+                }
+            )
         return calls
 
     # Back-compat alias — prefer importing ``strip_tool_messages`` from
@@ -179,8 +187,14 @@ class VLLMProvider(LLMProvider):
     # Core call — streaming
     # ------------------------------------------------------------------
 
-    def call(self, model: str, max_tokens: int, system: str,
-             messages: list[dict], tools: list[dict] | None = None) -> ProviderResponse:
+    def call(
+        self,
+        model: str,
+        max_tokens: int,
+        system: str,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+    ) -> ProviderResponse:
         use_xml = self._tool_mode == "xml_text" and tools
 
         # Build system prompt — inject tool descriptions for xml_text mode
@@ -237,7 +251,9 @@ class VLLMProvider(LLMProvider):
             # in a separate field, stripped from content.
             # Field was renamed from "reasoning_content" to "reasoning"
             # in vLLM 0.19.0.
-            rc = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
+            rc = getattr(delta, "reasoning", None) or getattr(
+                delta, "reasoning_content", None
+            )
             if rc:
                 reasoning_parts.append(rc)
 
@@ -253,8 +269,7 @@ class VLLMProvider(LLMProvider):
                         if tc_delta.function.name:
                             tc_acc[idx]["name"] = tc_delta.function.name
                         if tc_delta.function.arguments:
-                            tc_acc[idx]["arg_parts"].append(
-                                tc_delta.function.arguments)
+                            tc_acc[idx]["arg_parts"].append(tc_delta.function.arguments)
 
         text = "".join(text_parts)
 
@@ -284,11 +299,13 @@ class VLLMProvider(LLMProvider):
                     parsed_args = json.loads(args_str) if args_str else {}
                 except json.JSONDecodeError:
                     parsed_args = {"raw": args_str}
-                tool_calls.append({
-                    "id": tc_id,
-                    "name": tc["name"],
-                    "input": parsed_args,
-                })
+                tool_calls.append(
+                    {
+                        "id": tc_id,
+                        "name": tc["name"],
+                        "input": parsed_args,
+                    }
+                )
                 raw_tool_calls.append(build_raw_tool_call(tc_id, tc["name"], args_str))
         elif "<tool_call>" in text:
             # XML tool calls in text (xml_text mode)
@@ -301,8 +318,7 @@ class VLLMProvider(LLMProvider):
         else:
             self._last_call_xml_tools = False
 
-        stop_reason = _STOP_REASON_MAP.get(finish_reason,
-                                            finish_reason or "end_turn")
+        stop_reason = _STOP_REASON_MAP.get(finish_reason, finish_reason or "end_turn")
 
         # raw_content for format_assistant_message
         raw_content = SimpleNamespace(
@@ -326,12 +342,13 @@ class VLLMProvider(LLMProvider):
         reasoning_tokens = 0
         answer_tokens = output_tokens
         visible_text = text
-        if reasoning_content and not re.search(r'<think>', text):
+        if reasoning_content and not re.search(r"<think>", text):
             # Reasoning was extracted server-side; text is already clean.
             reasoning_tokens, answer_tokens = split_reasoning_tokens(
-                output_tokens, visible_text, tool_calls)
+                output_tokens, visible_text, tool_calls
+            )
         elif fmt == "think_tags":
-            match = re.search(r'<think>(.*?)</think>', text, re.DOTALL)
+            match = re.search(r"<think>(.*?)</think>", text, re.DOTALL)
             if match:
                 reasoning_content = match.group(1)
             elif "</think>" in text:
@@ -339,7 +356,8 @@ class VLLMProvider(LLMProvider):
                 reasoning_content = text.split("</think>", 1)[0]
             visible_text = strip_think_tags(text)
             reasoning_tokens, answer_tokens = split_reasoning_tokens(
-                output_tokens, visible_text, tool_calls)
+                output_tokens, visible_text, tool_calls
+            )
 
         return ProviderResponse(
             # text is the visible answer only; thinking trace lives in
@@ -391,11 +409,13 @@ class VLLMProvider(LLMProvider):
         else:
             messages = []
             for tr in tool_results:
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tr["tool_call_id"],
-                    "content": tr["output"],
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tr["tool_call_id"],
+                        "content": tr["output"],
+                    }
+                )
             return messages
 
     def prepare_messages(self, messages: list[dict]) -> list[dict]:
