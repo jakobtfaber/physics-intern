@@ -173,6 +173,27 @@ def print_call_summary(result) -> None:
     console.print(f"  ({tokens}, {dur}{tps})", style="dim")
 
 
+def print_iteration_summary(
+    iteration: int,
+    metrics: MetricsTracker,
+    config: Config,
+    elapsed_seconds: float,
+) -> None:
+    """One-line dim summary printed at the end of each iteration."""
+    parts = [
+        f"iter {iteration} totals:",
+        f"{metrics.total_output_tokens:,} out tokens",
+    ]
+    if config.input_cost or config.output_cost:
+        cost = (
+            metrics.total_input_tokens * config.input_cost
+            + metrics.total_output_tokens * config.output_cost
+        ) / 1_000_000
+        parts.append(f"${cost:.2f}")
+    parts.append(f"{fmt_duration(elapsed_seconds)} elapsed")
+    console.print(f"[dim]{', '.join(parts)}[/dim]")
+
+
 def print_final_report(
     iteration: int,
     metrics: MetricsTracker,

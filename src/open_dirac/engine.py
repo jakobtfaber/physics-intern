@@ -1,5 +1,6 @@
 """OpenDirac main loop engine."""
 
+import time
 from pathlib import Path
 
 from rich.panel import Panel
@@ -9,6 +10,7 @@ from .core.console import console, replay_log
 from .core.console import (
     on_round_progress,
     print_final_report,
+    print_iteration_summary,
     print_task,
 )
 from .control.critique_routing import (
@@ -196,6 +198,7 @@ class OpenDirac:
     def run(self):
         """Main loop: survey → orchestrate → validate → override → dispatch → git."""
         console.print(Panel("OpenDirac Research System", style="bold blue"))
+        self._run_started_at = time.monotonic()
 
         # Skip surveyor if survey fields already populated (e.g. on resume)
         if not self.research_state.survey_background:
@@ -472,6 +475,12 @@ class OpenDirac:
             self._render_files_for_git()
             self.workspace.git_commit(
                 f"Iteration {self.iteration}: {agent_name} - {task.task_id}"
+            )
+            print_iteration_summary(
+                self.iteration,
+                self.metrics,
+                self.config,
+                time.monotonic() - self._run_started_at,
             )
 
             # 8. Post-dispatch status check (safety net)

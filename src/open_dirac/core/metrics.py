@@ -176,6 +176,18 @@ class MetricsTracker:
     def alert(self, iteration: int, message: str):
         self.alerts.append({"iteration": iteration, "message": message})
 
+    def estimated_cost_usd(self, input_cost: float, output_cost: float) -> float:
+        """Running cost from cumulative tokens × per-million pricing.
+
+        ``input_cost`` and ``output_cost`` are USD per million tokens
+        (matches ``models.yaml`` and ``Config.input_cost`` / ``output_cost``).
+        Returns 0.0 if both prices are 0 (e.g. local vLLM endpoints).
+        """
+        return (
+            self.total_input_tokens * input_cost
+            + self.total_output_tokens * output_cost
+        ) / 1_000_000
+
     @classmethod
     def load(cls, workspace_path: Path) -> "MetricsTracker":
         """Rehydrate a tracker from a workspace's ``METRICS.md``.
