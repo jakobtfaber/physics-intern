@@ -70,14 +70,20 @@ class FormatterAgent(BaseAgent):
         )
 
     def process_response(self, response: LLMResponse, task: Task, iteration: int):
-        """Write ANSWER.md, checking for LLM-emitted rejection marker."""
+        """Write ANSWER.md, checking for LLM-emitted rejection marker.
+
+        If the LLM emits a ``FORMATTER_REJECTION:`` line, no file is
+        written — the rejection text would otherwise be committed as
+        ANSWER.md (and block resume via the canonical-completion-signal
+        contract).
+        """
         self.rejection_reason = None
         text = response.text or ""
 
-        # Check for LLM-emitted rejection marker
         if text.lstrip().startswith(_REJECTION_PREFIX):
             self.rejection_reason = (
                 text.lstrip().split("\n", 1)[0].removeprefix(_REJECTION_PREFIX).strip()
             )
+            return
 
         self.workspace.write_file(self.output_filename, text)

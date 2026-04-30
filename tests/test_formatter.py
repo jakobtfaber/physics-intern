@@ -321,8 +321,10 @@ class TestProcessResponseRejection:
         )
         agent.process_response(resp, self._make_task(), iteration=1)
         assert agent.rejection_reason == "Cannot fill Lambda placeholder"
-        # Should still write the file (for circuit-breaker fallback)
-        agent.workspace.write_file.assert_called_once()
+        # Rejection must NOT write to ANSWER.md — otherwise the rejection
+        # text gets committed and the file blocks resume via the
+        # canonical-completion-signal contract.
+        agent.workspace.write_file.assert_not_called()
 
     def test_good_output_no_rejection(self):
         agent = self._make_agent(answer_template=SYMPY_TEMPLATE)
