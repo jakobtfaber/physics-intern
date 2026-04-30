@@ -18,7 +18,6 @@ import argparse
 import asyncio
 import os
 import re
-import signal
 import sys
 import time
 from dataclasses import dataclass
@@ -87,7 +86,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--timeout",
         type=int,
         default=10800,
-        help="Per-problem timeout in seconds (default: 10800)",
+        help=(
+            "Per-problem wall-clock budget, in seconds (default: 10800). "
+            "Forwarded to the engine as --max-wall-seconds: when the "
+            "budget expires the engine soft-exits, runs the forced "
+            "formatter and writes a best-effort ANSWER.md. The runner "
+            "does not hard-kill the subprocess."
+        ),
     )
     p.add_argument(
         "--output-dir",
@@ -366,6 +371,8 @@ async def run_one_problem(
                 str(action.workspace),
                 "--max-iterations",
                 str(max_iterations),
+                "--max-wall-seconds",
+                str(int(timeout)),
             ]
             workspace_dir = action.workspace
         else:
@@ -384,6 +391,8 @@ async def run_one_problem(
                 model_key,
                 "--max-iterations",
                 str(max_iterations),
+                "--max-wall-seconds",
+                str(int(timeout)),
                 "--workspace-dir",
                 str(workspace_dir),
             ]
@@ -465,9 +474,12 @@ async def run_one_problem(
                 if len(stderr_tail) > 50:
                     del stderr_tail[:-50]
 
-            await asyncio.wait_for(
-                asyncio.gather(_stream_stdout(), _drain_stderr(), proc.wait()),
-                timeout=timeout,
+            # Wall-clock budget is enforced inside the engine via
+            # --max-wall-seconds (forwarded from --timeout). When it
+            # expires the engine soft-exits cleanly, so we just await
+            # the subprocess to finish.
+            await asyncio.gather(
+                _stream_stdout(), _drain_stderr(), proc.wait()
             )
             elapsed = time.monotonic() - start
             stats["api_retries"] = state["api_retries"]
@@ -500,36 +512,6 @@ async def run_one_problem(
                 stats=stats,
             )
 
-        except asyncio.TimeoutError:
-            elapsed = time.monotonic() - start
-            stats["api_retries"] = state["api_retries"]
-            # Kill the entire process group (includes child computations)
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError, AttributeError):
-                pass
-            try:
-                if proc is not None:
-                    await asyncio.wait_for(proc.wait(), timeout=5)
-            except (asyncio.TimeoutError, ProcessLookupError):
-                pass
-            # Still try to extract answer from partial work
-            answer_code = None
-            answer_path = workspace_dir / "ANSWER.md"
-            if answer_path.exists():
-                raw = answer_path.read_text().strip()
-                if raw and not raw.startswith("FORMATTER_REJECTION"):
-                    answer_code = raw
-            return RunResult(
-                problem_n=problem.n,
-                problem_id=problem.problem_id,
-                success=answer_code is not None,
-                answer_code=answer_code,
-                error=None if answer_code else f"timeout after {timeout:.0f}s",
-                duration_s=elapsed,
-                workspace_dir=workspace_dir,
-                stats=stats,
-            )
         except Exception as exc:
             elapsed = time.monotonic() - start
             stats["api_retries"] = state["api_retries"]

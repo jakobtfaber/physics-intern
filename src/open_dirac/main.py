@@ -45,6 +45,44 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-iterations", type=int, default=None, help="Maximum iterations"
     )
     parser.add_argument(
+        "--max-wall-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Wall-clock budget for this run() invocation, in seconds "
+            "(0 = disabled). On resume the clock restarts from zero. "
+            "When the budget expires, the loop runs the forced formatter "
+            "and exits cleanly (status: partially_complete)."
+        ),
+    )
+    parser.add_argument(
+        "--max-total-output-tokens",
+        type=int,
+        default=None,
+        help=(
+            "Cumulative output-token budget across all agents "
+            "(0 = disabled). Survives resume."
+        ),
+    )
+    parser.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=None,
+        help=(
+            "Cumulative estimated cost cap in USD (0 = disabled). "
+            "Survives resume."
+        ),
+    )
+    parser.add_argument(
+        "--best-guess-every-n",
+        type=int,
+        default=None,
+        help=(
+            "Run the forced formatter and write BEST_GUESS.md every N "
+            "iterations (0 = disabled)."
+        ),
+    )
+    parser.add_argument(
         "--workspace-dir",
         type=Path,
         default=None,
@@ -164,7 +202,14 @@ def _main_resume(args) -> None:
 
     # Collect CLI overrides that should apply on resume
     overrides = {}
-    for key in ("model", "max_iterations"):
+    for key in (
+        "model",
+        "max_iterations",
+        "max_wall_seconds",
+        "max_total_output_tokens",
+        "max_cost_usd",
+        "best_guess_every_n",
+    ):
         value = getattr(args, key.replace("-", "_"), None)
         if value is not None:
             overrides[key] = value
