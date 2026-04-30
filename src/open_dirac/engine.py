@@ -218,7 +218,11 @@ class OpenDirac:
             console.print("[yellow]This workspace is already completed.[/yellow]")
             return
 
-        while self.iteration < self.config.max_iterations:
+        exit_reason: str | None = None
+        while True:
+            exit_reason = self._check_exit_condition()
+            if exit_reason:
+                break
             self.iteration += 1
             console.rule(f"[bold]ITERATION {self.iteration}[/bold]")
             self._update_research_iteration()
@@ -494,9 +498,10 @@ class OpenDirac:
             "partially_complete",
             "abandoned",
         ):
+            reason_label = exit_reason or "unknown"
             console.print(
-                "[yellow]Loop ended without completion — "
-                "running forced formatter.[/yellow]"
+                f"[yellow]Loop ended ({reason_label}) without completion — "
+                f"running forced formatter.[/yellow]"
             )
             self._set_research_status("partially_complete")
             self.formatter.best_effort = True
@@ -517,8 +522,7 @@ class OpenDirac:
             self._render_files_for_git()
             self._sync_research_state()
             self.workspace.git_commit(
-                f"Iteration {self.iteration}: forced formatter "
-                "(loop ended without completion)"
+                f"Iteration {self.iteration}: forced formatter ({reason_label})"
             )
 
         self._final_report()
@@ -800,6 +804,37 @@ class OpenDirac:
             on_compute_round=self._on_compute_round,
             on_agent_round=self._on_agent_round,
         )
+
+    def _check_exit_condition(self) -> str | None:
+        """Return a reason string if any soft-exit gate has fired, else None.
+
+        Gates: ``max_iterations`` (always on), ``max_wall_seconds``,
+        ``max_total_output_tokens``, ``max_cost_usd`` (each disabled when 0).
+        Wall-clock is measured from the most recent ``run()`` invocation;
+        token and cost budgets are cumulative across resumes via
+        ``MetricsTracker.load()``.  When a gate fires the loop finishes
+        cleanly (no new iteration starts) and the forced formatter writes
+        a best-effort ``ANSWER.md``.
+        """
+        if self.iteration >= self.config.max_iterations:
+            return "max_iterations"
+        if self.config.max_wall_seconds > 0:
+            elapsed = time.monotonic() - self._run_started_at
+            if elapsed >= self.config.max_wall_seconds:
+                return "max_wall_seconds"
+        if self.config.max_total_output_tokens > 0:
+            if (
+                self.metrics.total_output_tokens
+                >= self.config.max_total_output_tokens
+            ):
+                return "max_total_output_tokens"
+        if self.config.max_cost_usd > 0:
+            cost = self.metrics.estimated_cost_usd(
+                self.config.input_cost, self.config.output_cost
+            )
+            if cost >= self.config.max_cost_usd:
+                return "max_cost_usd"
+        return None
 
     def _should_trigger_critic(self) -> bool:
         """Check if the critic should auto-trigger after a VERIFIED review."""
