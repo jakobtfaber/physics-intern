@@ -271,6 +271,10 @@ def build_config(args: Namespace) -> Config:
     cli_fields = {
         "model",
         "max_iterations",
+        "max_wall_seconds",
+        "max_total_output_tokens",
+        "max_cost_usd",
+        "best_guess_every_n",
         "workspace_dir",
     }
     for field_name in cli_fields:

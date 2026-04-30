@@ -47,6 +47,13 @@ from run_critpt_common import (
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt"
 
+# Seconds reserved for the forced formatter to run AFTER the engine's
+# soft-exit fires. The engine receives --max-wall-seconds = (timeout -
+# FORCED_FORMATTER_GRACE_SECONDS), so the subprocess hard-kill at `timeout`
+# remains the user-facing wall ceiling but the engine has time to write a
+# best-effort ANSWER.md before being killed.
+FORCED_FORMATTER_GRACE_SECONDS = 120
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -81,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Config YAML file to pass through to each run",
     )
     p.add_argument(
-        "--concurrency", type=int, default=16, help="Max parallel runs (default: 16)"
+        "--concurrency", type=int, default=10, help="Max parallel runs (default: 10)"
     )
     p.add_argument(
         "--timeout",
@@ -358,6 +365,7 @@ async def run_one_problem(
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await p.wait()
+            engine_wall = max(30, int(timeout - FORCED_FORMATTER_GRACE_SECONDS))
             cmd = [
                 "uv",
                 "run",
@@ -366,6 +374,8 @@ async def run_one_problem(
                 str(action.workspace),
                 "--max-iterations",
                 str(max_iterations),
+                "--max-wall-seconds",
+                str(engine_wall),
             ]
             workspace_dir = action.workspace
         else:
@@ -375,6 +385,7 @@ async def run_one_problem(
             ws_name = f"{timestamp}_{problem.problem_id}_{safe_model}"
             workspace_dir = workspace_base / ws_name
 
+            engine_wall = max(30, int(timeout - FORCED_FORMATTER_GRACE_SECONDS))
             cmd = [
                 "uv",
                 "run",
@@ -384,6 +395,8 @@ async def run_one_problem(
                 model_key,
                 "--max-iterations",
                 str(max_iterations),
+                "--max-wall-seconds",
+                str(engine_wall),
                 "--workspace-dir",
                 str(workspace_dir),
             ]
