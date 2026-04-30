@@ -65,7 +65,7 @@ open_dirac [problem.yaml] [options]
   problem.yaml                Problem YAML file (default: problems/critpt/quantum_error_correction_main.yaml)
   --model MODEL               LLM model key (default: from config.default.yaml, resolved via models.yaml)
   --replay DIR                Replay console log from a workspace (no run)
-  --max-iterations N          Max loop iterations (default: 25)
+  --max-iterations N          Max loop iterations (default: see config.default.yaml)
   --workspace-dir DIR         Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
   --resume DIR                Resume from existing workspace if DIR exists
   --config FILE               Path to config YAML file (overrides defaults)
@@ -76,6 +76,16 @@ open_dirac [problem.yaml] [options]
 All defaults live in `config.default.yaml` (single source of truth). Override with a config YAML file (`--config`) or individual CLI flags. The precedence is: CLI flags > config file > `config.default.yaml`.
 
 The `max_output_tokens` budget per LLM call is **not** a general default — it is defined per-model in `models.yaml` and cannot be overridden via CLI or config YAML.
+
+#### Soft-exit triggers
+
+In addition to `max_iterations`, the loop accepts three optional cumulative budgets — `max_wall_seconds`, `max_total_output_tokens`, and `max_cost_usd` (USD, computed from `models.yaml` pricing). All default to `0` (disabled). When any gate fires, the loop finishes its current iteration and a forced formatter writes a best-effort `ANSWER.md` (status: `partially_complete`); the triggering gate name appears in the final commit message. `max_wall_seconds` is per-`run()` invocation — it restarts on resume; the token and cost budgets are cumulative across resumes.
+
+To grant more budget after a soft-exit and continue the run, delete `ANSWER.md` and re-run with `--resume`. `ANSWER.md` is the canonical "this run is done" signal: present ⇒ resume refuses; absent ⇒ resume resets `partially_complete` to `in_progress` and continues from the last committed iteration.
+
+#### Periodic best-guess snapshots
+
+Setting `best_guess_every_n: N` (default `0` = disabled) makes the forced formatter run every N iterations and write `BEST_GUESS.md` as a side artifact, with its own commit. The snapshot never touches `ANSWER.md`, `RESEARCH_STATE.md`, or any other state agents see — purely an observability aid.
 
 ### Verification
 
@@ -580,7 +590,8 @@ All research state is persisted under `workspaces/<run>/` (each run gets a times
 | `CRITIQUE_LOG.md` | All critiques with severity and resolution status |
 | `METRICS.md` | Token usage, alerts |
 | `EVENT_LOG.jsonl` | Unified event log — LLM call metadata + scaffolding intervention events |
-| `ANSWER.md` | Final formatted answer (written by formatter at end of run) |
+| `ANSWER.md` | Final formatted answer (written by formatter at end of run, or by the forced formatter on soft-exit) |
+| `BEST_GUESS.md` | Mid-run best-guess snapshot (only if `best_guess_every_n > 0`) — never read by agents |
 | `VERIFICATION.md` | Independent verification report (written by `--write-report`) |
 | `computations/` | Saved Python scripts from computer agent |
 | `derivations/` | Saved derivation files from researcher agent |
