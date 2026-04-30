@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import re
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -282,6 +284,40 @@ def _exc_label(tail: str | None) -> str:
     return tail[:40]
 
 
+def _read_soft_exit_reason(workspace_dir: Path) -> str | None:
+    """Detect whether the most recent run ended via the forced formatter.
+
+    Returns the soft-exit reason (e.g. ``"max_wall_seconds"``,
+    ``"max_iterations"``) when ``RESEARCH_GRAPH.json`` shows
+    ``status == "partially_complete"``; the specific reason is parsed
+    from the ``Iteration N: forced formatter (<reason>)`` commit message
+    in the workspace's git log. Returns the literal ``"unknown"`` if
+    status indicates a soft-exit but the reason couldn't be recovered,
+    and ``None`` for normal-completion runs or unreadable workspaces.
+    """
+    state_path = workspace_dir / "RESEARCH_GRAPH.json"
+    if not state_path.exists():
+        return None
+    try:
+        data = json.loads(state_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    if data.get("status") != "partially_complete":
+        return None
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--grep=forced formatter", "--pretty=%s"],
+            cwd=str(workspace_dir),
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+    except (OSError, ValueError):
+        return "unknown"
+    m = re.search(r"forced formatter \(([^)]+)\)", out)
+    return m.group(1) if m else "unknown"
+
+
 async def _stall_watchdog(print_lock: asyncio.Lock) -> None:
     """Tick every 60s; warn when any running problem has been silent too long."""
     try:
@@ -510,6 +546,7 @@ async def run_one_problem(
                 returncode=proc.returncode,
                 workspace_dir=workspace_dir,
                 stats=stats,
+                soft_exit_reason=_read_soft_exit_reason(workspace_dir),
             )
 
         except Exception as exc:
@@ -671,7 +708,13 @@ async def run_batch(args: argparse.Namespace) -> int:
                 failed += 1
             all_results.append(result)
 
-            status = "OK" if result.success else f"FAIL: {result.error}"
+            if result.success:
+                if result.soft_exit_reason:
+                    status = f"OK (soft-exit: {result.soft_exit_reason})"
+                else:
+                    status = "OK"
+            else:
+                status = f"FAIL: {result.error}"
             retries = (result.stats or {}).get("api_retries", 0) if result.stats else 0
             retry_note = f", {retries} API retries" if retries else ""
             if result.duration_s > 0:

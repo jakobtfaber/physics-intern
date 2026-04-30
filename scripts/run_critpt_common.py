@@ -123,6 +123,9 @@ class RunResult:
     stats: dict | None = None
     returncode: int | None = None
     workspace_dir: Path | None = None
+    # Soft-exit reason when the run ended via the forced formatter
+    # (e.g. "max_wall_seconds", "max_iterations"). None on normal completion.
+    soft_exit_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
