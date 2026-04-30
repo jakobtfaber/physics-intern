@@ -327,6 +327,27 @@ class TestEngineResume:
         # Evidence at iteration 2
         assert engine._state.last_content_iteration == 2
 
+    def test_resume_refuses_when_answer_md_present(self, tmp_path):
+        """ANSWER.md present => the run is canonically done; resume refuses."""
+        ws_dir = self._make_workspace(tmp_path)
+        (ws_dir / "ANSWER.md").write_text("def answer(): return 42\n")
+        with pytest.raises(RuntimeError, match="ANSWER.md"):
+            OpenDirac.resume(ws_dir)
+
+    def test_resume_clears_partially_complete_when_answer_absent(self, tmp_path):
+        """No ANSWER.md => user wants more budget; status reset, blocks cleared."""
+        from open_dirac.state.research_state import ResearchState
+
+        ws_dir = self._make_workspace(tmp_path)
+        # Mutate the workspace state to simulate a soft-exit aftermath
+        state = ResearchState.load(ws_dir)
+        state.status = "partially_complete"
+        state.save(ws_dir)
+
+        engine = OpenDirac.resume(ws_dir)
+        assert engine.research_state.status == "in_progress"
+        assert engine._state.consecutive_termination_blocks == 0
+
 
 # ---------------------------------------------------------------------------
 # Surveyor skip and completed workspace guard

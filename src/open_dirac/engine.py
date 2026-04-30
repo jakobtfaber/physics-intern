@@ -167,6 +167,24 @@ class OpenDirac:
         # 5. Reconstruct loop state
         engine._state = _reconstruct_loop_state(engine.research_state)
 
+        # 5b. ANSWER.md is the canonical "this run is done" signal.
+        # Present  -> refuse to resume (the run already produced a final answer).
+        # Absent   -> the user wants more budget; reset transient exit state so
+        #             the loop doesn't short-circuit on partially_complete.
+        answer_path = workspace_path / "ANSWER.md"
+        if answer_path.exists():
+            raise RuntimeError(
+                f"{answer_path} exists — this run already produced a final "
+                f"answer. Delete ANSWER.md to grant more budget and resume."
+            )
+        if engine.research_state.status == "partially_complete":
+            engine.research_state.status = "in_progress"
+            engine._state.consecutive_termination_blocks = 0
+            console.print(
+                "[dim]ANSWER.md absent on resume — status reset to "
+                "in_progress.[/dim]"
+            )
+
         # 6. Reconstruct last critic iteration
         engine.metrics.last_critic_iteration = _find_last_critic_iteration(
             workspace_path
