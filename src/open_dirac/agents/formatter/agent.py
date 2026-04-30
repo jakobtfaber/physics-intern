@@ -38,6 +38,9 @@ class FormatterAgent(BaseAgent):
         self.research_state: ResearchState | None = None
         self.rejection_reason: str | None = None
         self.best_effort: bool = False
+        # Periodic best-guess snapshots redirect output to BEST_GUESS.md.
+        # The exit-path forced formatter keeps the default ANSWER.md.
+        self.output_filename: str = "ANSWER.md"
         self._system_prompt_forced: str | None = None
 
     @property
@@ -77,4 +80,4 @@ class FormatterAgent(BaseAgent):
                 text.lstrip().split("\n", 1)[0].removeprefix(_REJECTION_PREFIX).strip()
             )
 
-        self.workspace.write_file("ANSWER.md", text)
+        self.workspace.write_file(self.output_filename, text)

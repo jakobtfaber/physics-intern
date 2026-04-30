@@ -505,6 +505,9 @@ class OpenDirac:
                 time.monotonic() - self._run_started_at,
             )
 
+            # 7b. Periodic best-guess snapshot (writes BEST_GUESS.md only).
+            self._periodic_best_guess_snapshot()
+
             # 8. Post-dispatch status check (safety net)
             if self._check_status_field():
                 console.print("[green]Research completed or abandoned.[/green]")
@@ -1219,6 +1222,51 @@ class OpenDirac:
         self._render_files_for_git()
         self.workspace.git_commit(f"Iteration {self.iteration}: formatter - ANSWER.md")
         return None
+
+    def _periodic_best_guess_snapshot(self) -> None:
+        """Run the forced formatter to write ``BEST_GUESS.md``.
+
+        Triggered every ``best_guess_every_n`` iterations.  Independent of
+        the main loop and invisible to all agents — does not touch
+        ``ANSWER.md``, ``RESEARCH_STATE.md`` or any other rendered state.
+        Failures are non-fatal and never abort the loop.
+        """
+        n = self.config.best_guess_every_n
+        if n <= 0 or self.iteration % n != 0:
+            return
+        console.print(
+            f"[dim]Periodic best-guess snapshot at iteration {self.iteration}[/dim]"
+        )
+        self.formatter.best_effort = True
+        self.formatter.output_filename = "BEST_GUESS.md"
+        try:
+            fmt_task = Task(
+                task_id=f"SNAPSHOT-{self.iteration:03d}",
+                task_type=TaskType.FORMAT,
+                assigned_to="formatter",
+                iteration=self.iteration,
+                answer_ers=[],
+            )
+            self.formatter.research_state = self.research_state
+            self.formatter.run(fmt_task, self.iteration)
+            rejection = self.formatter.rejection_reason
+            if rejection:
+                console.print(
+                    f"[dim]  snapshot rejected: {rejection[:120]}[/dim]"
+                )
+            else:
+                console.print("[dim]  → BEST_GUESS.md written[/dim]")
+            self.workspace.git_commit(
+                f"Iteration {self.iteration}: best-guess snapshot"
+            )
+        except Exception as exc:
+            console.print(
+                f"[yellow]  snapshot failed (non-fatal): "
+                f"{type(exc).__name__}: {exc}[/yellow]"
+            )
+        finally:
+            self.formatter.best_effort = False
+            self.formatter.output_filename = "ANSWER.md"
 
     def _force_abandon_working_hypotheses(self):
         """Circuit breaker: auto-abandon all remaining WHs after repeated termination blocks."""

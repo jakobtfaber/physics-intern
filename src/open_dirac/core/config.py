@@ -69,6 +69,7 @@ class Config:
     max_wall_seconds: float = DEFAULTS["max_wall_seconds"]
     max_total_output_tokens: int = DEFAULTS["max_total_output_tokens"]
     max_cost_usd: float = DEFAULTS["max_cost_usd"]
+    best_guess_every_n: int = DEFAULTS["best_guess_every_n"]
     provider: str = ""
     workspace_dir: str = ""
     logs_dir: str = ""
@@ -184,6 +185,7 @@ _YAML_CONFIG_FIELDS = frozenset(
         "max_wall_seconds",
         "max_total_output_tokens",
         "max_cost_usd",
+        "best_guess_every_n",
         "provider",
     }
 )
