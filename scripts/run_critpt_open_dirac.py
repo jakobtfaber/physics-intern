@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Config YAML file to pass through to each run",
     )
     p.add_argument(
-        "--concurrency", type=int, default=16, help="Max parallel runs (default: 16)"
+        "--concurrency", type=int, default=10, help="Max parallel runs (default: 10)"
     )
     p.add_argument(
         "--timeout",

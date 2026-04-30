@@ -91,4 +91,4 @@ max_cost_usd: 0.0
 # --- Periodic best-guess snapshot ---
 # Every N iterations, run the forced formatter and write BEST_GUESS.md
 # (separate from ANSWER.md, never read by agents). 0 = disabled.
-best_guess_every_n: 0
+best_guess_every_n: 10

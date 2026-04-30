@@ -85,6 +85,15 @@ gpt-5.5-high:
   max_output_tokens: 128000
   reasoning_effort: high
 
+gpt-5.5-xhigh:
+  provider: openai
+  model_id: gpt-5.5-2026-04-23
+  env_key: OPENAI_API_KEY
+  input_cost: 5.00
+  output_cost: 30.00
+  max_output_tokens: 128000
+  reasoning_effort: xhigh
+
 # ============================================================================
 # Google
 # ============================================================================
