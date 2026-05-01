@@ -91,7 +91,11 @@ async def send_request(
             stream_options={"include_usage": True},
         )
         async for chunk in stream:
-            if not first_token_seen and chunk.choices and chunk.choices[0].delta.content:
+            if (
+                not first_token_seen
+                and chunk.choices
+                and chunk.choices[0].delta.content
+            ):
                 ttft = time.perf_counter() - t0
                 first_token_seen = True
             if chunk.usage:
@@ -222,7 +226,9 @@ def resolve_endpoints(args: argparse.Namespace) -> tuple[list[str], str]:
         env = _read_endpoint_env(jid)
         base_urls.append(env["BASE_URL"])
         if not model:
-            model = env["SERVED_MODEL_NAME"] if "SERVED_MODEL_NAME" in env else env["MODEL"]
+            model = (
+                env["SERVED_MODEL_NAME"] if "SERVED_MODEL_NAME" in env else env["MODEL"]
+            )
 
     return base_urls, model
 
@@ -290,7 +296,7 @@ async def main_async(args: argparse.Namespace) -> int:
 
     # Wait for all endpoints to become healthy.
     health_results = await asyncio.gather(
-        *[_wait_for_health(url, f"replica {i+1}") for i, url in enumerate(base_urls)]
+        *[_wait_for_health(url, f"replica {i + 1}") for i, url in enumerate(base_urls)]
     )
     if not all(health_results):
         print("Some endpoints failed to become healthy.", file=sys.stderr)
@@ -301,18 +307,27 @@ async def main_async(args: argparse.Namespace) -> int:
     # Warmup: one request per replica.
     print("Warmup requests...", file=sys.stderr)
     warmups = await asyncio.gather(
-        *[send_request(c, model, min(args.max_tokens, 64), BENCHMARK_PROMPT) for c in clients]
+        *[
+            send_request(c, model, min(args.max_tokens, 64), BENCHMARK_PROMPT)
+            for c in clients
+        ]
     )
     for i, w in enumerate(warmups):
         if not w.success:
-            print(f"Warmup failed on replica {i+1}: {w.error}", file=sys.stderr)
+            print(f"Warmup failed on replica {i + 1}: {w.error}", file=sys.stderr)
             return 1
-        print(f"  Replica {i+1}: {w.output_tokens} tokens in {w.elapsed_s:.2f}s", file=sys.stderr)
+        print(
+            f"  Replica {i + 1}: {w.output_tokens} tokens in {w.elapsed_s:.2f}s",
+            file=sys.stderr,
+        )
 
     all_results: list[ConcurrencyResult] = []
     for conc in concurrency_levels:
         actual_requests = max(conc, num_requests)
-        print(f"\nRunning concurrency={conc}, requests={actual_requests}...", file=sys.stderr)
+        print(
+            f"\nRunning concurrency={conc}, requests={actual_requests}...",
+            file=sys.stderr,
+        )
         result = await run_concurrency_level(
             clients, model, conc, actual_requests, args.max_tokens, BENCHMARK_PROMPT
         )
@@ -358,9 +373,18 @@ async def main_async(args: argparse.Namespace) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark vLLM endpoint throughput.")
-    parser.add_argument("--serve-job", type=str, nargs="+", help="Serve job ID(s) (reads endpoint.env, multiple for round-robin)")
-    parser.add_argument("--base-url", type=str, help="vLLM base URL (e.g. http://host:8000/v1)")
-    parser.add_argument("--model", type=str, help="Model name (auto-detected from endpoint.env)")
+    parser.add_argument(
+        "--serve-job",
+        type=str,
+        nargs="+",
+        help="Serve job ID(s) (reads endpoint.env, multiple for round-robin)",
+    )
+    parser.add_argument(
+        "--base-url", type=str, help="vLLM base URL (e.g. http://host:8000/v1)"
+    )
+    parser.add_argument(
+        "--model", type=str, help="Model name (auto-detected from endpoint.env)"
+    )
     parser.add_argument(
         "--concurrency",
         type=str,

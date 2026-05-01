@@ -126,7 +126,10 @@ def create_app(base_urls: list[str]) -> Starlette:
     return Starlette(
         routes=[
             Route("/health", health_check),
-            Mount("/v1", routes=[Route("/{path:path}", catch_all, methods=["GET", "POST"])]),
+            Mount(
+                "/v1",
+                routes=[Route("/{path:path}", catch_all, methods=["GET", "POST"])],
+            ),
         ],
     )
 
@@ -142,7 +145,11 @@ async def main_async(args: argparse.Namespace) -> int:
     logger.info("Backends: %s", urls)
 
     await wait_for_health(urls)
-    logger.info("All %d backends healthy. Starting load balancer on port %d.", len(urls), args.port)
+    logger.info(
+        "All %d backends healthy. Starting load balancer on port %d.",
+        len(urls),
+        args.port,
+    )
 
     app = create_app(urls)
     await run_server(app, args.port)
@@ -150,9 +157,13 @@ async def main_async(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Load balancer for multiple vLLM replicas.")
+    parser = argparse.ArgumentParser(
+        description="Load balancer for multiple vLLM replicas."
+    )
     parser.add_argument("job_ids", nargs="+", help="Serve job IDs")
-    parser.add_argument("--port", type=int, default=9000, help="Load balancer port (default: 9000)")
+    parser.add_argument(
+        "--port", type=int, default=9000, help="Load balancer port (default: 9000)"
+    )
     args = parser.parse_args()
     sys.exit(asyncio.run(main_async(args)))
 
