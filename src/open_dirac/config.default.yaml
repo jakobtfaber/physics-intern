@@ -82,8 +82,10 @@ pipeline_retry_max: 2
 # tracked).
 max_wall_seconds: 0
 # Cumulative output tokens across all agents for the whole workspace
-# (survives resume via MetricsTracker.load()).
-max_total_output_tokens: 0
+# (survives resume via MetricsTracker.load()). Default 2M tokens makes
+# benchmarks comparable across models with different inference speeds
+# (e.g. Kimi at 33 t/s vs Gemini at 200 t/s).
+max_total_output_tokens: 2000000
 # Cumulative estimated cost in USD, computed from input_cost/output_cost
 # in models.yaml.
 max_cost_usd: 0.0

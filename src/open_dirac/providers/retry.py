@@ -28,7 +28,6 @@ TRANSIENT_EXC_NAMES = {
     "BrokenPipeError",
     "APITimeoutError",
     "APIConnectionError",
-    "APIStatusError",
     "ServerError",
     "RemoteProtocolError",
 }
@@ -38,6 +37,7 @@ _PROVIDER_SIDE_400_PATTERNS = {
     "internal error",
     "backend error",
     "input validation",  # HuggingFace context-length / format rejection
+    "expecting",  # vLLM JSON parse failure ("Expecting ',' delimiter")
 }
 
 _CONTEXT_TOO_LONG_PATTERNS = (
@@ -225,8 +225,13 @@ def call_with_retry(
                 raise ContextTooLongError(exc) from exc
             if not is_transient(exc) or attempt == max_retries:
                 raise
-            # Provider-side 400s are deterministic — cap at 1 retry (2 attempts total)
-            if is_provider_side_400(exc) and attempt >= 1:
+            # Provider-side 400s are deterministic — cap at 1 retry (2 attempts total).
+            # Tool-call failures take priority: they're stochastic and get the full budget.
+            if (
+                is_provider_side_400(exc)
+                and not is_tool_call_failure(exc)
+                and attempt >= 1
+            ):
                 raise
             if on_retry is not None:
                 on_retry(exc, attempt, max_retries)

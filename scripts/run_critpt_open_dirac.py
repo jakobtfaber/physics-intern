@@ -87,11 +87,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--timeout",
         type=int,
-        default=10800,
+        default=86400,
         help=(
-            "Per-problem wall-clock budget, in seconds (default: 10800). "
-            "Forwarded to the engine as --max-wall-seconds: when the "
-            "budget expires the engine soft-exits, runs the forced "
+            "Per-problem wall-clock budget, in seconds (default: 86400 = 24h "
+            "safety net). Forwarded to the engine as --max-wall-seconds: when "
+            "the budget expires the engine soft-exits, runs the forced "
             "formatter and writes a best-effort ANSWER.md. The runner "
             "does not hard-kill the subprocess."
         ),
@@ -514,9 +514,7 @@ async def run_one_problem(
             # --max-wall-seconds (forwarded from --timeout). When it
             # expires the engine soft-exits cleanly, so we just await
             # the subprocess to finish.
-            await asyncio.gather(
-                _stream_stdout(), _drain_stderr(), proc.wait()
-            )
+            await asyncio.gather(_stream_stdout(), _drain_stderr(), proc.wait())
             elapsed = time.monotonic() - start
             stats["api_retries"] = state["api_retries"]
 
@@ -630,7 +628,7 @@ async def run_batch(args: argparse.Namespace) -> int:
     print(f"  resume:    {n_resume} (continue interrupted run)", file=sys.stderr)
     print(f"  fresh:     {n_fresh} (new run)", file=sys.stderr)
     print(f"Concurrency: {args.concurrency}", file=sys.stderr)
-    print(f"Timeout:     {args.timeout}s per problem", file=sys.stderr)
+    print(f"Timeout:     {args.timeout}s wall-clock per problem", file=sys.stderr)
     print(f"Output:      {output_dir}", file=sys.stderr)
     print("---", file=sys.stderr)
 

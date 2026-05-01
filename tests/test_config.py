@@ -63,6 +63,13 @@ class TestDefaults:
     def test_progress_check_interval_in_yaml_fields(self):
         assert "progress_check_interval" in _YAML_CONFIG_FIELDS
 
+    def test_max_total_output_tokens_default(self):
+        assert Config().max_total_output_tokens == 2_000_000
+        assert DEFAULTS["max_total_output_tokens"] == 2_000_000
+
+    def test_max_total_output_tokens_in_yaml_fields(self):
+        assert "max_total_output_tokens" in _YAML_CONFIG_FIELDS
+
 
 # ---------------------------------------------------------------------------
 # load_config_yaml
@@ -176,6 +183,20 @@ class TestBuildConfig:
         assert cfg.max_iterations == 50  # from YAML
         assert cfg.max_tokens == 128000  # tracks CLI-selected model
 
+    def test_max_total_output_tokens_cli_override(self):
+        args = Namespace(
+            config=None,
+            model=None,
+            max_iterations=None,
+            max_wall_seconds=None,
+            max_total_output_tokens=500_000,
+            max_cost_usd=None,
+            best_guess_every_n=None,
+            workspace_dir=None,
+        )
+        cfg = build_config(args)
+        assert cfg.max_total_output_tokens == 500_000
+
     def test_max_tokens_not_settable_via_yaml(self, tmp_path):
         """max_tokens is ignored in config YAML (models.yaml is the source)."""
         cfg_file = tmp_path / "config.yaml"
@@ -206,7 +227,7 @@ class TestModelRegistryResolution:
         cfg = Config(model="zai-org/GLM-5.1")
         assert cfg.provider == "vllm"
         assert cfg.model_id == "zai-org/GLM-5.1"
-        assert cfg.max_tokens == 131072
+        assert cfg.max_tokens == 65536
         assert cfg.reasoning["reasoning_format"] == "separate_field"
         assert cfg.reasoning["tool_mode"] == "api"
 
@@ -214,7 +235,7 @@ class TestModelRegistryResolution:
         cfg = Config(model="moonshotai/Kimi-K2.6")
         assert cfg.provider == "vllm"
         assert cfg.model_id == "moonshotai/Kimi-K2.6"
-        assert cfg.max_tokens == 200000
+        assert cfg.max_tokens == 65536
         assert cfg.reasoning["reasoning_format"] == "separate_field"
         assert cfg.reasoning["tool_mode"] == "api"
 
@@ -375,6 +396,14 @@ class TestMainParser:
         assert args.model is None
         assert args.max_iterations is None
         assert args.workspace_dir is None
+        assert args.max_total_output_tokens is None
+
+    def test_max_total_output_tokens_flag(self):
+        from open_dirac.main import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["p.yaml", "--max-total-output-tokens", "500000"])
+        assert args.max_total_output_tokens == 500000
 
 
 # ---------------------------------------------------------------------------
