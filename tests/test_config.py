@@ -227,7 +227,7 @@ class TestModelRegistryResolution:
         cfg = Config(model="zai-org/GLM-5.1")
         assert cfg.provider == "vllm"
         assert cfg.model_id == "zai-org/GLM-5.1"
-        assert cfg.max_tokens == 65536
+        assert cfg.max_tokens == 131072
         assert cfg.reasoning["reasoning_format"] == "separate_field"
         assert cfg.reasoning["tool_mode"] == "api"
 
@@ -235,7 +235,7 @@ class TestModelRegistryResolution:
         cfg = Config(model="moonshotai/Kimi-K2.6")
         assert cfg.provider == "vllm"
         assert cfg.model_id == "moonshotai/Kimi-K2.6"
-        assert cfg.max_tokens == 65536
+        assert cfg.max_tokens == 200000
         assert cfg.reasoning["reasoning_format"] == "separate_field"
         assert cfg.reasoning["tool_mode"] == "api"
 
@@ -266,7 +266,8 @@ class TestServeConfig:
 
     def test_kimi_k2_6_serve_block(self, registry):
         serve = registry["moonshotai/Kimi-K2.6"]["serve"]
-        assert serve["nodes"] == 4
+        assert serve["replicas"] == 4
+        assert serve["nodes_per_replica"] == 2
         assert serve["gpus_per_node"] == 8
         assert serve["reasoning_parser"] == "kimi_k2"
         args = " ".join(serve["vllm_args"])
@@ -312,7 +313,8 @@ class TestResolveServeConfig:
     def test_emits_all_required_shell_vars_for_kimi(self):
         out = _run_resolver("moonshotai/Kimi-K2.6")
         assert out["DEFAULT_MODEL_ID"] == "moonshotai/Kimi-K2.6"
-        assert out["DEFAULT_NODES"] == "4"
+        assert out["DEFAULT_REPLICAS"] == "4"
+        assert out["DEFAULT_NODES"] == "2"
         assert out["DEFAULT_GPUS_PER_NODE"] == "8"
         assert out["DEFAULT_REASONING_PARSER"] == "kimi_k2"
         assert "--enable-expert-parallel" in out["DEFAULT_VLLM_ARGS"]
@@ -322,6 +324,7 @@ class TestResolveServeConfig:
     def test_emits_all_required_shell_vars_for_glm(self):
         out = _run_resolver("zai-org/GLM-5.1")
         assert out["DEFAULT_MODEL_ID"] == "zai-org/GLM-5.1"
+        assert out["DEFAULT_REPLICAS"] == "1"
         assert out["DEFAULT_NODES"] == "3"
         assert out["DEFAULT_GPUS_PER_NODE"] == "8"
         assert "--enforce-eager" not in out["DEFAULT_VLLM_ARGS"]

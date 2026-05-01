@@ -28,8 +28,13 @@ Examples:
   ./serve/serve.slurm --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --nodes 1 --gpus-per-node 1
   ./serve/serve.slurm --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 --nodes 2 --gpus-per-node 8
   ./serve/serve.slurm --model zai-org/GLM-5.1 --nodes 3 --gpus-per-node 8
-  ./serve/serve.slurm --model moonshotai/Kimi-K2.6 --nodes 4 --gpus-per-node 8
+  # Kimi auto-launches 4 replicas (PP=2 each, 8 nodes total) via multi_serve.sh
+  ./serve/serve.slurm --model moonshotai/Kimi-K2.6
   ./serve/serve.slurm --model Qwen/Qwen3.5-4B --nodes 1 --gpus-per-node 1 --reasoning-parser qwen3
+
+  # Data parallel: 4 replicas on 4 nodes (1 node each, TP=8 within node)
+  # Only works for models that fit on a single node (TP=8, PP=1).
+  ./serve/serve.slurm --model some/model --nodes 4 --gpus-per-node 8 --dp 4 --tp 8
 
 Options:
   --model MODEL                    Hugging Face model repo id to serve.
@@ -45,6 +50,8 @@ Options:
   --tensor-parallel-size N         Alias for --tp.
   --pp N                           Pipeline parallel size.
   --pipeline-parallel-size N       Alias for --pp.
+  --dp N                           Data parallel size (native vLLM DP).
+  --data-parallel-size N           Alias for --dp.
   --reasoning-parser NAME          Explicit reasoning parser override.
   --idle-shutdown SECONDS          Auto-cancel the job if no requests AND
                                    head-node GPU util is 0 for SECONDS
@@ -54,8 +61,10 @@ Options:
 
 Notes:
   - The script self-submits with sbatch when run outside Slurm.
-  - On multi-node jobs, rank 0 serves the OpenAI-compatible API and nonzero
+  - On multi-node PP jobs, rank 0 serves the OpenAI-compatible API and nonzero
     ranks join in --headless mode using vLLM's multiprocessing backend.
+  - With --dp, each node runs a DP replica (TP within node, DP across nodes).
+    DP and PP > 1 are mutually exclusive (vLLM v1 constraint).
   - The idle watchdog only arms once /metrics is reachable, so model load
     time never counts against the idle window.
 USAGE
@@ -225,6 +234,7 @@ SERVED_MODEL_NAME=""
 MAX_MODEL_LEN="262144"
 TP=""
 PP=""
+DP=""
 REASONING_PARSER=""
 IDLE_SHUTDOWN_SECONDS="${WATCHDOG_IDLE_SECONDS:-14400}"
 IDLE_POLL_INTERVAL="${WATCHDOG_POLL_INTERVAL:-60}"
@@ -287,6 +297,11 @@ while [[ $# -gt 0 ]]; do
       PP="$2"
       shift 2
       ;;
+    --dp|--data-parallel-size)
+      require_value "$1" "${2:-}"
+      DP="$2"
+      shift 2
+      ;;
     --reasoning-parser)
       require_value "$1" "${2:-}"
       REASONING_PARSER="$2"
@@ -336,6 +351,27 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   if [[ -z "$GPUS_PER_NODE" ]]; then
     GPUS_PER_NODE="$DEFAULT_GPUS_PER_NODE"
   fi
+
+  # Auto-dispatch to multi_serve.sh for models with replicas > 1
+  # (e.g. Kimi-K2.6 uses 4 external-DP replicas with PP=2 each).
+  REPLICAS="${DEFAULT_REPLICAS:-1}"
+  if is_pos_int "$REPLICAS" && (( REPLICAS > 1 )); then
+    MULTI_SERVE="${SCRIPT_DIR}/multi_serve.sh"
+    MULTI_ARGS=(
+      "$MULTI_SERVE"
+      --model "$MODEL"
+      --replicas "$REPLICAS"
+      --nodes-per-replica "$NODES"
+      --gpus-per-node "$GPUS_PER_NODE"
+      --time "$TIME_LIMIT"
+      --idle-shutdown "$IDLE_SHUTDOWN_SECONDS"
+    )
+    if [[ ${#EXTRA_VLLM_ARGS[@]} -gt 0 ]]; then
+      MULTI_ARGS+=(-- "${EXTRA_VLLM_ARGS[@]}")
+    fi
+    exec "${MULTI_ARGS[@]}"
+  fi
+
   if [[ -z "$CPUS_PER_TASK" ]]; then
     CPUS_PER_TASK="$((11 * GPUS_PER_NODE))"
   fi
@@ -362,6 +398,10 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   fi
   if [[ -n "$PP" ]] && ! is_pos_int "$PP"; then
     echo "--pp must be a positive integer." >&2
+    exit 1
+  fi
+  if [[ -n "$DP" ]] && ! is_pos_int "$DP"; then
+    echo "--dp must be a positive integer." >&2
     exit 1
   fi
 
@@ -497,11 +537,23 @@ MODEL_ID="${DEFAULT_MODEL_ID:-$MODEL}"
 if [[ -z "$REASONING_PARSER" ]]; then
   REASONING_PARSER="$DEFAULT_REASONING_PARSER"
 fi
+if [[ -z "$DP" ]]; then
+  DP="1"
+fi
+if ! is_pos_int "$DP"; then
+  echo "--dp must be a positive integer." >&2
+  exit 1
+fi
+
 if [[ -z "$TP" ]]; then
   TP="$GPUS_PER_NODE"
 fi
 if [[ -z "$PP" ]]; then
-  PP="$NODES"
+  if (( DP > 1 )); then
+    PP="1"
+  else
+    PP="$NODES"
+  fi
 fi
 if ! is_pos_int "$TP"; then
   echo "--tp must be a positive integer." >&2
@@ -512,10 +564,27 @@ if ! is_pos_int "$PP"; then
   exit 1
 fi
 
-TOTAL_ASSIGNED_GPUS=$((NODES * GPUS_PER_NODE))
-if (( TP * PP != TOTAL_ASSIGNED_GPUS )); then
-  echo "Expected tp * pp to equal nodes * gpus-per-node (${TOTAL_ASSIGNED_GPUS}), got $((TP * PP))." >&2
+# DP and PP > 1 are mutually exclusive (vLLM v1 constraint).
+if (( DP > 1 && PP > 1 )); then
+  echo "Cannot combine --dp > 1 with --pp > 1 (vLLM v1 does not support DP+PP)." >&2
   exit 1
+fi
+
+TOTAL_ASSIGNED_GPUS=$((NODES * GPUS_PER_NODE))
+if (( DP > 1 )); then
+  if (( DP * TP != TOTAL_ASSIGNED_GPUS )); then
+    echo "Expected dp * tp to equal nodes * gpus-per-node (${TOTAL_ASSIGNED_GPUS}), got $((DP * TP))." >&2
+    exit 1
+  fi
+  if (( DP % NODES != 0 )); then
+    echo "--dp (${DP}) must be evenly divisible by --nodes (${NODES})." >&2
+    exit 1
+  fi
+else
+  if (( TP * PP != TOTAL_ASSIGNED_GPUS )); then
+    echo "Expected tp * pp to equal nodes * gpus-per-node (${TOTAL_ASSIGNED_GPUS}), got $((TP * PP))." >&2
+    exit 1
+  fi
 fi
 
 VLLM_ARGS=(
@@ -525,18 +594,37 @@ VLLM_ARGS=(
   --served-model-name "$SERVED_MODEL_NAME"
   --max-model-len "$MAX_MODEL_LEN"
   --tensor-parallel-size "$TP"
-  --pipeline-parallel-size "$PP"
 )
 
-if (( NODES > 1 )); then
-  # Derive a unique master port from the job ID to avoid collisions when
-  # multiple multi-node jobs share a node.
-  MASTER_PORT=$(( 29500 + (SLURM_JOB_ID % 1000) ))
+if (( DP > 1 )); then
+  # Native vLLM data parallelism: each DP replica is a separate core engine
+  # process. DP replicas are distributed across nodes with TP within each node.
+  DP_LOCAL=$(( DP / NODES ))
+  DP_RPC_PORT=$(( 13345 + (SLURM_JOB_ID % 1000) ))
   VLLM_ARGS+=(
-    --distributed-executor-backend mp
-    --nnodes "$NODES"
-    --master-port "$MASTER_PORT"
+    --data-parallel-size "$DP"
+    --data-parallel-size-local "$DP_LOCAL"
+    --data-parallel-address "$HEAD_IP"
+    --data-parallel-rpc-port "$DP_RPC_PORT"
   )
+  # Scale API server count for large DP to avoid head-node bottleneck.
+  if (( DP >= 8 )); then
+    VLLM_ARGS+=(--api-server-count 4)
+  elif (( DP >= 4 )); then
+    VLLM_ARGS+=(--api-server-count 2)
+  fi
+else
+  VLLM_ARGS+=(--pipeline-parallel-size "$PP")
+  if (( NODES > 1 )); then
+    # Derive a unique master port from the job ID to avoid collisions when
+    # multiple multi-node jobs share a node.
+    MASTER_PORT=$(( 29500 + (SLURM_JOB_ID % 1000) ))
+    VLLM_ARGS+=(
+      --distributed-executor-backend mp
+      --nnodes "$NODES"
+      --master-port "$MASTER_PORT"
+    )
+  fi
 fi
 
 if [[ -n "$REASONING_PARSER" && "$REASONING_PARSER" != "none" && "$REASONING_PARSER" != "off" ]]; then
@@ -563,7 +651,25 @@ if [[ -n "$REASONING_PARSER" && "$REASONING_PARSER" != "none" && "$REASONING_PAR
   fi
 fi
 
-VLLM_ARGS+=("${DEFAULT_VLLM_ARGS[@]}")
+# Filter flags from DEFAULT_VLLM_ARGS that are already set in the base
+# VLLM_ARGS to prevent models.yaml defaults from overriding CLI values.
+FILTERED_DEFAULT_ARGS=()
+_skip_next=0
+for _arg in "${DEFAULT_VLLM_ARGS[@]}"; do
+  if (( _skip_next )); then
+    _skip_next=0
+    continue
+  fi
+  case "$_arg" in
+    --max-model-len|--max-model-len=*)
+      if [[ "$_arg" == "--max-model-len" ]]; then _skip_next=1; fi
+      ;;
+    *)
+      FILTERED_DEFAULT_ARGS+=("$_arg")
+      ;;
+  esac
+done
+VLLM_ARGS+=("${FILTERED_DEFAULT_ARGS[@]}")
 VLLM_ARGS+=("${EXTRA_VLLM_ARGS[@]}")
 
 JOB_RUNTIME_DIR="${RUNTIME_DIR_ROOT}/${SLURM_JOB_ID}"
@@ -577,11 +683,15 @@ PORT=${PORT}
 BASE_URL=http://${HEAD_IP}:${PORT}/v1
 EOF
 
-echo "Serving ${MODEL} on ${NODES} node(s) with ${GPUS_PER_NODE} GPU(s) per node."
+if (( DP > 1 )); then
+  echo "Serving ${MODEL} on ${NODES} node(s) with ${GPUS_PER_NODE} GPU(s) per node (DP=${DP}, TP=${TP})."
+else
+  echo "Serving ${MODEL} on ${NODES} node(s) with ${GPUS_PER_NODE} GPU(s) per node (TP=${TP}, PP=${PP})."
+fi
 echo "Head node: ${HEAD_NODE} (${HEAD_IP})"
 echo "Endpoint: http://${HEAD_IP}:${PORT}/v1"
 
-launch_rank() {
+launch_pp_rank() {
   local node="$1"
   local rank="$2"
   local -a rank_cmd=(uv run --no-sync vllm "${VLLM_ARGS[@]}")
@@ -592,7 +702,7 @@ launch_rank() {
     fi
   fi
 
-  print_command "Rank ${rank} on ${node}" "${rank_cmd[@]}"
+  print_command "PP rank ${rank} on ${node}" "${rank_cmd[@]}"
   srun \
     --nodes=1 \
     --ntasks=1 \
@@ -604,9 +714,39 @@ launch_rank() {
   PIDS+=("$!")
 }
 
-for idx in "${!NODE_NAMES[@]}"; do
-  launch_rank "${NODE_NAMES[$idx]}" "$idx"
-done
+launch_dp_node() {
+  local node="$1"
+  local node_idx="$2"
+  local start_rank=$(( node_idx * DP_LOCAL ))
+  local -a rank_cmd=(uv run --no-sync vllm "${VLLM_ARGS[@]}")
+  if (( node_idx > 0 )); then
+    rank_cmd+=(
+      --headless
+      --data-parallel-start-rank "$start_rank"
+    )
+  fi
+
+  print_command "DP node ${node_idx} (ranks ${start_rank}..$(( start_rank + DP_LOCAL - 1 ))) on ${node}" "${rank_cmd[@]}"
+  srun \
+    --nodes=1 \
+    --ntasks=1 \
+    --cpus-per-task "$CPUS_PER_TASK" \
+    --gpus-per-node "$GPUS_PER_NODE" \
+    --exact \
+    -w "$node" \
+    bash -lc "cd '$REPO_ROOT' && exec $(printf '%q ' "${rank_cmd[@]}")" &
+  PIDS+=("$!")
+}
+
+if (( DP > 1 )); then
+  for idx in "${!NODE_NAMES[@]}"; do
+    launch_dp_node "${NODE_NAMES[$idx]}" "$idx"
+  done
+else
+  for idx in "${!NODE_NAMES[@]}"; do
+    launch_pp_rank "${NODE_NAMES[$idx]}" "$idx"
+  done
+fi
 
 if (( IDLE_SHUTDOWN_SECONDS > 0 )); then
   start_idle_watchdog "$SLURM_JOB_ID" "$PORT" "$IDLE_SHUTDOWN_SECONDS" "$IDLE_POLL_INTERVAL" &

@@ -339,7 +339,7 @@ zai-org/GLM-5.1:
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
-  max_output_tokens: 65536
+  max_output_tokens: 131072
   reasoning_format: separate_field
   tool_mode: api
   serve:
@@ -440,11 +440,17 @@ moonshotai/Kimi-K2.6:
   env_key: VLLM_API_KEY
   input_cost: 0.0
   output_cost: 0.0
-  max_output_tokens: 65536
+  # The hardest CritPt one-shot problems hit the old 131k cap before emitting
+  # parseable answer code. Keep a small buffer under the 262k context window for
+  # prompts while giving the model room to finish long reasoning traces.
+  max_output_tokens: 200000
   reasoning_format: separate_field
   tool_mode: api
   serve:
-    nodes: 4
+    # 4 independent PP=2 replicas (8 nodes total) with external load balancing.
+    # serve.slurm auto-dispatches to multi_serve.sh when replicas > 1.
+    replicas: 4
+    nodes_per_replica: 2
     gpus_per_node: 8
     reasoning_parser: kimi_k2
     vllm_args:
