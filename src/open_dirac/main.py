@@ -68,10 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-cost-usd",
         type=float,
         default=None,
-        help=(
-            "Cumulative estimated cost cap in USD (0 = disabled). "
-            "Survives resume."
-        ),
+        help=("Cumulative estimated cost cap in USD (0 = disabled). Survives resume."),
     )
     parser.add_argument(
         "--best-guess-every-n",
@@ -213,7 +210,6 @@ def _main_resume(args) -> None:
         value = getattr(args, key.replace("-", "_"), None)
         if value is not None:
             overrides[key] = value
-
     engine = OpenDirac.resume(workspace_path, config_overrides=overrides or None)
     engine.run()
 

@@ -62,13 +62,17 @@ Set API keys for the providers you want to use (in `.env` or as env vars):
 ```
 open_dirac [problem.yaml] [options]
 
-  problem.yaml                Problem YAML file (default: problems/critpt/quantum_error_correction_main.yaml)
-  --model MODEL               LLM model key (default: from config.default.yaml, resolved via models.yaml)
-  --replay DIR                Replay console log from a workspace (no run)
-  --max-iterations N          Max loop iterations (default: see config.default.yaml)
-  --workspace-dir DIR         Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
-  --resume DIR                Resume from existing workspace if DIR exists
-  --config FILE               Path to config YAML file (overrides defaults)
+  problem.yaml                    Problem YAML file
+  --model MODEL                   LLM model key (default: from config.default.yaml)
+  --replay DIR                    Replay console log from a workspace (no run)
+  --max-iterations N              Max loop iterations (default: 40)
+  --max-wall-seconds S            Wall-clock budget in seconds (0 = disabled, default: 0)
+  --max-total-output-tokens N     Cumulative output token budget (0 = disabled, default: 2000000)
+  --max-cost-usd USD              Cumulative cost cap in USD (0 = disabled, default: 0)
+  --best-guess-every-n N          Write BEST_GUESS.md every N iterations (0 = disabled, default: 10)
+  --workspace-dir DIR             Workspace directory (default: auto-generated)
+  --resume DIR                    Resume from existing workspace
+  --config FILE                   Path to config YAML file (overrides defaults)
 ```
 
 ### Configuration
@@ -79,7 +83,7 @@ The `max_output_tokens` budget per LLM call is **not** a general default — it 
 
 #### Soft-exit triggers
 
-In addition to `max_iterations`, the loop accepts three optional cumulative budgets — `max_wall_seconds`, `max_total_output_tokens`, and `max_cost_usd` (USD, computed from `models.yaml` pricing). All default to `0` (disabled). When any gate fires, the loop finishes its current iteration and a forced formatter writes a best-effort `ANSWER.md` (status: `partially_complete`); the triggering gate name appears in the final commit message. `max_wall_seconds` is per-`run()` invocation — it restarts on resume; the token and cost budgets are cumulative across resumes.
+In addition to `max_iterations`, the loop accepts three optional cumulative budgets — `max_wall_seconds`, `max_total_output_tokens`, and `max_cost_usd` (USD, computed from `models.yaml` pricing). `max_total_output_tokens` defaults to 2M tokens, making benchmarks comparable across models with different inference speeds (e.g. Kimi at 33 t/s vs Gemini at 200 t/s); the other two default to `0` (disabled). When any gate fires, the loop finishes its current iteration and a forced formatter writes a best-effort `ANSWER.md` (status: `partially_complete`); the triggering gate name appears in the final commit message. `max_wall_seconds` is per-`run()` invocation — it restarts on resume; the token and cost budgets are cumulative across resumes.
 
 To grant more budget after a soft-exit and continue the run, delete `ANSWER.md` and re-run with `--resume`. `ANSWER.md` is the canonical "this run is done" signal: present ⇒ resume refuses; absent ⇒ resume resets `partially_complete` to `in_progress` and continues from the last committed iteration.
 
@@ -340,9 +344,10 @@ Kimi-K2.6 also fits on fewer nodes. With the same canonical flags:
 | 3 | ~92 tok/s | ~547 tok/s | ~920 tok/s | 7.48× at 262k context | Almost enough for 8-way full-context use, still less headroom than 4 nodes. |
 | 4 | ~92 tok/s | ~558 tok/s | ~920 tok/s | 11.12× at 262k context | Chosen default for robust 8-way CritPt runs. |
 
-Kimi's `max_output_tokens` is intentionally `200000`. The old 131k cap left
-five hard one-shot CritPt problems without parseable answer code; rerunning just
-those with the higher cap completed the full 70/70 submission set.
+Kimi's `max_output_tokens` is `65536` per call. With `max_tokens_retries: 2`,
+the model can continue truncated responses across up to 3 calls (~195k effective
+tokens). The previous 200k cap allowed single LLM rounds to generate 150k+
+reasoning tokens (76 min at 33 t/s), leaving no headroom for iterations.
 
 Kimi also needs vLLM's `kimi_k2` tool and reasoning parsers for the full
 OpenDirac agent harness. The one-shot harness works without tools, but the

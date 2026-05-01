@@ -268,6 +268,16 @@ class FakePostProcessorResponseError(Exception):
         super().__init__("Encountered Exception during gpt oss post processor")
 
 
+class FakeJsonParseError400(Exception):
+    """Mimics vLLM 400 with JSON parse failure ('Expecting delimiter')."""
+
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "BadRequestError: Expecting ',' delimiter: line 1 column 3253 (char 3252)"
+        )
+
+
 @pytest.mark.parametrize(
     "exc",
     [
@@ -275,6 +285,7 @@ class FakePostProcessorResponseError(Exception):
         FakeInternalError400(),
         FakeBackendError400(),
         FakePostProcessorResponseError(),
+        FakeJsonParseError400(),
     ],
 )
 def test_is_provider_side_400_true(exc):
@@ -298,6 +309,68 @@ def test_is_provider_side_400_false(exc):
 def test_is_transient_true_for_provider_side_400():
     """Provider-side 400s are classified as transient (retryable, but capped)."""
     assert _is_transient(FakePostProcessorError()) is True
+
+
+def test_json_parse_400_capped_at_2_attempts():
+    """vLLM JSON parse 400s are provider-side 400s, capped at 2 attempts total."""
+    provider = MagicMock()
+    provider.call.side_effect = FakeJsonParseError400()
+    config = _make_config(api_retry_max=10)
+
+    with patch("open_dirac.providers.retry.time.sleep"):
+        with pytest.raises(FakeJsonParseError400):
+            _call_provider_with_retry(
+                provider,
+                config,
+                model="m",
+                max_tokens=100,
+                system="s",
+                messages=[],
+            )
+
+    assert provider.call.call_count == 2
+
+
+def test_plain_400_not_transient():
+    """A plain HTTP 400 without any matching pattern is NOT retried."""
+    assert _is_transient(FakeHTTPError(400)) is False
+
+
+class FakeToolCallWithExpecting(Exception):
+    """Tool call failure whose message also contains 'expecting' (overlap case)."""
+
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "BadRequestError: tool_use_failed - "
+            "Failed to parse tool call arguments: Expecting ',' delimiter"
+        )
+
+
+def test_tool_call_with_expecting_gets_full_retries():
+    """Tool-call failures that overlap with 'expecting' pattern get full retry budget."""
+    exc = FakeToolCallWithExpecting()
+    assert _is_tool_call_failure(exc) is True
+    assert _is_provider_side_400(exc) is True  # both match
+    assert _is_transient(exc) is True
+
+    provider = MagicMock()
+    provider.call.side_effect = FakeToolCallWithExpecting()
+    config = _make_config(api_retry_max=5)
+
+    with patch("open_dirac.providers.retry.time.sleep"):
+        with pytest.raises(FakeToolCallWithExpecting):
+            _call_provider_with_retry(
+                provider,
+                config,
+                model="m",
+                max_tokens=100,
+                system="s",
+                messages=[],
+            )
+
+    # Should use full budget (6 attempts), NOT capped at 2
+    assert provider.call.call_count == 6
 
 
 # ---------------------------------------------------------------------------

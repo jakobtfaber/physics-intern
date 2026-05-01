@@ -181,8 +181,7 @@ class OpenDirac:
             engine.research_state.status = "in_progress"
             engine._state.consecutive_termination_blocks = 0
             console.print(
-                "[dim]ANSWER.md absent on resume — status reset to "
-                "in_progress.[/dim]"
+                "[dim]ANSWER.md absent on resume — status reset to in_progress.[/dim]"
             )
 
         # 6. Reconstruct last critic iteration
@@ -844,10 +843,7 @@ class OpenDirac:
             if elapsed >= self.config.max_wall_seconds:
                 return "max_wall_seconds"
         if self.config.max_total_output_tokens > 0:
-            if (
-                self.metrics.total_output_tokens
-                >= self.config.max_total_output_tokens
-            ):
+            if self.metrics.total_output_tokens >= self.config.max_total_output_tokens:
                 return "max_total_output_tokens"
         if self.config.max_cost_usd > 0:
             cost = self.metrics.estimated_cost_usd(
@@ -1251,9 +1247,7 @@ class OpenDirac:
             self.formatter.run(fmt_task, self.iteration)
             rejection = self.formatter.rejection_reason
             if rejection:
-                console.print(
-                    f"[dim]  snapshot rejected: {rejection[:120]}[/dim]"
-                )
+                console.print(f"[dim]  snapshot rejected: {rejection[:120]}[/dim]")
             else:
                 console.print("[dim]  → BEST_GUESS.md written[/dim]")
             self.workspace.git_commit(
