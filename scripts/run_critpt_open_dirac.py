@@ -7,9 +7,14 @@ interrupted runs (both at the problem level and mid-run via --resume).
 Usage:
     uv run python scripts/run_critpt_open_dirac.py
     uv run python scripts/run_critpt_open_dirac.py --model claude-4.6-opus --concurrency 5
-    uv run python scripts/run_critpt_open_dirac.py --problems 1-10 --max-iterations 50
+    uv run python scripts/run_critpt_open_dirac.py --problems 1-10 --config config.cluster.yaml
     uv run python scripts/run_critpt_open_dirac.py --resume results/critpt/model/run_dir/
     uv run python scripts/run_critpt_open_dirac.py --dry-run
+
+Engine-side parameters (max_iterations, max_wall_seconds,
+max_total_output_tokens, max_cost_usd) live in --config; defaults come
+from src/open_dirac/config.default.yaml. See config.cluster.yaml for the
+cluster preset.
 """
 
 from __future__ import annotations
@@ -45,8 +50,29 @@ from run_critpt_common import (
     print_final_summary,
 )
 
+from open_dirac.core.config import load_config_yaml  # noqa: E402
+
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt"
+
+
+# ---------------------------------------------------------------------------
+# Engine config resolution
+# ---------------------------------------------------------------------------
+
+
+def resolve_engine_params(config_path: Path | None) -> dict:
+    """Merge config.default.yaml with the user's --config override.
+
+    Returns the engine-side parameters the runner needs to know about
+    (for header printing, batch metadata, and output-dir naming). The
+    engine itself re-merges the same way when it reads --config; the
+    runner just mirrors that resolution.
+    """
+    merged = dict(DEFAULTS)
+    if config_path is not None:
+        merged.update(load_config_yaml(config_path))
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -70,31 +96,19 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Model key from models.yaml (default: {DEFAULTS['model']})",
     )
     p.add_argument(
-        "--max-iterations",
-        type=int,
-        default=None,
-        help=f"Max iterations per problem (default: {DEFAULTS['max_iterations']})",
-    )
-    p.add_argument(
         "--config",
         type=Path,
         default=None,
-        help="Config YAML file to pass through to each run",
+        help=(
+            "Config YAML file passed through to each engine subprocess. "
+            "Engine-side parameters (max_iterations, max_wall_seconds, "
+            "max_total_output_tokens, max_cost_usd, ...) are read from "
+            "this file (merged on top of config.default.yaml). See "
+            "config.cluster.yaml for the cluster preset."
+        ),
     )
     p.add_argument(
         "--concurrency", type=int, default=10, help="Max parallel runs (default: 10)"
-    )
-    p.add_argument(
-        "--timeout",
-        type=int,
-        default=86400,
-        help=(
-            "Per-problem wall-clock budget, in seconds (default: 86400 = 24h "
-            "safety net). Forwarded to the engine as --max-wall-seconds: when "
-            "the budget expires the engine soft-exits, runs the forced "
-            "formatter and writes a best-effort ANSWER.md. The runner "
-            "does not hard-kill the subprocess."
-        ),
     )
     p.add_argument(
         "--output-dir",
@@ -353,10 +367,8 @@ async def _stall_watchdog(print_lock: asyncio.Lock) -> None:
 async def run_one_problem(
     action: ResumeAction,
     model_key: str,
-    max_iterations: int,
     config_path: Path | None,
     workspace_base: Path,
-    timeout: float,
     semaphore: asyncio.Semaphore,
     print_lock: asyncio.Lock,
 ) -> RunResult:
@@ -405,10 +417,6 @@ async def run_one_problem(
                 "open_dirac",
                 "--resume",
                 str(action.workspace),
-                "--max-iterations",
-                str(max_iterations),
-                "--max-wall-seconds",
-                str(int(timeout)),
             ]
             workspace_dir = action.workspace
         else:
@@ -425,10 +433,6 @@ async def run_one_problem(
                 str(problem.yaml_path),
                 "--model",
                 model_key,
-                "--max-iterations",
-                str(max_iterations),
-                "--max-wall-seconds",
-                str(int(timeout)),
                 "--workspace-dir",
                 str(workspace_dir),
             ]
@@ -510,10 +514,10 @@ async def run_one_problem(
                 if len(stderr_tail) > 50:
                     del stderr_tail[:-50]
 
-            # Wall-clock budget is enforced inside the engine via
-            # --max-wall-seconds (forwarded from --timeout). When it
-            # expires the engine soft-exits cleanly, so we just await
-            # the subprocess to finish.
+            # Wall-clock and token budgets are enforced inside the engine
+            # via the soft-exit gates configured in --config (defaulting to
+            # config.default.yaml). When any gate fires the engine soft-exits
+            # cleanly, so we just await the subprocess to finish.
             await asyncio.gather(_stream_stdout(), _drain_stderr(), proc.wait())
             elapsed = time.monotonic() - start
             stats["api_retries"] = state["api_retries"]
@@ -571,7 +575,13 @@ async def run_one_problem(
 
 async def run_batch(args: argparse.Namespace) -> int:
     """Main batch orchestrator. Returns exit code."""
-    # Handle --resume: restore params from saved batch_metadata.json
+    # Handle --resume: restore params from saved batch_metadata.json.
+    # Engine-side params (max_iterations, max_wall_seconds, ...) are not
+    # restored individually — they live in the saved config_file, which is
+    # re-applied verbatim. If a legacy run was recorded without a
+    # config_file, the engine falls back to config.default.yaml; we warn
+    # so the user knows to re-supply --config if they want exact parity.
+    legacy_resume_max_iterations: int | None = None
     if args.resume:
         if not args.resume.is_dir():
             print(f"Error: resume directory not found: {args.resume}", file=sys.stderr)
@@ -580,8 +590,6 @@ async def run_batch(args: argparse.Namespace) -> int:
         args.output_dir = args.resume
         if args.model is None:
             args.model = gen_cfg.get("model_key")
-        if args.max_iterations is None:
-            args.max_iterations = gen_cfg.get("max_iterations")
         if args.config is None and gen_cfg.get("config_file"):
             args.config = Path(gen_cfg["config_file"])
         if run_cfg.get("problems_dir"):
@@ -590,11 +598,14 @@ async def run_batch(args: argparse.Namespace) -> int:
             args.problems = run_cfg["problems_subset"]
         if run_cfg.get("workspace_base"):
             args.workspace_base = Path(run_cfg["workspace_base"])
+        # Legacy compat: pre-refactor metadata recorded max_iterations on
+        # gen_cfg without a config_file. Surface it so the user can act.
+        if args.config is None and gen_cfg.get("max_iterations") is not None:
+            legacy_resume_max_iterations = gen_cfg.get("max_iterations")
         print(f"Resuming from {args.resume}", file=sys.stderr)
 
-    resolve_model(args, args.output_dir)
-    if args.max_iterations is None:
-        args.max_iterations = DEFAULTS["max_iterations"]
+    eng = resolve_engine_params(args.config)
+    resolve_model(args, args.output_dir, config_model=eng.get("model"))
 
     critpt_model = resolve_critpt_model_string(args.model)
 
@@ -621,15 +632,38 @@ async def run_batch(args: argparse.Namespace) -> int:
     n_fresh = sum(1 for a in actions if a.action == "fresh")
 
     # Print plan
-    print(f"Model:       {args.model} ({critpt_model})", file=sys.stderr)
-    print(f"Problems:    {len(problems)} total", file=sys.stderr)
-    print(f"  skip:      {n_skip} (submission exists)", file=sys.stderr)
-    print(f"  extract:   {n_extract} (answer exists, write JSON)", file=sys.stderr)
-    print(f"  resume:    {n_resume} (continue interrupted run)", file=sys.stderr)
-    print(f"  fresh:     {n_fresh} (new run)", file=sys.stderr)
-    print(f"Concurrency: {args.concurrency}", file=sys.stderr)
-    print(f"Timeout:     {args.timeout}s wall-clock per problem", file=sys.stderr)
-    print(f"Output:      {output_dir}", file=sys.stderr)
+    config_label = str(args.config) if args.config else "(defaults only)"
+    wall_s = int(eng.get("max_wall_seconds", 0) or 0)
+    wall_str = f"{wall_s}s" if wall_s > 0 else "disabled"
+    tok_budget = int(eng.get("max_total_output_tokens", 0) or 0)
+    tok_str = f"{tok_budget:,}" if tok_budget > 0 else "disabled"
+    cost_budget = float(eng.get("max_cost_usd", 0.0) or 0.0)
+    cost_str = f"${cost_budget:.2f}" if cost_budget > 0 else "disabled"
+
+    print(f"Model:           {args.model} ({critpt_model})", file=sys.stderr)
+    print(f"Config:          {config_label}", file=sys.stderr)
+    print(f"Max iterations:  {eng['max_iterations']}", file=sys.stderr)
+    print(f"Max wall time:   {wall_str}", file=sys.stderr)
+    print(f"Max out tokens:  {tok_str}", file=sys.stderr)
+    print(f"Max cost:        {cost_str}", file=sys.stderr)
+    print(f"Problems:        {len(problems)} total", file=sys.stderr)
+    print(f"  skip:          {n_skip} (submission exists)", file=sys.stderr)
+    print(f"  extract:       {n_extract} (answer exists, write JSON)", file=sys.stderr)
+    print(f"  resume:        {n_resume} (continue interrupted run)", file=sys.stderr)
+    print(f"  fresh:         {n_fresh} (new run)", file=sys.stderr)
+    print(f"Concurrency:     {args.concurrency}", file=sys.stderr)
+    print(f"Output:          {output_dir}", file=sys.stderr)
+    if (
+        legacy_resume_max_iterations is not None
+        and legacy_resume_max_iterations != eng["max_iterations"]
+    ):
+        print(
+            f"Warning: resuming a legacy run that recorded "
+            f"max_iterations={legacy_resume_max_iterations} but no config_file. "
+            f"Engine will use {eng['max_iterations']} (from defaults). "
+            f"Re-supply --config to restore exact parity.",
+            file=sys.stderr,
+        )
     print("---", file=sys.stderr)
 
     # Filter to actionable items
@@ -649,7 +683,10 @@ async def run_batch(args: argparse.Namespace) -> int:
     generation_config = {
         "system": "open_dirac",
         "model_key": args.model,
-        "max_iterations": args.max_iterations,
+        "max_iterations": eng["max_iterations"],
+        "max_wall_seconds": eng.get("max_wall_seconds", 0),
+        "max_total_output_tokens": eng.get("max_total_output_tokens", 0),
+        "max_cost_usd": eng.get("max_cost_usd", 0.0),
         "config_file": str(args.config) if args.config else None,
         "use_python": True,
         "use_web_search": False,
@@ -687,10 +724,8 @@ async def run_batch(args: argparse.Namespace) -> int:
         result = await run_one_problem(
             action,
             args.model,
-            args.max_iterations,
             args.config,
             args.workspace_base,
-            args.timeout,
             semaphore,
             print_lock,
         )

@@ -42,16 +42,26 @@ def resolve_critpt_model_string(model_key: str) -> str:
     return model_key
 
 
-def resolve_model(args, output_dir: Path | None = None) -> str:
-    """Resolve model: explicit flag > previous run metadata > default.
+def resolve_model(
+    args,
+    output_dir: Path | None = None,
+    config_model: str | None = None,
+) -> str:
+    """Resolve model with precedence:
+    explicit --model > previous run metadata > config file's model > default.
 
     Mutates args.model in place and returns the resolved model key.
+    The ``config_model`` argument carries the ``model:`` field from the
+    runner's resolved engine config (defaults + ``--config`` override),
+    so a config file can drive model selection when no CLI flag is given.
     """
     if args.model is None and output_dir and output_dir.exists():
         recovered = read_model_from_output_dir(output_dir)
         if recovered:
             args.model = recovered
             print(f"Resumed model from previous run: {recovered}", file=sys.stderr)
+    if args.model is None and config_model is not None:
+        args.model = config_model
     if args.model is None:
         args.model = DEFAULTS["model"]
     return args.model

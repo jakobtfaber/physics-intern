@@ -1,0 +1,2 @@
+max_wall_seconds: 86400  # 24h
+max_total_output_tokens: 2000000
