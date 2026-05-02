@@ -37,7 +37,11 @@ def main():
     except (OSError, yaml.YAMLError) as exc:
         print(f"Warning: could not read {models_yaml}: {exc}", file=sys.stderr)
 
-    nodes = str(serve.get("nodes", ""))
+    replicas = serve.get("replicas", 1)
+    nodes_per_replica = serve.get("nodes_per_replica", "")
+    # Backwards compat: if `nodes` is set but not `nodes_per_replica`,
+    # treat it as a single-replica config with that many nodes.
+    nodes = str(serve.get("nodes", nodes_per_replica or ""))
     gpus = str(serve.get("gpus_per_node", 1))
     parser = serve.get("reasoning_parser", "")
     vllm_args = serve.get("vllm_args", [])
@@ -51,6 +55,7 @@ def main():
         tokens.extend(shlex.split(str(arg)))
 
     print(f"DEFAULT_MODEL_ID={shlex.quote(model_id)}")
+    print(f"DEFAULT_REPLICAS={shlex.quote(str(replicas))}")
     print(f"DEFAULT_NODES={shlex.quote(nodes)}")
     print(f"DEFAULT_GPUS_PER_NODE={shlex.quote(gpus)}")
     print(f"DEFAULT_REASONING_PARSER={shlex.quote(parser)}")

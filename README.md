@@ -62,17 +62,13 @@ Set API keys for the providers you want to use (in `.env` or as env vars):
 ```
 open_dirac [problem.yaml] [options]
 
-  problem.yaml                    Problem YAML file
-  --model MODEL                   LLM model key (default: from config.default.yaml)
-  --replay DIR                    Replay console log from a workspace (no run)
-  --max-iterations N              Max loop iterations (default: 40)
-  --max-wall-seconds S            Wall-clock budget in seconds (0 = disabled, default: 0)
-  --max-total-output-tokens N     Cumulative output token budget (0 = disabled, default: 2000000)
-  --max-cost-usd USD              Cumulative cost cap in USD (0 = disabled, default: 0)
-  --best-guess-every-n N          Write BEST_GUESS.md every N iterations (0 = disabled, default: 10)
-  --workspace-dir DIR             Workspace directory (default: auto-generated)
-  --resume DIR                    Resume from existing workspace
-  --config FILE                   Path to config YAML file (overrides defaults)
+  problem.yaml                Problem YAML file (default: problems/critpt/quantum_error_correction_main.yaml)
+  --model MODEL               LLM model key (default: from config.default.yaml, resolved via models.yaml)
+  --replay DIR                Replay console log from a workspace (no run)
+  --max-iterations N          Max loop iterations (default: see config.default.yaml)
+  --workspace-dir DIR         Workspace directory (default: workspaces/YYYYMMDD_HHMMSS_<problem>)
+  --resume DIR                Resume from existing workspace if DIR exists
+  --config FILE               Path to config YAML file (overrides defaults)
 ```
 
 ### Configuration
@@ -83,7 +79,7 @@ The `max_output_tokens` budget per LLM call is **not** a general default — it 
 
 #### Soft-exit triggers
 
-In addition to `max_iterations`, the loop accepts three optional cumulative budgets — `max_wall_seconds`, `max_total_output_tokens`, and `max_cost_usd` (USD, computed from `models.yaml` pricing). `max_total_output_tokens` defaults to 2M tokens, making benchmarks comparable across models with different inference speeds (e.g. Kimi at 33 t/s vs Gemini at 200 t/s); the other two default to `0` (disabled). When any gate fires, the loop finishes its current iteration and a forced formatter writes a best-effort `ANSWER.md` (status: `partially_complete`); the triggering gate name appears in the final commit message. `max_wall_seconds` is per-`run()` invocation — it restarts on resume; the token and cost budgets are cumulative across resumes.
+In addition to `max_iterations`, the loop accepts three optional cumulative budgets — `max_wall_seconds`, `max_total_output_tokens`, and `max_cost_usd` (USD, computed from `models.yaml` pricing). All default to `0` (disabled). When any gate fires, the loop finishes its current iteration and a forced formatter writes a best-effort `ANSWER.md` (status: `partially_complete`); the triggering gate name appears in the final commit message. `max_wall_seconds` is per-`run()` invocation — it restarts on resume; the token and cost budgets are cumulative across resumes.
 
 To grant more budget after a soft-exit and continue the run, delete `ANSWER.md` and re-run with `--resume`. `ANSWER.md` is the canonical "this run is done" signal: present ⇒ resume refuses; absent ⇒ resume resets `partially_complete` to `in_progress` and continues from the last committed iteration.
 
@@ -304,11 +300,8 @@ For huge local models, the default serve wall time is 24 hours and `serve/eval.s
   --nodes 3 \
   --gpus-per-node 8
 
-# Kimi-K2.6 on 4 nodes, 8 GPUs per node
-./serve/serve.slurm \
-  --model moonshotai/Kimi-K2.6 \
-  --nodes 4 \
-  --gpus-per-node 8
+# Kimi-K2.6: auto-launches 4 replicas (PP=2 each, 8 nodes total)
+./serve/serve.slurm --model moonshotai/Kimi-K2.6
 
 # Nemotron Cascade on 1 node, 1 GPU
 ./serve/serve.slurm \
@@ -328,7 +321,7 @@ Load times below are wall time of `default_loader.py` "Loading weights took N se
 | Model | Tput (single req) | Tput (8-way batch) | Tput (16-way batch) | Load (cold cache) | Load (warm cache) | Notes |
 |-------|-------------------|--------------------|---------------------|-------------------|-------------------|-------|
 | `zai-org/GLM-5.1`      | ~46 tok/s | ~202 tok/s | ~333 tok/s | ~2.5h projected without prefetch | ~18-22 min with prefetch in the final run; earlier warm run was ~2 min | DeepGEMM JIT cache/toolkit setup lets this run without `--enforce-eager`; BF16 beats FP8 on our stack. |
-| `moonshotai/Kimi-K2.6` | ~92 tok/s | ~558 tok/s | ~920 tok/s | ~78 min without prefetch; prefetch on cold cache untested | ~6-11 min with warm cache | CUDA graphs (no `--enforce-eager`) give the dominant 4× throughput win; `--enable-expert-parallel` remains the chosen default. |
+| `moonshotai/Kimi-K2.6` | ~99 tok/s | ~558 tok/s | ~920 tok/s | ~78 min without prefetch; prefetch on cold cache untested | ~6-11 min with warm cache | CUDA graphs (no `--enforce-eager`) give the dominant 4× throughput win; `--enable-expert-parallel` remains the chosen default. With external DP (N replicas × PP=2), aggregate throughput scales near-linearly: 5 replicas → 11,250 tok/s. |
 
 For an apples-to-apples 4-node comparison, GLM-5.1 with TP=8/PP=4 measured
 ~46 tok/s single-request, ~257 tok/s at 8-way concurrency, and ~383 tok/s at
@@ -344,10 +337,9 @@ Kimi-K2.6 also fits on fewer nodes. With the same canonical flags:
 | 3 | ~92 tok/s | ~547 tok/s | ~920 tok/s | 7.48× at 262k context | Almost enough for 8-way full-context use, still less headroom than 4 nodes. |
 | 4 | ~92 tok/s | ~558 tok/s | ~920 tok/s | 11.12× at 262k context | Chosen default for robust 8-way CritPt runs. |
 
-Kimi's `max_output_tokens` is `65536` per call. With `max_tokens_retries: 2`,
-the model can continue truncated responses across up to 3 calls (~195k effective
-tokens). The previous 200k cap allowed single LLM rounds to generate 150k+
-reasoning tokens (76 min at 33 t/s), leaving no headroom for iterations.
+Kimi's `max_output_tokens` is intentionally `200000`. The old 131k cap left
+five hard one-shot CritPt problems without parseable answer code; rerunning just
+those with the higher cap completed the full 70/70 submission set.
 
 Kimi also needs vLLM's `kimi_k2` tool and reasoning parsers for the full
 OpenDirac agent harness. The one-shot harness works without tools, but the
@@ -369,9 +361,40 @@ What does **not** help on H100:
 - `--async-scheduling`, `--mm-encoder-tp-mode data`, and the Kimi-K2.5 Eagle3 draft for Kimi-K2.6 — no throughput win or not runnable. K2.5 Eagle3 cannot be used with PP > 1, and TP-only Kimi trips the multimodal vision-tower path in vLLM 0.19.1.
 - `zai-org/GLM-5.1-FP8` on this pip/wheel stack — no-eager repeatedly fails in DeepGEMM FP8 warmup with `CUDA_ERROR_FILE_NOT_FOUND`, even with isolated DeepGEMM and TorchInductor caches. Eager FP8 serves, but the best measured MTP=3 run was only ~11 tok/s single-request and ~157 tok/s at 16-way concurrency.
 - `--kv-cache-dtype fp8` for Kimi-K2.6 — ~18% slower single-request (per-step dequant) and the only benefit is ~50% KV-cache memory, which is unused: the champion runs at ~12-15% KV utilization at 8-way concurrency.
-- Reducing pipeline parallelism (PP=2/TP=8 on 2 nodes vs PP=4/TP=8 on 4 nodes) — gives linear per-GPU scaling (~43 vs ~90 tok/s single-req), no per-request latency win from fewer stages.
+- Reducing pipeline parallelism (PP=2/TP=8 on 2 nodes vs PP=4/TP=8 on 4 nodes) — gives linear per-GPU scaling (~43 vs ~90 tok/s single-req), no per-request latency win from fewer stages. Benchmark at high concurrency confirms PP depth does not help aggregate throughput: PP=2 peaks at ~2,468 tok/s vs PP=4 at ~2,384 tok/s. PP=2 is the most cost-efficient base config for DP scaling.
 
-To go faster than the per-replica ceiling here, the right axis is **data parallelism**: run more replicas of the 4-node Kimi serve and put a small OpenAI-compatible router in front so the eval client still sees one endpoint. That work is intentionally not in this PR.
+To go faster than the per-replica ceiling, use **external data parallelism**: run multiple replicas of the 2-node Kimi serve behind a load balancer.
+
+##### External DP: scaling throughput with multiple replicas
+
+Kimi-K2.6 does NOT fit on a single node (72 GiB weights per GPU; OOM even at 131k context). Native vLLM `--data-parallel-size` requires PP=1, so it cannot be used. Instead, launch N independent serve jobs and either use the load balancer or client-side round-robin:
+
+```bash
+# Launch 4 replicas (2 nodes each = 8 nodes total)
+./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 4 --nodes-per-replica 2
+
+# Benchmark with client-side round-robin across all replicas
+uv run python scripts/benchmark_throughput.py --serve-job <job1> <job2> <job3> <job4>
+
+# Or start a load balancer for production use (single /v1 endpoint)
+uv run python serve/load_balancer.py <job1> <job2> <job3> <job4>
+```
+
+**Measured scaling** (H100 80 GB, max-num-seqs=64, 512 output tokens):
+
+| Config                      | Nodes | Agg tok/s (peak) | Scaling |
+|-----------------------------|-------|-------------------|---------|
+| 1x replica (PP=2, baseline) | 2     | 2,468             | 1.0x    |
+| 1x replica (PP=4)           | 4     | 2,384             | 1.0x    |
+| 3x replicas (PP=2 each)     | 6     | 5,205             | 2.1x    |
+| 5x replicas (PP=2 each)     | 10    | 11,250            | 4.6x    |
+| 8x replicas (PP=2, proj.)   | 16    | ~19,700           | ~8.0x   |
+
+Key findings:
+- **PP depth does not increase throughput** (PP=2 ≈ PP=4). More PP stages only add KV headroom.
+- **PP=2 (2 nodes/replica) is the most cost-efficient** configuration for Kimi-K2.6.
+- **External DP scales near-linearly** — each replica adds ~2,400 tok/s capacity.
+- Saturation requires enough concurrent requests to fill all replicas (≥ N × 64).
 
 Local model keys match Hub repo IDs:
 
@@ -379,7 +402,7 @@ Local model keys match Hub repo IDs:
 - `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16`
 - `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`
 - `nvidia/Nemotron-Cascade-2-30B-A3B`
-- `moonshotai/Kimi-K2.6` (4 nodes; 1T-parameter MoE, native int4 quantization)
+- `moonshotai/Kimi-K2.6` (4 replicas × 2 nodes = 8 nodes; 1T-parameter MoE, native int4 quantization)
 - `zai-org/GLM-5.1` (3 nodes; sparse-attention MoE)
 
 #### Step 2: Run the problem
