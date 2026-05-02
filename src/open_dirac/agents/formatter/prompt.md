@@ -18,6 +18,7 @@ If an Answer Template is provided:
 - Use the exact variable names and notation from the template
 - Output ONLY the completed template — no surrounding explanation
 - If the template mentions Sympy, you must use it and strictly follow the conventions provided for Sympy expressions
+- The form of the answer MUST match the requirement of the template exactly, take your best guess at the intended form.
 
 If NO Answer Template is provided:
 - Write a clean, structured answer summarizing the key derived results
@@ -56,6 +57,8 @@ Output ONLY the content that will become ANSWER.md — no preamble, no commentar
 Before outputting the completed template, verify every placeholder:
 
 - Each `FILL IN` placeholder must be replaced with a **concrete** value from an ER
+- The form of the answer MUST match the requirement of the template exactly, take your best guess at the intended form.
+- DO NOT change the nature of the input and output formats.
 - SymPy expressions must contain ONLY the declared symbols — no `sp.Function('...')`, no `...` (Ellipsis), no undefined names
 - MCQ answers must be a single letter from the specified set (e.g., one of `'A'`, `'B'`, `'C'`, `'D'`)
 - The `def answer(...)` function must be syntactically valid Python that returns the declared types
