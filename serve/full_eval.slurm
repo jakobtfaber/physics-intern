@@ -1,12 +1,22 @@
 #!/bin/bash
-# Run the full CritPt benchmark (70 problems) against a vLLM serve job.
+# Run the full CritPt benchmark (70 problems) against one or more vLLM serve jobs.
 #
-# Usage:
-#   ./serve/full_eval.slurm --model MODEL_KEY --serve-job JOB_ID [--concurrency N] [--time HH:MM:SS]
+# Usage (single serve job, backward-compatible):
+#   ./serve/full_eval.slurm --model MODEL_KEY --serve-job JOB_ID
 #
-# Self-submits via sbatch when run outside Slurm. Reads endpoint.env from the
-# serve job and exports VLLM_BASE_URL so the parallel client connects to the
-# serve head node.
+# Usage (multi-replica with auto load-balancer):
+#   ./serve/full_eval.slurm --model MODEL_KEY --serve-job J1 --serve-job J2 --serve-job J3
+#
+# Usage (open-dirac multi-agent runner with config override):
+#   ./serve/full_eval.slurm --model MODEL_KEY --serve-job J1 --serve-job J2 \
+#     --runner opendirac --config config.cluster.yaml
+#
+# Usage (fresh run with isolated workspace directory):
+#   ./serve/full_eval.slurm --model MODEL_KEY --serve-job J1 --serve-job J2 \
+#     --runner opendirac --config config.cluster.yaml --fresh --workspace-base workspaces_run2
+#
+# Self-submits via sbatch when run outside Slurm. For multiple serve jobs, starts
+# a load_balancer.py in the background and routes all traffic through it.
 
 set -euo pipefail
 
@@ -21,24 +31,46 @@ LOG_ROOT="${REPO_ROOT}/serve/logs"
 LOG_DIR_DEFAULT="${LOG_ROOT}/slurm"
 
 MODEL_KEY=""
-SERVE_JOB=""
-CONCURRENCY="10"
+SERVE_JOBS=()
+CONCURRENCY="128"
 TIME_LIMIT="08:00:00"
 RESUME_DIR=""
+RUNNER="oneshot"
+CONFIG_FILE=""
+FRESH=""
+WORKSPACE_BASE=""
+NODES_PER_REPLICA=""
+KEEP_SERVES=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --model) MODEL_KEY="$2"; shift 2 ;;
-    --serve-job) SERVE_JOB="$2"; shift 2 ;;
+    --serve-job) SERVE_JOBS+=("$2"); shift 2 ;;
     --concurrency) CONCURRENCY="$2"; shift 2 ;;
     --time) TIME_LIMIT="$2"; shift 2 ;;
     --resume) RESUME_DIR="$2"; shift 2 ;;
+    --runner) RUNNER="$2"; shift 2 ;;
+    --config) CONFIG_FILE="$2"; shift 2 ;;
+    --fresh) FRESH="1"; shift ;;
+    --workspace-base) WORKSPACE_BASE="$2"; shift 2 ;;
+    --nodes-per-replica) NODES_PER_REPLICA="$2"; shift 2 ;;
+    --keep-serves) KEEP_SERVES="1"; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
 
-if [[ -z "$MODEL_KEY" || -z "$SERVE_JOB" ]]; then
-  echo "Usage: $0 --model MODEL_KEY --serve-job JOB_ID [--concurrency N] [--time HH:MM:SS] [--resume DIR]" >&2
+if [[ -z "$MODEL_KEY" || ${#SERVE_JOBS[@]} -eq 0 ]]; then
+  cat >&2 <<'USAGE'
+Usage: full_eval.slurm --model MODEL_KEY --serve-job JOB_ID [--serve-job JOB_ID2 ...]
+       [--concurrency N] [--time HH:MM:SS] [--resume DIR]
+       [--runner oneshot|opendirac] [--config CONFIG.yaml]
+       [--fresh] [--workspace-base DIR] [--nodes-per-replica N]
+USAGE
+  exit 1
+fi
+
+if [[ "$RUNNER" != "oneshot" && "$RUNNER" != "opendirac" ]]; then
+  echo "Invalid --runner: $RUNNER (must be 'oneshot' or 'opendirac')" >&2
   exit 1
 fi
 
@@ -46,17 +78,42 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   MODEL_SLUG="${MODEL_KEY//[^[:alnum:]]/-}"
   while [[ "$MODEL_SLUG" == *--* ]]; do MODEL_SLUG="${MODEL_SLUG//--/-}"; done
   MODEL_SLUG="${MODEL_SLUG#-}"; MODEL_SLUG="${MODEL_SLUG%-}"
-  JOB_NAME="critpt-full-${MODEL_SLUG}"
+  JOB_NAME="critpt-${RUNNER}-${MODEL_SLUG}"
   mkdir -p "$LOG_DIR_DEFAULT"
 
-  ENDPOINT_ENV="${LOG_ROOT}/vllm/${SERVE_JOB}/endpoint.env"
-  [[ -f "$ENDPOINT_ENV" ]] || { echo "endpoint.env not found: $ENDPOINT_ENV" >&2; exit 1; }
-  # shellcheck disable=SC1090
-  source "$ENDPOINT_ENV"
-  echo "Serve job ${SERVE_JOB}: endpoint ${BASE_URL}"
+  # For single serve-job, verify endpoint.env exists before submitting.
+  # For multi-replica, skip — the load balancer waits inside the eval job.
+  if [[ ${#SERVE_JOBS[@]} -eq 1 ]]; then
+    ENDPOINT_ENV="${LOG_ROOT}/vllm/${SERVE_JOBS[0]}/endpoint.env"
+    [[ -f "$ENDPOINT_ENV" ]] || { echo "endpoint.env not found: $ENDPOINT_ENV" >&2; exit 1; }
+  fi
+
+  echo "Serve jobs: ${SERVE_JOBS[*]}"
+  echo "Runner:     ${RUNNER}"
+  [[ -n "$CONFIG_FILE" ]] && echo "Config:     ${CONFIG_FILE}"
 
   RESUME_ARG=()
   [[ -n "$RESUME_DIR" ]] && RESUME_ARG=(--resume "$RESUME_DIR")
+
+  CONFIG_ARG=()
+  [[ -n "$CONFIG_FILE" ]] && CONFIG_ARG=(--config "$CONFIG_FILE")
+
+  FRESH_ARG=()
+  [[ -n "$FRESH" ]] && FRESH_ARG=(--fresh)
+
+  WS_ARG=()
+  [[ -n "$WORKSPACE_BASE" ]] && WS_ARG=(--workspace-base "$WORKSPACE_BASE")
+
+  NPR_ARG=()
+  [[ -n "$NODES_PER_REPLICA" ]] && NPR_ARG=(--nodes-per-replica "$NODES_PER_REPLICA")
+
+  KS_ARG=()
+  [[ -n "$KEEP_SERVES" ]] && KS_ARG=(--keep-serves)
+
+  SERVE_JOB_ARGS=()
+  for jid in "${SERVE_JOBS[@]}"; do
+    SERVE_JOB_ARGS+=(--serve-job "$jid")
+  done
 
   exec sbatch --parsable \
     --job-name "$JOB_NAME" \
@@ -65,32 +122,93 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
     --time "$TIME_LIMIT" \
     --output "${LOG_DIR_DEFAULT}/%x-%j.out" \
     --error "${LOG_DIR_DEFAULT}/%x-%j.err" \
-    "$SCRIPT_PATH" --model "$MODEL_KEY" --serve-job "$SERVE_JOB" \
+    "$SCRIPT_PATH" --model "$MODEL_KEY" \
+                   "${SERVE_JOB_ARGS[@]}" \
                    --concurrency "$CONCURRENCY" --time "$TIME_LIMIT" \
-                   "${RESUME_ARG[@]}"
+                   --runner "$RUNNER" \
+                   "${CONFIG_ARG[@]}" \
+                   "${RESUME_ARG[@]}" \
+                   "${FRESH_ARG[@]}" \
+                   "${WS_ARG[@]}" \
+                   "${NPR_ARG[@]}" \
+                   "${KS_ARG[@]}"
 fi
 
 # ── Inside Slurm ─────────────────────────────────────────────────────────────
 [[ -f "$HOME/.bashrc" ]] && source "$HOME/.bashrc"
 cd "$REPO_ROOT"
 
-ENDPOINT_ENV="${LOG_ROOT}/vllm/${SERVE_JOB}/endpoint.env"
-# shellcheck disable=SC1090
-source "$ENDPOINT_ENV"
-export VLLM_BASE_URL="${BASE_URL}"
+LB_PID=""
+cleanup() {
+  if [[ -n "$LB_PID" ]]; then
+    echo "Shutting down load balancer (PID $LB_PID)..."
+    kill "$LB_PID" 2>/dev/null || true
+    wait "$LB_PID" 2>/dev/null || true
+  fi
+  # Cancel serve jobs unless --keep-serves was passed.
+  if [[ -z "$KEEP_SERVES" && ${#SERVE_JOBS[@]} -gt 0 ]]; then
+    echo "Cancelling ${#SERVE_JOBS[@]} serve job(s): ${SERVE_JOBS[*]}"
+    scancel "${SERVE_JOBS[@]}" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
 
-echo "Waiting for vLLM endpoint ${BASE_URL}..."
-HEALTH_URL="http://${HEAD_IP}:${PORT:-8000}/health"
-WAIT=0; MAX=14400
-until curl -sf "$HEALTH_URL" >/dev/null 2>&1; do
-  (( WAIT >= MAX )) && { echo "Timed out after ${MAX}s" >&2; exit 1; }
-  sleep 15; WAIT=$(( WAIT + 15 ))
-done
-echo "vLLM ready after ${WAIT}s."
+if [[ ${#SERVE_JOBS[@]} -gt 1 ]]; then
+  # Multi-replica: start load balancer and wait for it
+  LB_ARGS=("${SERVE_JOBS[@]}" --port 9000 --health-timeout 1800 --model "$MODEL_KEY")
+  [[ -n "$NODES_PER_REPLICA" ]] && LB_ARGS+=(--nodes-per-replica "$NODES_PER_REPLICA")
+  echo "Starting load balancer for ${#SERVE_JOBS[@]} replicas..."
+  uv run --no-sync python serve/load_balancer.py "${LB_ARGS[@]}" &
+  LB_PID=$!
+
+  # Wait for load balancer to become healthy
+  WAIT=0; MAX=14400
+  until curl -sf "http://localhost:9000/health" >/dev/null 2>&1; do
+    (( WAIT >= MAX )) && { echo "Load balancer timed out after ${MAX}s" >&2; exit 1; }
+    sleep 10; WAIT=$(( WAIT + 10 ))
+    if (( WAIT % 60 == 0 )); then echo "  ...waiting for load balancer (${WAIT}s)"; fi
+  done
+  echo "Load balancer ready after ${WAIT}s (PID ${LB_PID})"
+
+  export VLLM_BASE_URL="http://localhost:9000/v1"
+else
+  # Single serve job: read endpoint directly
+  ENDPOINT_ENV="${LOG_ROOT}/vllm/${SERVE_JOBS[0]}/endpoint.env"
+  # shellcheck disable=SC1090
+  source "$ENDPOINT_ENV"
+  export VLLM_BASE_URL="${BASE_URL}"
+
+  echo "Waiting for vLLM endpoint ${BASE_URL}..."
+  HEALTH_URL="http://${HEAD_IP}:${PORT:-8000}/health"
+  WAIT=0; MAX=14400
+  until curl -sf "$HEALTH_URL" >/dev/null 2>&1; do
+    (( WAIT >= MAX )) && { echo "Timed out after ${MAX}s" >&2; exit 1; }
+    sleep 15; WAIT=$(( WAIT + 15 ))
+  done
+  echo "vLLM ready after ${WAIT}s."
+fi
 
 RESUME_ARG=()
 [[ -n "$RESUME_DIR" ]] && RESUME_ARG=(--resume "$RESUME_DIR")
 
-exec uv run --no-sync python scripts/run_critpt_oneshot.py \
-  --model "$MODEL_KEY" --concurrency "$CONCURRENCY" --timeout 3600 \
-  "${RESUME_ARG[@]}"
+CONFIG_ARG=()
+[[ -n "$CONFIG_FILE" ]] && CONFIG_ARG=(--config "$CONFIG_FILE")
+
+FRESH_ARG=()
+[[ -n "$FRESH" ]] && FRESH_ARG=(--fresh)
+
+WS_ARG=()
+[[ -n "$WORKSPACE_BASE" ]] && WS_ARG=(--workspace-base "$WORKSPACE_BASE")
+
+if [[ "$RUNNER" == "opendirac" ]]; then
+  uv run --no-sync python scripts/run_critpt_open_dirac.py \
+    --model "$MODEL_KEY" --concurrency "$CONCURRENCY" \
+    "${CONFIG_ARG[@]}" \
+    "${RESUME_ARG[@]}" \
+    "${FRESH_ARG[@]}" \
+    "${WS_ARG[@]}"
+else
+  uv run --no-sync python scripts/run_critpt_oneshot.py \
+    --model "$MODEL_KEY" --concurrency "$CONCURRENCY" --timeout 3600 \
+    "${RESUME_ARG[@]}"
+fi

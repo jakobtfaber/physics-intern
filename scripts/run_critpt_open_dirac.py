@@ -108,7 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
-        "--concurrency", type=int, default=10, help="Max parallel runs (default: 10)"
+        "--concurrency", type=int, default=128, help="Max parallel runs (default: 128)"
     )
     p.add_argument(
         "--output-dir",
