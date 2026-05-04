@@ -10,6 +10,21 @@ See README.md for overview, motivation, and design principles.
 - Tests: `pytest` (run with `uv run python -m pytest -v`, need `--extra testing`)
 - `rich` for console output
 
+## CI checks (must pass before declaring code work done)
+
+GitHub Actions (`.github/workflows/testing.yml`) runs three commands on every push/PR. Run all three locally before reporting any code change as done — they are cheap (~25s total) and catch the same failures CI would:
+
+```bash
+uv run ruff check tests src scripts serve
+uv run ruff format --check tests src scripts serve
+uv run python -m pytest ./tests/
+```
+
+Notes:
+- `ruff check` and `ruff format --check` run sequentially in CI, so a `ruff check` failure masks any pending format failure — always run both.
+- If `ruff format --check` reports diffs, apply them with `uv run ruff format tests src scripts serve` rather than hand-editing.
+- New module-level code that runs *before* imports (e.g. `load_dotenv()` between import lines) needs an `E402` per-file-ignore in `pyproject.toml` under `[tool.ruff.lint.per-file-ignores]` — see existing entries for runner/CLI files.
+
 ## Key Invariants
 
 These are non-obvious rules enforced by the scaffolding. Violating them will break things.

@@ -162,7 +162,8 @@ def run_two_step_call(
     # --- Call 1: derive ---
     derive_messages = [{"role": "user", "content": derive_user_message}]
     resp1 = _single_call(
-        provider, config,
+        provider,
+        config,
         system=system,
         messages=derive_messages,
         agent_name=agent_name,
@@ -176,7 +177,8 @@ def run_two_step_call(
         {"role": "user", "content": parse_user_message},
     ]
     resp2 = _single_call(
-        provider, config,
+        provider,
+        config,
         system=system,
         messages=parse_messages,
         agent_name=agent_name,
@@ -194,8 +196,7 @@ def run_two_step_call(
     cost_usd = 0.0
     if config.input_cost or config.output_cost:
         cost_usd = (
-            total_input * config.input_cost
-            + total_output * config.output_cost
+            total_input * config.input_cost + total_output * config.output_cost
         ) / 1_000_000
 
     def _per_call(resp: ProviderResponse) -> dict:

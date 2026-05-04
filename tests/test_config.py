@@ -64,8 +64,8 @@ class TestDefaults:
         assert "progress_check_interval" in _YAML_CONFIG_FIELDS
 
     def test_max_total_output_tokens_default(self):
-        assert Config().max_total_output_tokens == 2_000_000
-        assert DEFAULTS["max_total_output_tokens"] == 2_000_000
+        assert Config().max_total_output_tokens == 0
+        assert DEFAULTS["max_total_output_tokens"] == 0
 
     def test_max_total_output_tokens_in_yaml_fields(self):
         assert "max_total_output_tokens" in _YAML_CONFIG_FIELDS

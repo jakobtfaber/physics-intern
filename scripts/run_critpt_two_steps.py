@@ -308,7 +308,9 @@ async def run_batch(args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
     print(f"Concurrency: {args.concurrency}", file=sys.stderr)
-    print(f"Timeout:     {args.timeout}s per problem (covers both calls)", file=sys.stderr)
+    print(
+        f"Timeout:     {args.timeout}s per problem (covers both calls)", file=sys.stderr
+    )
     print(f"Output:      {output_dir}", file=sys.stderr)
     print("---", file=sys.stderr)
 
