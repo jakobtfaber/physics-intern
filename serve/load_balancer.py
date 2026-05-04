@@ -37,9 +37,7 @@ from starlette.responses import JSONResponse, PlainTextResponse, StreamingRespon
 from starlette.routing import Mount, Route
 
 logger = logging.getLogger("load_balancer")
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SERVE_SCRIPT = PROJECT_ROOT / "serve" / "serve.slurm"
@@ -54,7 +52,11 @@ ENDPOINT_DIR = PROJECT_ROOT / "serve" / "logs" / "vllm"
 async def is_slurm_job_alive(job_id: str) -> bool:
     """Check if a SLURM job is still running or pending."""
     proc = await asyncio.create_subprocess_exec(
-        "squeue", "-j", job_id, "--noheader", "--format=%T",
+        "squeue",
+        "-j",
+        job_id,
+        "--noheader",
+        "--format=%T",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -73,21 +75,24 @@ async def resubmit_serve_job(
     """Submit a new serve job via serve.slurm; return job ID or None on failure."""
     cmd = [
         str(SERVE_SCRIPT),
-        "--model", model,
-        "--nodes", str(nodes_per_replica),
-        "--gpus-per-node", str(gpus_per_node),
-        "--time", time_limit,
-        "--idle-shutdown", str(idle_shutdown),
+        "--model",
+        model,
+        "--nodes",
+        str(nodes_per_replica),
+        "--gpus-per-node",
+        str(gpus_per_node),
+        "--time",
+        time_limit,
+        "--idle-shutdown",
+        str(idle_shutdown),
     ]
     # Clear SLURM env so serve.slurm takes the "outside SLURM" sbatch path,
     # and set _MULTI_SERVE_PARENT to prevent auto-dispatch to multi_serve.sh.
-    env = {
-        k: v for k, v in os.environ.items()
-        if not k.startswith("SLURM")
-    }
+    env = {k: v for k, v in os.environ.items() if not k.startswith("SLURM")}
     env["_MULTI_SERVE_PARENT"] = "1"
     proc = await asyncio.create_subprocess_exec(
-        *cmd, env=env,
+        *cmd,
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -121,9 +126,7 @@ class BackendPool:
         async with self._lock:
             if url not in self._urls:
                 self._urls.append(url)
-                logger.info(
-                    "Pool +backend: %s (pool size: %d)", url, len(self._urls)
-                )
+                logger.info("Pool +backend: %s (pool size: %d)", url, len(self._urls))
                 self._ready.set()
 
     async def remove(self, url: str) -> None:
@@ -174,13 +177,14 @@ async def _read_endpoint_env(job_id: str) -> str | None:
 
 
 async def _wait_for_endpoint(job_id: str, timeout: int) -> str | None:
-    """Wait for endpoint.env to appear; check SLURM status to bail early.
-
-    Never times out while the SLURM job is still alive (PENDING/RUNNING).
-    The ``timeout`` only applies once the job is confirmed dead or unreachable.
-    """
+    """Wait for endpoint.env to appear; check SLURM status to bail early."""
     elapsed = 0
     while True:
+        if elapsed >= timeout:
+            logger.error(
+                "Timeout (%ds) waiting for endpoint.env of job %s", timeout, job_id
+            )
+            return None
         url = await _read_endpoint_env(job_id)
         if url:
             logger.info("Job %s endpoint: %s", job_id, url)
@@ -194,18 +198,18 @@ async def _wait_for_endpoint(job_id: str, timeout: int) -> str | None:
         elapsed += 5
 
 
-async def _wait_for_health(
-    job_id: str, url: str, timeout: int
-) -> bool:
-    """Poll a backend until healthy; check SLURM status to bail early.
-
-    Never times out while the SLURM job is still alive.
-    """
+async def _wait_for_health(job_id: str, url: str, timeout: int) -> bool:
+    """Poll a backend until healthy; check SLURM status to bail early."""
     health_url = url.replace("/v1", "/health")
     logger.info("Health-checking %s (job %s)...", health_url, job_id)
     elapsed = 0
     async with httpx.AsyncClient(timeout=5) as client:
         while True:
+            if elapsed >= timeout:
+                logger.error(
+                    "Timeout (%ds) waiting for health of job %s", timeout, job_id
+                )
+                return False
             try:
                 resp = await client.get(health_url)
                 if resp.status_code == 200:
@@ -250,7 +254,10 @@ async def manage_backend_slot(
                     resubmits += 1
                     logger.info(
                         "Slot resubmit %d/%d: %s -> %s",
-                        resubmits, max_resubmits, current_jid, new_jid,
+                        resubmits,
+                        max_resubmits,
+                        current_jid,
+                        new_jid,
                     )
                     current_jid = new_jid
                     continue
@@ -266,7 +273,10 @@ async def manage_backend_slot(
                     resubmits += 1
                     logger.info(
                         "Slot resubmit %d/%d: %s -> %s",
-                        resubmits, max_resubmits, current_jid, new_jid,
+                        resubmits,
+                        max_resubmits,
+                        current_jid,
+                        new_jid,
                     )
                     current_jid = new_jid
                     continue
@@ -288,7 +298,10 @@ async def manage_backend_slot(
                 resubmits += 1
                 logger.info(
                     "Slot resubmit %d/%d: %s -> %s",
-                    resubmits, max_resubmits, current_jid, new_jid,
+                    resubmits,
+                    max_resubmits,
+                    current_jid,
+                    new_jid,
                 )
                 current_jid = new_jid
                 continue
@@ -382,14 +395,13 @@ async def main_async(args: argparse.Namespace) -> int:
     ]
 
     # Wait for at least one backend to become healthy before serving.
-    logger.info(
-        "Waiting for first healthy backend (%d slots)...", len(slot_tasks)
-    )
+    logger.info("Waiting for first healthy backend (%d slots)...", len(slot_tasks))
     wait_task = asyncio.create_task(pool.wait_for_first())
     pending: set[asyncio.Task] = {wait_task, *slot_tasks}
     while wait_task in pending:
         done, pending = await asyncio.wait(
-            pending, return_when=asyncio.FIRST_COMPLETED,
+            pending,
+            return_when=asyncio.FIRST_COMPLETED,
         )
         if wait_task in done:
             break
@@ -403,7 +415,8 @@ async def main_async(args: argparse.Namespace) -> int:
 
     logger.info(
         "%d backend(s) ready. Starting load balancer on port %d.",
-        pool.size, args.port,
+        pool.size,
+        args.port,
     )
 
     app = create_app(pool)
@@ -419,27 +432,39 @@ def main() -> None:
     )
     parser.add_argument("job_ids", nargs="+", help="SLURM serve job IDs")
     parser.add_argument(
-        "--port", type=int, default=9000,
+        "--port",
+        type=int,
+        default=9000,
         help="Load balancer port (default: 9000)",
     )
     parser.add_argument(
-        "--health-timeout", type=int, default=3600,
+        "--health-timeout",
+        type=int,
+        default=3600,
         help="Per-backend health/endpoint timeout in seconds (default: 3600).",
     )
     parser.add_argument(
-        "--model", type=str, default=None,
+        "--model",
+        type=str,
+        default=None,
         help="Model key for auto-resubmitting failed serve jobs.",
     )
     parser.add_argument(
-        "--nodes-per-replica", type=int, default=4,
+        "--nodes-per-replica",
+        type=int,
+        default=4,
         help="Nodes per replica for resubmitted jobs (default: 4).",
     )
     parser.add_argument(
-        "--max-resubmits", type=int, default=3,
+        "--max-resubmits",
+        type=int,
+        default=3,
         help="Max resubmit attempts per slot (default: 3).",
     )
     parser.add_argument(
-        "--monitor-interval", type=int, default=60,
+        "--monitor-interval",
+        type=int,
+        default=60,
         help="Seconds between SLURM liveness checks (default: 60).",
     )
     args = parser.parse_args()
