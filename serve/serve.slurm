@@ -56,6 +56,8 @@ Options:
   --idle-shutdown SECONDS          Auto-cancel the job if no requests AND
                                    head-node GPU util is 0 for SECONDS
                                    (default: 14400 = 4h; 0 disables).
+  --max-restarts N                 Restart vLLM up to N times on crash
+                                   (default: VLLM_MAX_RESTARTS or 3).
   -h, --help                       Show this message.
   --                               Extra args passed through to vllm serve.
 
@@ -312,6 +314,11 @@ while [[ $# -gt 0 ]]; do
       IDLE_SHUTDOWN_SECONDS="$2"
       shift 2
       ;;
+    --max-restarts)
+      require_value "$1" "${2:-}"
+      export VLLM_MAX_RESTARTS="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -354,8 +361,9 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
 
   # Auto-dispatch to multi_serve.sh for models with replicas > 1
   # (e.g. Kimi-K2.6 uses 4 external-DP replicas with PP=2 each).
+  # Suppressed when called from multi_serve.sh to avoid infinite recursion.
   REPLICAS="${DEFAULT_REPLICAS:-1}"
-  if is_pos_int "$REPLICAS" && (( REPLICAS > 1 )); then
+  if [[ -z "${_MULTI_SERVE_PARENT:-}" ]] && is_pos_int "$REPLICAS" && (( REPLICAS > 1 )); then
     MULTI_SERVE="${SCRIPT_DIR}/multi_serve.sh"
     MULTI_ARGS=(
       "$MULTI_SERVE"
@@ -738,29 +746,55 @@ launch_dp_node() {
   PIDS+=("$!")
 }
 
-if (( DP > 1 )); then
-  for idx in "${!NODE_NAMES[@]}"; do
-    launch_dp_node "${NODE_NAMES[$idx]}" "$idx"
-  done
-else
-  for idx in "${!NODE_NAMES[@]}"; do
-    launch_pp_rank "${NODE_NAMES[$idx]}" "$idx"
-  done
-fi
+MAX_RESTARTS="${VLLM_MAX_RESTARTS:-3}"
+RESTART_COOLDOWN="${VLLM_RESTART_COOLDOWN:-30}"
+ATTEMPT=0
 
-if (( IDLE_SHUTDOWN_SECONDS > 0 )); then
-  start_idle_watchdog "$SLURM_JOB_ID" "$PORT" "$IDLE_SHUTDOWN_SECONDS" "$IDLE_POLL_INTERVAL" &
-  PIDS+=("$!")
-else
-  echo "Idle watchdog disabled (--idle-shutdown 0)." >&2
-fi
+launch_all() {
+  PIDS=()
+  if (( DP > 1 )); then
+    for idx in "${!NODE_NAMES[@]}"; do
+      launch_dp_node "${NODE_NAMES[$idx]}" "$idx"
+    done
+  else
+    for idx in "${!NODE_NAMES[@]}"; do
+      launch_pp_rank "${NODE_NAMES[$idx]}" "$idx"
+    done
+  fi
 
-if wait -n "${PIDS[@]}"; then
-  STATUS=0
-else
-  STATUS=$?
-fi
-if (( STATUS != 0 )); then
-  echo "At least one vLLM rank exited with status ${STATUS}." >&2
-fi
-exit "$STATUS"
+  if (( IDLE_SHUTDOWN_SECONDS > 0 )); then
+    start_idle_watchdog "$SLURM_JOB_ID" "$PORT" "$IDLE_SHUTDOWN_SECONDS" "$IDLE_POLL_INTERVAL" &
+    PIDS+=("$!")
+  else
+    echo "Idle watchdog disabled (--idle-shutdown 0)." >&2
+  fi
+}
+
+while true; do
+  ATTEMPT=$(( ATTEMPT + 1 ))
+  echo "[serve] Attempt ${ATTEMPT}/$((MAX_RESTARTS + 1))"
+  launch_all
+
+  if wait -n "${PIDS[@]}"; then
+    STATUS=0
+  else
+    STATUS=$?
+  fi
+
+  # Clean up surviving processes before deciding whether to restart.
+  cleanup
+
+  if (( STATUS == 0 )); then
+    echo "[serve] vLLM exited cleanly."
+    exit 0
+  fi
+
+  echo "[serve] vLLM crashed with status ${STATUS} (attempt ${ATTEMPT})." >&2
+  if (( ATTEMPT > MAX_RESTARTS )); then
+    echo "[serve] Exhausted ${MAX_RESTARTS} restart(s); giving up." >&2
+    exit "$STATUS"
+  fi
+
+  echo "[serve] Restarting in ${RESTART_COOLDOWN}s..." >&2
+  sleep "$RESTART_COOLDOWN"
+done

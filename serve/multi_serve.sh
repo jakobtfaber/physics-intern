@@ -5,8 +5,8 @@
 # replicas start, a combined endpoint file is written with all BASE_URLs.
 #
 # Usage:
-#   ./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 4 --nodes-per-replica 2
-#   ./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 8 --nodes-per-replica 2 --max-num-seqs 128
+#   ./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 4 --nodes-per-replica 4
+#   ./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 8 --nodes-per-replica 4
 #
 # Output: serve/logs/vllm/multi-<TIMESTAMP>/endpoints.env
 #   Contains BASE_URLS=url1,url2,...,urlN for the load balancer or benchmark script.
@@ -33,12 +33,11 @@ Usage:
   ./serve/multi_serve.sh --model MODEL --replicas N --nodes-per-replica K [options] [-- ...extra vllm args]
 
 Examples:
-  # 4 replicas of Kimi (2 nodes each = 8 nodes total)
-  ./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 4 --nodes-per-replica 2
+  # 4 replicas of Kimi (4 nodes each = 16 nodes total, default)
+  ./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 4 --nodes-per-replica 4
 
-  # 8 replicas of Kimi (2 nodes each = 16 nodes total, max-num-seqs 128)
-  ./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 8 --nodes-per-replica 2 \
-    --max-num-seqs 128
+  # 8 replicas of Kimi (4 nodes each = 32 nodes total)
+  ./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 8 --nodes-per-replica 4
 
 Options:
   --model MODEL               Model to serve (required).
@@ -100,7 +99,7 @@ for i in $(seq 1 "$REPLICAS"); do
     SERVE_ARGS+=(-- "${EXTRA_ARGS[@]}")
   fi
 
-  JOB_ID=$("${SERVE_ARGS[@]}" 2>&1 | grep -oP 'Submitted \K\d+')
+  JOB_ID=$(_MULTI_SERVE_PARENT=1 "${SERVE_ARGS[@]}" 2>&1 | grep -oP 'Submitted \K\d+')
   JOB_IDS+=("$JOB_ID")
   echo "Replica ${i}/${REPLICAS}: job ${JOB_ID}"
 done

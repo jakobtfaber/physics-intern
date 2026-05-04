@@ -326,7 +326,7 @@ For huge local models, the default serve wall time is 24 hours and `serve/eval.s
   --nodes 3 \
   --gpus-per-node 8
 
-# Kimi-K2.6: auto-launches 4 replicas (PP=2 each, 8 nodes total)
+# Kimi-K2.6: auto-launches 4 replicas (PP=4 each, 16 nodes total)
 ./serve/serve.slurm --model moonshotai/Kimi-K2.6
 
 # Nemotron Cascade on 1 node, 1 GPU
@@ -347,7 +347,7 @@ Load times below are wall time of `default_loader.py` "Loading weights took N se
 | Model | Tput (single req) | Tput (8-way batch) | Tput (16-way batch) | Load (cold cache) | Load (warm cache) | Notes |
 |-------|-------------------|--------------------|---------------------|-------------------|-------------------|-------|
 | `zai-org/GLM-5.1`      | ~46 tok/s | ~202 tok/s | ~333 tok/s | ~2.5h projected without prefetch | ~18-22 min with prefetch in the final run; earlier warm run was ~2 min | DeepGEMM JIT cache/toolkit setup lets this run without `--enforce-eager`; BF16 beats FP8 on our stack. |
-| `moonshotai/Kimi-K2.6` | ~99 tok/s | ~558 tok/s | ~920 tok/s | ~78 min without prefetch; prefetch on cold cache untested | ~6-11 min with warm cache | CUDA graphs (no `--enforce-eager`) give the dominant 4× throughput win; `--enable-expert-parallel` remains the chosen default. With external DP (N replicas × PP=2), aggregate throughput scales near-linearly: 5 replicas → 11,250 tok/s. |
+| `moonshotai/Kimi-K2.6` | ~99 tok/s | ~558 tok/s | ~920 tok/s | ~78 min without prefetch; prefetch on cold cache untested | ~6-11 min with warm cache | CUDA graphs (no `--enforce-eager`) give the dominant 4× throughput win; `--enable-expert-parallel` remains the chosen default. PP=4 (4 nodes/replica) is the minimum for stable 262k-context concurrent serving; PP=2 OOMs under load. With external DP (N replicas × PP=4), aggregate throughput scales near-linearly. |
 
 For an apples-to-apples 4-node comparison, GLM-5.1 with TP=8/PP=4 measured
 ~46 tok/s single-request, ~257 tok/s at 8-way concurrency, and ~383 tok/s at
@@ -363,9 +363,17 @@ Kimi-K2.6 also fits on fewer nodes. With the same canonical flags:
 | 3 | ~92 tok/s | ~547 tok/s | ~920 tok/s | 7.48× at 262k context | Almost enough for 8-way full-context use, still less headroom than 4 nodes. |
 | 4 | ~92 tok/s | ~558 tok/s | ~920 tok/s | 11.12× at 262k context | Chosen default for robust 8-way CritPt runs. |
 
-Kimi's `max_output_tokens` is intentionally `200000`. The old 131k cap left
-five hard one-shot CritPt problems without parseable answer code; rerunning just
-those with the higher cap completed the full 70/70 submission set.
+At PP=4 (4 nodes), aggregate throughput scales linearly up to 256 concurrent requests per replica, reaching ~4,620 tok/s with zero failures. Per-request latency increases linearly as expected.
+
+Kimi's `max_output_tokens` is `65536` for the OpenDirac multi-agent runner,
+which is plenty for individual agent turns. For one-shot mode, 200k was
+needed (the old 131k cap left five hard problems without parseable answer code).
+
+**Important: PP=2 is NOT safe for production with 262k context.** Under
+concurrent load, the logits `all_gather` on the last PP rank triggers CUDA OOM.
+PP=4 (4 nodes/replica) is the minimum for stable full-context serving. The
+default in `models.yaml` is 4 replicas × 4 nodes = 16 nodes. Scale up
+replicas when more nodes are available (e.g. 8 replicas = 32 nodes).
 
 Kimi also needs vLLM's `kimi_k2` tool and reasoning parsers for the full
 OpenDirac agent harness. The one-shot harness works without tools, but the
@@ -387,17 +395,17 @@ What does **not** help on H100:
 - `--async-scheduling`, `--mm-encoder-tp-mode data`, and the Kimi-K2.5 Eagle3 draft for Kimi-K2.6 — no throughput win or not runnable. K2.5 Eagle3 cannot be used with PP > 1, and TP-only Kimi trips the multimodal vision-tower path in vLLM 0.19.1.
 - `zai-org/GLM-5.1-FP8` on this pip/wheel stack — no-eager repeatedly fails in DeepGEMM FP8 warmup with `CUDA_ERROR_FILE_NOT_FOUND`, even with isolated DeepGEMM and TorchInductor caches. Eager FP8 serves, but the best measured MTP=3 run was only ~11 tok/s single-request and ~157 tok/s at 16-way concurrency.
 - `--kv-cache-dtype fp8` for Kimi-K2.6 — ~18% slower single-request (per-step dequant) and the only benefit is ~50% KV-cache memory, which is unused: the champion runs at ~12-15% KV utilization at 8-way concurrency.
-- Reducing pipeline parallelism (PP=2/TP=8 on 2 nodes vs PP=4/TP=8 on 4 nodes) — gives linear per-GPU scaling (~43 vs ~90 tok/s single-req), no per-request latency win from fewer stages. Benchmark at high concurrency confirms PP depth does not help aggregate throughput: PP=2 peaks at ~2,468 tok/s vs PP=4 at ~2,384 tok/s. PP=2 is the most cost-efficient base config for DP scaling.
+- Reducing pipeline parallelism (PP=2/TP=8 on 2 nodes vs PP=4/TP=8 on 4 nodes) — gives linear per-GPU scaling (~43 vs ~90 tok/s single-req), no per-request latency win from fewer stages. Benchmark at high concurrency confirms PP depth does not help aggregate throughput: PP=2 peaks at ~2,468 tok/s vs PP=4 at ~2,384 tok/s. However, **PP=2 OOMs under concurrent load at 262k context** (CUDA OOM in logits `all_gather`), so PP=4 is the minimum safe config for production.
 
-To go faster than the per-replica ceiling, use **external data parallelism**: run multiple replicas of the 2-node Kimi serve behind a load balancer.
+To go faster than the per-replica ceiling, use **external data parallelism**: run multiple replicas of the 4-node Kimi serve behind a load balancer.
 
 ##### External DP: scaling throughput with multiple replicas
 
 Kimi-K2.6 does NOT fit on a single node (72 GiB weights per GPU; OOM even at 131k context). Native vLLM `--data-parallel-size` requires PP=1, so it cannot be used. Instead, launch N independent serve jobs and either use the load balancer or client-side round-robin:
 
 ```bash
-# Launch 4 replicas (2 nodes each = 8 nodes total)
-./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 4 --nodes-per-replica 2
+# Launch 8 replicas (4 nodes each = 32 nodes total)
+./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 8 --nodes-per-replica 4
 
 # Benchmark with client-side round-robin across all replicas
 uv run python scripts/benchmark_throughput.py --serve-job <job1> <job2> <job3> <job4>
@@ -418,7 +426,7 @@ uv run python serve/load_balancer.py <job1> <job2> <job3> <job4>
 
 Key findings:
 - **PP depth does not increase throughput** (PP=2 ≈ PP=4). More PP stages only add KV headroom.
-- **PP=2 (2 nodes/replica) is the most cost-efficient** configuration for Kimi-K2.6.
+- **PP=4 (4 nodes/replica) is the production default** — PP=2 OOMs under concurrent load at 262k context.
 - **External DP scales near-linearly** — each replica adds ~2,400 tok/s capacity.
 - Saturation requires enough concurrent requests to fill all replicas (≥ N × 64).
 
@@ -462,7 +470,7 @@ To run the **entire CritPt set (70 problems) in parallel** against a vLLM serve 
 ./serve/full_eval.slurm \
   --model moonshotai/Kimi-K2.6 \
   --serve-job <SERVE_JOB_ID> \
-  --concurrency 8 \
+  --concurrency 128 \
   --time 8:00:00
 ```
 
