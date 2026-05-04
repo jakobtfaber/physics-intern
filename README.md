@@ -176,6 +176,32 @@ python -m open_dirac.one_shot <problem.yaml> [options]
 
 Answers are auto-evaluated against the known answer in the problem YAML (symbolic SymPy comparison + numerical fallback).
 
+### Two-step Baseline
+
+A second baseline that mirrors the [CritPt benchmark](https://github.com/CriticalPathAI/benchmarks)'s default `parsing=False` (two-step) procedure rather than its one-step variant. The model is called twice with **the same** system prompt, both copies of which match critpt's rendered output byte-for-byte:
+
+1. **Derive** — user message contains the problem only (no code template). The model produces a free-form derivation ending with `Final Answer:`.
+2. **Populate** — the conversation continues with the call-1 response and a new user message carrying the parse instruction + code template. The model populates the template without further reasoning.
+
+This separation lets reasoning models concentrate on the math first and the Python syntax second, which on hard problems can outperform asking for both at once.
+
+```bash
+uv run python -m open_dirac.two_steps problems/critpt/quantum_error_correction_main.yaml
+uv run python -m open_dirac.two_steps problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high
+uv run python -m open_dirac.two_steps problems/critpt/quantum_error_correction_main.yaml --config my_config.yaml
+```
+
+```
+python -m open_dirac.two_steps <problem.yaml> [options]
+
+  --model MODEL              LLM model key (default: from config.default.yaml)
+  --config FILE              Path to config YAML file (overrides defaults)
+  --workspace-dir DIR        Workspace directory (default: auto-generated)
+  -o FILE                    Save call-2 response (populated code) to a Markdown file
+```
+
+The mode requires the problem YAML to define an `answer_template`; without one, the second call has nothing to populate and the runner exits with an error (use `open_dirac.one_shot` instead). Each run creates a workspace under `workspaces/<timestamp>_<problem>_<model>_two_steps/` containing `PROBLEM.md`, `DERIVATION.md` (call-1 output), `ANSWER.md` (call-2 populated template), `VERIFICATION.md`, and `config.json`.
+
 ### RSA (Recursive Self-Aggregation)
 
 RSA maintains a population of N candidate solutions and iteratively refines them by aggregating random subsets of K candidates over T rounds (total LLM calls = N * T). The final answer is chosen by majority vote.
@@ -464,6 +490,7 @@ These scripts run OpenDirac against the [CritPt](https://github.com/CriticalPath
 |--------|---------|
 | `scripts/run_critpt_open_dirac.py` | Batch-run all CritPt problems through the full multi-agent pipeline |
 | `scripts/run_critpt_oneshot.py` | Batch-run all CritPt problems through the one-shot baseline |
+| `scripts/run_critpt_two_steps.py` | Batch-run all CritPt problems through the two-step baseline (critpt's `parsing=False`) |
 | `scripts/run_critpt_rsa.py` | Batch-run all CritPt problems through RSA |
 | `scripts/analyze_batch.py` | Analyze token usage and per-agent metrics across a batch run |
 | `scripts/fill_missing_critpt.py` | Fill missing submission JSONs with template answers for a complete 70-problem set |
@@ -691,11 +718,13 @@ src/open_dirac/
     memory.py          — PermanentMemory (append-only) and Scratchpad (rolling window)
     prompt.md          — Research Manager system prompt
   baselines/
-    call.py            — Shared one-shot LLM call wrapper used by one_shot and RSA
+    call.py            — Shared LLM call wrappers (`run_baseline_call`, `run_two_step_call`) used by one_shot, two_steps, and RSA
     cli.py             — Shared argparse + config loading for baseline runners
-    prompts.py         — Shared baseline prompt templates
+    prompts.py         — Shared baseline prompts (one-shot system prompt + critpt-verbatim two-step system / parse prompts)
   one_shot/
-    runner.py          — One-shot LLM baseline runner (no scaffolding, for benchmarking)
+    runner.py          — One-shot LLM baseline runner (single call, no scaffolding, for benchmarking)
+  two_steps/
+    runner.py          — Two-step LLM baseline runner reproducing critpt's `parsing=False` flow (derive, then populate template)
   rsa/
     runner.py          — RSA (Recursive Self-Aggregation) runner
   providers/
@@ -721,6 +750,7 @@ scripts/
   run_multiple_autophysicist.py — Run N concurrent autophysicist instances for pass@k
   run_critpt_open_dirac.py — Batch-run CritPt problems through the full pipeline
   run_critpt_oneshot.py — Batch-run CritPt problems through one-shot baseline
+  run_critpt_two_steps.py — Batch-run CritPt problems through two-step baseline
   run_critpt_rsa.py    — Batch-run CritPt problems through RSA
   analyze_batch.py     — Analyze token usage across a CritPt batch run
   fill_missing_critpt.py — Fill missing CritPt submissions with template answers

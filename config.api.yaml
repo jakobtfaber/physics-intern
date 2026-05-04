@@ -1,2 +1,2 @@
-max_wall_seconds: 10800
+max_wall_seconds: 14400
 max_total_output_tokens: 1000000

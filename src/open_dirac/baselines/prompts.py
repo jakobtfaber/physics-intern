@@ -1,4 +1,4 @@
-"""Shared prompts and prompt assembly for the one-shot and RSA baselines."""
+"""Shared prompts and prompt assembly for the one-shot, two-step and RSA baselines."""
 
 from __future__ import annotations
 
@@ -36,6 +36,39 @@ do not perform additional reasoning or import modules beyond those already \
 present in the template."""
 
 
+# ---------------------------------------------------------------------------
+# Two-step prompts (verbatim copy of critpt's rendered output for parsing=False)
+#
+# Source: rendering ``SystemPrompt.default_system_prompt("two-step")`` and
+# ``ParsePrompt.default_system_prompt(code_template=...)`` from
+# ../critpt/src/critpt/templates/templates.py against the templates in
+# ../critpt/templates/prompt_template_default.yaml. The peculiar double
+# spaces and trailing whitespace come from critpt's Jinja ``| indent(4)``
+# pipeline; we keep them so behaviour matches byte-for-byte.
+# ---------------------------------------------------------------------------
+
+SYSTEM_PROMPT_TWO_STEP = """\
+You are a physics research assistant specializing in solving complex, research-level problems using precise, step-by-step reasoning.
+
+**Input**
+Problems will be provided in Markdown format.
+
+**Output (Markdown format)**
+
+1. **Step-by-Step Derivation** - Show every non-trivial step in the solution.  Justify steps using relevant physical laws, theorems, or mathematical identities.
+2. **Mathematical Typesetting** - Use LaTeX for all mathematics:  `$...$` for inline expressions, `$$...$$` for display equations.
+3. **Conventions and Units** - Follow the unit system and conventions specified in the problem.
+4. **Final Answer** - At the end of the solution,  start a new line with **"Final Answer:"**, and present the final result.
+
+    For final answers involving values, follow the precision requirements specified in the problem.
+    If no precision is specified:
+    - If an exact value is possible, provide it (e.g., \\$\\sqrt(2)\\$, \\$\\pi/4\\$).
+    - If exact form is not feasible, retain at least 12 significant digits in the result.
+
+5. **Formatting Compliance** - If the user requests a specific output format (e.g., code, table),  provide the final answer accordingly.\
+"""
+
+
 def build_user_message(problem_text: str, answer_template: str = "") -> str:
     """Build the user message from problem text and optional code template."""
     msg = problem_text.strip()
@@ -46,3 +79,26 @@ def build_user_message(problem_text: str, answer_template: str = "") -> str:
             f"```python\n{answer_template.strip()}\n```"
         )
     return msg
+
+
+def build_two_step_user_message(problem_text: str) -> str:
+    """User message for call 1 of two-step mode: problem text only, no template."""
+    return problem_text.strip()
+
+
+def build_parse_prompt(answer_template: str) -> str:
+    """User message for call 2 of two-step mode: parse instruction + code template.
+
+    Reproduces ``ParsePrompt.default_system_prompt(code_template=...)`` from
+    critpt — note that despite the method name, critpt sends this as a *user*
+    message (see ``solve_with_parse.py``), and so do we.
+    """
+    return (
+        "Populate your final answer into the code template provided below. "
+        "This step is purely for formatting/display purposes. No additional "
+        "reasoning or derivation should be performed. Do not import any "
+        "modules or packages beyond what is provided in the template.\n"
+        "```python\n"
+        f"{answer_template}\n"
+        "```"
+    )
