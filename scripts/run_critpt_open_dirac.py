@@ -681,7 +681,7 @@ async def run_batch(args: argparse.Namespace) -> int:
         return 0
 
     generation_config = {
-        "system": "open_dirac",
+        "system": "physics_intern",
         "model_key": args.model,
         "max_iterations": eng["max_iterations"],
         "max_wall_seconds": eng.get("max_wall_seconds", 0),
