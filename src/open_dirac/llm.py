@@ -134,6 +134,167 @@ def _merge_responses(
     )
 
 
+_CONTINUE_PROMPT = (
+    "Your reasoning was cut off due to output length limits. "
+    "Here is your reasoning so far:\n\n"
+    "<reasoning>\n{reasoning}\n</reasoning>\n\n"
+    "Continue from where you left off."
+)
+
+_FORCE_ANSWER_PROMPT = (
+    "You have now had multiple attempts to reason about this problem and "
+    "each time your reasoning was cut off due to output length limits. "
+    "Here is your most recent reasoning:\n\n"
+    "<reasoning>\n{reasoning}\n</reasoning>\n\n"
+    "Based on ALL your reasoning so far, now produce your FINAL ANSWER. "
+    "Do NOT continue reasoning — go straight to the answer."
+)
+
+# Truncate reasoning to avoid blowing up the context window. ~100K chars
+# is roughly 25-30K tokens, which preserves the most important content.
+_MAX_COMPACTION_CHARS = 100_000
+
+
+def _truncate_reasoning(reasoning: str) -> str:
+    """Keep the first and last halves of reasoning within budget."""
+    if len(reasoning) <= _MAX_COMPACTION_CHARS:
+        return reasoning
+    half = _MAX_COMPACTION_CHARS // 2
+    return (
+        reasoning[:half]
+        + "\n\n[... reasoning truncated for length ...]\n\n"
+        + reasoning[-half:]
+    )
+
+
+def _compact_reasoning(
+    provider: LLMProvider,
+    starved_response: ProviderResponse,
+    config: Config,
+    *,
+    model: str,
+    max_tokens: int,
+    system: str,
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    workspace_dir: str | Path = "",
+    iteration: int = 0,
+    agent_name: str = "",
+) -> ProviderResponse | None:
+    """Recover from reasoning starvation via two-stage compaction.
+
+    **Stage 1 — continue** (up to ``max_compaction_retries`` attempts):
+    Feed the truncated reasoning back as context and let the model keep
+    thinking with a fresh output budget.  This preserves answer quality
+    because the model can finish its derivation naturally.
+
+    **Stage 2 — force answer** (one final attempt):
+    If all continuation attempts also starve, force the model to produce
+    an answer from whatever reasoning it has accumulated.
+
+    Returns a merged ``ProviderResponse`` on success, or ``None`` if
+    compaction is not possible (no reasoning content, or all attempts
+    exhausted).
+    """
+    reasoning = starved_response.reasoning_content or ""
+    if not reasoning.strip():
+        return None
+
+    max_continue = config.max_compaction_retries
+    if max_continue <= 0:
+        return None
+
+    reasoning = _truncate_reasoning(reasoning)
+    merged = starved_response
+    total_attempts = max_continue + 1  # +1 for the force-answer stage
+
+    for attempt in range(1, total_attempts + 1):
+        is_force = attempt > max_continue
+        stage = "force_answer" if is_force else "continue"
+        prompt_template = _FORCE_ANSWER_PROMPT if is_force else _CONTINUE_PROMPT
+        compaction_msg = prompt_template.format(reasoning=reasoning)
+        comp_messages = list(messages) + [
+            {"role": "user", "content": compaction_msg},
+        ]
+
+        if workspace_dir:
+            log_scaffold_event(
+                workspace_dir,
+                iteration,
+                CC.LOOP_CONTROL,
+                f"reasoning_compaction_{stage}",
+                f"agent={agent_name}, attempt={attempt}/{total_attempts}, "
+                f"reasoning_chars={len(reasoning)}",
+            )
+        console.print(
+            f"[yellow]Reasoning starved — {stage} attempt "
+            f"{attempt}/{total_attempts} "
+            f"(feeding {len(reasoning):,} chars of reasoning back)[/yellow]"
+        )
+
+        call_kwargs = dict(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=provider.prepare_messages(comp_messages),
+        )
+        if tools:
+            call_kwargs["tools"] = tools
+        try:
+            comp_response = _call_provider_with_retry(
+                provider,
+                config,
+                workspace_dir=workspace_dir,
+                iteration=iteration,
+                **call_kwargs,
+            )
+        except Exception as exc:
+            console.print(
+                f"[yellow]Compaction call failed: {type(exc).__name__}: {exc} "
+                f"— giving up[/yellow]"
+            )
+            return None
+
+        merged = _merge_responses(merged, comp_response)
+
+        comp_visible = strip_think_tags(comp_response.text or "")
+        if comp_visible.strip() or comp_response.tool_calls:
+            console.print(
+                f"[green]Compaction succeeded ({stage}, attempt {attempt}) — "
+                f"recovered {len(comp_visible)} chars of answer[/green]"
+            )
+            if workspace_dir:
+                log_scaffold_event(
+                    workspace_dir,
+                    iteration,
+                    CC.LOOP_CONTROL,
+                    "reasoning_compaction_success",
+                    f"agent={agent_name}, stage={stage}, attempt={attempt}, "
+                    f"answer_chars={len(comp_visible)}",
+                )
+            return merged
+
+        # Still starved — update reasoning for next attempt
+        new_reasoning = comp_response.reasoning_content or ""
+        if new_reasoning.strip():
+            reasoning = _truncate_reasoning(new_reasoning)
+
+    if workspace_dir:
+        log_scaffold_event(
+            workspace_dir,
+            iteration,
+            CC.LOOP_CONTROL,
+            "reasoning_compaction_exhausted",
+            f"agent={agent_name}, attempts={total_attempts}",
+        )
+    console.print(
+        f"[red]Compaction exhausted ({total_attempts} attempts: "
+        f"{max_continue} continue + 1 force) "
+        f"— reasoning starvation unrecoverable[/red]"
+    )
+    return None
+
+
 def continue_on_max_tokens(
     provider: LLMProvider,
     first_response: ProviderResponse,
@@ -197,6 +358,23 @@ def continue_on_max_tokens(
                 "max_tokens_reasoning_starved",
                 f"agent={agent_name}, output_tokens={first_response.output_tokens}",
             )
+        # Attempt reasoning compaction: feed the truncated reasoning back
+        # and ask the model to continue from where it left off.
+        compacted = _compact_reasoning(
+            provider,
+            first_response,
+            config,
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+            tools=tools,
+            workspace_dir=workspace_dir,
+            iteration=iteration,
+            agent_name=agent_name,
+        )
+        if compacted is not None:
+            return compacted
         return first_response
 
     max_retries = config.max_tokens_retries
@@ -324,6 +502,7 @@ def call_llm(
     log_path = _allocate_log_path(config, agent_name, iteration)
     _write_preliminary_log(log_path, system, user_content)
 
+    agent_max_tokens = config.max_tokens_for_agent(agent_name)
     initial_messages = [{"role": "user", "content": user_content}]
     start = time.time()
     resp = _call_provider_with_retry(
@@ -332,7 +511,7 @@ def call_llm(
         workspace_dir=config.workspace_dir,
         iteration=iteration,
         model=config.model_id,
-        max_tokens=config.max_tokens,
+        max_tokens=agent_max_tokens,
         system=system,
         messages=initial_messages,
     )
@@ -343,7 +522,7 @@ def call_llm(
             resp,
             config,
             model=config.model_id,
-            max_tokens=config.max_tokens,
+            max_tokens=agent_max_tokens,
             system=system,
             messages=initial_messages,
             workspace_dir=config.workspace_dir,
@@ -419,6 +598,7 @@ def call_llm_continuation(
         )
     provider = _get_provider(config)
     prepared = provider.prepare_messages(list(messages))
+    agent_max_tokens = config.max_tokens_for_agent(agent_name)
 
     start = time.time()
     resp = _call_provider_with_retry(
@@ -427,7 +607,7 @@ def call_llm_continuation(
         workspace_dir=config.workspace_dir,
         iteration=iteration,
         model=config.model_id,
-        max_tokens=config.max_tokens,
+        max_tokens=agent_max_tokens,
         system=system,
         messages=prepared,
     )
@@ -437,7 +617,7 @@ def call_llm_continuation(
             resp,
             config,
             model=config.model_id,
-            max_tokens=config.max_tokens,
+            max_tokens=agent_max_tokens,
             system=system,
             messages=list(messages),
             workspace_dir=config.workspace_dir,
@@ -577,6 +757,7 @@ def run_agent_loop(
 ) -> AgentResult:
     """Run a tool-use agent loop until end_turn, max_rounds, or max_tokens."""
     provider = _get_provider(config)
+    agent_max_tokens = config.max_tokens_for_agent(agent_name)
     messages = [{"role": "user", "content": user_content}]
 
     all_tool_calls: list[ToolCall] = []
@@ -646,7 +827,7 @@ def run_agent_loop(
                 workspace_dir=config.workspace_dir,
                 iteration=iteration,
                 model=config.model_id,
-                max_tokens=config.max_tokens,
+                max_tokens=agent_max_tokens,
                 system=system,
                 messages=provider.prepare_messages(messages),
                 tools=active_tools,
@@ -710,7 +891,7 @@ def run_agent_loop(
                 resp,
                 config,
                 model=config.model_id,
-                max_tokens=config.max_tokens,
+                max_tokens=agent_max_tokens,
                 system=system,
                 messages=messages,
                 tools=active_tools,
@@ -1187,7 +1368,7 @@ def run_agent_loop(
     for _forced_attempt in range(_forced_max_retries + 1):
         _forced_call_kwargs = dict(
             model=config.model_id,
-            max_tokens=config.max_tokens,
+            max_tokens=agent_max_tokens,
             system=system,  # UNCHANGED system prompt
             messages=provider.prepare_messages(messages),
         )
@@ -1478,6 +1659,15 @@ def _write_conversation_log(
         )
     resp_attrs += f' duration="{resp.duration:.1f}s" stop="{resp.stop_reason}"'
 
+    reasoning_section = ""
+    if resp.reasoning_content:
+        rc_len = len(resp.reasoning_content)
+        reasoning_section = (
+            f'\n<REASONING chars="{rc_len}">\n'
+            f"{resp.reasoning_content}\n"
+            f"</REASONING>\n"
+        )
+
     content = f"""<SYSTEM_PROMPT chars="{len(system)}">
 {system}
 </SYSTEM_PROMPT>
@@ -1489,7 +1679,7 @@ def _write_conversation_log(
 <LLM_RESPONSE {resp_attrs}>
 {resp.text}
 </LLM_RESPONSE>
-"""
+{reasoning_section}"""
     try:
         log_path.write_text(content)
     except OSError:

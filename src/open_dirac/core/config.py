@@ -65,6 +65,8 @@ class Config:
     auto_expire_iterations: int = DEFAULTS["auto_expire_iterations"]
     parse_retries: int = DEFAULTS["parse_retries"]
     max_tokens_retries: int = DEFAULTS["max_tokens_retries"]
+    max_compaction_retries: int = DEFAULTS["max_compaction_retries"]
+    agent_max_tokens: dict = field(default_factory=lambda: dict(DEFAULTS["agent_max_tokens"]))
     pipeline_retry_max: int = DEFAULTS["pipeline_retry_max"]
     max_wall_seconds: float = DEFAULTS["max_wall_seconds"]
     max_total_output_tokens: int = DEFAULTS["max_total_output_tokens"]
@@ -78,6 +80,14 @@ class Config:
     input_cost: float = 0.0  # USD per million input tokens (from models.yaml)
     output_cost: float = 0.0  # USD per million output tokens (from models.yaml)
     reasoning: dict = field(default_factory=dict)  # provider-specific reasoning params
+
+    def max_tokens_for_agent(self, agent_name: str) -> int:
+        """Return the max output tokens for a specific agent.
+
+        Falls back to the model-level ``max_tokens`` when no per-agent
+        override is configured.
+        """
+        return self.agent_max_tokens.get(agent_name, self.max_tokens)
 
     def to_dict(self) -> dict:
         """Serialize config fields for persistence (excludes sensitive/derived fields)."""
@@ -181,6 +191,8 @@ _YAML_CONFIG_FIELDS = frozenset(
         "auto_expire_iterations",
         "parse_retries",
         "max_tokens_retries",
+        "max_compaction_retries",
+        "agent_max_tokens",
         "pipeline_retry_max",
         "max_wall_seconds",
         "max_total_output_tokens",
