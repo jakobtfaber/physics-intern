@@ -38,6 +38,9 @@ _PROVIDER_SIDE_400_PATTERNS = {
     "backend error",
     "input validation",  # HuggingFace context-length / format rejection
     "expecting",  # vLLM JSON parse failure ("Expecting ',' delimiter")
+    "invalid \\escape",  # vLLM JSON parse failure ("Invalid \escape")
+    "unterminated string",  # vLLM JSON parse failure ("Unterminated string starting at")
+    "extra data",  # vLLM JSON parse failure ("Extra data: line 1 column ...")
 }
 
 _CONTEXT_TOO_LONG_PATTERNS = (
@@ -109,21 +112,38 @@ def extract_status_code(exc: Exception) -> int | None:
     return None
 
 
+_TOOL_CALL_FAILURE_PATTERNS = (
+    "tool_use_failed",
+    "failed to parse tool call arguments",
+    "output_parse_failed",  # HF backend can't parse non-tool output
+    "tool choice",  # "Tool choice is none, but model called a tool"
+)
+
+# JSON parse errors from vLLM when the model produces malformed tool call
+# arguments. These are stochastic (the model may produce valid JSON on retry)
+# and should get the full retry budget, not the capped provider-side 400 budget.
+_JSON_PARSE_400_PATTERNS = (
+    "invalid \\escape",
+    "unterminated string",
+    "extra data",
+    "expecting",  # "Expecting ',' delimiter", "Expecting value", etc.
+)
+
+
 def is_tool_call_failure(exc: Exception) -> bool:
     """Return True if *exc* is a tool-call generation failure.
 
-    Covers both JSON parse failures and OSS models ignoring tool_choice=none.
+    Covers both explicit tool-call parse failures and vLLM JSON parse
+    errors in model-generated tool arguments (Invalid \\escape, etc.).
     """
     msg = str(exc).lower()
-    return any(
-        p in msg
-        for p in (
-            "tool_use_failed",
-            "failed to parse tool call arguments",
-            "output_parse_failed",  # HF backend can't parse non-tool output
-            "tool choice",  # "Tool choice is none, but model called a tool"
-        )
-    )
+    if any(p in msg for p in _TOOL_CALL_FAILURE_PATTERNS):
+        return True
+    # vLLM JSON parse 400s from malformed tool call arguments
+    status = extract_status_code(exc)
+    if status == 400 and any(p in msg for p in _JSON_PARSE_400_PATTERNS):
+        return True
+    return False
 
 
 def is_provider_side_400(exc: Exception) -> bool:

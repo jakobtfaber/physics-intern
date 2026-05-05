@@ -139,16 +139,23 @@ fi
 cd "$REPO_ROOT"
 
 LB_PID=""
+RUNNER_EXIT=1  # assume failure until proven otherwise
 cleanup() {
   if [[ -n "$LB_PID" ]]; then
     echo "Shutting down load balancer (PID $LB_PID)..."
     kill "$LB_PID" 2>/dev/null || true
     wait "$LB_PID" 2>/dev/null || true
   fi
-  # Cancel serve jobs unless --keep-serves was passed.
-  if [[ -z "$KEEP_SERVES" && ${#SERVE_JOBS[@]} -gt 0 ]]; then
-    echo "Cancelling ${#SERVE_JOBS[@]} serve job(s): ${SERVE_JOBS[*]}"
-    scancel "${SERVE_JOBS[@]}" 2>/dev/null || true
+  # Cancel serve jobs when: (a) --keep-serves was NOT passed, or
+  # (b) --keep-serves was passed but the runner finished successfully
+  #     (exit 0 = natural completion, no need to keep serves for reruns).
+  if [[ ${#SERVE_JOBS[@]} -gt 0 ]]; then
+    if [[ -z "$KEEP_SERVES" || "$RUNNER_EXIT" -eq 0 ]]; then
+      echo "Cancelling ${#SERVE_JOBS[@]} serve job(s): ${SERVE_JOBS[*]}"
+      scancel "${SERVE_JOBS[@]}" 2>/dev/null || true
+    else
+      echo "Keeping ${#SERVE_JOBS[@]} serve job(s) alive (--keep-serves, runner exit=$RUNNER_EXIT)"
+    fi
   fi
 }
 trap cleanup EXIT
@@ -206,9 +213,9 @@ if [[ "$RUNNER" == "opendirac" ]]; then
     "${CONFIG_ARG[@]}" \
     "${RESUME_ARG[@]}" \
     "${FRESH_ARG[@]}" \
-    "${WS_ARG[@]}"
+    "${WS_ARG[@]}" && RUNNER_EXIT=0 || RUNNER_EXIT=$?
 else
   uv run --no-sync python scripts/run_critpt_oneshot.py \
     --model "$MODEL_KEY" --concurrency "$CONCURRENCY" --timeout 3600 \
-    "${RESUME_ARG[@]}"
+    "${RESUME_ARG[@]}" && RUNNER_EXIT=0 || RUNNER_EXIT=$?
 fi
