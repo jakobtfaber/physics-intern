@@ -398,11 +398,13 @@ class TestSanitizeArguments:
         bad = '{"code": "foo\\xbar"}'
         result = VLLMProvider._sanitize_arguments(bad)
         import json
+
         json.loads(result)  # must not raise
 
     def test_unterminated_string_wrapped(self):
         bad = '{"code": "hello'
         result = VLLMProvider._sanitize_arguments(bad)
         import json
+
         parsed = json.loads(result)
         assert "raw" in parsed

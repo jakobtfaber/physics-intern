@@ -412,9 +412,7 @@ class VLLMProvider(LLMProvider):
                     "type": "function",
                     "function": {
                         "name": tc.function.name,
-                        "arguments": self._sanitize_arguments(
-                            tc.function.arguments
-                        ),
+                        "arguments": self._sanitize_arguments(tc.function.arguments),
                     },
                 }
                 for tc in raw_content.tool_calls

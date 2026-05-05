@@ -213,9 +213,7 @@ class FakeExtraData400(Exception):
 
     def __init__(self):
         self.status_code = 400
-        super().__init__(
-            "BadRequestError: Extra data: line 1 column 336 (char 335)"
-        )
+        super().__init__("BadRequestError: Extra data: line 1 column 336 (char 335)")
 
 
 @pytest.mark.parametrize(
