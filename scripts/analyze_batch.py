@@ -26,7 +26,6 @@ from rich.table import Table
 from open_dirac.core.metrics import parse_metrics_table, parse_yaml_frontmatter
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 
 console = Console(stderr=True)
 
@@ -61,30 +60,6 @@ class AgentStats:
     output_tokens: int = 0
     tool_calls: int = 0
     duration_s: float = 0.0
-
-
-# ---------------------------------------------------------------------------
-# Workspace discovery
-# ---------------------------------------------------------------------------
-
-
-def find_existing_workspace(
-    problem_id: str,
-    model_key: str,
-    workspace_base: Path,
-) -> Path | None:
-    """Find the most recent workspace for a problem+model pair."""
-    safe_model = model_key.replace("/", "-").replace(":", "-")
-    matches: list[Path] = []
-    if not workspace_base.exists():
-        return None
-    for d in workspace_base.iterdir():
-        if d.is_dir() and problem_id in d.name and safe_model in d.name:
-            matches.append(d)
-    if not matches:
-        return None
-    matches.sort(key=lambda p: p.name, reverse=True)
-    return matches[0]
 
 
 # ---------------------------------------------------------------------------
@@ -420,12 +395,6 @@ def main() -> int:
         "results_dir", type=Path, help="Path to batch results directory"
     )
     parser.add_argument(
-        "--workspace-base",
-        type=Path,
-        default=DEFAULT_WORKSPACE_BASE,
-        help="Base directory for workspaces",
-    )
-    parser.add_argument(
         "--json", action="store_true", help="Output JSON summary to stdout"
     )
     args = parser.parse_args()
@@ -438,19 +407,31 @@ def main() -> int:
 
     metadata = json.loads(metadata_path.read_text())
     model_key = metadata.get("generation_config", {}).get("model_key", "unknown")
-    problem_ids = metadata.get("problem_ids", [])
+    problems = metadata.get("problems", [])
 
-    if not problem_ids:
-        console.print("[red]Error: no problem_ids in batch_metadata.json[/red]")
+    if not problems:
+        console.print(
+            "[red]Error: no 'problems' entries in batch_metadata.json — "
+            "cannot resolve per-problem workspace paths[/red]"
+        )
         return 1
 
-    # Find workspaces and load metrics
+    # Resolve workspaces from metadata (one-to-one with this batch run)
     all_metrics: list[ProblemMetrics] = []
     missing: list[str] = []
 
-    for pid in sorted(problem_ids):
-        ws = find_existing_workspace(pid, model_key, args.workspace_base)
-        if not ws:
+    for entry in sorted(problems, key=lambda e: e.get("problem_id", "")):
+        pid = entry.get("problem_id")
+        ws_path = entry.get("workspace")
+        if not pid or not ws_path:
+            if pid:
+                missing.append(pid)
+            continue
+        ws = Path(ws_path)
+        if not ws.exists():
+            console.print(
+                f"[yellow]Warning: workspace missing for {pid}: {ws}[/yellow]"
+            )
             missing.append(pid)
             continue
         pm = load_problem_metrics(pid, ws)
@@ -469,7 +450,7 @@ def main() -> int:
         console.print("[red]Error: no metrics found[/red]")
         return 1
 
-    console.print(f"Loaded metrics for {len(all_metrics)}/{len(problem_ids)} problems")
+    console.print(f"Loaded metrics for {len(all_metrics)}/{len(problems)} problems")
 
     if args.json:
         output = build_json_output(
