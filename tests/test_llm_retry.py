@@ -178,6 +178,58 @@ def test_is_tool_call_failure_false_on_regular_400():
     assert _is_tool_call_failure(FakeHTTPError(400)) is False
 
 
+class FakeJsonParseError400(Exception):
+    """Mimics vLLM 400 with JSON parse failure ('Expecting delimiter')."""
+
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "BadRequestError: Expecting ',' delimiter: line 1 column 3253 (char 3252)"
+        )
+
+
+class FakeInvalidEscape400(Exception):
+    """Mimics vLLM 400 with invalid JSON escape in tool call arguments."""
+
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "BadRequestError: Invalid \\escape: line 1 column 7340 (char 7339)"
+        )
+
+
+class FakeUnterminatedString400(Exception):
+    """Mimics vLLM 400 with unterminated string in tool call arguments."""
+
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "BadRequestError: Unterminated string starting at: line 1 column 10 (char 9)"
+        )
+
+
+class FakeExtraData400(Exception):
+    """Mimics vLLM 400 with extra data in tool call arguments."""
+
+    def __init__(self):
+        self.status_code = 400
+        super().__init__("BadRequestError: Extra data: line 1 column 336 (char 335)")
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        FakeInvalidEscape400(),
+        FakeUnterminatedString400(),
+        FakeExtraData400(),
+        FakeJsonParseError400(),
+    ],
+)
+def test_is_tool_call_failure_json_parse_400(exc):
+    """vLLM JSON parse 400s from malformed tool call arguments are tool-call failures."""
+    assert _is_tool_call_failure(exc) is True
+
+
 def test_is_transient_true_for_tool_call_failure():
     """_is_transient returns True for tool_use_failed errors (stochastic retry)."""
     assert _is_transient(FakeToolCallFailure()) is True
@@ -268,16 +320,6 @@ class FakePostProcessorResponseError(Exception):
         super().__init__("Encountered Exception during gpt oss post processor")
 
 
-class FakeJsonParseError400(Exception):
-    """Mimics vLLM 400 with JSON parse failure ('Expecting delimiter')."""
-
-    def __init__(self):
-        self.status_code = 400
-        super().__init__(
-            "BadRequestError: Expecting ',' delimiter: line 1 column 3253 (char 3252)"
-        )
-
-
 @pytest.mark.parametrize(
     "exc",
     [
@@ -286,6 +328,9 @@ class FakeJsonParseError400(Exception):
         FakeBackendError400(),
         FakePostProcessorResponseError(),
         FakeJsonParseError400(),
+        FakeInvalidEscape400(),
+        FakeUnterminatedString400(),
+        FakeExtraData400(),
     ],
 )
 def test_is_provider_side_400_true(exc):
@@ -311,11 +356,11 @@ def test_is_transient_true_for_provider_side_400():
     assert _is_transient(FakePostProcessorError()) is True
 
 
-def test_json_parse_400_capped_at_2_attempts():
-    """vLLM JSON parse 400s are provider-side 400s, capped at 2 attempts total."""
+def test_json_parse_400_gets_full_retries():
+    """vLLM JSON parse 400s are tool-call failures and get the full retry budget."""
     provider = MagicMock()
     provider.call.side_effect = FakeJsonParseError400()
-    config = _make_config(api_retry_max=10)
+    config = _make_config(api_retry_max=5)
 
     with patch("open_dirac.providers.retry.time.sleep"):
         with pytest.raises(FakeJsonParseError400):
@@ -328,7 +373,8 @@ def test_json_parse_400_capped_at_2_attempts():
                 messages=[],
             )
 
-    assert provider.call.call_count == 2
+    # Tool-call failures get the full budget (6 attempts), not capped at 2
+    assert provider.call.call_count == 6
 
 
 def test_plain_400_not_transient():

@@ -375,3 +375,36 @@ class TestPrepareMessages:
         messages = [{"role": "user", "content": "hello"}]
         result = provider.prepare_messages(messages)
         assert result == messages
+
+
+# ---------------------------------------------------------------------------
+# _sanitize_arguments — ensure tool call args are valid JSON before re-send
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeArguments:
+    """Tests for VLLMProvider._sanitize_arguments()."""
+
+    def test_valid_json_passthrough(self):
+        assert VLLMProvider._sanitize_arguments('{"code": "x"}') == '{"code": "x"}'
+
+    def test_empty_string_returns_empty_object(self):
+        assert VLLMProvider._sanitize_arguments("") == "{}"
+
+    def test_none_string_returns_empty_object(self):
+        assert VLLMProvider._sanitize_arguments(None) == "{}"
+
+    def test_invalid_escape_wrapped(self):
+        bad = '{"code": "foo\\xbar"}'
+        result = VLLMProvider._sanitize_arguments(bad)
+        import json
+
+        json.loads(result)  # must not raise
+
+    def test_unterminated_string_wrapped(self):
+        bad = '{"code": "hello'
+        result = VLLMProvider._sanitize_arguments(bad)
+        import json
+
+        parsed = json.loads(result)
+        assert "raw" in parsed

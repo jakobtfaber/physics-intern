@@ -377,17 +377,42 @@ class VLLMProvider(LLMProvider):
     # Message formatting
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _sanitize_arguments(args: str) -> str:
+        """Ensure tool call arguments are valid JSON before re-sending.
+
+        vLLM rejects requests containing ``function.arguments`` that are not
+        parseable JSON, returning a 400.  When the model produces malformed
+        JSON (invalid escapes, unterminated strings, etc.) we attempt a
+        best-effort repair; if that fails, we wrap the raw string as
+        ``{"raw": "<escaped>"}``.
+        """
+        if not args:
+            return "{}"
+        try:
+            json.loads(args)
+            return args
+        except json.JSONDecodeError:
+            pass
+        # Best-effort: the most common issue is unescaped backslashes.
+        try:
+            fixed = args.replace("\\", "\\\\")
+            json.loads(fixed)
+            return fixed
+        except json.JSONDecodeError:
+            pass
+        return json.dumps({"raw": args})
+
     def format_assistant_message(self, raw_content: object) -> dict:
         msg = {"role": "assistant", "content": raw_content.content}
         if raw_content.tool_calls:
-            # Structured tool calls (api mode) — include in message
             msg["tool_calls"] = [
                 {
                     "id": tc.id,
                     "type": "function",
                     "function": {
                         "name": tc.function.name,
-                        "arguments": tc.function.arguments,
+                        "arguments": self._sanitize_arguments(tc.function.arguments),
                     },
                 }
                 for tc in raw_content.tool_calls
