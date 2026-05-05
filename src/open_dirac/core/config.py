@@ -66,7 +66,9 @@ class Config:
     parse_retries: int = DEFAULTS["parse_retries"]
     max_tokens_retries: int = DEFAULTS["max_tokens_retries"]
     max_compaction_retries: int = DEFAULTS["max_compaction_retries"]
-    agent_max_tokens: dict = field(default_factory=lambda: dict(DEFAULTS["agent_max_tokens"]))
+    agent_max_tokens: dict = field(
+        default_factory=lambda: dict(DEFAULTS["agent_max_tokens"])
+    )
     pipeline_retry_max: int = DEFAULTS["pipeline_retry_max"]
     max_wall_seconds: float = DEFAULTS["max_wall_seconds"]
     max_total_output_tokens: int = DEFAULTS["max_total_output_tokens"]

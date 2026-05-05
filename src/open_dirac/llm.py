@@ -1663,9 +1663,7 @@ def _write_conversation_log(
     if resp.reasoning_content:
         rc_len = len(resp.reasoning_content)
         reasoning_section = (
-            f'\n<REASONING chars="{rc_len}">\n'
-            f"{resp.reasoning_content}\n"
-            f"</REASONING>\n"
+            f'\n<REASONING chars="{rc_len}">\n{resp.reasoning_content}\n</REASONING>\n'
         )
 
     content = f"""<SYSTEM_PROMPT chars="{len(system)}">

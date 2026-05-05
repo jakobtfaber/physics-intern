@@ -640,15 +640,21 @@ def test_compaction_continues_then_succeeds():
     provider.prepare_messages.side_effect = lambda m: m
 
     second_starve = ProviderResponse(
-        text="", input_tokens=20, output_tokens=65536,
-        stop_reason="max_tokens", reasoning_tokens=65536, answer_tokens=0,
+        text="",
+        input_tokens=20,
+        output_tokens=65536,
+        stop_reason="max_tokens",
+        reasoning_tokens=65536,
+        answer_tokens=0,
         reasoning_content="Even more detailed reasoning...",
     )
     provider.call.side_effect = [second_starve, _ok("Final answer.")]
 
     starved = _truncated(
-        "", reasoning_content="Initial reasoning...",
-        reasoning_tokens=65536, answer_tokens=0,
+        "",
+        reasoning_content="Initial reasoning...",
+        reasoning_tokens=65536,
+        answer_tokens=0,
     )
     config = _make_config(max_compaction_retries=2)
 
@@ -679,16 +685,22 @@ def test_compaction_force_answer_after_continues_exhausted():
     provider.prepare_messages.side_effect = lambda m: m
 
     always_starve = ProviderResponse(
-        text="", input_tokens=20, output_tokens=65536,
-        stop_reason="max_tokens", reasoning_tokens=65536, answer_tokens=0,
+        text="",
+        input_tokens=20,
+        output_tokens=65536,
+        stop_reason="max_tokens",
+        reasoning_tokens=65536,
+        answer_tokens=0,
         reasoning_content="More reasoning...",
     )
     # 2 continues starve, force-answer succeeds
     provider.call.side_effect = [always_starve, always_starve, _ok("Forced answer.")]
 
     starved = _truncated(
-        "", reasoning_content="Initial reasoning...",
-        reasoning_tokens=65536, answer_tokens=0,
+        "",
+        reasoning_content="Initial reasoning...",
+        reasoning_tokens=65536,
+        answer_tokens=0,
     )
     config = _make_config(max_compaction_retries=2)
 
@@ -719,15 +731,21 @@ def test_compaction_exhausted_returns_none():
     provider.prepare_messages.side_effect = lambda m: m
 
     always_starve = ProviderResponse(
-        text="", input_tokens=20, output_tokens=65536,
-        stop_reason="max_tokens", reasoning_tokens=65536, answer_tokens=0,
+        text="",
+        input_tokens=20,
+        output_tokens=65536,
+        stop_reason="max_tokens",
+        reasoning_tokens=65536,
+        answer_tokens=0,
         reasoning_content="More reasoning that goes nowhere...",
     )
     provider.call.return_value = always_starve
 
     starved = _truncated(
-        "", reasoning_content="Initial reasoning...",
-        reasoning_tokens=65536, answer_tokens=0,
+        "",
+        reasoning_content="Initial reasoning...",
+        reasoning_tokens=65536,
+        answer_tokens=0,
     )
     config = _make_config(max_compaction_retries=2)
 
