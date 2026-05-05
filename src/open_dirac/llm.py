@@ -274,10 +274,13 @@ def _compact_reasoning(
                 )
             return merged
 
-        # Still starved — update reasoning for next attempt
+        # Still starved — accumulate reasoning for next attempt so later
+        # prompts (especially force-answer) have the full reasoning chain,
+        # not just the latest retry's fragment.
         new_reasoning = comp_response.reasoning_content or ""
         if new_reasoning.strip():
-            reasoning = _truncate_reasoning(new_reasoning)
+            combined = reasoning + "\n\n" + new_reasoning
+            reasoning = _truncate_reasoning(combined)
 
     if workspace_dir:
         log_scaffold_event(
@@ -374,8 +377,21 @@ def continue_on_max_tokens(
             agent_name=agent_name,
         )
         if compacted is not None:
-            return compacted
-        return first_response
+            # If compaction recovered visible text but the response is still
+            # truncated (stop_reason == "max_tokens"), fall through to the
+            # normal text-continuation path below instead of returning a
+            # half-finished answer.
+            if compacted.stop_reason == "max_tokens":
+                comp_visible = strip_think_tags(compacted.text or "")
+                if comp_visible.strip():
+                    first_response = compacted
+                    visible = comp_visible
+                else:
+                    return compacted
+            else:
+                return compacted
+        else:
+            return first_response
 
     max_retries = config.max_tokens_retries
     if max_retries <= 0:
