@@ -1,15 +1,15 @@
 ---
 name: investigate-run
-description: "Investigates OpenDirac workspace run. Use to understand what went wrong and could be improved in the multi-agent research process."
+description: "Investigates PhysicsIntern workspace run. Use to understand what went wrong and could be improved in the multi-agent research process."
 allowed-tools: Read, Grep
 model: opus
 ---
 
-# Analyze a OpenDirac Run
+# Analyze a PhysicsIntern Run
 
 Read README.md to understand how the multi-agent research process works.
 
-Given a workspace directory (under `workspaces/` in the OpenDirac project), perform a systematic post-mortem analysis of the run and its failure modes and inefficiencies. The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
+Given a workspace directory (under `workspaces/` in the PhysicsIntern project), perform a systematic post-mortem analysis of the run and its failure modes and inefficiencies. The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
 
 Check `references/` in the project root for a reference document matching the problem. These files describe what a correct answer looks like and what a typical successful run looks like for known problems.
 

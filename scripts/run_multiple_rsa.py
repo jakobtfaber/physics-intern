@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run open_dirac_rsa N times on a single problem with concurrency control.
+"""Run physics_intern_rsa N times on a single problem with concurrency control.
 
 Reports pass@k results: how many RSA runs produced a correct majority-vote
 answer, based on VERIFICATION.md formal evaluation in each workspace (same
@@ -30,8 +30,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from open_dirac.core.config import DEFAULTS  # noqa: E402
-from open_dirac.utils.markdown import parse_frontmatter  # noqa: E402
+from physics_intern.core.config import DEFAULTS  # noqa: E402
+from physics_intern.utils.markdown import parse_frontmatter  # noqa: E402
 
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 
@@ -127,11 +127,11 @@ async def run_one(
     semaphore: asyncio.Semaphore,
     print_lock: asyncio.Lock,
 ) -> RunResult:
-    """Run a single open_dirac_rsa subprocess, streaming round progress."""
+    """Run a single physics_intern_rsa subprocess, streaming round progress."""
     cmd = [
         "uv",
         "run",
-        "open_dirac_rsa",
+        "physics_intern_rsa",
         str(problem_path),
         "--workspace-dir",
         str(workspace_dir),
@@ -477,7 +477,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run open_dirac_rsa N times on a single problem with concurrency.",
+        description="Run physics_intern_rsa N times on a single problem with concurrency.",
     )
     parser.add_argument("problem", type=Path, help="Path to problem YAML file")
     parser.add_argument(

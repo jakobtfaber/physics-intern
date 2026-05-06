@@ -540,7 +540,7 @@ if [[ -z "$SERVED_MODEL_NAME" ]]; then
   SERVED_MODEL_NAME="${DEFAULT_MODEL_ID:-$MODEL}"
 fi
 # Use the real HF repo id for vLLM's `serve` argument; the alias is only
-# meaningful inside open-dirac's models.yaml.
+# meaningful inside physics-intern's models.yaml.
 MODEL_ID="${DEFAULT_MODEL_ID:-$MODEL}"
 if [[ -z "$REASONING_PARSER" ]]; then
   REASONING_PARSER="$DEFAULT_REASONING_PARSER"

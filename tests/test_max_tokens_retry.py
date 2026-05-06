@@ -1,6 +1,6 @@
 """Tests for the max_tokens continuation retry mechanism.
 
-Covers the shared helper :func:`open_dirac.llm.continue_on_max_tokens`
+Covers the shared helper :func:`physics_intern.llm.continue_on_max_tokens`
 and its wiring into ``call_llm`` and the agentic loop.
 """
 
@@ -9,13 +9,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 
-from open_dirac.core.config import Config
-from open_dirac.llm import (
+from physics_intern.core.config import Config
+from physics_intern.llm import (
     CONTINUATION_PROMPT,
     continue_on_max_tokens,
     _merge_responses,
 )
-from open_dirac.providers.base import ProviderResponse
+from physics_intern.providers.base import ProviderResponse
 
 
 def _make_config(**overrides) -> Config:
@@ -336,7 +336,7 @@ def test_continuation_call_uses_prepare_messages():
 
 def test_call_llm_invokes_continuation_on_truncation():
     """call_llm should auto-continue when the first response is truncated."""
-    from open_dirac import llm
+    from physics_intern import llm
 
     config = _make_config(max_tokens_retries=1)
 
@@ -363,8 +363,8 @@ def test_call_llm_invokes_continuation_on_truncation():
 def test_run_agent_loop_continues_mid_round(tmp_path):
     """A truncated round that continues into a clean tool call should
     fold the continuation into the round and proceed normally."""
-    from open_dirac import llm
-    from open_dirac.state.tool_call import ToolCall
+    from physics_intern import llm
+    from physics_intern.state.tool_call import ToolCall
 
     config = _make_config(
         max_tokens_retries=1,
@@ -448,7 +448,7 @@ def test_run_agent_loop_continues_mid_round(tmp_path):
 def test_run_agent_loop_exits_truncated_when_continuation_fails(tmp_path):
     """If all continuation attempts also hit max_tokens, the loop exits
     with truncated=True as before."""
-    from open_dirac import llm
+    from physics_intern import llm
 
     config = _make_config(
         max_tokens_retries=1,
@@ -528,7 +528,7 @@ def test_merge_responses_sums_tokens_and_concatenates_text():
 
 def test_compaction_fires_when_reasoning_content_available():
     """First continue attempt succeeds → 1 provider call."""
-    from open_dirac.llm import _compact_reasoning
+    from physics_intern.llm import _compact_reasoning
 
     provider = MagicMock()
     provider.prepare_messages.side_effect = lambda m: m
@@ -560,7 +560,7 @@ def test_compaction_fires_when_reasoning_content_available():
 
 def test_compaction_uses_continue_prompt_first():
     """The first attempt uses the 'continue' prompt, not the force-answer prompt."""
-    from open_dirac.llm import _compact_reasoning
+    from physics_intern.llm import _compact_reasoning
 
     provider = MagicMock()
     provider.prepare_messages.side_effect = lambda m: m
@@ -592,7 +592,7 @@ def test_compaction_uses_continue_prompt_first():
 
 def test_compaction_returns_none_without_reasoning():
     """Compaction is skipped when there is no reasoning_content."""
-    from open_dirac.llm import _compact_reasoning
+    from physics_intern.llm import _compact_reasoning
 
     provider = MagicMock()
     starved = _truncated("", reasoning_content="")
@@ -613,7 +613,7 @@ def test_compaction_returns_none_without_reasoning():
 
 
 def test_compaction_returns_none_when_retries_zero():
-    from open_dirac.llm import _compact_reasoning
+    from physics_intern.llm import _compact_reasoning
 
     provider = MagicMock()
     starved = _truncated("", reasoning_content="some reasoning")
@@ -634,7 +634,7 @@ def test_compaction_returns_none_when_retries_zero():
 
 def test_compaction_continues_then_succeeds():
     """First continue starves, second continue succeeds → 2 calls, both 'continue'."""
-    from open_dirac.llm import _compact_reasoning
+    from physics_intern.llm import _compact_reasoning
 
     provider = MagicMock()
     provider.prepare_messages.side_effect = lambda m: m
@@ -681,7 +681,7 @@ def test_compaction_force_answer_after_continues_exhausted():
     """All continue attempts starve → force-answer fires as final attempt.
     The force-answer prompt should contain accumulated reasoning from all
     prior attempts, not just the latest one."""
-    from open_dirac.llm import _compact_reasoning
+    from physics_intern.llm import _compact_reasoning
 
     provider = MagicMock()
     provider.prepare_messages.side_effect = lambda m: m
@@ -740,7 +740,7 @@ def test_compaction_force_answer_after_continues_exhausted():
 
 def test_compaction_exhausted_returns_none():
     """All attempts (continues + force) starve → returns None."""
-    from open_dirac.llm import _compact_reasoning
+    from physics_intern.llm import _compact_reasoning
 
     provider = MagicMock()
     provider.prepare_messages.side_effect = lambda m: m

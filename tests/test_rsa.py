@@ -1,6 +1,6 @@
-"""Tests for the RSA runner (open_dirac.rsa.runner)."""
+"""Tests for the RSA runner (physics_intern.rsa.runner)."""
 
-from open_dirac.rsa.runner import (
+from physics_intern.rsa.runner import (
     _extract_answer_key,
     _majority_vote,
     build_aggregation_message,

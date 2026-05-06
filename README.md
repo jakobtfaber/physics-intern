@@ -1,10 +1,10 @@
-# OpenDirac
+# PhysicsIntern
 
 A multi-agent scaffolding system for autonomous scientific research in mathematics and theoretical physics.
 
 ## What is this?
 
-OpenDirac takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
+PhysicsIntern takes a problem stated in plain language (e.g. "derive the Hawking temperature from the Euclidean path integral") and works through it autonomously — breaking it into sub-problems, performing derivations, writing and running verification code, and critically reviewing its own results — until it produces a coherent, verified solution.
 
 The project ships two research modes: a **multi-agent pipeline** (the default) that orchestrates nine specialised roles, and **Autophysicist**, a lighter single-agent loop where one Research Manager dispatches ephemeral sub-agents on the fly.
 
@@ -32,7 +32,7 @@ uv sync --extra local
 
 
 # Run a research problem (requires model API key in .env or env var)
-uv run open_dirac problems/critpt/quantum_error_correction_main.yaml --model gemini-3-flash-preview
+uv run physics_intern problems/critpt/quantum_error_correction_main.yaml --model gemini-3-flash-preview
 ```
 
 ### Continuous Integration
@@ -60,7 +60,7 @@ Set API keys for the providers you want to use (in `.env` or as env vars):
 ### CLI Options
 
 ```
-open_dirac [problem.yaml] [options]
+physics_intern [problem.yaml] [options]
 
   problem.yaml                Problem YAML file (default: problems/critpt/quantum_error_correction_main.yaml)
   --model MODEL               LLM model key (default: from config.default.yaml, resolved via models.yaml)
@@ -93,14 +93,14 @@ After a run completes, you can independently verify the scientific results using
 
 ```bash
 # Verify a completed workspace
-uv run python -m open_dirac.verification workspaces/<run_dir>/
+uv run python -m physics_intern.verification workspaces/<run_dir>/
 
 # Run + verify in one command
 ./scripts/run_and_verify.sh --max-iterations 10
 ```
 
 ```
-python -m open_dirac.verification <workspace_dir> [options]
+python -m physics_intern.verification <workspace_dir> [options]
 
   --model MODEL              LLM model (default: claude-4.6-opus)
 ```
@@ -115,19 +115,19 @@ When the Manager is confident in a solution it calls `submit_final_answer`, whic
 
 ```bash
 # Run a single problem
-uv run open_dirac_autophysicist problems/tier1/hydrogen_fine_structure.yaml --model claude-4.6-opus
+uv run physics_intern_autophysicist problems/tier1/hydrogen_fine_structure.yaml --model claude-4.6-opus
 
 # With custom budget and iteration limits
-uv run open_dirac_autophysicist problems/tier1/hydrogen_fine_structure.yaml \
+uv run physics_intern_autophysicist problems/tier1/hydrogen_fine_structure.yaml \
   --max-iterations 30 --token-budget 100000 --tool-call-cap 20
 
 # Resume an interrupted run
-uv run open_dirac_autophysicist problems/tier1/hydrogen_fine_structure.yaml \
+uv run physics_intern_autophysicist problems/tier1/hydrogen_fine_structure.yaml \
   --resume workspaces/<run_dir>
 ```
 
 ```
-open_dirac_autophysicist <problem.yaml> [options]
+physics_intern_autophysicist <problem.yaml> [options]
 
   problem.yaml                Problem YAML file (required)
   --model MODEL               LLM model key (default: from config.default.yaml)
@@ -158,14 +158,14 @@ Results are written to a JSON file with per-run metrics and an aggregate summary
 Run a single LLM call on a problem with no scaffolding — useful for benchmarking raw model capability against the multi-agent pipeline:
 
 ```bash
-uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml
-uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high
-uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --runs 10  # multiple runs for statistics
-uv run python -m open_dirac.one_shot problems/critpt/quantum_error_correction_main.yaml --config my_config.yaml
+uv run python -m physics_intern.one_shot problems/critpt/quantum_error_correction_main.yaml
+uv run python -m physics_intern.one_shot problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high
+uv run python -m physics_intern.one_shot problems/critpt/quantum_error_correction_main.yaml --runs 10  # multiple runs for statistics
+uv run python -m physics_intern.one_shot problems/critpt/quantum_error_correction_main.yaml --config my_config.yaml
 ```
 
 ```
-python -m open_dirac.one_shot <problem.yaml> [options]
+python -m physics_intern.one_shot <problem.yaml> [options]
 
   --model MODEL              LLM model key (default: from config.default.yaml)
   --config FILE              Path to config YAML file (overrides defaults)
@@ -186,13 +186,13 @@ A second baseline that mirrors the [CritPt benchmark](https://github.com/Critica
 This separation lets reasoning models concentrate on the math first and the Python syntax second, which on hard problems can outperform asking for both at once.
 
 ```bash
-uv run python -m open_dirac.two_steps problems/critpt/quantum_error_correction_main.yaml
-uv run python -m open_dirac.two_steps problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high
-uv run python -m open_dirac.two_steps problems/critpt/quantum_error_correction_main.yaml --config my_config.yaml
+uv run python -m physics_intern.two_steps problems/critpt/quantum_error_correction_main.yaml
+uv run python -m physics_intern.two_steps problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high
+uv run python -m physics_intern.two_steps problems/critpt/quantum_error_correction_main.yaml --config my_config.yaml
 ```
 
 ```
-python -m open_dirac.two_steps <problem.yaml> [options]
+python -m physics_intern.two_steps <problem.yaml> [options]
 
   --model MODEL              LLM model key (default: from config.default.yaml)
   --config FILE              Path to config YAML file (overrides defaults)
@@ -200,21 +200,21 @@ python -m open_dirac.two_steps <problem.yaml> [options]
   -o FILE                    Save call-2 response (populated code) to a Markdown file
 ```
 
-The mode requires the problem YAML to define an `answer_template`; without one, the second call has nothing to populate and the runner exits with an error (use `open_dirac.one_shot` instead). Each run creates a workspace under `workspaces/<timestamp>_<problem>_<model>_two_steps/` containing `PROBLEM.md`, `DERIVATION.md` (call-1 output), `ANSWER.md` (call-2 populated template), `VERIFICATION.md`, and `config.json`.
+The mode requires the problem YAML to define an `answer_template`; without one, the second call has nothing to populate and the runner exits with an error (use `physics_intern.one_shot` instead). Each run creates a workspace under `workspaces/<timestamp>_<problem>_<model>_two_steps/` containing `PROBLEM.md`, `DERIVATION.md` (call-1 output), `ANSWER.md` (call-2 populated template), `VERIFICATION.md`, and `config.json`.
 
 ### RSA (Recursive Self-Aggregation)
 
 RSA maintains a population of N candidate solutions and iteratively refines them by aggregating random subsets of K candidates over T rounds (total LLM calls = N * T). The final answer is chosen by majority vote.
 
 ```bash
-uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml
-uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml -N 6 -K 2 -T 4
-uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high --concurrency 4
-uv run python -m open_dirac.rsa problems/critpt/quantum_error_correction_main.yaml --config my_config.yaml
+uv run python -m physics_intern.rsa problems/critpt/quantum_error_correction_main.yaml
+uv run python -m physics_intern.rsa problems/critpt/quantum_error_correction_main.yaml -N 6 -K 2 -T 4
+uv run python -m physics_intern.rsa problems/critpt/quantum_error_correction_main.yaml --model gpt-5.4-high --concurrency 4
+uv run python -m physics_intern.rsa problems/critpt/quantum_error_correction_main.yaml --config my_config.yaml
 ```
 
 ```
-python -m open_dirac.rsa <problem.yaml> [options]
+python -m physics_intern.rsa <problem.yaml> [options]
 
   --model MODEL              LLM model key (default: from config.default.yaml)
   -N INT                     Population size (default: 6)
@@ -365,7 +365,7 @@ Kimi-K2.6 also fits on fewer nodes. With the same canonical flags:
 
 At PP=4 (4 nodes), aggregate throughput scales linearly up to 256 concurrent requests per replica, reaching ~4,620 tok/s with zero failures. Per-request latency increases linearly as expected.
 
-Kimi's `max_output_tokens` is `65536` for the OpenDirac multi-agent runner,
+Kimi's `max_output_tokens` is `65536` for the PhysicsIntern multi-agent runner,
 which is plenty for individual agent turns. For one-shot mode, 200k was
 needed (the old 131k cap left five hard problems without parseable answer code).
 
@@ -376,7 +376,7 @@ default in `models.yaml` is 4 replicas × 4 nodes = 16 nodes. Scale up
 replicas when more nodes are available (e.g. 8 replicas = 32 nodes).
 
 Kimi also needs vLLM's `kimi_k2` tool and reasoning parsers for the full
-OpenDirac agent harness. The one-shot harness works without tools, but the
+PhysicsIntern agent harness. The one-shot harness works without tools, but the
 agent loop sends OpenAI-style tool calls; vLLM rejects `tool_choice="auto"`
 unless the server is launched with `--enable-auto-tool-choice` and
 `--tool-call-parser kimi_k2`.
@@ -385,7 +385,7 @@ Two flags worth knowing whenever you add a new huge model on a networked filesys
 
 - `--safetensors-load-strategy prefetch` — pulls all shards into the OS page cache via background threads. Mandatory on WekaFS / Lustre / NFS where vLLM's auto-detection often misses and falls back to slow random mmap reads. It is still the best loader we found for GLM/Kimi; exact wall time depends heavily on cluster cache state.
 - `--enable-expert-parallel` — for MoE models with many experts (Kimi has 384), shard them across the TP group rather than replicate. Free win for Kimi-class models.
-- `--enable-auto-tool-choice` with `--tool-call-parser kimi_k2` — required for Kimi when running the multi-agent OpenDirac harness, because its agents use API tool calls.
+- `--enable-auto-tool-choice` with `--tool-call-parser kimi_k2` — required for Kimi when running the multi-agent PhysicsIntern harness, because its agents use API tool calls.
 
 What does **not** help on H100:
 
@@ -455,7 +455,7 @@ Local model keys match Hub repo IDs:
 ```bash
 source serve/logs/vllm/<job_id>/endpoint.env
 export VLLM_BASE_URL="${BASE_URL}"
-uv run python -m open_dirac.one_shot \
+uv run python -m physics_intern.one_shot \
   problems/critpt/quantum_error_correction_main.yaml \
   --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16
 ```
@@ -484,7 +484,7 @@ Submission JSONs land in `results/critpt_oneshot/<model_slug>/<timestamp>/`. To 
 |--------|---------|
 | `scripts/run_and_verify.sh` | Run a research session then verify results in one command |
 | `scripts/one_shot_batch.sh` | Batch-run the one-shot baseline across all problems in a folder |
-| `scripts/run_multiple.py` | Run N concurrent multi-agent (open_dirac) instances for pass@k evaluation |
+| `scripts/run_multiple.py` | Run N concurrent multi-agent (physics_intern) instances for pass@k evaluation |
 | `scripts/run_multiple_oneshot.py` | Run N concurrent one-shot instances for pass@k evaluation |
 | `scripts/run_multiple_rsa.py` | Run N concurrent RSA instances for pass@k evaluation |
 | `scripts/run_multiple_autophysicist.py` | Run N concurrent autophysicist instances for pass@k evaluation |
@@ -492,11 +492,11 @@ Submission JSONs land in `results/critpt_oneshot/<model_slug>/<timestamp>/`. To 
 
 ### CritPt Benchmark
 
-These scripts run OpenDirac against the [CritPt](https://github.com/CriticalPathAI/benchmarks) benchmark suite (70 problems in `problems/critpt/yaml/`). They produce CritPt-format submission JSONs, support resume from interrupted runs, and handle rolling parallelism.
+These scripts run PhysicsIntern against the [CritPt](https://github.com/CriticalPathAI/benchmarks) benchmark suite (70 problems in `problems/critpt/yaml/`). They produce CritPt-format submission JSONs, support resume from interrupted runs, and handle rolling parallelism.
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/run_critpt_open_dirac.py` | Batch-run all CritPt problems through the full multi-agent pipeline |
+| `scripts/run_critpt_physics_intern.py` | Batch-run all CritPt problems through the full multi-agent pipeline |
 | `scripts/run_critpt_oneshot.py` | Batch-run all CritPt problems through the one-shot baseline |
 | `scripts/run_critpt_two_steps.py` | Batch-run all CritPt problems through the two-step baseline (critpt's `parsing=False`) |
 | `scripts/run_critpt_rsa.py` | Batch-run all CritPt problems through RSA |
@@ -542,7 +542,7 @@ Models are registered in `models.yaml`. Use the friendly key with `--model`:
 
 ## Architecture
 
-![Architecture diagram](opendirac.png)
+![Architecture diagram](physicsintern.png)
 
 Nine agent roles collaborate in a loop. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
 
@@ -671,8 +671,8 @@ Problems are defined in YAML files under `problems/`. Each file contains a `prob
 ## Project Structure
 
 ```
-src/open_dirac/
-  main.py              — Entry point, CLI argument parsing (console_scripts: `open_dirac`)
+src/physics_intern/
+  main.py              — Entry point, CLI argument parsing (console_scripts: `physics_intern`)
   engine.py            — Main loop driver: orchestrate → validate → enrich → dispatch → route critiques → git (delegates to control/ modules)
   llm.py               — Provider-agnostic LLM wrapper (call_llm, run_agent_loop) with retry + audit logging
   config.default.yaml  — Single source of truth for all default values
@@ -711,7 +711,7 @@ src/open_dirac/
     shared.py          — Shared context primitives (XML wrappers, sanity-check rendering, problem guidelines)
                          (Per-agent context renderers now live in `agents/<name>/context.py`)
   verification/
-    cli.py             — CLI entry for `python -m open_dirac.verification`
+    cli.py             — CLI entry for `python -m physics_intern.verification`
     diagnosis.py       — Unified diagnosis pass (replaces verify.py + process_auditor)
     diagnosis.md       — Diagnosis prompt
     evaluate.py        — Answer evaluation: symbolic (SymPy) and numerical comparison
@@ -719,7 +719,7 @@ src/open_dirac/
     event_summary.py   — Event log summarisation for diagnosis
     workspace.py       — Workspace loading helpers for verification
   autophysicist/
-    __main__.py        — Module entry point (`python -m open_dirac.autophysicist`)
+    __main__.py        — Module entry point (`python -m physics_intern.autophysicist`)
     runner.py          — Autophysicist entry point: CLI, iteration loop, formal evaluation
     tools.py           — Tool executor: dispatch_subagent, memory writes, end_turn, submit_final_answer
     subagent.py        — Ephemeral sub-agent dispatch with optional sandboxed code execution
@@ -752,11 +752,11 @@ scripts/
   run_and_verify.sh    — Run a problem then verify results in one command
   one_shot_batch.sh    — Batch-run one-shot baseline across multiple problems
   test_model.py        — Smoke-test a model's reasoning and tool-call support
-  run_multiple.py      — Run N concurrent open_dirac instances for pass@k
+  run_multiple.py      — Run N concurrent physics_intern instances for pass@k
   run_multiple_oneshot.py — Run N concurrent one-shot instances for pass@k
   run_multiple_rsa.py  — Run N concurrent RSA instances for pass@k
   run_multiple_autophysicist.py — Run N concurrent autophysicist instances for pass@k
-  run_critpt_open_dirac.py — Batch-run CritPt problems through the full pipeline
+  run_critpt_physics_intern.py — Batch-run CritPt problems through the full pipeline
   run_critpt_oneshot.py — Batch-run CritPt problems through one-shot baseline
   run_critpt_two_steps.py — Batch-run CritPt problems through two-step baseline
   run_critpt_rsa.py    — Batch-run CritPt problems through RSA

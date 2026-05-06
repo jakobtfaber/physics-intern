@@ -1,10 +1,10 @@
-"""Tests for open_dirac.baselines.call.run_baseline_call."""
+"""Tests for physics_intern.baselines.call.run_baseline_call."""
 
 from unittest.mock import MagicMock, patch
 
-from open_dirac.baselines.call import run_baseline_call
-from open_dirac.core.config import Config
-from open_dirac.providers.base import ProviderResponse
+from physics_intern.baselines.call import run_baseline_call
+from physics_intern.core.config import Config
+from physics_intern.providers.base import ProviderResponse
 
 
 def _make_config(**overrides):
@@ -79,7 +79,7 @@ def test_invokes_max_tokens_continuation_when_truncated():
         output_tokens=9,
     )
     with patch(
-        "open_dirac.baselines.call.continue_on_max_tokens",
+        "physics_intern.baselines.call.continue_on_max_tokens",
         return_value=cont_response,
     ) as mock_cont:
         result = run_baseline_call(

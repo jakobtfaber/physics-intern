@@ -9,7 +9,7 @@ model: opus
 
 Read README.md to understand how the Autophysicist research mode works (single-agent iterative loop with ephemeral sub-agents).
 
-Given a workspace directory (under `workspaces/` in the OpenDirac project — autophysicist runs end in `_autophysicist`; legacy runs may live under `workspaces/autophysicist/`), perform a systematic post-mortem analysis of the run. The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
+Given a workspace directory (under `workspaces/` in the PhysicsIntern project — autophysicist runs end in `_autophysicist`; legacy runs may live under `workspaces/autophysicist/`), perform a systematic post-mortem analysis of the run. The user may provide a folder name or path; if ambiguous, list available workspaces and ask.
 
 Check `references/` in the project root for a reference document matching the problem. These files describe what a correct answer looks like and what a typical successful run looks like for known problems. The reference is written for the vanilla multi-agent pipeline, but the correct answer and key pitfalls still apply.
 
@@ -266,7 +266,7 @@ For every failure or significant inefficiency, trace it to its **root cause** us
 
 Based on the above analysis, provide specific, actionable insights in these categories:
 
-- **Manager prompt improvements** — Changes to the Research Manager system prompt (at `src/open_dirac/autophysicist/prompt.md`) that would have prevented the observed failures. E.g., stronger guidance on verification protocol, better instructions for memory management, explicit anti-patterns to avoid.
+- **Manager prompt improvements** — Changes to the Research Manager system prompt (at `src/physics_intern/autophysicist/prompt.md`) that would have prevented the observed failures. E.g., stronger guidance on verification protocol, better instructions for memory management, explicit anti-patterns to avoid.
 - **Sub-agent design patterns** — Reusable patterns for effective sub-agent prompts observed in this run (or patterns that should have been used). E.g., always include the problem statement in computational sub-agent prompts, always ask verification sub-agents to produce an independent computation rather than just reviewing.
 - **Scaffold adjustments** — Changes to budget parameters, tool call caps, scratchpad window size, or other configuration that would have helped. E.g., if the scratchpad window was too small and critical context was lost, recommend increasing it.
 - **Verification protocol** — Specific verification strategies that would have caught the errors observed in this run. E.g., "For this problem, the Manager should have dispatched a computational cross-check sub-agent before writing the analytical result to permanent memory."

@@ -4,8 +4,8 @@ import tempfile
 from unittest.mock import MagicMock
 
 
-from open_dirac.agents.critic import CriticAgent, _parse_critic_json
-from open_dirac.state.research_state import (
+from physics_intern.agents.critic import CriticAgent, _parse_critic_json
+from physics_intern.state.research_state import (
     Critique,
     CritiqueStatus,
     Hypothesis,

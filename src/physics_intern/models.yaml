@@ -1,0 +1,476 @@
+# PhysicsIntern model registry
+# Friendly keys map to provider + model_id + env_key
+# Use with: --model <key> (e.g., --model gemini-3-flash-preview)
+# Costs are in USD per million tokens
+
+# ============================================================================
+# Anthropic
+# ============================================================================
+
+claude-4.6-opus:
+  provider: anthropic
+  model_id: claude-opus-4-6
+  env_key: ANTHROPIC_API_KEY
+  input_cost: 5.00
+  output_cost: 25.00
+  max_output_tokens: 128000
+  thinking: true
+  effort: medium
+
+claude-4.6-sonnet:
+  provider: anthropic
+  model_id: claude-sonnet-4-6
+  env_key: ANTHROPIC_API_KEY
+  input_cost: 3.00
+  output_cost: 15.00
+  max_output_tokens: 65536
+  thinking: true
+  effort: medium
+
+# ============================================================================
+# OpenAI
+# ============================================================================
+
+gpt-5.4-xhigh:
+  provider: openai
+  model_id: gpt-5.4
+  env_key: OPENAI_API_KEY
+  input_cost: 2.50
+  output_cost: 15.00
+  max_output_tokens: 128000
+  reasoning_effort: xhigh
+
+gpt-5.4-high:
+  provider: openai
+  model_id: gpt-5.4
+  env_key: OPENAI_API_KEY
+  input_cost: 2.50
+  output_cost: 15.00
+  max_output_tokens: 128000
+  reasoning_effort: high
+
+gpt-5.4-medium:
+  provider: openai
+  model_id: gpt-5.4
+  env_key: OPENAI_API_KEY
+  input_cost: 2.50
+  output_cost: 15.00
+  max_output_tokens: 128000
+  reasoning_effort: medium
+
+gpt-5.4-pro:
+  provider: openai
+  model_id: gpt-5.4-pro-2026-03-05
+  env_key: OPENAI_API_KEY
+  input_cost: 30.00
+  output_cost: 180.00
+  max_output_tokens: 128000
+  reasoning_effort: medium
+
+gpt-5.4-mini-medium:
+  provider: openai
+  model_id: gpt-5.4-mini-2026-03-17
+  env_key: OPENAI_API_KEY
+  input_cost: 0.75
+  output_cost: 4.5
+  max_output_tokens: 128000
+  reasoning_effort: medium
+
+gpt-5.5-high:
+  provider: openai
+  model_id: gpt-5.5-2026-04-23
+  env_key: OPENAI_API_KEY
+  input_cost: 5.00
+  output_cost: 30.00
+  max_output_tokens: 128000
+  reasoning_effort: high
+
+gpt-5.5-xhigh:
+  provider: openai
+  model_id: gpt-5.5-2026-04-23
+  env_key: OPENAI_API_KEY
+  input_cost: 5.00
+  output_cost: 30.00
+  max_output_tokens: 128000
+  reasoning_effort: xhigh
+
+# ============================================================================
+# Google
+# ============================================================================
+
+gemini-3.1-pro-preview:
+  provider: google
+  model_id: gemini-3.1-pro-preview
+  env_key: GOOGLE_API_KEY
+  input_cost: 2.00
+  output_cost: 12.00
+  max_output_tokens: 65536
+  thinking_level: high
+
+gemini-3-flash-preview-medium:
+  provider: google
+  model_id: gemini-3-flash-preview
+  env_key: GOOGLE_API_KEY
+  input_cost: 0.5
+  output_cost: 3.00
+  max_output_tokens: 65536
+  thinking_level: medium
+
+gemini-3-flash-preview-high:
+  provider: google
+  model_id: gemini-3-flash-preview
+  env_key: GOOGLE_API_KEY
+  input_cost: 0.5
+  output_cost: 3.00
+  max_output_tokens: 65536
+  thinking_level: high
+
+# ============================================================================
+# HuggingFace Inference Providers
+# Costs are approximate — depend on backend provider route (Together, Fireworks, etc.)
+# ============================================================================
+
+deepseek-v3.2:
+  provider: huggingface
+  model_id: deepseek-ai/DeepSeek-V3.2
+  env_key: HF_TOKEN
+  input_cost: 0.56
+  output_cost: 1.68
+  max_output_tokens: 65536
+  reasoning_format: think_tags
+  hf_provider: novita
+
+kimi-k2.5:
+  provider: huggingface
+  model_id: moonshotai/Kimi-K2.5
+  env_key: HF_TOKEN
+  input_cost: 0.50
+  output_cost: 2.80
+  max_output_tokens: 65536
+  reasoning_format: separate_field
+
+glm-5:
+  provider: huggingface
+  model_id: zai-org/GLM-5
+  env_key: HF_TOKEN
+  input_cost: 1.00
+  output_cost: 3.20
+  max_output_tokens: 65536
+  reasoning_format: separate_field
+
+glm-5.1:
+  provider: huggingface
+  model_id: zai-org/GLM-5.1
+  env_key: HF_TOKEN
+  input_cost: 1.40
+  output_cost: 4.40
+  max_output_tokens: 65536
+  reasoning_format: separate_field
+  hf_provider: together
+
+gpt-oss-120b:
+  provider: huggingface
+  model_id: openai/gpt-oss-120b
+  env_key: HF_TOKEN
+  input_cost: 0.25
+  output_cost: 0.69
+  max_output_tokens: 65536
+  reasoning_format: separate_field
+
+minimax-m2.5:
+  provider: huggingface
+  model_id: MiniMaxAI/MiniMax-M2.5
+  env_key: HF_TOKEN
+  input_cost: 0.30
+  output_cost: 1.20
+  max_output_tokens: 65536
+
+qwen-3.5-397B-A17B:
+  provider: huggingface
+  model_id: Qwen/Qwen3.5-397B-A17B
+  env_key: HF_TOKEN
+  input_cost: 0.60
+  output_cost: 3.60
+  max_output_tokens: 65536
+  reasoning_format: think_tags
+
+# ============================================================================
+# vLLM (local endpoints)
+# ============================================================================
+
+Qwen/Qwen3.5-4B:
+  provider: vllm
+  model_id: Qwen/Qwen3.5-4B
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  max_output_tokens: 65536
+  reasoning_format: think_tags
+  tool_mode: api
+  serve:
+    reasoning_parser: qwen3
+    vllm_args:
+      - --enable-auto-tool-choice
+      - --tool-call-parser qwen3_coder
+
+nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16:
+  provider: vllm
+  model_id: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  max_output_tokens: 65536
+  reasoning_format: think_tags
+  tool_mode: xml_text
+  serve:
+    reasoning_parser: nano_v3
+    vllm_args:
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser qwen3_coder
+      - --max-num-seqs 8
+
+nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:
+  provider: vllm
+  model_id: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  max_output_tokens: 192000
+  reasoning_format: think_tags
+  tool_mode: xml_text
+  serve:
+    gpus_per_node: 8
+    reasoning_parser: nemotron_v3
+    vllm_args:
+      - --async-scheduling
+      - --dtype auto
+      - --kv-cache-dtype fp8
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser qwen3_coder
+      - --gpu-memory-utilization 0.9
+      - --max-cudagraph-capture-size 128
+      - --enable-chunked-prefill
+      - --mamba-ssm-cache-dtype float16
+      - --enable-expert-parallel
+
+nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8:
+  provider: vllm
+  model_id: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  max_output_tokens: 65536
+  reasoning_format: think_tags
+  tool_mode: xml_text
+  serve:
+    gpus_per_node: 8
+    reasoning_parser: nemotron_v3
+    vllm_args:
+      - --async-scheduling
+      - --dtype auto
+      - --kv-cache-dtype fp8
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser qwen3_coder
+      - --gpu-memory-utilization 0.9
+      - --max-cudagraph-capture-size 128
+      - --enable-chunked-prefill
+      - --mamba-ssm-cache-dtype float16
+      - --enable-expert-parallel
+
+nvidia/Nemotron-Cascade-2-30B-A3B:
+  provider: vllm
+  model_id: nvidia/Nemotron-Cascade-2-30B-A3B
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  max_output_tokens: 65536
+  reasoning_format: think_tags
+  tool_mode: xml_text
+  serve:
+    reasoning_parser: nemotron_v3
+    vllm_args:
+      - --gpu-memory-utilization 0.9
+      - --trust-remote-code
+      - --mamba-ssm-cache-dtype float32
+      - --enable-auto-tool-choice
+      - --tool-call-parser qwen3_coder
+
+# GLM-5.1: 3 nodes (24 H100), prefetch loader + CUDA graphs. ~46 tok/s
+# single-request, ~202 tok/s aggregate at 8-way concurrency, ~333 tok/s at
+# 16-way concurrency.
+#
+# Experiments tried (all kept here as a record):
+# - WINNERS:
+# - --safetensors-load-strategy prefetch  → CHOSEN. Worker weight load went
+#   from 2214s (~37 min, warm page cache, no prefetch) to 128s (~2 min, warm
+#   page cache, prefetch) in the earlier run. Warm-cache reloads during the
+#   final sweep were still slower (~18-22 min on BF16), but prefetch remains
+#   the least bad loader for WekaFS.
+# - no --enforce-eager  → CHOSEN. The previous eager requirement was an
+#   environment issue: DeepGEMM JIT tried to use an unwritable/ephemeral cache
+#   and the old CUDA toolkit. serve.slurm now pins DG_JIT_CACHE_DIR to /fsx
+#   and DG_JIT_NVCC_COMPILER to the loaded cuda/12.9 toolkit, so GLM BF16 can
+#   use torch.compile/CUDA graphs. Throughput improved from ~7.5 tok/s eager
+#   to ~46 tok/s single-request.
+# - DEAD ENDS:
+#   - --load-format runai_streamer  → REJECTED. ~6 min load vs ~2 min prefetch
+#     on a warm cache in the original loader experiment.
+#   - --enable-expert-parallel  → REJECTED. Measured 7.5 tok/s under eager,
+#     identical to baseline. GLM has fewer experts than Kimi (32 vs 384), so
+#     PP=3/TP=8 already distributes them well; explicit EP adds nothing.
+#   - ngram speculative decoding → BLOCKED. vLLM 0.19.1 explicitly disallows
+#     spec decoding with PP > 1 (see vLLM bugs #30436, #35521).
+#   - 4-node BF16 (TP=8/PP=4) → REJECTED as default. This is the apples-to-
+#     apples comparison with Kimi's 4-node shape: ~46 tok/s single-request,
+#     ~257 tok/s aggregate at 8-way concurrency, and ~383 tok/s at 16-way.
+#     It improves aggregate throughput over 3 nodes but not single-request
+#     latency, and the gain is smaller than the extra 33% GPU cost.
+#   - zai-org/GLM-5.1-FP8 → REJECTED on this pip/wheel stack. FP8 no-eager
+#     repeatedly fails in DeepGEMM FP8 warmup with CUDA_ERROR_FILE_NOT_FOUND,
+#     even with isolated DeepGEMM and TorchInductor caches. Eager FP8 serves
+#     but is slow: official MTP=3 measured ~11 tok/s single-request, ~77 tok/s
+#     at 8-way concurrency, and ~157 tok/s at 16-way concurrency.
+zai-org/GLM-5.1:
+  provider: vllm
+  model_id: zai-org/GLM-5.1
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  max_output_tokens: 131072
+  reasoning_format: separate_field
+  tool_mode: api
+  serve:
+    nodes: 3
+    gpus_per_node: 8
+    vllm_args:
+      - --max-model-len 163840
+      - --trust-remote-code
+      - --safetensors-load-strategy prefetch
+
+# Kimi-K2.6: 4 nodes (32 H100). ~92 tok/s single-request, ~558 tok/s aggregate
+# at 8-way concurrency and ~920 tok/s at 16-way concurrency. ~4x faster than
+# the original eager-mode baseline.
+#
+# Experiments tried (all kept here as a record):
+# - WINNERS:
+#   - drop --enforce-eager  → 4x throughput (~22 → ~90 tok/s). Kimi's CUDA
+#     graphs / torch.compile path works fine, unlike GLM's. Single biggest
+#     win in the whole sweep.
+#   - --enable-expert-parallel  → +3-4% on single-request, marginal but free.
+#   - --safetensors-load-strategy prefetch  → KEPT but only matters on a
+#     COLD page cache. First-ever Kimi load on cold WekaFS took 4692s
+#     (~78 min, no prefetch). Subsequent warm-cache loads were 380-560s
+#     (~6-9 min) regardless of whether prefetch was on. So this flag is
+#     defensive: it should give a similar ~10x speedup the first time the
+#     cluster touches Kimi, and is a no-op afterwards.
+# - DEAD ENDS:
+#   - --enable-expert-parallel WITH --enforce-eager → 20.8 tok/s, no win.
+#     The CUDA-graph speedup is the dominant factor; EP only helps once
+#     graphs are on.
+#   - MTP speculative decoding → BLOCKED. Kimi-K2.6's HF config has
+#     num_nextn_predict_layers=0 (K2.6 dropped K2's MTP layers).
+#   - EAGLE/Medusa speculative decoding → BLOCKED. No draft weights ship
+#     with K2.6.
+#   - Suffix speculative decoding → BLOCKED. Requires arctic-inference,
+#     which fails to build here (CMake needs C++20 <span>; system GCC 9.4
+#     lacks it).
+#   - ngram / ngram_gpu speculative decoding (PP=4) → CRASHED. vLLM 0.19.1
+#     spec decoding is unsupported with PP > 1: hit two different bugs.
+#     #30436 (drafter attr accessed on non-last PP rank) is workaroundable
+#     with a one-line `hasattr(self, "drafter")` guard around the spec-decode
+#     metadata block in `vllm/v1/worker/gpu_model_runner.py` (~line 2310);
+#     PR #31266 will fix this upstream. The second bug (a scheduler
+#     `total_num_scheduled_tokens > 0` assert) has no good workaround. So
+#     don't bother applying the patch unless you've also resolved that.
+#   - ngram speculative decoding (PP=2/TP=8) → CRASHED. Same PP+spec issue.
+#   - ngram speculative decoding (single-node TP=8/PP=1/EP) → CRASHED with
+#     a torch._inductor JIT autotuning CUDA_ERROR_FILE_NOT_FOUND
+#     (analogous to GLM's DeepGEMM crash); would have needed --enforce-eager
+#     which kills the throughput win.
+#   - ngram speculative decoding (multi-node TP=16/PP=1/EP, with explicit
+#     `--tp 16 --pp 1` to override serve.slurm's PP=nodes default) → RAN
+#     successfully but only 40-45 tok/s (half the champion). Inter-node TP
+#     all-reduce on IB is 10x slower than intra-node NVLink, and ngram's
+#     12-16% acceptance rate isn't enough to compensate. Also: max-model-len
+#     had to drop from 262k to 131k and gpu-memory-utilization from 0.9 to
+#     0.85 to avoid mid-generation OOM with the ngram drafter buffers.
+#   - --kv-cache-dtype fp8 (champion + fp8 KV-cache) → REJECTED. Warm
+#     single-req ~74 tok/s vs ~90 bf16 (~18% slower from per-step dequant
+#     overhead). The only benefit is ~50% KV-cache memory, which we don't
+#     need: the champion runs at ~12-15% KV utilization at 8-way concurrency.
+#   - PP=2/TP=8 on 2 nodes (half the champion's resources) → ~43 tok/s
+#     single-req vs 90 tok/s on 32 GPUs. Linear per-GPU scaling, no
+#     per-request win from fewer pipeline stages. Confirms that further PP
+#     reduction does not unlock single-request latency on Kimi.
+#   - Final reduced-node comparison with the canonical config:
+#     - 2 nodes (TP=8/PP=2) fits: ~94 tok/s single, ~569 tok/s at 8-way,
+#       ~938 tok/s at 16-way on short synthetic prompts, but KV capacity at
+#       full 262k context is only 3.83x. Good cost/perf for short prompts,
+#       risky as the default for full 8-way CritPt sweeps with long outputs.
+#     - 3 nodes (TP=8/PP=3) fits: ~92 tok/s single, ~547 tok/s at 8-way,
+#       ~920 tok/s at 16-way, with 7.48x full-context concurrency. Nearly
+#       enough for 8-way full-context use, but still less headroom than the
+#       4-node default's 11.12x.
+#   - Kimi-K2.5 recipe-inspired flags on K2.6 → NO WIN. Fresh canonical Kimi
+#     benchmarked ~92 tok/s single, ~558 tok/s aggregate at 8-way, and ~920
+#     tok/s at 16-way. --async-scheduling and --mm-encoder-tp-mode data tied
+#     that within noise. K2.5 Eagle3 draft is blocked: spec decoding cannot
+#     use PP>1, while TP=32/PP=1 fails during Kimi vision-tower init.
+#   - 65k max output tokens → TOO LOW for reasoning-heavy agents. ~50% of
+#     researcher calls hit the limit and wasted 15 min on reasoning without
+#     producing output. Raised to 131k with per-agent overrides for lighter
+#     agents (orchestrator, formatter) via agent_max_tokens config.
+#   - PhysicsIntern agent harness without Kimi tool parser → BROKEN. vLLM rejects
+#     requests with `tool_choice="auto"` unless the server is launched with
+#     --enable-auto-tool-choice and a matching --tool-call-parser. Kimi-K2.6
+#     uses vLLM's `kimi_k2` tool/reasoning parsers.
+#   - Data-parallel scaling across replicas was exercised with external DP
+#     via multi_serve.sh + load_balancer.py. PP=2 (2 nodes/replica) OOMs
+#     under concurrent load at 262k context (CUDA OOM in logits all_gather
+#     on the last PP rank). PP=4 (4 nodes/replica) is the minimum for
+#     stable 262k-context concurrent serving. With 32 nodes: 8 replicas ×
+#     4 nodes each, all requests return 200 OK with zero OOM.
+# - NOT APPLICABLE:
+#   - FlashAttention 4 → not supported on H100 (FA4 needs SM100+ Blackwell;
+#     also doesn't support MLA's non-standard head dims). Kimi already uses
+#     FA3, which IS the latest FA on Hopper.
+moonshotai/Kimi-K2.6:
+  provider: vllm
+  model_id: moonshotai/Kimi-K2.6
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  # PP=4 (4 nodes/replica) supports the full 262k context without OOM.
+  # 128k output tokens gives reasoning-heavy agents room to finish thinking.
+  # Per-agent overrides in agent_max_tokens cap lighter agents (orchestrator,
+  # formatter) to avoid wasting budget on reasoning loops.
+  max_output_tokens: 131072
+  reasoning_format: separate_field
+  tool_mode: api
+  serve:
+    # PP=4 replicas with external load balancing via multi_serve.sh.
+    # PP=2 OOMs under concurrent load at 262k context; PP=4 is the minimum
+    # for stable full-context serving. Default: 4 × 4 = 16 nodes.
+    # Scale up replicas (e.g. 8 for 32 nodes) when capacity is available.
+    replicas: 4
+    nodes_per_replica: 4
+    gpus_per_node: 8
+    reasoning_parser: kimi_k2
+    vllm_args:
+      - --max-model-len 262144
+      - --trust-remote-code
+      - --safetensors-load-strategy prefetch
+      - --enable-expert-parallel
+      - --enable-auto-tool-choice
+      - --tool-call-parser kimi_k2
+
+# NOTE: deepseek-ai/DeepSeek-V4-Pro (1.6T MoE, novel CSA+HCA attention,
+# released 2026-04-24) is NOT runnable on our stack. Two blockers:
+#   1. transformers does not recognise model_type="deepseek_v4".
+#   2. vLLM 0.19.1's model registry has no DeepseekV4ForCausalLM entry; only
+#      V2/V3/V3.2 + GlmMoeDsa. Even hacking transformers won't help - vLLM
+#      has no kernels for the new sparse attention.
+# Revisit once vLLM 0.20+ ships DSV4 support.

@@ -1,6 +1,6 @@
 """Tests for reasoning token tracking across providers."""
 
-from open_dirac.providers.base import (
+from physics_intern.providers.base import (
     ProviderResponse,
     estimate_answer_tokens,
     estimate_reasoning_tokens,
@@ -256,7 +256,7 @@ class TestProviderResponseInvariant:
 
 class TestLLMWrapperFields:
     def test_llm_response_defaults(self):
-        from open_dirac.llm import LLMResponse
+        from physics_intern.llm import LLMResponse
 
         resp = LLMResponse(
             text="hi",
@@ -269,7 +269,7 @@ class TestLLMWrapperFields:
         assert resp.answer_tokens == 0
 
     def test_llm_response_with_reasoning(self):
-        from open_dirac.llm import LLMResponse
+        from physics_intern.llm import LLMResponse
 
         resp = LLMResponse(
             text="hi",
@@ -284,14 +284,14 @@ class TestLLMWrapperFields:
         assert resp.answer_tokens == 20
 
     def test_agent_result_defaults(self):
-        from open_dirac.llm import AgentResult
+        from physics_intern.llm import AgentResult
 
         result = AgentResult(text="done")
         assert result.total_reasoning_tokens == 0
         assert result.total_answer_tokens == 0
 
     def test_agent_result_with_reasoning(self):
-        from open_dirac.llm import AgentResult
+        from physics_intern.llm import AgentResult
 
         result = AgentResult(
             text="done", total_reasoning_tokens=500, total_answer_tokens=200

@@ -1,7 +1,7 @@
 """Tests for sandboxed Python execution."""
 
 import tempfile
-from open_dirac.utils.sandbox import execute_python
+from physics_intern.utils.sandbox import execute_python
 
 
 class TestSoftCheckPattern:

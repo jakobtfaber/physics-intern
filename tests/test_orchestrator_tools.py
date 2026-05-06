@@ -2,8 +2,8 @@
 
 from unittest.mock import MagicMock
 
-from open_dirac.agents.orchestrator.tools import OrchestratorToolExecutor
-from open_dirac.state.research_state import (
+from physics_intern.agents.orchestrator.tools import OrchestratorToolExecutor
+from physics_intern.state.research_state import (
     ResearchState,
     ResearchQuestion,
     Hypothesis,
@@ -104,7 +104,7 @@ def _make_state_with_high_critique(target: str = "WH-001") -> ResearchState:
 
 class TestAddHypothesis:
     def test_creates_wh003_in_state(self):
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         ws = _make_workspace()
         state = _make_state()
@@ -152,7 +152,7 @@ class TestAddHypothesis:
 
     def test_blocked_by_wh_cap(self):
         """Cannot create WH when >= 2 working hypotheses exist."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = _make_state()  # 2 working WHs
@@ -174,7 +174,7 @@ class TestAddHypothesis:
 
     def test_blocked_by_unresolved_critiques(self):
         """Cannot create WH when unresolved critiques exist."""
-        from open_dirac.state.research_state import (
+        from physics_intern.state.research_state import (
             Critique,
             CritiqueStatus,
             ResearchQuestion,
@@ -279,7 +279,7 @@ class TestRqEvidenceCap:
 
     def test_refuted_evidence_not_counted(self):
         """Refuted evidence does not count toward the cap."""
-        from open_dirac.state.research_state import ResearchQuestion, Evidence
+        from physics_intern.state.research_state import ResearchQuestion, Evidence
 
         ws = _make_workspace()
         state = ResearchState()
@@ -517,7 +517,7 @@ class TestTargetClaimValidation:
 
     def test_block_dispatch_on_resolved_rq(self):
         """Resolved RQs should not receive new evidence."""
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         ws = _make_workspace()
         state = _make_state()
@@ -538,7 +538,7 @@ class TestTargetClaimValidation:
 
     def test_block_dispatch_on_abandoned_rq(self):
         """Abandoned RQs should not receive new evidence."""
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         ws = _make_workspace()
         state = _make_state()
@@ -557,7 +557,7 @@ class TestTargetClaimValidation:
 
     def test_allow_dispatch_on_open_rq(self):
         """Open RQs are valid dispatch targets."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = _make_state()
@@ -700,7 +700,7 @@ class TestDependencyGraph:
     """Tests for depends_on in add_hypothesis."""
 
     def test_add_hypothesis_with_depends_on(self):
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = _make_state()
@@ -749,7 +749,7 @@ class TestResearchQuestionTools:
         assert ex.mutations_applied
 
     def test_abandon_research_question(self):
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         ws = _make_workspace()
         state = _make_state()
@@ -787,7 +787,7 @@ class TestResearchQuestionTools:
 
     def test_abandon_already_abandoned_rq_is_idempotent(self):
         """Re-abandoning an already-abandoned RQ returns early without mutation."""
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         ws = _make_workspace()
         state = _make_state()
@@ -815,7 +815,7 @@ class TestResearchQuestionTools:
 
     def test_abandon_resolved_rq_returns_error(self):
         """Cannot abandon an RQ that was auto-resolved by add_hypothesis."""
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         ws = _make_workspace()
         state = _make_state()
@@ -840,7 +840,7 @@ class TestResearchQuestionTools:
 
     def test_add_rq_blocked_by_cap(self):
         """Cannot create RQ when >= max_open_rqs open RQs exist."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = _make_state()
@@ -858,7 +858,11 @@ class TestResearchQuestionTools:
 
     def test_add_rq_blocked_by_unresolved_critiques(self):
         """Cannot create RQ when unresolved critiques exist."""
-        from open_dirac.state.research_state import Critique, CritiqueStatus, Severity
+        from physics_intern.state.research_state import (
+            Critique,
+            CritiqueStatus,
+            Severity,
+        )
 
         ws = _make_workspace()
         state = _make_state()
@@ -876,7 +880,7 @@ class TestResearchQuestionTools:
 
     def test_add_hypothesis_not_blocked_by_medium_critique(self):
         """MEDIUM critique does not block WH creation (severity-gated)."""
-        from open_dirac.state.research_state import (
+        from physics_intern.state.research_state import (
             Critique,
             CritiqueStatus,
             ResearchQuestion,
@@ -911,7 +915,11 @@ class TestResearchQuestionTools:
 
     def test_add_rq_not_blocked_by_low_critique(self):
         """LOW critique does not block RQ creation (severity-gated)."""
-        from open_dirac.state.research_state import Critique, CritiqueStatus, Severity
+        from physics_intern.state.research_state import (
+            Critique,
+            CritiqueStatus,
+            Severity,
+        )
 
         ws = _make_workspace()
         state = ResearchState()
@@ -928,7 +936,7 @@ class TestResearchQuestionTools:
 
     def test_add_hypothesis_from_already_resolved_rq_blocked(self):
         """Creating a WH from an already-resolved RQ is rejected."""
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         ws = _make_workspace()
         state = _make_state()
@@ -965,7 +973,7 @@ class TestDispatchGate:
     @staticmethod
     def _state_with_open_rq():
         """State with WH-001 (working), WH-002 (established), and an open RQ-003 for add_hypothesis calls."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         state = _make_state()
         state.hypotheses["WH-002"].status = HypothesisStatus.ESTABLISHED
@@ -1264,7 +1272,7 @@ class TestTargetClaimValidationSuccess:
         assert ex.stop_after_round
 
     def test_valid_rq_target_passes(self):
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = _make_state()
@@ -1379,7 +1387,7 @@ class TestFocusGuard:
 
     def test_dangling_refuted_wh_blocks_rq_dispatch(self):
         """A REFUTED WH blocks dispatch to any RQ."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = ResearchState()
@@ -1410,7 +1418,7 @@ class TestFocusGuard:
 
     def test_dangling_inconclusive_wh_blocks_rq_dispatch(self):
         """An INCONCLUSIVE WH blocks dispatch to any RQ."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = ResearchState()
@@ -1463,7 +1471,7 @@ class TestFocusGuard:
 
     def test_serial_rq_blocks_second_rq_with_evidence(self):
         """Cannot dispatch to RQ-002 when RQ-001 already has evidence."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = ResearchState()
@@ -1490,7 +1498,7 @@ class TestFocusGuard:
 
     def test_serial_rq_allows_same_rq(self):
         """Dispatch to RQ-001 allowed when RQ-001 already has evidence."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = ResearchState()
@@ -1510,7 +1518,7 @@ class TestFocusGuard:
 
     def test_serial_rq_allows_when_no_evidence(self):
         """Two open RQs with no evidence — dispatch to either is fine."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = ResearchState()
@@ -1586,7 +1594,7 @@ class TestFocusGuard:
 
     def test_verified_wh_does_not_block_rq_dispatch(self):
         """VERIFIED WHs are not dangling — don't block RQ dispatch."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = ResearchState()
@@ -1613,7 +1621,7 @@ class TestFocusGuard:
 
     def test_no_review_wh_does_not_block_rq_dispatch(self):
         """WH without any review is not dangling — doesn't block RQ dispatch."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         ws = _make_workspace()
         state = ResearchState()

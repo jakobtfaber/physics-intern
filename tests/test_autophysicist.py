@@ -3,13 +3,13 @@
 import textwrap
 
 
-from open_dirac.autophysicist.memory import PermanentMemory, Scratchpad
-from open_dirac.autophysicist.subagent import (
+from physics_intern.autophysicist.memory import PermanentMemory, Scratchpad
+from physics_intern.autophysicist.subagent import (
     SubAgentResult,
     _extract_python_code,
 )
-from open_dirac.autophysicist.tools import ManagerToolExecutor
-from open_dirac.core.config import Config
+from physics_intern.autophysicist.tools import ManagerToolExecutor
+from physics_intern.core.config import Config
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +307,7 @@ class TestContextAssembly:
     """Test the _build_user_content function from runner."""
 
     def test_empty_state(self, tmp_path):
-        from open_dirac.autophysicist.runner import _build_user_content
+        from physics_intern.autophysicist.runner import _build_user_content
 
         mem = PermanentMemory(tmp_path)
         sp = Scratchpad(tmp_path)
@@ -317,7 +317,7 @@ class TestContextAssembly:
         assert "Empty" in content  # both memory and scratchpad empty
 
     def test_with_answer_template(self, tmp_path):
-        from open_dirac.autophysicist.runner import _build_user_content
+        from physics_intern.autophysicist.runner import _build_user_content
 
         mem = PermanentMemory(tmp_path)
         sp = Scratchpad(tmp_path)
@@ -328,7 +328,7 @@ class TestContextAssembly:
         assert "```python" in content
 
     def test_empty_answer_template_omitted(self, tmp_path):
-        from open_dirac.autophysicist.runner import _build_user_content
+        from physics_intern.autophysicist.runner import _build_user_content
 
         mem = PermanentMemory(tmp_path)
         sp = Scratchpad(tmp_path)
@@ -336,7 +336,7 @@ class TestContextAssembly:
         assert "<answer_template>" not in content
 
     def test_with_populated_state(self, tmp_path):
-        from open_dirac.autophysicist.runner import _build_user_content
+        from physics_intern.autophysicist.runner import _build_user_content
 
         mem = PermanentMemory(tmp_path)
         mem.append("Verified: 2+2=4", iteration=1)

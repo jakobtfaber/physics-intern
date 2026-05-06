@@ -2,12 +2,12 @@
 
 import pytest
 
-from open_dirac.agents.orchestrator import OrchestratorAgent
-from open_dirac.core.config import Config
-from open_dirac.core.metrics import MetricsTracker
-from open_dirac.state.research_state import ResearchState
-from open_dirac.state.task import Task, TaskType
-from open_dirac.core.workspace import WorkspaceManager
+from physics_intern.agents.orchestrator import OrchestratorAgent
+from physics_intern.core.config import Config
+from physics_intern.core.metrics import MetricsTracker
+from physics_intern.state.research_state import ResearchState
+from physics_intern.state.task import Task, TaskType
+from physics_intern.core.workspace import WorkspaceManager
 
 _EMPTY_TASK = Task(task_id="", task_type=TaskType.RESEARCH, assigned_to="orchestrator")
 

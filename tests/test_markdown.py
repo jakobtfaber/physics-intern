@@ -1,7 +1,7 @@
 """Tests for markdown parsing utilities."""
 
 from pathlib import Path
-from open_dirac.utils.markdown import (
+from physics_intern.utils.markdown import (
     parse_frontmatter,
     render_frontmatter,
     tail_entries,
@@ -716,7 +716,7 @@ class TestWithdrawnStatus:
     def test_withdrawn_counted_in_total(self):
         """WITHDRAWN critiques should count in total_critiques."""
         text = "## CRIT-020 [MEDIUM] [WITHDRAWN]\n- **Target:** WH-005\n"
-        from open_dirac.utils.markdown import recount_critique_metadata
+        from physics_intern.utils.markdown import recount_critique_metadata
 
         meta = recount_critique_metadata(text)
         assert meta["total_critiques"] == 1

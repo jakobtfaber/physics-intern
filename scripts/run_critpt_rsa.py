@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run CritPt benchmark problems through RSA (Recursive Self-Aggregation).
 
-Each problem = N*T LLM calls via `open_dirac.rsa`. Produces CritPt-format
+Each problem = N*T LLM calls via `physics_intern.rsa`. Produces CritPt-format
 submission JSONs progressively. Supports resume from interrupted runs.
 
 Usage:
@@ -43,7 +43,7 @@ from run_critpt_common import (
     setup_signal_handler,
     print_final_summary,
 )
-from open_dirac.verification.evaluate import extract_answer_code  # noqa: E402
+from physics_intern.verification.evaluate import extract_answer_code  # noqa: E402
 
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt_rsa"
 
@@ -180,7 +180,7 @@ async def run_one_problem(
             "run",
             "python",
             "-m",
-            "open_dirac.rsa",
+            "physics_intern.rsa",
             str(problem.yaml_path),
             "--model",
             model_key,
@@ -351,7 +351,7 @@ async def run_batch(args: argparse.Namespace) -> int:
         return 0
 
     generation_config = {
-        "system": "open_dirac_rsa",
+        "system": "physics_intern_rsa",
         "model_key": args.model,
         "rsa_N": N,
         "rsa_K": K,

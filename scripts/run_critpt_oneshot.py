@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run all 70 CritPt benchmark problems through the one-shot baseline with rolling parallelism.
 
-Each problem = one LLM call via `open_dirac.one_shot`. Produces CritPt-format
+Each problem = one LLM call via `physics_intern.one_shot`. Produces CritPt-format
 submission JSONs progressively. Supports resume from interrupted runs.
 
 Usage:
@@ -42,7 +42,7 @@ from run_critpt_common import (
     setup_signal_handler,
     print_final_summary,
 )
-from open_dirac.verification.evaluate import extract_answer_code  # noqa: E402
+from physics_intern.verification.evaluate import extract_answer_code  # noqa: E402
 
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt_oneshot"
 
@@ -155,7 +155,7 @@ async def run_one_problem(
             "run",
             "python",
             "-m",
-            "open_dirac.one_shot",
+            "physics_intern.one_shot",
             str(problem.yaml_path),
             "--model",
             model_key,
@@ -305,7 +305,7 @@ async def run_batch(args: argparse.Namespace) -> int:
         return 0
 
     generation_config = {
-        "system": "open_dirac_one_shot",
+        "system": "physics_intern_one_shot",
         "model_key": args.model,
         "use_python": False,
         "use_web_search": False,

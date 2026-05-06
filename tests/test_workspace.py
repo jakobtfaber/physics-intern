@@ -3,8 +3,8 @@
 import inspect
 import subprocess
 
-from open_dirac.core.config import Config
-from open_dirac.core.workspace import WorkspaceManager
+from physics_intern.core.config import Config
+from physics_intern.core.workspace import WorkspaceManager
 
 
 def _make_ws(tmp_path, init=True):

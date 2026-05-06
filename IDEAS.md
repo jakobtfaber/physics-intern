@@ -1,4 +1,4 @@
-# OpenDirac — Task List
+# PhysicsIntern — Task List
 
 
 ## LONGER TERM

@@ -1,8 +1,8 @@
-"""Tests for open_dirac.verification.evaluate — answer evaluation module."""
+"""Tests for physics_intern.verification.evaluate — answer evaluation module."""
 
 import sympy as sp
 
-from open_dirac.verification.evaluate import (
+from physics_intern.verification.evaluate import (
     evaluate_response,
     extract_answer_code,
     _classify_answer_type,

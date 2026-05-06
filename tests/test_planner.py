@@ -2,11 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
-from open_dirac.agents.planner import PlannerAgent, _parse_planner_json
-from open_dirac.core.config import Config
-from open_dirac.engine import LoopState
-from open_dirac.llm import LLMResponse
-from open_dirac.state.research_state import (
+from physics_intern.agents.planner import PlannerAgent, _parse_planner_json
+from physics_intern.core.config import Config
+from physics_intern.engine import LoopState
+from physics_intern.llm import LLMResponse
+from physics_intern.state.research_state import (
     Evidence,
     FailedApproach,
     Hypothesis,
@@ -16,7 +16,7 @@ from open_dirac.state.research_state import (
     ReviewResult,
     RQStatus,
 )
-from open_dirac.state.task import Task, TaskType
+from physics_intern.state.task import Task, TaskType
 
 
 def _safe_path_mock() -> MagicMock:
@@ -651,7 +651,7 @@ class TestEngineApplyStrategy:
     """Test engine._apply_strategy() stores strategy in research state."""
 
     def _make_engine(self):
-        with patch("open_dirac.engine.WorkspaceManager") as MockWS:
+        with patch("physics_intern.engine.WorkspaceManager") as MockWS:
             ws = MockWS.return_value
             ws.init = MagicMock()
             ws.root = MagicMock()
@@ -661,9 +661,9 @@ class TestEngineApplyStrategy:
             ws.git_commit = MagicMock()
             ws.file_size = MagicMock(return_value=0)
 
-            from open_dirac.engine import OpenDirac
+            from physics_intern.engine import PhysicsIntern
 
-            engine = OpenDirac.__new__(OpenDirac)
+            engine = PhysicsIntern.__new__(PhysicsIntern)
             engine.config = Config()
             engine.research_state = ResearchState(
                 problem_statement="Derive Hawking temperature.",
@@ -711,7 +711,7 @@ class TestTaskTypePlanRevise:
         assert TaskType.PLAN_REVISE == "plan_revise"
 
     def test_plan_revise_maps_to_planner(self):
-        from open_dirac.state.task import TASK_TYPE_AGENT_MAP
+        from physics_intern.state.task import TASK_TYPE_AGENT_MAP
 
         assert TASK_TYPE_AGENT_MAP[TaskType.PLAN_REVISE] == "planner"
 

@@ -4,16 +4,16 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from open_dirac.agents.adjudicator import AdjudicatorAgent, _parse_adjudication_json
-from open_dirac.llm import LLMResponse
-from open_dirac.state.research_state import (
+from physics_intern.agents.adjudicator import AdjudicatorAgent, _parse_adjudication_json
+from physics_intern.llm import LLMResponse
+from physics_intern.state.research_state import (
     Evidence,
     Hypothesis,
     HypothesisStatus,
     ResearchState,
     ReviewResult,
 )
-from open_dirac.state.task import Task, TaskType
+from physics_intern.state.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------

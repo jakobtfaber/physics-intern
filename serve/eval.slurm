@@ -1,5 +1,5 @@
 #!/bin/bash
-# One-shot evaluation job for OpenDirac.
+# One-shot evaluation job for PhysicsIntern.
 #
 # Usage (self-submits via sbatch when run outside Slurm):
 #   ./serve/eval.slurm --model MODEL_KEY --problem PROBLEM_YAML [options]
@@ -240,7 +240,7 @@ if [[ -n "$SERVE_JOB" ]]; then
 fi
 
 ONE_SHOT_CMD=(
-  uv run --no-sync python -m open_dirac.one_shot
+  uv run --no-sync python -m physics_intern.one_shot
   "$PROBLEM"
   --model "$MODEL_KEY"
 )

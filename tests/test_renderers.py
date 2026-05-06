@@ -2,21 +2,21 @@
 
 import pytest
 
-from open_dirac.utils.markdown import parse_frontmatter
-from open_dirac.rendering import (
+from physics_intern.utils.markdown import parse_frontmatter
+from physics_intern.rendering import (
     render_background_survey,
     render_critique_log_md,
     render_evidence_log_md,
     render_research_state_md,
 )
-from open_dirac.agents.critic.context import (
+from physics_intern.agents.critic.context import (
     render_critic_context,
     render_critic_previous_critiques,
 )
-from open_dirac.agents.formatter.context import render_formatter_context
-from open_dirac.agents.orchestrator.context import render_orchestrator_slim_state
-from open_dirac.agents.planner.context import render_planner_revise_context
-from open_dirac.state.research_state import (
+from physics_intern.agents.formatter.context import render_formatter_context
+from physics_intern.agents.orchestrator.context import render_orchestrator_slim_state
+from physics_intern.agents.planner.context import render_planner_revise_context
+from physics_intern.state.research_state import (
     Critique,
     CritiqueStatus,
     Evidence,
@@ -29,7 +29,7 @@ from open_dirac.state.research_state import (
     ReviewResult,
     SanityCheck,
 )
-from open_dirac.state.task import Task, TaskType
+from physics_intern.state.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +296,7 @@ class TestRenderResearchStateMd:
         assert "**Depends on:**" not in md
 
     def test_research_questions_section_rendered(self):
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -380,7 +380,7 @@ class TestRenderEvidenceLogMd:
 
     def test_rq_evidence_rendered(self):
         """Evidence on research questions appears in evidence log."""
-        from open_dirac.state.research_state import ResearchQuestion
+        from physics_intern.state.research_state import ResearchQuestion
 
         state = ResearchState()
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -460,7 +460,7 @@ class TestRenderEvidenceLogMd:
 
     def test_promoted_rq_shows_cross_reference(self):
         """When RQ evidence was copied to a WH, the RQ entry should be a short cross-reference."""
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         ev = Evidence(
             type="compute",
@@ -745,7 +745,7 @@ class TestRenderBackgroundSurvey:
 class TestCollapsedResolvedRQs:
     def test_resolved_rq_to_er_omitted(self):
         """Resolved RQ pointing to an ER is omitted (already in established-results)."""
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -815,7 +815,7 @@ class TestPlannerReviseEnrichedContext:
 
     def test_rqs_shown_in_revise_context(self):
         """RQs are rendered (read-only) so the planner has ground truth on RQ state."""
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         state = ResearchState(problem_statement="Test")
         state.research_questions["RQ-001"] = ResearchQuestion(
@@ -868,7 +868,7 @@ class TestPlannerReviseEnrichedContext:
         assert "<critic-clean-reviews>" not in text
 
     def test_research_state_shows_ers_and_rqs_but_not_whs(self):
-        from open_dirac.state.research_state import ResearchQuestion, RQStatus
+        from physics_intern.state.research_state import ResearchQuestion, RQStatus
 
         state = ResearchState(problem_statement="Test")
         state.hypotheses["ER-001"] = Hypothesis(

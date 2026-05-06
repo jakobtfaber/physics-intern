@@ -18,11 +18,11 @@ from pathlib import Path
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODELS_YAML = PROJECT_ROOT / "src" / "open_dirac" / "models.yaml"
+MODELS_YAML = PROJECT_ROOT / "src" / "physics_intern" / "models.yaml"
 DEFAULT_PROBLEMS_DIR = PROJECT_ROOT / "problems" / "critpt" / "yaml"
 
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
-from open_dirac.core.config import DEFAULTS  # noqa: E402
+from physics_intern.core.config import DEFAULTS  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ from open_dirac.core.config import DEFAULTS  # noqa: E402
 
 
 def resolve_critpt_model_string(model_key: str) -> str:
-    """Convert OpenDirac model key to CritPt format 'provider/model_id'."""
+    """Convert PhysicsIntern model key to CritPt format 'provider/model_id'."""
     if not MODELS_YAML.exists():
         return model_key
     registry = yaml.safe_load(MODELS_YAML.read_text())

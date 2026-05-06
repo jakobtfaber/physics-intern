@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from open_dirac.providers.vllm import VLLMProvider
+from physics_intern.providers.vllm import VLLMProvider
 
 
 # ---------------------------------------------------------------------------

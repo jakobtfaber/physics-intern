@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-# Add src to path so we can import open_dirac
+# Add src to path so we can import physics_intern
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from dotenv import load_dotenv
@@ -25,14 +25,14 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
-from open_dirac.core.config import _resolve_model
-from open_dirac.providers import create_provider
+from physics_intern.core.config import _resolve_model
+from physics_intern.providers import create_provider
 
 console = Console()
 
 
 def load_registry() -> dict:
-    path = Path(__file__).parent.parent / "src" / "open_dirac" / "models.yaml"
+    path = Path(__file__).parent.parent / "src" / "physics_intern" / "models.yaml"
     with open(path) as f:
         return yaml.safe_load(f)
 

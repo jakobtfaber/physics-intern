@@ -3,8 +3,8 @@
 import json
 
 
-from open_dirac.core.config import Config
-from open_dirac.core.workspace import log_llm_call, log_scaffold_event
+from physics_intern.core.config import Config
+from physics_intern.core.workspace import log_llm_call, log_scaffold_event
 
 
 class TestLogScaffoldEvent:
@@ -55,9 +55,9 @@ class TestValidatePostIntegrationLogs:
 
     def test_violations_are_logged(self, tmp_path):
         """Set up state with phantom VERIFIED label, verify EVENT_LOG.jsonl gets state_invariants event."""
-        from open_dirac.core.workspace import WorkspaceManager
-        from open_dirac.control.validation import validate_post_integration
-        from open_dirac.state.research_state import ResearchState, Hypothesis
+        from physics_intern.core.workspace import WorkspaceManager
+        from physics_intern.control.validation import validate_post_integration
+        from physics_intern.state.research_state import ResearchState, Hypothesis
 
         config = Config(workspace_dir=str(tmp_path / "ws"))
         ws = WorkspaceManager(config)

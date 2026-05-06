@@ -1,6 +1,6 @@
 """Tests for console output logging and replay."""
 
-from open_dirac.core.console import LoggingConsole, replay_log
+from physics_intern.core.console import LoggingConsole, replay_log
 
 
 class TestLoggingConsole:

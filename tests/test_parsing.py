@@ -1,10 +1,10 @@
-"""Tests for shared JSON parsing utilities in open_dirac.agents.parsing."""
+"""Tests for shared JSON parsing utilities in physics_intern.agents.parsing."""
 
 import json
 
 import pytest
 
-from open_dirac.agents.parsing import (
+from physics_intern.agents.parsing import (
     extract_json_with_error,
     fix_invalid_json_escapes,
     try_json_loads,

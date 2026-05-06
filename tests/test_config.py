@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from open_dirac.core.config import (
+from physics_intern.core.config import (
     Config,
     DEFAULTS,
     _YAML_CONFIG_FIELDS,
@@ -19,7 +19,7 @@ from open_dirac.core.config import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODELS_YAML = PROJECT_ROOT / "src" / "open_dirac" / "models.yaml"
+MODELS_YAML = PROJECT_ROOT / "src" / "physics_intern" / "models.yaml"
 RESOLVE_SERVE_CONFIG = PROJECT_ROOT / "serve" / "resolve_serve_config.py"
 
 
@@ -345,7 +345,7 @@ class TestResolveServeConfig:
 
 class TestMainParser:
     def test_basic_args(self):
-        from open_dirac.main import build_parser
+        from physics_intern.main import build_parser
 
         parser = build_parser()
         args = parser.parse_args(
@@ -357,7 +357,7 @@ class TestMainParser:
         assert args.config is None
 
     def test_all_args(self):
-        from open_dirac.main import build_parser
+        from physics_intern.main import build_parser
 
         parser = build_parser()
         args = parser.parse_args(
@@ -378,21 +378,21 @@ class TestMainParser:
 
     def test_max_tokens_flag_removed(self):
         """--max-tokens is no longer a valid CLI flag."""
-        from open_dirac.main import build_parser
+        from physics_intern.main import build_parser
 
         parser = build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(["p.yaml", "--max-tokens", "1024"])
 
     def test_bad_int_exits(self):
-        from open_dirac.main import build_parser
+        from physics_intern.main import build_parser
 
         parser = build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(["p.yaml", "--max-iterations", "abc"])
 
     def test_defaults_are_none(self):
-        from open_dirac.main import build_parser
+        from physics_intern.main import build_parser
 
         parser = build_parser()
         args = parser.parse_args(["p.yaml"])
@@ -402,7 +402,7 @@ class TestMainParser:
         assert args.max_total_output_tokens is None
 
     def test_max_total_output_tokens_flag(self):
-        from open_dirac.main import build_parser
+        from physics_intern.main import build_parser
 
         parser = build_parser()
         args = parser.parse_args(["p.yaml", "--max-total-output-tokens", "500000"])
@@ -416,7 +416,7 @@ class TestMainParser:
 
 class TestVerifyParser:
     def test_basic_args(self):
-        from open_dirac.verification.cli import build_verify_parser
+        from physics_intern.verification.cli import build_verify_parser
 
         parser = build_verify_parser()
         args = parser.parse_args(["workspaces/run1"])
@@ -424,14 +424,14 @@ class TestVerifyParser:
         assert args.model == DEFAULTS["verify_model"]
 
     def test_custom_model(self):
-        from open_dirac.verification.cli import build_verify_parser
+        from physics_intern.verification.cli import build_verify_parser
 
         parser = build_verify_parser()
         args = parser.parse_args(["ws", "--model", "opus"])
         assert args.model == "opus"
 
     def test_max_tokens_flag_removed(self):
-        from open_dirac.verification.cli import build_verify_parser
+        from physics_intern.verification.cli import build_verify_parser
 
         parser = build_verify_parser()
         with pytest.raises(SystemExit):

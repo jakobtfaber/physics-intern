@@ -7,13 +7,13 @@
 # Usage (multi-replica with auto load-balancer):
 #   ./serve/full_eval.slurm --model MODEL_KEY --serve-job J1 --serve-job J2 --serve-job J3
 #
-# Usage (open-dirac multi-agent runner with config override):
+# Usage (physics-intern multi-agent runner with config override):
 #   ./serve/full_eval.slurm --model MODEL_KEY --serve-job J1 --serve-job J2 \
-#     --runner opendirac --config config.cluster.yaml
+#     --runner physicsintern --config config.cluster.yaml
 #
 # Usage (fresh run with isolated workspace directory):
 #   ./serve/full_eval.slurm --model MODEL_KEY --serve-job J1 --serve-job J2 \
-#     --runner opendirac --config config.cluster.yaml --fresh --workspace-base workspaces_run2
+#     --runner physicsintern --config config.cluster.yaml --fresh --workspace-base workspaces_run2
 #
 # Self-submits via sbatch when run outside Slurm. For multiple serve jobs, starts
 # a load_balancer.py in the background and routes all traffic through it.
@@ -63,14 +63,14 @@ if [[ -z "$MODEL_KEY" || ${#SERVE_JOBS[@]} -eq 0 ]]; then
   cat >&2 <<'USAGE'
 Usage: full_eval.slurm --model MODEL_KEY --serve-job JOB_ID [--serve-job JOB_ID2 ...]
        [--concurrency N] [--time HH:MM:SS] [--resume DIR]
-       [--runner oneshot|opendirac] [--config CONFIG.yaml]
+       [--runner oneshot|physicsintern] [--config CONFIG.yaml]
        [--fresh] [--workspace-base DIR] [--nodes-per-replica N]
 USAGE
   exit 1
 fi
 
-if [[ "$RUNNER" != "oneshot" && "$RUNNER" != "opendirac" ]]; then
-  echo "Invalid --runner: $RUNNER (must be 'oneshot' or 'opendirac')" >&2
+if [[ "$RUNNER" != "oneshot" && "$RUNNER" != "physicsintern" ]]; then
+  echo "Invalid --runner: $RUNNER (must be 'oneshot' or 'physicsintern')" >&2
   exit 1
 fi
 
@@ -207,8 +207,8 @@ FRESH_ARG=()
 WS_ARG=()
 [[ -n "$WORKSPACE_BASE" ]] && WS_ARG=(--workspace-base "$WORKSPACE_BASE")
 
-if [[ "$RUNNER" == "opendirac" ]]; then
-  uv run --no-sync python scripts/run_critpt_open_dirac.py \
+if [[ "$RUNNER" == "physicsintern" ]]; then
+  uv run --no-sync python scripts/run_critpt_physics_intern.py \
     --model "$MODEL_KEY" --concurrency "$CONCURRENCY" \
     "${CONFIG_ARG[@]}" \
     "${RESUME_ARG[@]}" \

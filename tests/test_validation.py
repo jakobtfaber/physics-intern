@@ -1,6 +1,6 @@
 """Tests for validation.py — post-integration validation and termination gates."""
 
-from open_dirac.control.validation import (
+from physics_intern.control.validation import (
     Violation,
     ViolationSeverity,
     validate_post_integration,
@@ -10,7 +10,7 @@ from open_dirac.control.validation import (
     check_stale_unverified_labels,
     check_critique_resolution_consistency,
 )
-from open_dirac.state.research_state import (
+from physics_intern.state.research_state import (
     Critique,
     CritiqueStatus,
     Evidence,
@@ -361,7 +361,7 @@ class TestValidatePostIntegration:
 
     def test_runs_four_checks(self):
         """Pipeline has exactly 4 checks."""
-        from open_dirac.control.validation import _DEFAULT_CHECKS
+        from physics_intern.control.validation import _DEFAULT_CHECKS
 
         assert len(_DEFAULT_CHECKS) == 4
 

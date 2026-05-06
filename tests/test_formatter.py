@@ -4,10 +4,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from open_dirac.agents.formatter import FormatterAgent
-from open_dirac.agents.formatter.context import render_formatter_context
-from open_dirac.llm import LLMResponse
-from open_dirac.state.research_state import (
+from physics_intern.agents.formatter import FormatterAgent
+from physics_intern.agents.formatter.context import render_formatter_context
+from physics_intern.llm import LLMResponse
+from physics_intern.state.research_state import (
     Evidence,
     FailedApproach,
     Hypothesis,
@@ -18,7 +18,7 @@ from open_dirac.state.research_state import (
     RQStatus,
     Verdict,
 )
-from open_dirac.state.task import Task, TaskType
+from physics_intern.state.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------

@@ -4,18 +4,18 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from open_dirac.agents.reviewer import ReviewerAgent, _parse_review_json
+from physics_intern.agents.reviewer import ReviewerAgent, _parse_review_json
 import pytest
 
-from open_dirac.llm import LLMResponse, ParseFailureError
-from open_dirac.state.research_state import (
+from physics_intern.llm import LLMResponse, ParseFailureError
+from physics_intern.state.research_state import (
     Evidence,
     Hypothesis,
     HypothesisStatus,
     ResearchQuestion,
     ResearchState,
 )
-from open_dirac.state.task import Task, TaskType
+from physics_intern.state.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@ class TestReviewerValidateResponse:
 
     def test_parse_retries_from_config(self):
         """parse_retries is now configured globally via Config.parse_retries."""
-        from open_dirac.core.config import Config
+        from physics_intern.core.config import Config
 
         config = Config()
         assert config.parse_retries == 2
@@ -491,7 +491,7 @@ class TestReviewerProblemContext:
 
 class TestComputerEvidenceFiltering:
     def _make_agent(self):
-        from open_dirac.agents.computer import ComputerAgent
+        from physics_intern.agents.computer import ComputerAgent
 
         agent = ComputerAgent.__new__(ComputerAgent)
         agent.research_state = ResearchState(problem_statement="test")
@@ -503,12 +503,12 @@ class TestComputerEvidenceFiltering:
         return agent, rq_id
 
     def _make_result(self, tool_calls):
-        from open_dirac.llm import AgentResult
+        from physics_intern.llm import AgentResult
 
         return AgentResult(text="", tool_calls=tool_calls)
 
     def _make_tc(self, name, tool_input, output="ok", is_error=False):
-        from open_dirac.state.tool_call import ToolCall
+        from physics_intern.state.tool_call import ToolCall
 
         return ToolCall(
             tool_name=name,

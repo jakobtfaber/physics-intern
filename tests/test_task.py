@@ -1,6 +1,6 @@
 """Tests for Task dataclass and TaskType enum."""
 
-from open_dirac.state.task import Task, TaskType, TASK_TYPE_AGENT_MAP
+from physics_intern.state.task import Task, TaskType, TASK_TYPE_AGENT_MAP
 
 
 class TestTaskType:

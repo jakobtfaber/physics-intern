@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from open_dirac.providers.openai import OpenAIProvider
+from physics_intern.providers.openai import OpenAIProvider
 
 
 def _fake_response():

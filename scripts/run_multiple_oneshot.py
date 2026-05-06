@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run open_dirac_oneshot N times on a single problem with concurrency control.
+"""Run physics_intern_oneshot N times on a single problem with concurrency control.
 
 Reports pass@k results: how many runs produced a correct answer.
 
@@ -26,8 +26,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from open_dirac.core.config import DEFAULTS  # noqa: E402
-from open_dirac.utils.markdown import parse_frontmatter  # noqa: E402
+from physics_intern.core.config import DEFAULTS  # noqa: E402
+from physics_intern.utils.markdown import parse_frontmatter  # noqa: E402
 
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 
@@ -61,7 +61,7 @@ class RunResult:
 
 
 def parse_oneshot_stderr(stderr_text: str) -> dict:
-    """Parse token / duration / cost stats from open_dirac_oneshot stderr."""
+    """Parse token / duration / cost stats from physics_intern_oneshot stderr."""
     info: dict = {}
 
     m = re.search(r"Input tokens:\s+(\d+)", stderr_text)
@@ -130,11 +130,11 @@ async def run_one(
     timeout: float,
     semaphore: asyncio.Semaphore,
 ) -> RunResult:
-    """Run a single open_dirac_oneshot subprocess."""
+    """Run a single physics_intern_oneshot subprocess."""
     cmd = [
         "uv",
         "run",
-        "open_dirac_oneshot",
+        "physics_intern_oneshot",
         str(problem_path),
         "--workspace-dir",
         str(workspace_dir),
@@ -369,7 +369,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run open_dirac_oneshot N times on a single problem with concurrency.",
+        description="Run physics_intern_oneshot N times on a single problem with concurrency.",
     )
     parser.add_argument("problem", type=Path, help="Path to problem YAML file")
     parser.add_argument(

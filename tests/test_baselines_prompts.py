@@ -1,6 +1,6 @@
-"""Tests for open_dirac.baselines.prompts."""
+"""Tests for physics_intern.baselines.prompts."""
 
-from open_dirac.baselines.prompts import SYSTEM_PROMPT, build_user_message
+from physics_intern.baselines.prompts import SYSTEM_PROMPT, build_user_message
 
 
 class TestSystemPrompt:

@@ -4,15 +4,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from open_dirac.core.config import Config
-from open_dirac.llm import _call_provider_with_retry
-from open_dirac.providers.retry import (
+from physics_intern.core.config import Config
+from physics_intern.llm import _call_provider_with_retry
+from physics_intern.providers.retry import (
     is_transient as _is_transient,
     is_tool_call_failure as _is_tool_call_failure,
     is_provider_side_400 as _is_provider_side_400,
     extract_status_code as _extract_status_code,
 )
-from open_dirac.providers.base import ProviderResponse
+from physics_intern.providers.base import ProviderResponse
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +362,7 @@ def test_json_parse_400_gets_full_retries():
     provider.call.side_effect = FakeJsonParseError400()
     config = _make_config(api_retry_max=5)
 
-    with patch("open_dirac.providers.retry.time.sleep"):
+    with patch("physics_intern.providers.retry.time.sleep"):
         with pytest.raises(FakeJsonParseError400):
             _call_provider_with_retry(
                 provider,
@@ -404,7 +404,7 @@ def test_tool_call_with_expecting_gets_full_retries():
     provider.call.side_effect = FakeToolCallWithExpecting()
     config = _make_config(api_retry_max=5)
 
-    with patch("open_dirac.providers.retry.time.sleep"):
+    with patch("physics_intern.providers.retry.time.sleep"):
         with pytest.raises(FakeToolCallWithExpecting):
             _call_provider_with_retry(
                 provider,
@@ -454,7 +454,7 @@ def test_retry_succeeds_after_transient_errors():
     ]
     config = _make_config()
 
-    with patch("open_dirac.providers.retry.time.sleep") as mock_sleep:
+    with patch("physics_intern.providers.retry.time.sleep") as mock_sleep:
         result = _call_provider_with_retry(
             provider,
             config,
@@ -480,7 +480,7 @@ def test_retry_respects_backoff():
     ]
     config = _make_config(api_retry_initial_delay=1.0, api_retry_max_delay=10.0)
 
-    with patch("open_dirac.providers.retry.time.sleep") as mock_sleep:
+    with patch("physics_intern.providers.retry.time.sleep") as mock_sleep:
         result = _call_provider_with_retry(
             provider,
             config,
@@ -507,7 +507,7 @@ def test_retry_caps_at_max_delay():
     ]
     config = _make_config(api_retry_initial_delay=5.0, api_retry_max_delay=8.0)
 
-    with patch("open_dirac.providers.retry.time.sleep") as mock_sleep:
+    with patch("physics_intern.providers.retry.time.sleep") as mock_sleep:
         _call_provider_with_retry(
             provider,
             config,
@@ -547,7 +547,7 @@ def test_exhausted_retries_raises():
     provider.call.side_effect = FakeHTTPError(503)
     config = _make_config(api_retry_max=2)
 
-    with patch("open_dirac.providers.retry.time.sleep"):
+    with patch("physics_intern.providers.retry.time.sleep"):
         with pytest.raises(FakeHTTPError):
             _call_provider_with_retry(
                 provider,
@@ -587,7 +587,7 @@ def test_immediate_success_no_sleep():
     provider.call.return_value = _make_provider_response("instant")
     config = _make_config()
 
-    with patch("open_dirac.providers.retry.time.sleep") as mock_sleep:
+    with patch("physics_intern.providers.retry.time.sleep") as mock_sleep:
         result = _call_provider_with_retry(
             provider,
             config,
@@ -611,7 +611,7 @@ def test_retry_with_connection_error():
     ]
     config = _make_config()
 
-    with patch("open_dirac.providers.retry.time.sleep"):
+    with patch("physics_intern.providers.retry.time.sleep"):
         result = _call_provider_with_retry(
             provider,
             config,
@@ -634,7 +634,7 @@ def test_retry_with_timeout_error():
     ]
     config = _make_config()
 
-    with patch("open_dirac.providers.retry.time.sleep"):
+    with patch("physics_intern.providers.retry.time.sleep"):
         result = _call_provider_with_retry(
             provider,
             config,
@@ -653,7 +653,7 @@ def test_provider_side_400_capped_at_2_attempts():
     provider.call.side_effect = FakePostProcessorError()
     config = _make_config(api_retry_max=10)  # would do 11 attempts normally
 
-    with patch("open_dirac.providers.retry.time.sleep"):
+    with patch("physics_intern.providers.retry.time.sleep"):
         with pytest.raises(FakePostProcessorError):
             _call_provider_with_retry(
                 provider,
@@ -677,7 +677,7 @@ def test_provider_side_400_succeeds_on_retry():
     ]
     config = _make_config(api_retry_max=10)
 
-    with patch("open_dirac.providers.retry.time.sleep"):
+    with patch("physics_intern.providers.retry.time.sleep"):
         result = _call_provider_with_retry(
             provider,
             config,
@@ -729,9 +729,9 @@ class TestPenultimateRoundMessage:
 
     def test_critical_message_at_penultimate_round(self):
         """CRITICAL message appears at round max_rounds - 1 when max_rounds >= 4."""
-        from open_dirac.llm import run_agent_loop
-        from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.state.tool_call import ToolCall
+        from physics_intern.llm import run_agent_loop
+        from physics_intern.agents.computer.tools import ToolExecutor
+        from physics_intern.state.tool_call import ToolCall
 
         max_rounds = 5
         provider = MagicMock()
@@ -766,7 +766,7 @@ class TestPenultimateRoundMessage:
         config.computation_token_alert = 999999
         config.progress_check_interval = 999
 
-        with patch("open_dirac.llm._get_provider", return_value=provider):
+        with patch("physics_intern.llm._get_provider", return_value=provider):
             run_agent_loop(
                 system="test",
                 user_content="test",
@@ -795,9 +795,9 @@ class TestPenultimateRoundMessage:
 
     def test_critical_message_not_injected_when_max_rounds_too_small(self):
         """CRITICAL message does NOT appear when max_rounds < 4."""
-        from open_dirac.llm import run_agent_loop
-        from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.state.tool_call import ToolCall
+        from physics_intern.llm import run_agent_loop
+        from physics_intern.agents.computer.tools import ToolExecutor
+        from physics_intern.state.tool_call import ToolCall
 
         max_rounds = 3
         provider = MagicMock()
@@ -831,7 +831,7 @@ class TestPenultimateRoundMessage:
         config.computation_token_alert = 999999
         config.progress_check_interval = 999
 
-        with patch("open_dirac.llm._get_provider", return_value=provider):
+        with patch("physics_intern.llm._get_provider", return_value=provider):
             run_agent_loop(
                 system="test",
                 user_content="test",
@@ -856,9 +856,9 @@ class TestPenultimateRoundMessage:
 
     def test_forced_final_call_exception_returns_empty_text(self):
         """When the forced final call raises, result.text is empty (honest failure)."""
-        from open_dirac.llm import run_agent_loop
-        from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.state.tool_call import ToolCall
+        from physics_intern.llm import run_agent_loop
+        from physics_intern.agents.computer.tools import ToolExecutor
+        from physics_intern.state.tool_call import ToolCall
 
         max_rounds = 3
         provider = MagicMock()
@@ -894,7 +894,7 @@ class TestPenultimateRoundMessage:
         config.computation_token_alert = 999999
         config.progress_check_interval = 999
 
-        with patch("open_dirac.llm._get_provider", return_value=provider):
+        with patch("physics_intern.llm._get_provider", return_value=provider):
             result = run_agent_loop(
                 system="test",
                 user_content="test",
@@ -912,9 +912,9 @@ class TestPenultimateRoundMessage:
 
     def test_progress_check_does_not_break_loop(self):
         """Progress check injection does not break the agent loop."""
-        from open_dirac.llm import run_agent_loop
-        from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.state.tool_call import ToolCall
+        from physics_intern.llm import run_agent_loop
+        from physics_intern.agents.computer.tools import ToolExecutor
+        from physics_intern.state.tool_call import ToolCall
 
         max_rounds = 5
         provider = MagicMock()
@@ -947,7 +947,7 @@ class TestPenultimateRoundMessage:
         config.computation_token_alert = 999999
         config.progress_check_interval = 2  # fires after 2 consecutive exec_python
 
-        with patch("open_dirac.llm._get_provider", return_value=provider):
+        with patch("physics_intern.llm._get_provider", return_value=provider):
             result = run_agent_loop(
                 system="test",
                 user_content="test",
@@ -962,8 +962,8 @@ class TestPenultimateRoundMessage:
 
     def test_tool_call_failure_graceful_degradation(self):
         """run_agent_loop degrades to forced text-only call on tool_use_failed error."""
-        from open_dirac.llm import run_agent_loop
-        from open_dirac.agents.computer.tools import ToolExecutor
+        from physics_intern.llm import run_agent_loop
+        from physics_intern.agents.computer.tools import ToolExecutor
 
         max_rounds = 5
         provider = MagicMock()
@@ -995,8 +995,8 @@ class TestPenultimateRoundMessage:
         config.progress_check_interval = 999
 
         with (
-            patch("open_dirac.llm._get_provider", return_value=provider),
-            patch("open_dirac.providers.retry.time.sleep"),
+            patch("physics_intern.llm._get_provider", return_value=provider),
+            patch("physics_intern.providers.retry.time.sleep"),
         ):
             result = run_agent_loop(
                 system="test",
@@ -1015,8 +1015,8 @@ class TestPenultimateRoundMessage:
 
     def test_provider_side_400_graceful_degradation(self):
         """run_agent_loop degrades to forced text-only call on provider-side 400."""
-        from open_dirac.llm import run_agent_loop
-        from open_dirac.agents.computer.tools import ToolExecutor
+        from physics_intern.llm import run_agent_loop
+        from physics_intern.agents.computer.tools import ToolExecutor
 
         max_rounds = 5
         provider = MagicMock()
@@ -1044,8 +1044,8 @@ class TestPenultimateRoundMessage:
         config.progress_check_interval = 999
 
         with (
-            patch("open_dirac.llm._get_provider", return_value=provider),
-            patch("open_dirac.providers.retry.time.sleep"),
+            patch("physics_intern.llm._get_provider", return_value=provider),
+            patch("physics_intern.providers.retry.time.sleep"),
         ):
             result = run_agent_loop(
                 system="test",
@@ -1075,9 +1075,9 @@ class TestPenultimateRoundMessage:
 
     def test_forced_final_call_uses_user_message_not_system_mutation(self):
         """The forced text-only call uses a user message, not a mutated system prompt."""
-        from open_dirac.llm import run_agent_loop
-        from open_dirac.agents.computer.tools import ToolExecutor
-        from open_dirac.state.tool_call import ToolCall
+        from physics_intern.llm import run_agent_loop
+        from physics_intern.agents.computer.tools import ToolExecutor
+        from physics_intern.state.tool_call import ToolCall
 
         max_rounds = 2
         provider = MagicMock()
@@ -1111,7 +1111,7 @@ class TestPenultimateRoundMessage:
         config.computation_token_alert = 999999
         config.progress_check_interval = 999
 
-        with patch("open_dirac.llm._get_provider", return_value=provider):
+        with patch("physics_intern.llm._get_provider", return_value=provider):
             run_agent_loop(
                 system="test_system",
                 user_content="test",
@@ -1149,7 +1149,7 @@ class TestStripToolMessages:
     """Unit tests for HuggingFaceProvider._strip_tool_messages."""
 
     def test_removes_tool_role_messages(self):
-        from open_dirac.providers.huggingface import HuggingFaceProvider
+        from physics_intern.providers.huggingface import HuggingFaceProvider
 
         msgs = [
             {"role": "user", "content": "hello"},
@@ -1173,7 +1173,7 @@ class TestStripToolMessages:
         assert len(result) == 3
 
     def test_strips_tool_calls_key_from_assistant(self):
-        from open_dirac.providers.huggingface import HuggingFaceProvider
+        from physics_intern.providers.huggingface import HuggingFaceProvider
 
         msgs = [
             {"role": "assistant", "content": "thinking", "tool_calls": [{"id": "tc1"}]},
@@ -1183,7 +1183,7 @@ class TestStripToolMessages:
         assert result[0]["content"] == "thinking"
 
     def test_empty_content_gets_placeholder(self):
-        from open_dirac.providers.huggingface import HuggingFaceProvider
+        from physics_intern.providers.huggingface import HuggingFaceProvider
 
         msgs = [
             {"role": "assistant", "content": None, "tool_calls": [{"id": "tc1"}]},
@@ -1192,7 +1192,7 @@ class TestStripToolMessages:
         assert result[0]["content"] == "[prior tool interaction omitted]"
 
     def test_passthrough_when_no_tools(self):
-        from open_dirac.providers.huggingface import HuggingFaceProvider
+        from physics_intern.providers.huggingface import HuggingFaceProvider
 
         msgs = [
             {"role": "user", "content": "hi"},

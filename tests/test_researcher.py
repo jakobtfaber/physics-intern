@@ -4,23 +4,23 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from open_dirac.agents.evidence_base import render_relevant_results
-from open_dirac.agents.researcher import (
+from physics_intern.agents.evidence_base import render_relevant_results
+from physics_intern.agents.researcher import (
     ResearcherAgent,
     _extract_derivation_text,
     _parse_researcher_json,
 )
 import pytest
 
-from open_dirac.llm import LLMResponse, ParseFailureError
-from open_dirac.state.research_state import (
+from physics_intern.llm import LLMResponse, ParseFailureError
+from physics_intern.state.research_state import (
     Evidence,
     Hypothesis,
     HypothesisStatus,
     ResearchQuestion,
     ResearchState,
 )
-from open_dirac.state.task import Task, TaskType
+from physics_intern.state.task import Task, TaskType
 
 
 # ---------------------------------------------------------------------------

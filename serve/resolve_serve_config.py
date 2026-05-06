@@ -19,7 +19,10 @@ def main():
 
     model = sys.argv[1]
     models_yaml = (
-        Path(__file__).resolve().parent.parent / "src" / "open_dirac" / "models.yaml"
+        Path(__file__).resolve().parent.parent
+        / "src"
+        / "physics_intern"
+        / "models.yaml"
     )
 
     serve: dict = {}

@@ -23,7 +23,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from open_dirac.core.metrics import parse_metrics_table, parse_yaml_frontmatter
+from physics_intern.core.metrics import parse_metrics_table, parse_yaml_frontmatter
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 

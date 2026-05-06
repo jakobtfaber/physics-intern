@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run all 70 CritPt benchmark problems through the two-step baseline with rolling parallelism.
 
-Each problem = two LLM calls via `open_dirac.two_steps` (critpt's
+Each problem = two LLM calls via `physics_intern.two_steps` (critpt's
 ``parsing=False`` flow: derive, then populate template). Produces
 CritPt-format submission JSONs progressively. Supports resume from
 interrupted runs.
@@ -45,7 +45,7 @@ from run_critpt_common import (
     setup_signal_handler,
     print_final_summary,
 )
-from open_dirac.verification.evaluate import extract_answer_code  # noqa: E402
+from physics_intern.verification.evaluate import extract_answer_code  # noqa: E402
 
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt_two_steps"
 
@@ -169,7 +169,7 @@ async def run_one_problem(
             "run",
             "python",
             "-m",
-            "open_dirac.two_steps",
+            "physics_intern.two_steps",
             str(problem.yaml_path),
             "--model",
             model_key,
@@ -324,7 +324,7 @@ async def run_batch(args: argparse.Namespace) -> int:
         return 0
 
     generation_config = {
-        "system": "open_dirac_two_steps",
+        "system": "physics_intern_two_steps",
         "model_key": args.model,
         "use_python": False,
         "use_web_search": False,

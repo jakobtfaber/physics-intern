@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run open_dirac N times on a single problem with concurrency control.
+"""Run physics_intern N times on a single problem with concurrency control.
 
 Reports pass@k results: how many runs produced a correct answer, based on
 VERIFICATION.md formal evaluation in each workspace.
@@ -27,8 +27,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from open_dirac.core.config import DEFAULTS  # noqa: E402
-from open_dirac.utils.markdown import parse_frontmatter  # noqa: E402
+from physics_intern.core.config import DEFAULTS  # noqa: E402
+from physics_intern.utils.markdown import parse_frontmatter  # noqa: E402
 
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 
@@ -115,11 +115,11 @@ async def run_one(
     semaphore: asyncio.Semaphore,
     print_lock: asyncio.Lock,
 ) -> RunResult:
-    """Run a single open_dirac subprocess, streaming iteration progress."""
+    """Run a single physics_intern subprocess, streaming iteration progress."""
     cmd = [
         "uv",
         "run",
-        "open_dirac",
+        "physics_intern",
         str(problem_path),
         "--workspace-dir",
         str(workspace_dir),
@@ -241,7 +241,7 @@ async def run_one(
 
 
 async def run_multiple(args: argparse.Namespace) -> int:
-    """Run N open_dirac instances and report results."""
+    """Run N physics_intern instances and report results."""
     n = args.runs
     concurrency = args.concurrency
     semaphore = asyncio.Semaphore(concurrency)
@@ -254,7 +254,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
 
     workspace_dirs = []
     for i in range(n):
-        ws_name = f"{timestamp}_{problem_stem}_{safe_model}_open_dirac_run{i:03d}"
+        ws_name = f"{timestamp}_{problem_stem}_{safe_model}_physics_intern_run{i:03d}"
         workspace_dirs.append(workspace_base / ws_name)
 
     print(f"Problem:     {args.problem.name}", file=sys.stderr)
@@ -352,11 +352,11 @@ async def run_multiple(args: argparse.Namespace) -> int:
     # Write JSON
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{timestamp}_{problem_stem}_{safe_model}_open_dirac.json"
+    filename = f"{timestamp}_{problem_stem}_{safe_model}_physics_intern.json"
     output_path = output_dir / filename
 
     payload = {
-        "mode": "open_dirac",
+        "mode": "physics_intern",
         "problem": problem_stem,
         "problem_path": str(args.problem),
         "model": args.model or DEFAULTS["model"],
@@ -394,7 +394,7 @@ async def run_multiple(args: argparse.Namespace) -> int:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run open_dirac N times on a single problem with concurrency.",
+        description="Run physics_intern N times on a single problem with concurrency.",
     )
     parser.add_argument("problem", type=Path, help="Path to problem YAML file")
     parser.add_argument(

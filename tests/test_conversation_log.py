@@ -1,15 +1,15 @@
 """Tests for per-call conversation logging in llm.py."""
 
-import open_dirac.llm as llm_module
-from open_dirac.core.config import Config
-from open_dirac.llm import (
+import physics_intern.llm as llm_module
+from physics_intern.core.config import Config
+from physics_intern.llm import (
     AgentResult,
     LLMResponse,
     _render_agent_conversation_log,
     _write_agent_conversation_log,
     _write_conversation_log,
 )
-from open_dirac.core.workspace import WorkspaceManager
+from physics_intern.core.workspace import WorkspaceManager
 
 
 def _make_response(**overrides):
