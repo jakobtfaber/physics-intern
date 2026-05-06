@@ -38,12 +38,22 @@ _TOOL_CALL_RE = re.compile(
     r"<tool_call>\s*(.*?)\s*</tool_call>",
     re.DOTALL,
 )
+# Nemotron format: <function=NAME><parameter=KEY>value</parameter></function>
 _FUNCTION_RE = re.compile(
     r"<function=(\w+)>(.*?)</function>",
     re.DOTALL,
 )
 _PARAMETER_RE = re.compile(
     r"<parameter=(\w+)>(.*?)</parameter>",
+    re.DOTALL,
+)
+# GLM format: func_name\n<arg_key>key</arg_key><arg_value>value</arg_value>
+_GLM_FUNC_RE = re.compile(
+    r"^(\S+?)(?:\s|<arg_key>)",
+    re.DOTALL,
+)
+_GLM_ARG_RE = re.compile(
+    r"<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>",
     re.DOTALL,
 )
 
@@ -149,7 +159,11 @@ class VLLMProvider(LLMProvider):
 
     @staticmethod
     def _parse_xml_tool_calls(text: str) -> list[dict]:
-        """Parse Nemotron XML tool calls from response text.
+        """Parse XML tool calls from response text.
+
+        Supports two formats:
+        - Nemotron: ``<function=NAME><parameter=KEY>value</parameter></function>``
+        - GLM: ``func_name\\n<arg_key>key</arg_key><arg_value>value</arg_value>``
 
         Returns normalised tool calls: ``[{"id": ..., "name": ..., "input": {...}}]``
         or an empty list if none found / parse failure.
@@ -157,26 +171,40 @@ class VLLMProvider(LLMProvider):
         calls: list[dict] = []
         for idx, block_match in enumerate(_TOOL_CALL_RE.finditer(text)):
             block = block_match.group(1)
+
+            # Try Nemotron format first
             func_match = _FUNCTION_RE.search(block)
-            if not func_match:
+            if func_match:
+                func_name = func_match.group(1)
+                body = func_match.group(2)
+                arguments: dict = {}
+                for pm in _PARAMETER_RE.finditer(body):
+                    key = pm.group(1)
+                    raw_value = pm.group(2).strip()
+                    try:
+                        arguments[key] = json.loads(raw_value)
+                    except (json.JSONDecodeError, ValueError):
+                        arguments[key] = raw_value
+                calls.append(
+                    {"id": f"xmlcall_{idx}", "name": func_name, "input": arguments}
+                )
                 continue
-            func_name = func_match.group(1)
-            body = func_match.group(2)
-            arguments: dict = {}
-            for pm in _PARAMETER_RE.finditer(body):
-                key = pm.group(1)
-                raw_value = pm.group(2).strip()
-                try:
-                    arguments[key] = json.loads(raw_value)
-                except (json.JSONDecodeError, ValueError):
-                    arguments[key] = raw_value
-            calls.append(
-                {
-                    "id": f"xmlcall_{idx}",
-                    "name": func_name,
-                    "input": arguments,
-                }
-            )
+
+            # Try GLM format: func_name followed by <arg_key>/<arg_value> pairs
+            glm_match = _GLM_FUNC_RE.match(block) if "<arg_key>" in block else None
+            if glm_match:
+                func_name = glm_match.group(1).strip()
+                arguments = {}
+                for am in _GLM_ARG_RE.finditer(block):
+                    key = am.group(1).strip()
+                    raw_value = am.group(2).strip()
+                    try:
+                        arguments[key] = json.loads(raw_value)
+                    except (json.JSONDecodeError, ValueError):
+                        arguments[key] = raw_value
+                calls.append(
+                    {"id": f"xmlcall_{idx}", "name": func_name, "input": arguments}
+                )
         return calls
 
     # Back-compat alias — prefer importing ``strip_tool_messages`` from

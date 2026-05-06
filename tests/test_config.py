@@ -229,7 +229,7 @@ class TestModelRegistryResolution:
         assert cfg.model_id == "zai-org/GLM-5.1"
         assert cfg.max_tokens == 131072
         assert cfg.reasoning["reasoning_format"] == "separate_field"
-        assert cfg.reasoning["tool_mode"] == "api"
+        assert cfg.reasoning["tool_mode"] == "xml_text"
 
     def test_kimi_k2_6_local_vllm_key_resolves(self):
         cfg = Config(model="moonshotai/Kimi-K2.6")
@@ -256,12 +256,13 @@ class TestServeConfig:
 
     def test_glm_5_1_serve_block(self, registry):
         serve = registry["zai-org/GLM-5.1"]["serve"]
-        assert serve["nodes"] == 3
+        assert serve["replicas"] == 8
+        assert serve["nodes_per_replica"] == 3
         assert serve["gpus_per_node"] == 8
+        assert serve["reasoning_parser"] == "glm45"
         args = " ".join(serve["vllm_args"])
-        # DeepGEMM JIT cache/toolkit setup in serve.slurm makes CUDA graphs usable.
         assert "--enforce-eager" not in args
-        assert "--safetensors-load-strategy prefetch" in args  # 17x load speedup
+        assert "--safetensors-load-strategy prefetch" in args
         assert "--trust-remote-code" in args
 
     def test_kimi_k2_6_serve_block(self, registry):
@@ -324,9 +325,10 @@ class TestResolveServeConfig:
     def test_emits_all_required_shell_vars_for_glm(self):
         out = _run_resolver("zai-org/GLM-5.1")
         assert out["DEFAULT_MODEL_ID"] == "zai-org/GLM-5.1"
-        assert out["DEFAULT_REPLICAS"] == "1"
+        assert out["DEFAULT_REPLICAS"] == "8"
         assert out["DEFAULT_NODES"] == "3"
         assert out["DEFAULT_GPUS_PER_NODE"] == "8"
+        assert out["DEFAULT_REASONING_PARSER"] == "glm45"
         assert "--enforce-eager" not in out["DEFAULT_VLLM_ARGS"]
         assert "--safetensors-load-strategy" in out["DEFAULT_VLLM_ARGS"]
 

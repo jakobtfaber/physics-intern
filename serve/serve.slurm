@@ -27,8 +27,9 @@ Examples:
   ./serve/serve.slurm --model Qwen/Qwen3.5-4B --nodes 1 --gpus-per-node 1
   ./serve/serve.slurm --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --nodes 1 --gpus-per-node 1
   ./serve/serve.slurm --model nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 --nodes 2 --gpus-per-node 8
-  ./serve/serve.slurm --model zai-org/GLM-5.1 --nodes 3 --gpus-per-node 8
-  # Kimi auto-launches 4 replicas (PP=2 each, 8 nodes total) via multi_serve.sh
+  # GLM auto-launches 8 replicas (PP=3 each, 24 nodes total) via multi_serve.sh
+  ./serve/serve.slurm --model zai-org/GLM-5.1
+  # Kimi auto-launches 4 replicas (PP=4 each, 16 nodes total) via multi_serve.sh
   ./serve/serve.slurm --model moonshotai/Kimi-K2.6
   ./serve/serve.slurm --model Qwen/Qwen3.5-4B --nodes 1 --gpus-per-node 1 --reasoning-parser qwen3
 
@@ -234,6 +235,7 @@ TIME_LIMIT="24:00:00"
 PORT="8000"
 SERVED_MODEL_NAME=""
 MAX_MODEL_LEN="262144"
+MAX_MODEL_LEN_EXPLICIT=""
 TP=""
 PP=""
 DP=""
@@ -287,6 +289,7 @@ while [[ $# -gt 0 ]]; do
     --max-model-len)
       require_value "$1" "${2:-}"
       MAX_MODEL_LEN="$2"
+      MAX_MODEL_LEN_EXPLICIT=1
       shift 2
       ;;
     --tp|--tensor-parallel-size)
@@ -347,6 +350,20 @@ MODEL_SLUG="$(slugify "$MODEL")"
 # Resolve model-specific serve defaults from models.yaml
 _RESOLVE_SCRIPT="${SCRIPT_DIR}/resolve_serve_config.py"
 eval "$(uv run --no-sync python "$_RESOLVE_SCRIPT" "$MODEL")"
+
+# If models.yaml vllm_args includes --max-model-len and the user didn't
+# explicitly pass it on the CLI, adopt the models.yaml value.
+if [[ -z "$MAX_MODEL_LEN_EXPLICIT" ]]; then
+  _skip_next=0
+  for _arg in "${DEFAULT_VLLM_ARGS[@]}"; do
+    if (( _skip_next )); then
+      MAX_MODEL_LEN="$_arg"
+      _skip_next=0
+      break
+    fi
+    [[ "$_arg" == "--max-model-len" ]] && _skip_next=1
+  done
+fi
 
 if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   if [[ -z "$NODES" ]]; then
@@ -446,6 +463,7 @@ if type module >/dev/null 2>&1; then
 fi
 
 export TORCH_COMPILE_DISABLE=1
+export VLLM_ENGINE_READY_TIMEOUT_S="${VLLM_ENGINE_READY_TIMEOUT_S:-1800}"
 
 # DeepGEMM JIT compiles sparse-attention kernels (used by GLM-5.1 and DSv3-class
 # MoE models) at first call. Put cubins in the shared HF cache when available so
@@ -540,7 +558,7 @@ if [[ -z "$SERVED_MODEL_NAME" ]]; then
   SERVED_MODEL_NAME="${DEFAULT_MODEL_ID:-$MODEL}"
 fi
 # Use the real HF repo id for vLLM's `serve` argument; the alias is only
-# meaningful inside physics-intern's models.yaml.
+# meaningful inside open-dirac's models.yaml.
 MODEL_ID="${DEFAULT_MODEL_ID:-$MODEL}"
 if [[ -z "$REASONING_PARSER" ]]; then
   REASONING_PARSER="$DEFAULT_REASONING_PARSER"
@@ -616,10 +634,12 @@ if (( DP > 1 )); then
     --data-parallel-rpc-port "$DP_RPC_PORT"
   )
   # Scale API server count for large DP to avoid head-node bottleneck.
+  # Stored separately: only the head node gets this (--headless is incompatible).
+  HEAD_EXTRA_ARGS=()
   if (( DP >= 8 )); then
-    VLLM_ARGS+=(--api-server-count 4)
+    HEAD_EXTRA_ARGS+=(--api-server-count 4)
   elif (( DP >= 4 )); then
-    VLLM_ARGS+=(--api-server-count 2)
+    HEAD_EXTRA_ARGS+=(--api-server-count 2)
   fi
 else
   VLLM_ARGS+=(--pipeline-parallel-size "$PP")
@@ -659,8 +679,8 @@ if [[ -n "$REASONING_PARSER" && "$REASONING_PARSER" != "none" && "$REASONING_PAR
   fi
 fi
 
-# Filter flags from DEFAULT_VLLM_ARGS that are already set in the base
-# VLLM_ARGS to prevent models.yaml defaults from overriding CLI values.
+# Filter --max-model-len from DEFAULT_VLLM_ARGS (it's already in the base
+# VLLM_ARGS via $MAX_MODEL_LEN) to prevent duplication.
 FILTERED_DEFAULT_ARGS=()
 _skip_next=0
 for _arg in "${DEFAULT_VLLM_ARGS[@]}"; do
@@ -727,7 +747,9 @@ launch_dp_node() {
   local node_idx="$2"
   local start_rank=$(( node_idx * DP_LOCAL ))
   local -a rank_cmd=(uv run --no-sync vllm "${VLLM_ARGS[@]}")
-  if (( node_idx > 0 )); then
+  if (( node_idx == 0 )); then
+    rank_cmd+=("${HEAD_EXTRA_ARGS[@]}")
+  else
     rank_cmd+=(
       --headless
       --data-parallel-start-rank "$start_rank"
