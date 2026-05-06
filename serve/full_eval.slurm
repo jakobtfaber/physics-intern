@@ -162,7 +162,7 @@ trap cleanup EXIT
 
 if [[ ${#SERVE_JOBS[@]} -gt 1 ]]; then
   # Multi-replica: start load balancer and wait for it
-  LB_ARGS=("${SERVE_JOBS[@]}" --port 9000 --health-timeout 1800 --model "$MODEL_KEY")
+  LB_ARGS=("${SERVE_JOBS[@]}" --port 9000 --health-timeout 3600 --model "$MODEL_KEY")
   [[ -n "$NODES_PER_REPLICA" ]] && LB_ARGS+=(--nodes-per-replica "$NODES_PER_REPLICA")
   echo "Starting load balancer for ${#SERVE_JOBS[@]} replicas..."
   uv run --no-sync python serve/load_balancer.py "${LB_ARGS[@]}" &
