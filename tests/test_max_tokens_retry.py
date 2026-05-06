@@ -519,3 +519,335 @@ def test_merge_responses_sums_tokens_and_concatenates_text():
     assert merged.output_tokens == first.output_tokens + cont.output_tokens
     # raw_content / tool_calls / stop_reason from the continuation.
     assert merged.stop_reason == cont.stop_reason
+
+
+# ---------------------------------------------------------------------------
+# Reasoning compaction
+# ---------------------------------------------------------------------------
+
+
+def test_compaction_fires_when_reasoning_content_available():
+    """First continue attempt succeeds → 1 provider call."""
+    from open_dirac.llm import _compact_reasoning
+
+    provider = MagicMock()
+    provider.prepare_messages.side_effect = lambda m: m
+    provider.call.return_value = _ok("The answer is 42.")
+
+    starved = _truncated(
+        "",
+        reasoning_content="Long reasoning about the problem...",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+    )
+    config = _make_config(max_compaction_retries=2)
+
+    result = _compact_reasoning(
+        provider,
+        starved,
+        config,
+        model="m",
+        max_tokens=100,
+        system="s",
+        messages=[{"role": "user", "content": "q"}],
+    )
+
+    assert result is not None
+    assert "The answer is 42." in result.text
+    assert result.stop_reason == "end_turn"
+    assert provider.call.call_count == 1
+
+
+def test_compaction_uses_continue_prompt_first():
+    """The first attempt uses the 'continue' prompt, not the force-answer prompt."""
+    from open_dirac.llm import _compact_reasoning
+
+    provider = MagicMock()
+    provider.prepare_messages.side_effect = lambda m: m
+    provider.call.return_value = _ok("Answer.")
+
+    starved = _truncated(
+        "",
+        reasoning_content="Some reasoning...",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+    )
+    config = _make_config(max_compaction_retries=2)
+
+    _compact_reasoning(
+        provider,
+        starved,
+        config,
+        model="m",
+        max_tokens=100,
+        system="s",
+        messages=[{"role": "user", "content": "q"}],
+    )
+
+    sent_messages = provider.call.call_args[1]["messages"]
+    last_user_msg = sent_messages[-1]["content"]
+    assert "Continue from where you left off" in last_user_msg
+    assert "Do NOT continue reasoning" not in last_user_msg
+
+
+def test_compaction_returns_none_without_reasoning():
+    """Compaction is skipped when there is no reasoning_content."""
+    from open_dirac.llm import _compact_reasoning
+
+    provider = MagicMock()
+    starved = _truncated("", reasoning_content="")
+    config = _make_config(max_compaction_retries=2)
+
+    result = _compact_reasoning(
+        provider,
+        starved,
+        config,
+        model="m",
+        max_tokens=100,
+        system="s",
+        messages=[{"role": "user", "content": "q"}],
+    )
+
+    assert result is None
+    provider.call.assert_not_called()
+
+
+def test_compaction_returns_none_when_retries_zero():
+    from open_dirac.llm import _compact_reasoning
+
+    provider = MagicMock()
+    starved = _truncated("", reasoning_content="some reasoning")
+    config = _make_config(max_compaction_retries=0)
+
+    result = _compact_reasoning(
+        provider,
+        starved,
+        config,
+        model="m",
+        max_tokens=100,
+        system="s",
+        messages=[{"role": "user", "content": "q"}],
+    )
+
+    assert result is None
+
+
+def test_compaction_continues_then_succeeds():
+    """First continue starves, second continue succeeds → 2 calls, both 'continue'."""
+    from open_dirac.llm import _compact_reasoning
+
+    provider = MagicMock()
+    provider.prepare_messages.side_effect = lambda m: m
+
+    second_starve = ProviderResponse(
+        text="",
+        input_tokens=20,
+        output_tokens=65536,
+        stop_reason="max_tokens",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+        reasoning_content="Even more detailed reasoning...",
+    )
+    provider.call.side_effect = [second_starve, _ok("Final answer.")]
+
+    starved = _truncated(
+        "",
+        reasoning_content="Initial reasoning...",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+    )
+    config = _make_config(max_compaction_retries=2)
+
+    result = _compact_reasoning(
+        provider,
+        starved,
+        config,
+        model="m",
+        max_tokens=100,
+        system="s",
+        messages=[{"role": "user", "content": "q"}],
+    )
+
+    assert result is not None
+    assert "Final answer." in result.text
+    assert provider.call.call_count == 2
+    # Both calls should have used the continue prompt
+    for call_args in provider.call.call_args_list:
+        last_msg = call_args[1]["messages"][-1]["content"]
+        assert "Continue from where you left off" in last_msg
+
+
+def test_compaction_force_answer_after_continues_exhausted():
+    """All continue attempts starve → force-answer fires as final attempt.
+    The force-answer prompt should contain accumulated reasoning from all
+    prior attempts, not just the latest one."""
+    from open_dirac.llm import _compact_reasoning
+
+    provider = MagicMock()
+    provider.prepare_messages.side_effect = lambda m: m
+
+    starve_1 = ProviderResponse(
+        text="",
+        input_tokens=20,
+        output_tokens=65536,
+        stop_reason="max_tokens",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+        reasoning_content="Reasoning from attempt 1...",
+    )
+    starve_2 = ProviderResponse(
+        text="",
+        input_tokens=20,
+        output_tokens=65536,
+        stop_reason="max_tokens",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+        reasoning_content="Reasoning from attempt 2...",
+    )
+    # 2 continues starve, force-answer succeeds
+    provider.call.side_effect = [starve_1, starve_2, _ok("Forced answer.")]
+
+    starved = _truncated(
+        "",
+        reasoning_content="Initial reasoning...",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+    )
+    config = _make_config(max_compaction_retries=2)
+
+    result = _compact_reasoning(
+        provider,
+        starved,
+        config,
+        model="m",
+        max_tokens=100,
+        system="s",
+        messages=[{"role": "user", "content": "q"}],
+    )
+
+    assert result is not None
+    assert "Forced answer." in result.text
+    # 2 continue + 1 force = 3 calls
+    assert provider.call.call_count == 3
+    # Last call should use force-answer prompt
+    last_msg = provider.call.call_args_list[-1][1]["messages"][-1]["content"]
+    assert "Do NOT continue reasoning" in last_msg
+    # Force-answer should contain accumulated reasoning, not just the latest
+    assert "Initial reasoning" in last_msg
+    assert "Reasoning from attempt 1" in last_msg
+    assert "Reasoning from attempt 2" in last_msg
+
+
+def test_compaction_exhausted_returns_none():
+    """All attempts (continues + force) starve → returns None."""
+    from open_dirac.llm import _compact_reasoning
+
+    provider = MagicMock()
+    provider.prepare_messages.side_effect = lambda m: m
+
+    always_starve = ProviderResponse(
+        text="",
+        input_tokens=20,
+        output_tokens=65536,
+        stop_reason="max_tokens",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+        reasoning_content="More reasoning that goes nowhere...",
+    )
+    provider.call.return_value = always_starve
+
+    starved = _truncated(
+        "",
+        reasoning_content="Initial reasoning...",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+    )
+    config = _make_config(max_compaction_retries=2)
+
+    result = _compact_reasoning(
+        provider,
+        starved,
+        config,
+        model="m",
+        max_tokens=100,
+        system="s",
+        messages=[{"role": "user", "content": "q"}],
+    )
+
+    assert result is None
+    # 2 continue + 1 force = 3 total
+    assert provider.call.call_count == 3
+
+
+def test_compaction_integrates_with_continue_on_max_tokens():
+    """End-to-end: continue_on_max_tokens calls compaction when reasoning is
+    starved but reasoning_content is available."""
+    provider = MagicMock()
+    provider.prepare_messages.side_effect = lambda m: m
+    provider.call.return_value = _ok("Recovered answer.")
+
+    starved = _truncated(
+        "",
+        reasoning_content="Deep physics reasoning about gauge invariance...",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+    )
+    config = _make_config(max_compaction_retries=1)
+
+    result = continue_on_max_tokens(
+        provider,
+        starved,
+        config,
+        model="m",
+        max_tokens=100,
+        system="s",
+        messages=[{"role": "user", "content": "q"}],
+    )
+
+    assert "Recovered answer." in result.text
+    assert result.stop_reason == "end_turn"
+    # 1 continue attempt succeeds
+    assert provider.call.call_count == 1
+
+
+def test_compaction_truncated_answer_falls_through_to_continuation():
+    """When compaction recovers visible text but is still truncated
+    (stop_reason=max_tokens), continue_on_max_tokens runs the normal
+    text-continuation path on it."""
+    provider = MagicMock()
+    provider.prepare_messages.side_effect = lambda m: m
+
+    # Compaction produces partial answer, still truncated
+    partial = ProviderResponse(
+        text="The Hawking temperature is T = ",
+        input_tokens=20,
+        output_tokens=50,
+        stop_reason="max_tokens",
+    )
+    # Text continuation completes it
+    provider.call.side_effect = [partial, _ok("ℏκ/2π.")]
+
+    starved = _truncated(
+        "",
+        reasoning_content="Deep reasoning about black hole thermodynamics...",
+        reasoning_tokens=65536,
+        answer_tokens=0,
+    )
+    config = _make_config(max_compaction_retries=1, max_tokens_retries=2)
+
+    result = continue_on_max_tokens(
+        provider,
+        starved,
+        config,
+        model="m",
+        max_tokens=100,
+        system="s",
+        messages=[{"role": "user", "content": "q"}],
+    )
+
+    # Should contain both the partial and the continuation
+    assert "The Hawking temperature is T = " in result.text
+    assert "ℏκ/2π." in result.text
+    assert result.stop_reason == "end_turn"
+    # 1 compaction call + 1 text continuation call = 2
+    assert provider.call.call_count == 2

@@ -419,9 +419,10 @@ zai-org/GLM-5.1:
 #     tok/s at 16-way. --async-scheduling and --mm-encoder-tp-mode data tied
 #     that within noise. K2.5 Eagle3 draft is blocked: spec decoding cannot
 #     use PP>1, while TP=32/PP=1 fails during Kimi vision-tower init.
-#   - 131k max output tokens → TOO LOW for the full one-shot CritPt sweep.
-#     Five hard problems reached max_tokens before emitting answer code. Raising
-#     max_output_tokens to 200k let the final retry finish all 70 submissions.
+#   - 65k max output tokens → TOO LOW for reasoning-heavy agents. ~50% of
+#     researcher calls hit the limit and wasted 15 min on reasoning without
+#     producing output. Raised to 131k with per-agent overrides for lighter
+#     agents (orchestrator, formatter) via agent_max_tokens config.
 #   - OpenDirac agent harness without Kimi tool parser → BROKEN. vLLM rejects
 #     requests with `tool_choice="auto"` unless the server is launched with
 #     --enable-auto-tool-choice and a matching --tool-call-parser. Kimi-K2.6
@@ -443,8 +444,10 @@ moonshotai/Kimi-K2.6:
   input_cost: 0.0
   output_cost: 0.0
   # PP=4 (4 nodes/replica) supports the full 262k context without OOM.
-  # 65k output tokens is plenty for OpenDirac multi-agent turns.
-  max_output_tokens: 65536
+  # 128k output tokens gives reasoning-heavy agents room to finish thinking.
+  # Per-agent overrides in agent_max_tokens cap lighter agents (orchestrator,
+  # formatter) to avoid wasting budget on reasoning loops.
+  max_output_tokens: 131072
   reasoning_format: separate_field
   tool_mode: api
   serve:

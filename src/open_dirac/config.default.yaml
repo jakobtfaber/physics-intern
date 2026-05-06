@@ -66,6 +66,29 @@ parse_retries: 2
 # turn and asks the model to continue from where it stopped.
 max_tokens_retries: 2
 
+# --- Reasoning compaction ---
+# Number of "continue" attempts when reasoning fills the entire output
+# budget without producing visible answer text ("reasoning starved").
+# Each attempt feeds the reasoning back as context and lets the model
+# keep thinking with a fresh budget. After all continue attempts are
+# exhausted, one final "force answer" attempt tells the model to stop
+# reasoning and produce its answer.  Total calls = retries + 1.
+max_compaction_retries: 2
+
+# --- Per-agent max output tokens ---
+# Override the model-level max_output_tokens for specific agents. Agents
+# not listed here use the model-level default. Useful for capping agents
+# that don't need deep reasoning (e.g. orchestrator, formatter) so they
+# fail fast instead of burning 15 min on a reasoning loop.
+agent_max_tokens:
+  orchestrator: 16384
+  formatter: 16384
+  computer: 65536
+  reviewer: 65536
+  deep_critic: 65536
+  planner: 65536
+  adjudicator: 65536
+
 # --- Pipeline retry ---
 # Max retries for mandatory pipeline stages (surveyor, planner).
 # These stages run before the main loop — if retries are exhausted,

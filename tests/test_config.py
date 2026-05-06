@@ -235,7 +235,7 @@ class TestModelRegistryResolution:
         cfg = Config(model="moonshotai/Kimi-K2.6")
         assert cfg.provider == "vllm"
         assert cfg.model_id == "moonshotai/Kimi-K2.6"
-        assert cfg.max_tokens == 65536
+        assert cfg.max_tokens == 131072
         assert cfg.reasoning["reasoning_format"] == "separate_field"
         assert cfg.reasoning["tool_mode"] == "api"
 
@@ -436,3 +436,47 @@ class TestVerifyParser:
         parser = build_verify_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(["ws", "--max-tokens", "8192"])
+
+
+# ---------------------------------------------------------------------------
+# Per-agent max_tokens
+# ---------------------------------------------------------------------------
+
+
+class TestPerAgentMaxTokens:
+    def test_default_has_per_agent_overrides(self):
+        cfg = Config(model="claude-4.6-opus")
+        assert cfg.max_tokens_for_agent("orchestrator") == 16384
+        assert cfg.max_tokens_for_agent("formatter") == 16384
+        assert cfg.max_tokens_for_agent("computer") == 65536
+        assert cfg.max_tokens_for_agent("reviewer") == 65536
+        assert cfg.max_tokens_for_agent("deep_critic") == 65536
+        assert cfg.max_tokens_for_agent("planner") == 65536
+        assert cfg.max_tokens_for_agent("adjudicator") == 65536
+        assert cfg.max_tokens_for_agent("researcher") == cfg.max_tokens
+        assert cfg.max_tokens_for_agent("surveyor") == cfg.max_tokens
+
+    def test_override_returns_agent_value(self):
+        cfg = Config(
+            model="claude-4.6-opus",
+            agent_max_tokens={"formatter": 16384, "orchestrator": 8192},
+        )
+        assert cfg.max_tokens_for_agent("formatter") == 16384
+        assert cfg.max_tokens_for_agent("orchestrator") == 8192
+        assert cfg.max_tokens_for_agent("researcher") == cfg.max_tokens
+
+    def test_empty_override_falls_back(self):
+        cfg = Config(model="claude-4.6-opus", agent_max_tokens={})
+        assert cfg.max_tokens_for_agent("formatter") == cfg.max_tokens
+
+    def test_agent_max_tokens_persisted(self):
+        cfg = Config(
+            model="claude-4.6-opus",
+            agent_max_tokens={"formatter": 16384},
+        )
+        d = cfg.to_dict()
+        assert d["agent_max_tokens"] == {"formatter": 16384}
+
+    def test_max_compaction_retries_default(self):
+        cfg = Config(model="claude-4.6-opus")
+        assert cfg.max_compaction_retries == DEFAULTS["max_compaction_retries"]
