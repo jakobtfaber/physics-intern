@@ -374,6 +374,11 @@ avoid stale shared-filesystem JIT artifacts, and prepends the venv NVIDIA wheel
 libraries to `LD_LIBRARY_PATH` so `libnvJitLink.so.12` resolves from the cu129
 wheel stack instead of inherited CUDA 12.1 paths.
 
+The serve watchdog defaults to `--idle-shutdown 7200`: after vLLM is healthy, a
+replica auto-cancels if no requests have completed and no requests are running
+or waiting for 2 hours. This prevents unused multi-replica jobs from holding H100
+nodes after a benchmark or load balancer stops using them.
+
 The default DeepSeek config is tuned for high-concurrency CritPt-style traffic.
 To launch a single replica for debugging, override the replica count by calling
 `serve/multi_serve.sh` directly with `--replicas 1`, or call `serve.slurm` from

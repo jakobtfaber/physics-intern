@@ -32,6 +32,7 @@ uv sync --extra local
 # Serve DeepSeek V4 locally through vLLM on the H100 Slurm cluster.
 # This launches 4 external replicas behind the documented load-balancer flow.
 # See DOCUMENTATION.md for the required cu129 vLLM install and DeepGEMM wheel.
+# Idle serve replicas auto-cancel after 2 hours without completed, running, or waiting requests.
 ./serve/serve.slurm --model deepseek-ai/DeepSeek-V4-Pro
 
 # Run full CritPt evaluation against existing serve jobs from the CPU partition.

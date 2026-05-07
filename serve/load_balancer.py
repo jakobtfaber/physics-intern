@@ -70,7 +70,7 @@ async def resubmit_serve_job(
     nodes_per_replica: int,
     gpus_per_node: int = 8,
     time_limit: str = "48:00:00",
-    idle_shutdown: int = 86400,
+    idle_shutdown: int = 7200,
 ) -> str | None:
     """Submit a new serve job via serve.slurm; return job ID or None on failure."""
     cmd = [

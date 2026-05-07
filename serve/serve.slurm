@@ -54,9 +54,9 @@ Options:
   --dp N                           Data parallel size (native vLLM DP).
   --data-parallel-size N           Alias for --dp.
   --reasoning-parser NAME          Explicit reasoning parser override.
-  --idle-shutdown SECONDS          Auto-cancel the job if no requests AND
-                                   head-node GPU util is 0 for SECONDS
-                                   (default: 14400 = 4h; 0 disables).
+  --idle-shutdown SECONDS          Auto-cancel the job if no completed, running,
+                                   or waiting requests for SECONDS
+                                   (default: 7200 = 2h; 0 disables).
   --max-restarts N                 Restart vLLM up to N times on crash
                                    (default: VLLM_MAX_RESTARTS or 3).
   -h, --help                       Show this message.
@@ -183,17 +183,16 @@ cleanup() {
 }
 
 # Background watchdog: cancels the Slurm job if vLLM has been idle for too long.
-# "Idle" = the Prometheus counter `vllm:request_success_total` has not advanced
-# AND the max GPU utilization on the head node has stayed at 0% for the whole
-# window. The timer is only armed after /metrics responds, so model loading
-# never trips the kill switch.
+# "Idle" = no successful request counter changes and no requests are currently
+# running or waiting. The timer is only armed after /metrics responds, so model
+# loading never trips the kill switch.
 start_idle_watchdog() {
   local job_id="$1"
   local port="$2"
   local idle_seconds="$3"
   local poll_interval="$4"
   local metrics_url="http://localhost:${port}/metrics"
-  local now last_activity_ts=0 last_total="" total gpu activity
+  local now last_activity_ts=0 last_total="" metrics total active_requests activity
   local server_seen=0
 
   # Disable errexit/pipefail inside the watchdog: curl failing while vLLM is
@@ -205,10 +204,9 @@ start_idle_watchdog() {
 
   while sleep "$poll_interval"; do
     now=$(date +%s)
-    total="$(curl -fsS --max-time 5 "$metrics_url" 2>/dev/null \
-      | awk '/^vllm:request_success_total[ {]/ { sum += $NF; ok = 1 } END { if (ok) print sum }')"
-    gpu="$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null \
-      | awk 'BEGIN { m = 0 } { v = $1 + 0; if (v > m) m = v } END { print m + 0 }')"
+    metrics="$(curl -fsS --max-time 5 "$metrics_url" 2>/dev/null)"
+    total="$(awk '/^vllm:request_success_total[ {]/ { sum += $NF; ok = 1 } END { if (ok) print sum }' <<<"$metrics")"
+    active_requests="$(awk '/^vllm:num_requests_(running|waiting)[ {]/ { if ($NF + 0 > 0) busy = 1 } END { print busy + 0 }' <<<"$metrics")"
 
     if [[ -z "$total" ]]; then
       # vLLM not yet serving; hold the timer so model load never trips us.
@@ -228,7 +226,7 @@ start_idle_watchdog() {
     if [[ "$total" != "$last_total" ]]; then
       activity=1
     fi
-    if [[ "$gpu" =~ ^[0-9]+$ ]] && (( gpu > 0 )); then
+    if [[ "$active_requests" == "1" ]]; then
       activity=1
     fi
     last_total="$total"
@@ -239,7 +237,7 @@ start_idle_watchdog() {
     fi
 
     if (( now - last_activity_ts >= idle_seconds )); then
-      echo "[watchdog] no requests and GPU util=0 for $((now - last_activity_ts))s (>= ${idle_seconds}s); cancelling job ${job_id}." >&2
+      echo "[watchdog] no completed, running, or waiting requests for $((now - last_activity_ts))s (>= ${idle_seconds}s); cancelling job ${job_id}." >&2
       scancel "$job_id" >/dev/null 2>&1 || true
       return 0
     fi
@@ -270,7 +268,7 @@ TP=""
 PP=""
 DP=""
 REASONING_PARSER=""
-IDLE_SHUTDOWN_SECONDS="${WATCHDOG_IDLE_SECONDS:-14400}"
+IDLE_SHUTDOWN_SECONDS="${WATCHDOG_IDLE_SECONDS:-7200}"
 IDLE_POLL_INTERVAL="${WATCHDOG_POLL_INTERVAL:-60}"
 EXTRA_VLLM_ARGS=()
 
