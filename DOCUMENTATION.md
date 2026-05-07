@@ -428,6 +428,11 @@ Run the full PhysicsIntern CritPt sweep against four replicas with:
   --time 24:00:00
 ```
 
+`serve/full_eval.slurm` defaults the eval runner to `hopper-cpu` because it only
+hosts the load balancer and PhysicsIntern subprocesses; the vLLM serve replicas
+remain on their GPU partition. Use `--partition <name>` only if the eval runner
+needs a different Slurm partition.
+
 ### Prerequisites
 
 - `uv sync --extra local`
@@ -614,7 +619,7 @@ The Python vLLM provider defaults to `http://localhost:8000/v1` but respects the
 
 ### Step 3 (optional): Full benchmark sweep
 
-To run the **entire CritPt set (70 problems) in parallel** against a vLLM serve job, use `serve/full_eval.slurm`. It auto-fans out via `scripts/run_critpt_oneshot.py`, with `--concurrency` parallel in-flight requests sharing the same endpoint:
+To run the **entire CritPt set (70 problems) in parallel** against a vLLM serve job, use `serve/full_eval.slurm`. It self-submits the CPU-only eval runner to `hopper-cpu` by default, starts a load balancer when multiple serve jobs are provided, and auto-fans out via `scripts/run_critpt_oneshot.py`, with `--concurrency` parallel in-flight requests sharing the same endpoint:
 
 ```bash
 ./serve/full_eval.slurm \

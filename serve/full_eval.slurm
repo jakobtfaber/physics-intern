@@ -16,7 +16,9 @@
 #     --runner physicsintern --config config.cluster.yaml --fresh --workspace-base workspaces_run2
 #
 # Self-submits via sbatch when run outside Slurm. For multiple serve jobs, starts
-# a load_balancer.py in the background and routes all traffic through it.
+# a load_balancer.py in the background and routes all traffic through it. The
+# eval runner is CPU-only and defaults to hopper-cpu; serve jobs still run on
+# their configured GPU partition.
 
 set -euo pipefail
 
@@ -41,6 +43,7 @@ FRESH=""
 WORKSPACE_BASE=""
 NODES_PER_REPLICA=""
 KEEP_SERVES=""
+PARTITION="hopper-cpu"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,6 +58,7 @@ while [[ $# -gt 0 ]]; do
     --workspace-base) WORKSPACE_BASE="$2"; shift 2 ;;
     --nodes-per-replica) NODES_PER_REPLICA="$2"; shift 2 ;;
     --keep-serves) KEEP_SERVES="1"; shift ;;
+    --partition) PARTITION="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -65,6 +69,7 @@ Usage: full_eval.slurm --model MODEL_KEY --serve-job JOB_ID [--serve-job JOB_ID2
        [--concurrency N] [--time HH:MM:SS] [--resume DIR]
        [--runner oneshot|physicsintern] [--config CONFIG.yaml]
        [--fresh] [--workspace-base DIR] [--nodes-per-replica N]
+       [--partition PARTITION]
 USAGE
   exit 1
 fi
@@ -90,6 +95,7 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
 
   echo "Serve jobs: ${SERVE_JOBS[*]}"
   echo "Runner:     ${RUNNER}"
+  echo "Partition:  ${PARTITION}"
   [[ -n "$CONFIG_FILE" ]] && echo "Config:     ${CONFIG_FILE}"
 
   RESUME_ARG=()
@@ -117,7 +123,7 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
 
   exec sbatch --parsable \
     --job-name "$JOB_NAME" \
-    --partition hopper-prod \
+    --partition "$PARTITION" \
     --nodes 1 --ntasks-per-node 1 --cpus-per-task 16 --mem=64G \
     --time "$TIME_LIMIT" \
     --output "${LOG_DIR_DEFAULT}/%x-%j.out" \
@@ -131,7 +137,8 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
                    "${FRESH_ARG[@]}" \
                    "${WS_ARG[@]}" \
                    "${NPR_ARG[@]}" \
-                   "${KS_ARG[@]}"
+                   "${KS_ARG[@]}" \
+                   --partition "$PARTITION"
 fi
 
 # ── Inside Slurm ─────────────────────────────────────────────────────────────

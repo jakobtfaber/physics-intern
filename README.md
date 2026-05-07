@@ -34,6 +34,9 @@ uv sync --extra local
 # See DOCUMENTATION.md for the required cu129 vLLM install and DeepGEMM wheel.
 ./serve/serve.slurm --model deepseek-ai/DeepSeek-V4-Pro
 
+# Run full CritPt evaluation against existing serve jobs from the CPU partition.
+./serve/full_eval.slurm --model deepseek-ai/DeepSeek-V4-Pro --serve-job <JOB_ID>
+
 # Run a research problem (requires model API key in .env or env var)
 uv run physics_intern problems/critpt/quantum_error_correction_main.yaml --model gemini-3-flash-preview
 ```
