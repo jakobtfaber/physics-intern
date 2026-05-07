@@ -394,10 +394,12 @@ The warmed 256-output-token benchmark results on 4x8 H100s were:
 | 128         | 128      | 272.9           | 120.0s         |
 | 256         | 256      | 300.6           | 217.5s         |
 
-`128` concurrent requests is the practical knee for latency-sensitive use.
-`256` maximizes raw aggregate throughput but mostly buys queueing. The
-throughput-mode setting cuts the 262k-context KV-cache headroom by roughly 60%,
-so use the 4-replica load-balanced setup for full PhysicsIntern runs. MTP
+`128` concurrent short requests is the practical knee for latency-sensitive
+benchmarks, but full max-think PhysicsIntern traffic should default to `64`
+concurrent problems to avoid overloading the serve pool. `256` maximizes raw
+aggregate throughput but mostly buys queueing. The throughput-mode setting cuts
+the 262k-context KV-cache headroom by roughly 60%, so use the 4-replica
+load-balanced setup for full PhysicsIntern runs. MTP
 speculative decoding was tested with
 `--speculative-config '{"method":"mtp","num_speculative_tokens":1}'`, but it did
 not become healthy: the engine completed graph capture and then `ApiServer_0`
@@ -422,7 +424,7 @@ Run the full PhysicsIntern CritPt sweep against four replicas with:
   --fresh \
   --workspace-base workspaces_deepseek_v4_pro \
   --nodes-per-replica 4 \
-  --concurrency 128 \
+  --concurrency 64 \
   --time 24:00:00
 ```
 
@@ -618,7 +620,7 @@ To run the **entire CritPt set (70 problems) in parallel** against a vLLM serve 
 ./serve/full_eval.slurm \
   --model moonshotai/Kimi-K2.6 \
   --serve-job <SERVE_JOB_ID> \
-  --concurrency 128 \
+  --concurrency 64 \
   --time 8:00:00
 ```
 
