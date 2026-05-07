@@ -219,8 +219,9 @@ Running a local model is a two-step process: first **serve** the model with vLLM
 ### Huge-model example (GLM-5.1)
 
 `zai-org/GLM-5.1` runs on 3 H100 nodes with the default `models.yaml` serve
-config. The script pins DeepGEMM's JIT cache to `/fsx` and uses the loaded
-CUDA 12.9 toolkit so GLM can run without `--enforce-eager`.
+config. The script pins DeepGEMM, Triton, and TorchInductor JIT caches to
+job-local `/tmp` paths and uses the loaded CUDA 12.9 toolkit so GLM can run
+without `--enforce-eager`.
 
 ```bash
 ./serve/serve.slurm \
@@ -236,13 +237,202 @@ CUDA 12.9 toolkit so GLM can run without `--enforce-eager`.
 
 `zai-org/GLM-5.1` is very large; in our Slurm tests it required 3 nodes (`--nodes 3`) with 8 GPUs per node.
 
+### Huge-model example (DeepSeek V4 Pro)
+
+`deepseek-ai/DeepSeek-V4-Pro` needs vLLM 0.20+ with
+`DeepseekV4ForCausalLM`, CUDA 12.9-compatible wheels, and DeepGEMM 2.5. The
+tested cluster install is:
+
+- `vllm==0.20.2rc1.dev73+g5d0fd8703.cu129`
+- `deep-gemm==2.5.0+891d57b`
+- `transformers==5.8.0`
+- `nvidia-cuda-nvcc-cu12==12.9.86`
+- `nvidia-cuda-cccl-cu12==12.9.27`
+- `nvidia-cusparse-cu12==12.5.10.65`
+
+#### Install vLLM for CUDA 12.9
+
+Start from the project venv, then install the cu129 vLLM nightly wheel on a
+GPU node. The repo script is the source of truth:
+
+```bash
+sbatch serve/upgrade_vllm.sh
+```
+
+The script performs the exact cluster install:
+
+```bash
+source "$HOME/.bashrc"
+module use /admin/opt/modulefiles
+module load glibc/2.38 cuda/12.9
+
+cd /fsx/joel_niklaus/projects/open-dirac
+source .venv/bin/activate
+uv pip uninstall vllm || true
+uv pip install -U vllm \
+  --prerelease=allow \
+  --python-platform x86_64-manylinux_2_34 \
+  --torch-backend=cu129 \
+  --extra-index-url https://wheels.vllm.ai/nightly/cu129
+glibc-fix /fsx/joel_niklaus/projects/open-dirac/.venv/bin/python3.13
+```
+
+`glibc-fix` is required on the Ubuntu 20.04 H100 image because the vLLM wheel
+uses a newer manylinux/glibc baseline. The serve script also loads
+`glibc/2.38` and `cuda/12.9` at runtime.
+
+If the venv is not activated, pass the interpreter explicitly:
+
+```bash
+uv pip install -U vllm \
+  --prerelease=allow \
+  --python-platform x86_64-manylinux_2_34 \
+  --torch-backend=cu129 \
+  --extra-index-url https://wheels.vllm.ai/nightly/cu129 \
+  --python /fsx/joel_niklaus/projects/open-dirac/.venv/bin/python3.13
+```
+
+Verify the installed packages before launching:
+
+```bash
+uv pip show vllm deep-gemm transformers
+uv run --no-sync python - <<'PY'
+import deep_gemm
+import vllm
+
+print(vllm.__version__)
+print(deep_gemm.__version__)
+assert hasattr(deep_gemm, "fp8_fp4_mqa_logits")
+PY
+```
+
+#### DeepGEMM setup
+
+DeepSeek V4 sparse attention calls DeepGEMM's FP8/FP4 MQA logits kernels at
+runtime. Older DeepGEMM wheels load successfully but fail on the first real
+request because they do not expose `fp8_fp4_mqa_logits`.
+
+The compatible wheel is checked into the repo and wired through
+`[tool.uv.sources]`:
+
+```toml
+deep-gemm = { path = "deep_gemm-2.5.0+891d57b-cp313-cp313-linux_x86_64.whl" }
+```
+
+For normal installs, run:
+
+```bash
+uv sync --extra local
+```
+
+No manual DeepGEMM install is needed after that. Only rebuild the wheel when
+changing the vLLM checkout or DeepGEMM commit; the rebuild needs CUDA headers
+from the NVIDIA Python wheels (`nvidia-cuda-nvcc-cu12`,
+`nvidia-cuda-cccl-cu12`, and `nvidia-cusparse-cu12`) plus unversioned
+`libcudart.so`/`libnvrtc.so` links for the linker.
+
+#### Serve DeepSeek V4 Pro
+
+Authenticate Hugging Face first:
+
+```bash
+uv run hf auth whoami
+```
+
+Then launch the model:
+
+```bash
+./serve/serve.slurm --model deepseek-ai/DeepSeek-V4-Pro
+```
+
+The DeepSeek entry in `models.yaml` supplies the production defaults:
+
+- 4 external replicas, each using 4 H100 nodes with 8 GPUs per node
+- native vLLM data parallelism inside each replica with `dp: 4`
+- tensor parallelism inside each DP rank with `tp: 8`
+- no pipeline parallelism, because `DeepseekV4ForCausalLM` does not support PP
+- `--enable-expert-parallel`
+- `--kv-cache-dtype fp8`
+- `--tokenizer-mode deepseek_v4`
+- DeepSeek V4 tool and reasoning parsers
+- PIECEWISE CUDA graphs capped at 128
+- `benchmark_combo_kernel=false` to avoid the cluster TorchInductor autotuning
+  failure
+- `--performance-mode throughput` with `--max-num-batched-tokens 16384`
+
+With the default `replicas: 4`, `serve.slurm` dispatches through
+`serve/multi_serve.sh` and writes the four job IDs. Each replica writes its
+endpoint to `serve/logs/vllm/<job_id>/endpoint.env`; use
+`serve/load_balancer.py` or `serve/full_eval.slurm` with all four job IDs for a
+single `/v1` endpoint.
+
+`serve.slurm` writes each replica endpoint to
+`serve/logs/vllm/<job_id>/endpoint.env` and Slurm logs to
+`serve/logs/slurm/`. It also keeps `TRITON_CACHE_DIR`,
+`TORCHINDUCTOR_CACHE_DIR`, and `DG_JIT_CACHE_DIR` on job-local `/tmp` paths to
+avoid stale shared-filesystem JIT artifacts, and prepends the venv NVIDIA wheel
+libraries to `LD_LIBRARY_PATH` so `libnvJitLink.so.12` resolves from the cu129
+wheel stack instead of inherited CUDA 12.1 paths.
+
+The default DeepSeek config is tuned for high-concurrency CritPt-style traffic.
+To launch a single replica for debugging, override the replica count by calling
+`serve/multi_serve.sh` directly with `--replicas 1`, or call `serve.slurm` from
+inside `multi_serve.sh`.
+
+```bash
+./serve/multi_serve.sh \
+  --model deepseek-ai/DeepSeek-V4-Pro \
+  --replicas 1 \
+  --nodes-per-replica 4
+```
+
+The warmed 256-output-token benchmark results on 4x8 H100s were:
+
+| Concurrency | Requests | Aggregate tok/s | Median latency |
+| ----------- | -------- | --------------- | -------------- |
+| 64          | 64       | 221.1           | 74.1s          |
+| 128         | 128      | 272.9           | 120.0s         |
+| 256         | 256      | 300.6           | 217.5s         |
+
+`128` concurrent requests is the practical knee for latency-sensitive use.
+`256` maximizes raw aggregate throughput but mostly buys queueing. The
+throughput-mode setting cuts the 262k-context KV-cache headroom by roughly 60%,
+so use the 4-replica load-balanced setup for full PhysicsIntern runs. MTP
+speculative decoding was tested with
+`--speculative-config '{"method":"mtp","num_speculative_tokens":1}'`, but it did
+not become healthy: the engine completed graph capture and then `ApiServer_0`
+died before `/health` passed. MXFP4 indexer cache was tested with
+`--attention-config '{"use_fp4_indexer_cache":true}'`, but Triton emitted
+e2m1x2 conversion instructions that `ptxas` rejected for H100 `sm_90a`. Keep the
+stable FP8 indexer-cache path. `--enable-dbo` is intentionally not enabled
+because vLLM requires DeepEP all-to-all kernels for DBO; the default
+`allgather_reducescatter` backend rejects it at startup.
+
+Run the full PhysicsIntern CritPt sweep against four replicas with:
+
+```bash
+./serve/full_eval.slurm \
+  --model deepseek-ai/DeepSeek-V4-Pro \
+  --serve-job <JOB_1> \
+  --serve-job <JOB_2> \
+  --serve-job <JOB_3> \
+  --serve-job <JOB_4> \
+  --runner physicsintern \
+  --config config.cluster.yaml \
+  --fresh \
+  --workspace-base workspaces_deepseek_v4_pro \
+  --nodes-per-replica 4 \
+  --concurrency 128 \
+  --time 24:00:00
+```
+
 ### Prerequisites
 
 - `uv sync --extra local`
 - `uv run hf auth whoami`
 - The `local` extra installs `vllm`, the required `transformers` floor, and the
   vendored `deep-gemm` wheel from `[tool.uv.sources]`; no manual DeepGEMM install
-  is needed for `zai-org/GLM-5.1`.
+  is needed for `zai-org/GLM-5.1` or `deepseek-ai/DeepSeek-V4-Pro`.
 - vendored Nemotron parser plugins live in `serve/reasoning_parsers/`
 
 ### Step 1: Serve the model
@@ -295,10 +485,12 @@ Per-model `vllm_args` in `models.yaml` already encode the fastest configuration 
 
 Load times below are wall time of `default_loader.py` "Loading weights took N seconds" on the slowest worker. They depend heavily on whether the OS page cache is warm.
 
-| Model | Tput (single req) | Tput (8-way batch) | Tput (16-way batch) | Load (cold cache) | Load (warm cache) | Notes |
-|-------|-------------------|--------------------|---------------------|-------------------|-------------------|-------|
-| `zai-org/GLM-5.1`      | ~46 tok/s | ~202 tok/s | ~333 tok/s | ~2.5h projected without prefetch | ~18-22 min with prefetch in the final run; earlier warm run was ~2 min | DeepGEMM JIT cache/toolkit setup lets this run without `--enforce-eager`; BF16 beats FP8 on our stack. |
-| `moonshotai/Kimi-K2.6` | ~99 tok/s | ~558 tok/s | ~920 tok/s | ~78 min without prefetch; prefetch on cold cache untested | ~6-11 min with warm cache | CUDA graphs (no `--enforce-eager`) give the dominant 4× throughput win; `--enable-expert-parallel` remains the chosen default. PP=4 (4 nodes/replica) is the minimum for stable 262k-context concurrent serving; PP=2 OOMs under load. With external DP (N replicas × PP=4), aggregate throughput scales near-linearly. |
+
+| Model                  | Tput (single req) | Tput (8-way batch) | Tput (16-way batch) | Load (cold cache)                                         | Load (warm cache)                                                      | Notes                                                                                                                                                                                                                                                                                                                   |
+| ---------------------- | ----------------- | ------------------ | ------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `zai-org/GLM-5.1`      | ~46 tok/s         | ~202 tok/s         | ~333 tok/s          | ~2.5h projected without prefetch                          | ~18-22 min with prefetch in the final run; earlier warm run was ~2 min | DeepGEMM JIT cache/toolkit setup lets this run without `--enforce-eager`; BF16 beats FP8 on our stack.                                                                                                                                                                                                                  |
+| `moonshotai/Kimi-K2.6` | ~99 tok/s         | ~558 tok/s         | ~920 tok/s          | ~78 min without prefetch; prefetch on cold cache untested | ~6-11 min with warm cache                                              | CUDA graphs (no `--enforce-eager`) give the dominant 4× throughput win; `--enable-expert-parallel` remains the chosen default. PP=4 (4 nodes/replica) is the minimum for stable 262k-context concurrent serving; PP=2 OOMs under load. With external DP (N replicas × PP=4), aggregate throughput scales near-linearly. |
+
 
 For an apples-to-apples 4-node comparison, GLM-5.1 with TP=8/PP=4 measured
 ~46 tok/s single-request, ~257 tok/s at 8-way concurrency, and ~383 tok/s at
@@ -308,11 +500,13 @@ cost, so the default stays at 3 nodes.
 
 Kimi-K2.6 also fits on fewer nodes. With the same canonical flags:
 
-| Kimi nodes | Tput (single req) | Tput (8-way batch) | Tput (16-way batch) | Full-context KV headroom | Notes |
-|------------|-------------------|--------------------|---------------------|--------------------------|-------|
-| 2 | ~94 tok/s | ~569 tok/s | ~938 tok/s | 3.83× at 262k context | Best short-prompt cost/perf, but risky for full 8-way long-context sweeps. |
-| 3 | ~92 tok/s | ~547 tok/s | ~920 tok/s | 7.48× at 262k context | Almost enough for 8-way full-context use, still less headroom than 4 nodes. |
-| 4 | ~92 tok/s | ~558 tok/s | ~920 tok/s | 11.12× at 262k context | Chosen default for robust 8-way CritPt runs. |
+
+| Kimi nodes | Tput (single req) | Tput (8-way batch) | Tput (16-way batch) | Full-context KV headroom | Notes                                                                       |
+| ---------- | ----------------- | ------------------ | ------------------- | ------------------------ | --------------------------------------------------------------------------- |
+| 2          | ~94 tok/s         | ~569 tok/s         | ~938 tok/s          | 3.83× at 262k context    | Best short-prompt cost/perf, but risky for full 8-way long-context sweeps.  |
+| 3          | ~92 tok/s         | ~547 tok/s         | ~920 tok/s          | 7.48× at 262k context    | Almost enough for 8-way full-context use, still less headroom than 4 nodes. |
+| 4          | ~92 tok/s         | ~558 tok/s         | ~920 tok/s          | 11.12× at 262k context   | Chosen default for robust 8-way CritPt runs.                                |
+
 
 At PP=4 (4 nodes), aggregate throughput scales linearly up to 256 concurrent requests per replica, reaching ~4,620 tok/s with zero failures. Per-request latency increases linearly as expected.
 
@@ -367,15 +561,18 @@ uv run python serve/load_balancer.py <job1> <job2> <job3> <job4>
 
 **Measured scaling** (H100 80 GB, max-num-seqs=64, 512 output tokens):
 
+
 | Config                      | Nodes | Agg tok/s (peak) | Scaling |
-|-----------------------------|-------|-------------------|---------|
-| 1x replica (PP=2, baseline) | 2     | 2,468             | 1.0x    |
-| 1x replica (PP=4)           | 4     | 2,384             | 1.0x    |
-| 3x replicas (PP=2 each)     | 6     | 5,205             | 2.1x    |
-| 5x replicas (PP=2 each)     | 10    | 11,250            | 4.6x    |
-| 8x replicas (PP=2, proj.)   | 16    | ~19,700           | ~8.0x   |
+| --------------------------- | ----- | ---------------- | ------- |
+| 1x replica (PP=2, baseline) | 2     | 2,468            | 1.0x    |
+| 1x replica (PP=4)           | 4     | 2,384            | 1.0x    |
+| 3x replicas (PP=2 each)     | 6     | 5,205            | 2.1x    |
+| 5x replicas (PP=2 each)     | 10    | 11,250           | 4.6x    |
+| 8x replicas (PP=2, proj.)   | 16    | ~19,700          | ~8.0x   |
+
 
 Key findings:
+
 - **PP depth does not increase throughput** (PP=2 ≈ PP=4). More PP stages only add KV headroom.
 - **PP=4 (4 nodes/replica) is the production default** — PP=2 OOMs under concurrent load at 262k context.
 - **External DP scales near-linearly** — each replica adds ~2,400 tok/s capacity.
@@ -431,28 +628,32 @@ Submission JSONs land in `results/critpt_oneshot/<model_slug>/<timestamp>/`. To 
 
 ### General
 
-| Script | Purpose |
-|--------|---------|
-| `scripts/run_and_verify.sh` | Run a research session then verify results in one command |
-| `scripts/one_shot_batch.sh` | Batch-run the one-shot baseline across all problems in a folder |
-| `scripts/run_multiple.py` | Run N concurrent multi-agent (physics_intern) instances for pass@k evaluation |
-| `scripts/run_multiple_oneshot.py` | Run N concurrent one-shot instances for pass@k evaluation |
-| `scripts/run_multiple_rsa.py` | Run N concurrent RSA instances for pass@k evaluation |
-| `scripts/run_multiple_autophysicist.py` | Run N concurrent autophysicist instances for pass@k evaluation |
-| `scripts/test_model.py` | Smoke-test a model's reasoning and tool-call support (`--list` to show available models) |
+
+| Script                                  | Purpose                                                                                  |
+| --------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `scripts/run_and_verify.sh`             | Run a research session then verify results in one command                                |
+| `scripts/one_shot_batch.sh`             | Batch-run the one-shot baseline across all problems in a folder                          |
+| `scripts/run_multiple.py`               | Run N concurrent multi-agent (physics_intern) instances for pass@k evaluation            |
+| `scripts/run_multiple_oneshot.py`       | Run N concurrent one-shot instances for pass@k evaluation                                |
+| `scripts/run_multiple_rsa.py`           | Run N concurrent RSA instances for pass@k evaluation                                     |
+| `scripts/run_multiple_autophysicist.py` | Run N concurrent autophysicist instances for pass@k evaluation                           |
+| `scripts/test_model.py`                 | Smoke-test a model's reasoning and tool-call support (`--list` to show available models) |
+
 
 ### CritPt Benchmark
 
 These scripts run PhysicsIntern against the [CritPt](https://github.com/CriticalPathAI/benchmarks) benchmark suite (70 problems in `problems/critpt/yaml/`). They produce CritPt-format submission JSONs, support resume from interrupted runs, and handle rolling parallelism.
 
-| Script | Purpose |
-|--------|---------|
-| `scripts/run_critpt_physics_intern.py` | Batch-run all CritPt problems through the full multi-agent pipeline |
-| `scripts/run_critpt_oneshot.py` | Batch-run all CritPt problems through the one-shot baseline |
-| `scripts/run_critpt_two_steps.py` | Batch-run all CritPt problems through the two-step baseline (critpt's `parsing=False`) |
-| `scripts/run_critpt_rsa.py` | Batch-run all CritPt problems through RSA |
-| `scripts/analyze_batch.py` | Analyze token usage and per-agent metrics across a batch run |
-| `scripts/fill_missing_critpt.py` | Fill missing submission JSONs with template answers for a complete 70-problem set |
+
+| Script                                 | Purpose                                                                                |
+| -------------------------------------- | -------------------------------------------------------------------------------------- |
+| `scripts/run_critpt_physics_intern.py` | Batch-run all CritPt problems through the full multi-agent pipeline                    |
+| `scripts/run_critpt_oneshot.py`        | Batch-run all CritPt problems through the one-shot baseline                            |
+| `scripts/run_critpt_two_steps.py`      | Batch-run all CritPt problems through the two-step baseline (critpt's `parsing=False`) |
+| `scripts/run_critpt_rsa.py`            | Batch-run all CritPt problems through RSA                                              |
+| `scripts/analyze_batch.py`             | Analyze token usage and per-agent metrics across a batch run                           |
+| `scripts/fill_missing_critpt.py`       | Fill missing submission JSONs with template answers for a complete 70-problem set      |
+
 
 All batch scripts support `--resume <output-dir>` to continue an interrupted run. On resume, all parameters (model, max_tokens, problem subset, RSA N/K/T, etc.) are recovered from the saved `batch_metadata.json` — no need to re-specify them. Completed submissions are automatically skipped.
 
@@ -471,21 +672,23 @@ uv run python scripts/run_critpt_rsa.py --resume results/rsa_run/ --concurrency 
 
 Models are registered in `models.yaml`. Use the friendly key with `--model`:
 
-| Key | Provider | Model |
-|-----|----------|-------|
-| `claude-4.6-opus` | Anthropic | claude-opus-4-6 |
-| `claude-4.6-sonnet` | Anthropic | claude-sonnet-4-6 |
-| `gpt-5.4-high` | OpenAI | gpt-5.4 (high effort) |
-| `gpt-5.4-medium` | OpenAI | gpt-5.4 (medium effort) |
-| `gpt-5.4-pro` | OpenAI | gpt-5.4-pro |
-| `gemini-3.1-pro-preview` | Google | gemini-3.1-pro-preview |
-| `gemini-3-flash-preview` | Google | gemini-3-flash-preview |
-| `deepseek-v3.2` | HuggingFace | DeepSeek-V3.2 |
-| `kimi-k2.5` | HuggingFace | Kimi-K2.5 |
-| `glm-5` | HuggingFace | GLM-5 |
-| `gpt-oss-120b` | HuggingFace | gpt-oss-120b |
-| `minimax-m2.5` | HuggingFace | MiniMax-M2.5 |
-| `qwen-3.5-397B-A17B` | HuggingFace | Qwen3.5-397B-A17B |
+
+| Key                      | Provider    | Model                   |
+| ------------------------ | ----------- | ----------------------- |
+| `claude-4.6-opus`        | Anthropic   | claude-opus-4-6         |
+| `claude-4.6-sonnet`      | Anthropic   | claude-sonnet-4-6       |
+| `gpt-5.4-high`           | OpenAI      | gpt-5.4 (high effort)   |
+| `gpt-5.4-medium`         | OpenAI      | gpt-5.4 (medium effort) |
+| `gpt-5.4-pro`            | OpenAI      | gpt-5.4-pro             |
+| `gemini-3.1-pro-preview` | Google      | gemini-3.1-pro-preview  |
+| `gemini-3-flash-preview` | Google      | gemini-3-flash-preview  |
+| `deepseek-v3.2`          | HuggingFace | DeepSeek-V3.2           |
+| `kimi-k2.5`              | HuggingFace | Kimi-K2.5               |
+| `glm-5`                  | HuggingFace | GLM-5                   |
+| `gpt-oss-120b`           | HuggingFace | gpt-oss-120b            |
+| `minimax-m2.5`           | HuggingFace | MiniMax-M2.5            |
+| `qwen-3.5-397B-A17B`     | HuggingFace | Qwen3.5-397B-A17B       |
+
 
 ### Known limitations
 
@@ -493,7 +696,7 @@ Models are registered in `models.yaml`. Use the friendly key with `--model`:
 
 ## Architecture
 
-![Architecture diagram](physicsintern.png)
+Architecture diagram
 
 Nine agent roles collaborate in a loop. Each agent gets a fresh context per call (no conversation history). All research state lives in a structured `ResearchState` object (persisted as `RESEARCH_GRAPH.json`), with Markdown files rendered from it. The workspace is a separate git repo.
 
@@ -544,17 +747,19 @@ The orchestrator is the only agent that *decides* what to do — it reads Resear
 
 ### Agents
 
-| Agent | Role | Mode | Context source | Mutates |
-|-------|------|------|----------------|---------|
-| **Surveyor** | Maps the research landscape before the main loop | One-shot | Problem statement + ResearchState | `BackgroundSurvey` on ResearchState |
-| **Planner** | Research strategy planning (initial + revision) | One-shot | Problem statement + background survey (+ revision trigger) | Strategy, sanity checks on ResearchState |
-| **Orchestrator** | Plans next task, mutates state via tools | Agentic (9 tools) | ResearchState via renderers | ResearchState, `CURRENT_TASK.md` |
-| **Researcher** | Analytical reasoning, derivation | One-shot (structured JSON) | Task + target entity + method hints + light state | Evidence on RQ/WH |
-| **Computer** | Computational work via code | Agentic (4 tools) | Task + target entity + method hints + light state | Evidence on RQ/WH |
-| **Reviewer** | Adversarial review without code | One-shot (structured JSON) | Focused package: WH + evidence + light state | ReviewResult on WH |
-| **Deep Critic** | Strategic audit — research direction, coherence | One-shot (structured JSON) | ResearchState via `render_critic_context()` | Critique objects (typed: er/strategy/coordination) |
-| **Adjudicator** | Independent evaluation of ER challenges from critic | One-shot (structured JSON) | Claim + challenge + evidence + conventions + ERs | ER demotion or critique dismissal |
-| **Formatter** | Produces clean `ANSWER.md` from final research state | One-shot | ResearchState via renderers | `ANSWER.md` |
+
+| Agent            | Role                                                 | Mode                       | Context source                                             | Mutates                                            |
+| ---------------- | ---------------------------------------------------- | -------------------------- | ---------------------------------------------------------- | -------------------------------------------------- |
+| **Surveyor**     | Maps the research landscape before the main loop     | One-shot                   | Problem statement + ResearchState                          | `BackgroundSurvey` on ResearchState                |
+| **Planner**      | Research strategy planning (initial + revision)      | One-shot                   | Problem statement + background survey (+ revision trigger) | Strategy, sanity checks on ResearchState           |
+| **Orchestrator** | Plans next task, mutates state via tools             | Agentic (9 tools)          | ResearchState via renderers                                | ResearchState, `CURRENT_TASK.md`                   |
+| **Researcher**   | Analytical reasoning, derivation                     | One-shot (structured JSON) | Task + target entity + method hints + light state          | Evidence on RQ/WH                                  |
+| **Computer**     | Computational work via code                          | Agentic (4 tools)          | Task + target entity + method hints + light state          | Evidence on RQ/WH                                  |
+| **Reviewer**     | Adversarial review without code                      | One-shot (structured JSON) | Focused package: WH + evidence + light state               | ReviewResult on WH                                 |
+| **Deep Critic**  | Strategic audit — research direction, coherence      | One-shot (structured JSON) | ResearchState via `render_critic_context()`                | Critique objects (typed: er/strategy/coordination) |
+| **Adjudicator**  | Independent evaluation of ER challenges from critic  | One-shot (structured JSON) | Claim + challenge + evidence + conventions + ERs           | ER demotion or critique dismissal                  |
+| **Formatter**    | Produces clean `ANSWER.md` from final research state | One-shot                   | ResearchState via renderers                                | `ANSWER.md`                                        |
+
 
 ### Research Lifecycle
 
@@ -584,10 +789,10 @@ Promotion from WH to ER is automatic: the engine's `_auto_promote` fires after a
 
 LLMs fail in predictable ways (hallucinating IDs, promoting unverified results, emitting malformed output, failing to terminate). The scaffolding compensates via ~40 mechanisms across four categories (defined in `categories.py` as `CompensationCategory`):
 
-- **`call_reliability`** — making each LLM call succeed: transport retry, tool-call fallback, agent loop bailouts, tool execution guards
-- **`state_invariants`** — keeping ResearchState consistent: post-integration validation pipeline (4 checks)
-- **`loop_control`** — steering the main loop: forced critic, dispatch guards, verdict tracking, compute enrichment, termination gates
-- **`output_normalization`** — cleaning agent output: per-agent response corrections, markdown parsing tolerance
+- `**call_reliability`** — making each LLM call succeed: transport retry, tool-call fallback, agent loop bailouts, tool execution guards
+- `**state_invariants**` — keeping ResearchState consistent: post-integration validation pipeline (4 checks)
+- `**loop_control**` — steering the main loop: forced critic, dispatch guards, verdict tracking, compute enrichment, termination gates
+- `**output_normalization**` — cleaning agent output: per-agent response corrections, markdown parsing tolerance
 
 All interventions are logged to `EVENT_LOG.jsonl` with category, event key, and detail.
 
@@ -595,20 +800,22 @@ All interventions are logged to `EVENT_LOG.jsonl` with category, event key, and 
 
 All research state is persisted under `workspaces/<run>/` (each run gets a timestamped subdirectory, gitignored from this repo, has its own git):
 
-| File | Purpose |
-|------|---------|
-| `RESEARCH_STATE.md` | Established results, working hypotheses, evidence, dead ends |
-| `CURRENT_TASK.md` | Current task with YAML frontmatter + structured dispatch context |
-| `RESEARCH_GRAPH.json` | Authoritative structured state (ResearchState serialized as JSON) |
-| `EVIDENCE_LOG.md` | Log of all evidence and review results |
-| `CRITIQUE_LOG.md` | All critiques with severity and resolution status |
-| `METRICS.md` | Token usage, alerts |
-| `EVENT_LOG.jsonl` | Unified event log — LLM call metadata + scaffolding intervention events |
-| `ANSWER.md` | Final formatted answer (written by formatter at end of run, or by the forced formatter on soft-exit) |
-| `BEST_GUESS.md` | Mid-run best-guess snapshot (only if `best_guess_every_n > 0`) — never read by agents |
-| `VERIFICATION.md` | Independent verification report (written by `--write-report`) |
-| `computations/` | Saved Python scripts from computer agent |
-| `derivations/` | Saved derivation files from researcher agent |
+
+| File                  | Purpose                                                                                              |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `RESEARCH_STATE.md`   | Established results, working hypotheses, evidence, dead ends                                         |
+| `CURRENT_TASK.md`     | Current task with YAML frontmatter + structured dispatch context                                     |
+| `RESEARCH_GRAPH.json` | Authoritative structured state (ResearchState serialized as JSON)                                    |
+| `EVIDENCE_LOG.md`     | Log of all evidence and review results                                                               |
+| `CRITIQUE_LOG.md`     | All critiques with severity and resolution status                                                    |
+| `METRICS.md`          | Token usage, alerts                                                                                  |
+| `EVENT_LOG.jsonl`     | Unified event log — LLM call metadata + scaffolding intervention events                              |
+| `ANSWER.md`           | Final formatted answer (written by formatter at end of run, or by the forced formatter on soft-exit) |
+| `BEST_GUESS.md`       | Mid-run best-guess snapshot (only if `best_guess_every_n > 0`) — never read by agents                |
+| `VERIFICATION.md`     | Independent verification report (written by `--write-report`)                                        |
+| `computations/`       | Saved Python scripts from computer agent                                                             |
+| `derivations/`        | Saved derivation files from researcher agent                                                         |
+
 
 ## Problem Definitions
 

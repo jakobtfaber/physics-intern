@@ -414,7 +414,10 @@ async def run_one_problem(
             cmd = [
                 "uv",
                 "run",
-                "physics_intern",
+                "--no-sync",
+                "python",
+                "-m",
+                "physics_intern.main",
                 "--resume",
                 str(action.workspace),
             ]
@@ -429,7 +432,10 @@ async def run_one_problem(
             cmd = [
                 "uv",
                 "run",
-                "physics_intern",
+                "--no-sync",
+                "python",
+                "-m",
+                "physics_intern.main",
                 str(problem.yaml_path),
                 "--model",
                 model_key,

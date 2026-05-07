@@ -315,7 +315,11 @@ async def manage_backend_slot(
 
 
 def create_app(pool: BackendPool) -> Starlette:
-    client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0))
+    # Max-think responses can stay silent for more than 10 minutes before the
+    # backend emits a body chunk, so only bound connection setup and writes.
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=30.0, read=None, write=600.0, pool=600.0)
+    )
 
     async def health_check(request: Request) -> PlainTextResponse:
         if pool.size > 0:

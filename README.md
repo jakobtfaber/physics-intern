@@ -29,6 +29,11 @@ uv sync --extra all-providers   # all of the above
 # To serve local models on a Linux GPU cluster (no-op on macOS):
 uv sync --extra local
 
+# Serve DeepSeek V4 locally through vLLM on the H100 Slurm cluster.
+# This launches 4 external replicas behind the documented load-balancer flow.
+# See DOCUMENTATION.md for the required cu129 vLLM install and DeepGEMM wheel.
+./serve/serve.slurm --model deepseek-ai/DeepSeek-V4-Pro
+
 # Run a research problem (requires model API key in .env or env var)
 uv run physics_intern problems/critpt/quantum_error_correction_main.yaml --model gemini-3-flash-preview
 ```
@@ -37,12 +42,14 @@ uv run physics_intern problems/critpt/quantum_error_correction_main.yaml --model
 
 Set API keys for the providers you want to use (in `.env` or as env vars):
 
-| Variable | Provider |
-|----------|----------|
-| `ANTHROPIC_API_KEY` | Anthropic |
-| `OPENAI_API_KEY` | OpenAI |
-| `GOOGLE_API_KEY` | Google Gemini (default) |
-| `HF_TOKEN` | HuggingFace Inference Providers |
+
+| Variable            | Provider                        |
+| ------------------- | ------------------------------- |
+| `ANTHROPIC_API_KEY` | Anthropic                       |
+| `OPENAI_API_KEY`    | OpenAI                          |
+| `GOOGLE_API_KEY`    | Google Gemini (default)         |
+| `HF_TOKEN`          | HuggingFace Inference Providers |
+
 
 ### CLI Options
 
