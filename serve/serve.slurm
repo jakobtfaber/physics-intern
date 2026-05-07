@@ -676,13 +676,12 @@ if (( DP > 1 )); then
     --data-parallel-address "$HEAD_IP"
     --data-parallel-rpc-port "$DP_RPC_PORT"
   )
-  # Scale API server count for large DP to avoid head-node bottleneck.
+  # Only very large DP jobs need multiple API servers. DP=4 DeepSeek replicas
+  # are more stable with a single API server under max-think traffic.
   # Stored separately: only the head node gets this (--headless is incompatible).
   HEAD_EXTRA_ARGS=()
   if (( DP >= 8 )); then
     HEAD_EXTRA_ARGS+=(--api-server-count 4)
-  elif (( DP >= 4 )); then
-    HEAD_EXTRA_ARGS+=(--api-server-count 2)
   fi
 else
   VLLM_ARGS+=(--pipeline-parallel-size "$PP")
