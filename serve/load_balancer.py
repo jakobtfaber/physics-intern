@@ -32,11 +32,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
-import uvicorn
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse, StreamingResponse
-from starlette.routing import Mount, Route
 
 logger = logging.getLogger("load_balancer")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -355,6 +350,7 @@ class BackendPool:
     def size(self) -> int:
         return len(self._backends)
 
+
 # ---------------------------------------------------------------------------
 # Per-slot backend lifecycle manager
 # ---------------------------------------------------------------------------
@@ -595,7 +591,18 @@ async def monitor_discovered_backend(
 # ---------------------------------------------------------------------------
 
 
-def create_app(pool: BackendPool) -> Starlette:
+def create_app(pool: BackendPool):
+    """Create the Starlette proxy app.
+
+    Starlette/uvicorn are imported lazily so unit tests can import backend-state
+    helpers in the default CI environment, which does not install the local vLLM
+    serving extra.
+    """
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse, PlainTextResponse, StreamingResponse
+    from starlette.routing import Mount, Route
+
     # Max-think responses can stay silent for more than 10 minutes before the
     # backend emits a body chunk, so only bound connection setup and writes.
     client = httpx.AsyncClient(
@@ -615,14 +622,18 @@ def create_app(pool: BackendPool) -> Starlette:
         job_id = request.path_params["job_id"]
         ok = await pool.mark_draining(job_id, "manual drain")
         if not ok:
-            return JSONResponse({"error": f"unknown backend job {job_id}"}, status_code=404)
+            return JSONResponse(
+                {"error": f"unknown backend job {job_id}"}, status_code=404
+            )
         return JSONResponse({"job_id": job_id, "draining": True})
 
     async def cancel_when_drained(request: Request) -> JSONResponse:
         job_id = request.path_params["job_id"]
         ok = await pool.mark_draining(job_id, "manual drain and cancel")
         if not ok:
-            return JSONResponse({"error": f"unknown backend job {job_id}"}, status_code=404)
+            return JSONResponse(
+                {"error": f"unknown backend job {job_id}"}, status_code=404
+            )
 
         async def _cancel_after_drain() -> None:
             while await pool.active_count(job_id) > 0:
@@ -631,7 +642,9 @@ def create_app(pool: BackendPool) -> Starlette:
             await pool.remove(job_id, "manual drained scale-down")
 
         asyncio.create_task(_cancel_after_drain())
-        return JSONResponse({"job_id": job_id, "draining": True, "cancel": "when_drained"})
+        return JSONResponse(
+            {"job_id": job_id, "draining": True, "cancel": "when_drained"}
+        )
 
     async def proxy(request: Request) -> StreamingResponse:
         body = await request.body()
@@ -700,7 +713,9 @@ def create_app(pool: BackendPool) -> Starlette:
             Route("/health", health_check),
             Route("/status", pool_status),
             Route("/drain/{job_id}", drain_backend, methods=["POST"]),
-            Route("/cancel_when_drained/{job_id}", cancel_when_drained, methods=["POST"]),
+            Route(
+                "/cancel_when_drained/{job_id}", cancel_when_drained, methods=["POST"]
+            ),
             Mount(
                 "/v1",
                 routes=[
@@ -782,6 +797,8 @@ async def main_async(args: argparse.Namespace) -> int:
     )
 
     app = create_app(pool)
+    import uvicorn
+
     config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_level="info")
     server = uvicorn.Server(config)
     await server.serve()

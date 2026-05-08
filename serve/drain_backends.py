@@ -52,7 +52,9 @@ def discover_eval_job() -> str:
     return matches[0]
 
 
-def request_from_eval_job(eval_job: str, path: str, method: str = "GET") -> dict[str, Any]:
+def request_from_eval_job(
+    eval_job: str, path: str, method: str = "GET"
+) -> dict[str, Any]:
     """Call the load balancer from inside the eval job allocation."""
     code = f"""\
 import json
