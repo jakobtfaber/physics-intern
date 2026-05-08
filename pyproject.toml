@@ -15,8 +15,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-quality = ["ruff>=0.15.12"]
-testing = ["pytest>=8.0", "huggingface-hub>=0.25"]
+quality = ["pre-commit>=4.6.0", "ruff>=0.15.12"]
+testing = ["pytest>=8.0", "pytest-cov>=7.1.0", "huggingface-hub>=0.25"]
 openai = ["openai>=1.0"]
 google = ["google-genai>=1.0"]
 huggingface = ["huggingface-hub>=0.25"]
@@ -55,6 +55,27 @@ packages = ["src/physics_intern"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.coverage.run]
+branch = true
+omit = [
+    "src/physics_intern/main.py",
+    "src/physics_intern/*/__main__.py",
+    "src/physics_intern/*/runner.py",
+    "src/physics_intern/baselines/cli.py",
+    "src/physics_intern/providers/anthropic.py",
+    "src/physics_intern/providers/google.py",
+    "src/physics_intern/providers/huggingface.py",
+    "src/physics_intern/providers/openai.py",
+    "src/physics_intern/providers/vllm.py",
+    "src/physics_intern/verification/cli.py",
+]
+source = ["physics_intern"]
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
+skip_covered = true
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/test_model.py" = ["E402"]

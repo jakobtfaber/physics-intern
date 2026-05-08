@@ -6,6 +6,9 @@ __pycache__/
 dist/
 *.egg-info/
 .pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
 logs/
 .claude/settings.local.json
 .idea/
