@@ -72,6 +72,23 @@ def _problem(n: int) -> Problem:
     )
 
 
+def _init_git_repo(workspace: Path) -> None:
+    """Initialise a test git repository that can create cleanup commits."""
+    subprocess.run(["git", "init"], cwd=workspace, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=workspace,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=workspace,
+        capture_output=True,
+        check=True,
+    )
+
+
 def test_plan_actions_marks_empty_answer_for_resume_cleanup(tmp_path):
     """An empty ANSWER.md is not scoreable and must not block resume."""
     output_dir = tmp_path / "results"
@@ -99,23 +116,38 @@ def test_plan_actions_marks_empty_answer_for_resume_cleanup(tmp_path):
     assert action.cleanup_answer_reason == "empty answer"
 
 
+def test_plan_actions_marks_colonless_formatter_rejection_for_cleanup(tmp_path):
+    """Formatter rejection artifacts must not be treated as scoreable answers."""
+    output_dir = tmp_path / "results"
+    output_dir.mkdir()
+    workspace_base = tmp_path / "workspaces"
+    safe_model = "deepseek-ai-DeepSeek-V4-Pro"
+    workspace = workspace_base / f"20260508_100000_Challenge_25_main_{safe_model}"
+    workspace.mkdir(parents=True)
+    (workspace / "ANSWER.md").write_text("FORMATTER_REJECTION missing final ER\n")
+    (workspace / "RESEARCH_GRAPH.json").write_text('{"status": "completed"}')
+
+    actions = plan_actions(
+        problems=[_problem(25)],
+        output_dir=output_dir,
+        workspace_base=workspace_base,
+        model_key="deepseek-ai/DeepSeek-V4-Pro",
+        force=False,
+    )
+
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.action == "resume"
+    assert action.workspace == workspace
+    assert action.cleanup_answer_before_resume is True
+    assert action.cleanup_answer_reason == "formatter rejection"
+
+
 def test_commit_answer_cleanup_before_resume_removes_committed_empty_answer(tmp_path):
     """The cleanup leaves the workspace clean so physics_intern.main can resume."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    subprocess.run(["git", "init"], cwd=workspace, capture_output=True, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"],
-        cwd=workspace,
-        capture_output=True,
-        check=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test"],
-        cwd=workspace,
-        capture_output=True,
-        check=True,
-    )
+    _init_git_repo(workspace)
     (workspace / "ANSWER.md").write_text("\n")
     subprocess.run(["git", "add", "-A"], cwd=workspace, capture_output=True, check=True)
     subprocess.run(
@@ -126,6 +158,33 @@ def test_commit_answer_cleanup_before_resume_removes_committed_empty_answer(tmp_
     )
 
     _commit_answer_cleanup_before_resume(workspace, "empty answer")
+
+    assert not (workspace / "ANSWER.md").exists()
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status.stdout == ""
+
+
+def test_commit_answer_cleanup_before_resume_removes_formatter_rejection(tmp_path):
+    """The cleanup guard matches the resume planner's rejection detection."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _init_git_repo(workspace)
+    (workspace / "ANSWER.md").write_text("FORMATTER_REJECTION missing final ER\n")
+    subprocess.run(["git", "add", "-A"], cwd=workspace, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Formatter rejection answer"],
+        cwd=workspace,
+        capture_output=True,
+        check=True,
+    )
+
+    _commit_answer_cleanup_before_resume(workspace, "formatter rejection")
 
     assert not (workspace / "ANSWER.md").exists()
     status = subprocess.run(

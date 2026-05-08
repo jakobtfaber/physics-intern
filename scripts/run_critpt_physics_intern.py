@@ -54,6 +54,7 @@ from physics_intern.core.config import load_config_yaml  # noqa: E402
 
 DEFAULT_WORKSPACE_BASE = PROJECT_ROOT / "workspaces"
 DEFAULT_RESULTS_BASE = PROJECT_ROOT / "results" / "critpt"
+FORMATTER_REJECTION_PREFIX = "FORMATTER_REJECTION"
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +206,11 @@ class ResumeAction:
     cleanup_answer_reason: str = ""
 
 
+def _is_formatter_rejection_answer(answer_text: str) -> bool:
+    """Return whether ``ANSWER.md`` contains a formatter rejection marker."""
+    return answer_text.strip().startswith(FORMATTER_REJECTION_PREFIX)
+
+
 def _commit_answer_cleanup_before_resume(workspace: Path, reason: str) -> None:
     """Remove an invalid final answer and commit that cleanup before resume.
 
@@ -219,9 +225,7 @@ def _commit_answer_cleanup_before_resume(workspace: Path, reason: str) -> None:
         return
 
     answer_text = answer_path.read_text()
-    if answer_text.strip() and not answer_text.lstrip().startswith(
-        "FORMATTER_REJECTION:"
-    ):
+    if answer_text.strip() and not _is_formatter_rejection_answer(answer_text):
         return
 
     answer_path.unlink()
@@ -294,7 +298,7 @@ def plan_actions(
             cleanup_answer_reason = ""
             if answer_path.exists():
                 code = answer_path.read_text().strip()
-                if code and not code.startswith("FORMATTER_REJECTION"):
+                if code and not _is_formatter_rejection_answer(code):
                     actions.append(
                         ResumeAction(
                             problem=p,
@@ -307,7 +311,7 @@ def plan_actions(
                 cleanup_answer_before_resume = True
                 cleanup_answer_reason = (
                     "formatter rejection"
-                    if code.startswith("FORMATTER_REJECTION")
+                    if _is_formatter_rejection_answer(code)
                     else "empty answer"
                 )
             # Workspace exists but no valid answer — try to resume
