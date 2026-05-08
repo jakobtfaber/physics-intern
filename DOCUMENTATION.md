@@ -379,6 +379,14 @@ replica auto-cancels if no requests have completed and no requests are running
 or waiting for 2 hours. This prevents unused multi-replica jobs from holding H100
 nodes after a benchmark or load balancer stops using them.
 
+When `serve/load_balancer.py` resubmits a failed replica, Slurm queue time does
+not count against the backend health timeout. The load balancer waits while the
+replacement is pending and only starts the endpoint timer once Slurm starts the
+job, so queued replacements can still join the pool after the cluster frees
+capacity. If a started replacement still fails to produce a healthy endpoint
+within the timeout, the load balancer cancels that job before submitting another
+replacement so timed-out jobs do not later become orphaned replicas.
+
 The default DeepSeek config is tuned for high-concurrency CritPt-style traffic.
 To launch a single replica for debugging, override the replica count by calling
 `serve/multi_serve.sh` directly with `--replicas 1`, or call `serve.slurm` from

@@ -33,6 +33,7 @@ uv sync --extra local
 # This launches 4 external replicas behind the documented load-balancer flow.
 # See DOCUMENTATION.md for the required cu129 vLLM install and DeepGEMM wheel.
 # Idle serve replicas auto-cancel after 2 hours without completed, running, or waiting requests.
+# Queued replacements wait without timing out; failed replacements are cancelled before resubmit.
 ./serve/serve.slurm --model deepseek-ai/DeepSeek-V4-Pro
 
 # Run full CritPt evaluation against existing serve jobs from the CPU partition.
