@@ -201,6 +201,70 @@ class ResumeAction:
     action: str  # "skip", "extract", "resume", "fresh"
     workspace: Path | None = None
     answer_code: str | None = None
+    cleanup_answer_before_resume: bool = False
+    cleanup_answer_reason: str = ""
+
+
+def _commit_answer_cleanup_before_resume(workspace: Path, reason: str) -> None:
+    """Remove an invalid final answer and commit that cleanup before resume.
+
+    ``physics_intern.main --resume`` refuses any workspace with ``ANSWER.md``
+    because that file is the canonical completion signal. Empty or explicit
+    formatter-rejection answers are not valid submissions, so the batch runner
+    removes them and records the cleanup in the challenge workspace git history
+    before granting more budget.
+    """
+    answer_path = workspace / "ANSWER.md"
+    if not answer_path.exists():
+        return
+
+    answer_text = answer_path.read_text()
+    if answer_text.strip() and not answer_text.lstrip().startswith(
+        "FORMATTER_REJECTION:"
+    ):
+        return
+
+    answer_path.unlink()
+    add_proc = subprocess.run(
+        ["git", "add", "-A", "ANSWER.md"],
+        cwd=str(workspace),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if add_proc.returncode != 0:
+        raise RuntimeError(
+            f"Failed to stage ANSWER.md cleanup in {workspace}: "
+            f"{add_proc.stderr.strip()}"
+        )
+
+    status_proc = subprocess.run(
+        ["git", "status", "--porcelain", "--", "ANSWER.md"],
+        cwd=str(workspace),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if status_proc.returncode != 0:
+        raise RuntimeError(
+            f"Failed to inspect ANSWER.md cleanup in {workspace}: "
+            f"{status_proc.stderr.strip()}"
+        )
+    if not status_proc.stdout.strip():
+        return
+
+    commit_proc = subprocess.run(
+        ["git", "commit", "-m", f"Remove invalid ANSWER.md before resume: {reason}"],
+        cwd=str(workspace),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if commit_proc.returncode != 0:
+        raise RuntimeError(
+            f"Failed to commit ANSWER.md cleanup in {workspace}: "
+            f"{commit_proc.stderr.strip()}"
+        )
 
 
 def plan_actions(
@@ -226,6 +290,8 @@ def plan_actions(
         )
         if ws:
             answer_path = ws / "ANSWER.md"
+            cleanup_answer_before_resume = False
+            cleanup_answer_reason = ""
             if answer_path.exists():
                 code = answer_path.read_text().strip()
                 if code and not code.startswith("FORMATTER_REJECTION"):
@@ -238,6 +304,12 @@ def plan_actions(
                         )
                     )
                     continue
+                cleanup_answer_before_resume = True
+                cleanup_answer_reason = (
+                    "formatter rejection"
+                    if code.startswith("FORMATTER_REJECTION")
+                    else "empty answer"
+                )
             # Workspace exists but no valid answer — try to resume
             graph_path = ws / "RESEARCH_GRAPH.json"
             if graph_path.exists():
@@ -246,6 +318,8 @@ def plan_actions(
                         problem=p,
                         action="resume",
                         workspace=ws,
+                        cleanup_answer_before_resume=cleanup_answer_before_resume,
+                        cleanup_answer_reason=cleanup_answer_reason,
                     )
                 )
                 continue
@@ -411,6 +485,11 @@ async def run_one_problem(
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await p.wait()
+            if action.cleanup_answer_before_resume:
+                _commit_answer_cleanup_before_resume(
+                    ws,
+                    action.cleanup_answer_reason,
+                )
             cmd = [
                 "uv",
                 "run",

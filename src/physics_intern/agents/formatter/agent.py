@@ -80,6 +80,16 @@ class FormatterAgent(BaseAgent):
         self.rejection_reason = None
         text = response.text or ""
 
+        if response.stop_reason == "max_tokens":
+            self.rejection_reason = (
+                "formatter hit max_tokens before producing a complete answer"
+            )
+            return
+
+        if not text.strip():
+            self.rejection_reason = "formatter produced an empty answer"
+            return
+
         if text.lstrip().startswith(_REJECTION_PREFIX):
             self.rejection_reason = (
                 text.lstrip().split("\n", 1)[0].removeprefix(_REJECTION_PREFIX).strip()

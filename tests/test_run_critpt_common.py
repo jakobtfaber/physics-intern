@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,11 +14,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from run_critpt_common import (  # noqa: E402
+    Problem,
     RunResult,
     write_batch_metadata,
     write_initial_batch_metadata,
     load_resume_config,
     find_completed_submissions,
+)
+from run_critpt_physics_intern import (  # noqa: E402
+    _commit_answer_cleanup_before_resume,
+    plan_actions,
 )
 
 
@@ -56,6 +62,80 @@ def _r(
         returncode=0 if success else 1,
         workspace_dir=workspace,
     )
+
+
+def _problem(n: int) -> Problem:
+    return Problem(
+        n=n,
+        problem_id=f"Challenge_{n}_main",
+        yaml_path=Path(f"Challenge_{n}_main.yaml"),
+    )
+
+
+def test_plan_actions_marks_empty_answer_for_resume_cleanup(tmp_path):
+    """An empty ANSWER.md is not scoreable and must not block resume."""
+    output_dir = tmp_path / "results"
+    output_dir.mkdir()
+    workspace_base = tmp_path / "workspaces"
+    safe_model = "deepseek-ai-DeepSeek-V4-Pro"
+    workspace = workspace_base / f"20260508_100000_Challenge_25_main_{safe_model}"
+    workspace.mkdir(parents=True)
+    (workspace / "ANSWER.md").write_text("\n")
+    (workspace / "RESEARCH_GRAPH.json").write_text('{"status": "completed"}')
+
+    actions = plan_actions(
+        problems=[_problem(25)],
+        output_dir=output_dir,
+        workspace_base=workspace_base,
+        model_key="deepseek-ai/DeepSeek-V4-Pro",
+        force=False,
+    )
+
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.action == "resume"
+    assert action.workspace == workspace
+    assert action.cleanup_answer_before_resume is True
+    assert action.cleanup_answer_reason == "empty answer"
+
+
+def test_commit_answer_cleanup_before_resume_removes_committed_empty_answer(tmp_path):
+    """The cleanup leaves the workspace clean so physics_intern.main can resume."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    subprocess.run(["git", "init"], cwd=workspace, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=workspace,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=workspace,
+        capture_output=True,
+        check=True,
+    )
+    (workspace / "ANSWER.md").write_text("\n")
+    subprocess.run(["git", "add", "-A"], cwd=workspace, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Empty answer"],
+        cwd=workspace,
+        capture_output=True,
+        check=True,
+    )
+
+    _commit_answer_cleanup_before_resume(workspace, "empty answer")
+
+    assert not (workspace / "ANSWER.md").exists()
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status.stdout == ""
 
 
 T0 = datetime(2026, 4, 19, 10, 0, 0, tzinfo=timezone.utc)
