@@ -297,12 +297,12 @@ class TestProcessResponseRejection:
             config, workspace, metrics, answer_template=answer_template
         )
 
-    def _make_response(self, text):
+    def _make_response(self, text, stop_reason="end_turn"):
         return LLMResponse(
             text=text,
             input_tokens=100,
             output_tokens=50,
-            stop_reason="end_turn",
+            stop_reason=stop_reason,
             duration=1.0,
         )
 
@@ -342,6 +342,26 @@ def answer(x, y):
         agent.process_response(resp, self._make_task(), iteration=1)
         assert agent.rejection_reason is None
         agent.workspace.write_file.assert_called_once()
+
+    def test_empty_output_sets_reason_without_writing_answer(self):
+        agent = self._make_agent(answer_template=SYMPY_TEMPLATE)
+        resp = self._make_response("   \n")
+        agent.process_response(resp, self._make_task(), iteration=1)
+        assert agent.rejection_reason == "formatter produced an empty answer"
+        agent.workspace.write_file.assert_not_called()
+
+    def test_max_tokens_output_sets_reason_without_writing_answer(self):
+        agent = self._make_agent(answer_template=SYMPY_TEMPLATE)
+        resp = self._make_response(
+            "partial answer that may be truncated",
+            stop_reason="max_tokens",
+        )
+        agent.process_response(resp, self._make_task(), iteration=1)
+        assert (
+            agent.rejection_reason
+            == "formatter hit max_tokens before producing a complete answer"
+        )
+        agent.workspace.write_file.assert_not_called()
 
     def test_no_template_always_passes(self):
         agent = self._make_agent(answer_template="")
