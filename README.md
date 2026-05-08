@@ -82,10 +82,18 @@ All defaults live in `config.default.yaml` (single source of truth). Override wi
 uv sync --extra quality --extra testing
 uv run ruff check tests src scripts serve
 uv run ruff format --check tests src scripts serve
-uv run python -m pytest ./tests/
+uv run python -m pytest ./tests/ --cov=physics_intern --cov-report=term-missing
 ```
 
-GitHub Actions runs the same checks on pull requests and pushes to `main`/`master` (Python 3.12 and 3.13).
+GitHub Actions runs the same checks on pull requests and pushes to `main`/`master` (Python 3.12 and 3.13). The workflow uses locked `uv` installs with dependency caching, uploads coverage reports, and only runs for code, test, workflow, dependency, script, and serve-entrypoint changes.
+Coverage is enforced at `75%` for the core package code; CLI entrypoints and external-provider integration adapters are omitted from the threshold because they are better covered by focused smoke/integration tests.
+
+Install the optional pre-commit hook to run Ruff before committing:
+
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files
+```
 
 ## Documentation
 
