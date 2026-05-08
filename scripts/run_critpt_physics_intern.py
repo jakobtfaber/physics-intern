@@ -108,7 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
-        "--concurrency", type=int, default=128, help="Max parallel runs (default: 128)"
+        "--concurrency", type=int, default=64, help="Max parallel runs (default: 64)"
     )
     p.add_argument(
         "--output-dir",
@@ -414,7 +414,10 @@ async def run_one_problem(
             cmd = [
                 "uv",
                 "run",
-                "physics_intern",
+                "--no-sync",
+                "python",
+                "-m",
+                "physics_intern.main",
                 "--resume",
                 str(action.workspace),
             ]
@@ -429,7 +432,10 @@ async def run_one_problem(
             cmd = [
                 "uv",
                 "run",
-                "physics_intern",
+                "--no-sync",
+                "python",
+                "-m",
+                "physics_intern.main",
                 str(problem.yaml_path),
                 "--model",
                 model_key,

@@ -42,6 +42,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SERVE_SCRIPT = PROJECT_ROOT / "serve" / "serve.slurm"
 ENDPOINT_DIR = PROJECT_ROOT / "serve" / "logs" / "vllm"
+SLURM_PENDING_STATES = {"CONFIGURING", "PENDING"}
+SLURM_ALIVE_STATES = {*SLURM_PENDING_STATES, "COMPLETING", "RUNNING"}
 
 
 # ---------------------------------------------------------------------------
@@ -49,8 +51,8 @@ ENDPOINT_DIR = PROJECT_ROOT / "serve" / "logs" / "vllm"
 # ---------------------------------------------------------------------------
 
 
-async def is_slurm_job_alive(job_id: str) -> bool:
-    """Check if a SLURM job is still running or pending."""
+async def get_slurm_job_state(job_id: str) -> str | None:
+    """Return the current Slurm state for a job, or None if it is gone."""
     proc = await asyncio.create_subprocess_exec(
         "squeue",
         "-j",
@@ -62,7 +64,42 @@ async def is_slurm_job_alive(job_id: str) -> bool:
     )
     stdout, _ = await proc.communicate()
     state = stdout.decode().strip()
-    return state in ("RUNNING", "PENDING", "CONFIGURING")
+    if not state:
+        return None
+    return state.splitlines()[0].strip()
+
+
+async def is_slurm_job_alive(job_id: str) -> bool:
+    """Check if a Slurm job can still produce or serve an endpoint."""
+    state = await get_slurm_job_state(job_id)
+    return state in SLURM_ALIVE_STATES
+
+
+async def cancel_slurm_job_if_alive(job_id: str, reason: str) -> None:
+    """Cancel a serve job that the load balancer is about to abandon."""
+    state = await get_slurm_job_state(job_id)
+    if state not in SLURM_ALIVE_STATES:
+        return
+
+    logger.warning(
+        "Cancelling serve job %s before resubmit (%s; state=%s)",
+        job_id,
+        reason,
+        state,
+    )
+    proc = await asyncio.create_subprocess_exec(
+        "scancel",
+        job_id,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.warning(
+            "Failed to cancel serve job %s: %s",
+            job_id,
+            stderr.decode().strip(),
+        )
 
 
 async def resubmit_serve_job(
@@ -70,7 +107,7 @@ async def resubmit_serve_job(
     nodes_per_replica: int,
     gpus_per_node: int = 8,
     time_limit: str = "48:00:00",
-    idle_shutdown: int = 86400,
+    idle_shutdown: int = 7200,
 ) -> str | None:
     """Submit a new serve job via serve.slurm; return job ID or None on failure."""
     cmd = [
@@ -177,25 +214,56 @@ async def _read_endpoint_env(job_id: str) -> str | None:
 
 
 async def _wait_for_endpoint(job_id: str, timeout: int) -> str | None:
-    """Wait for endpoint.env to appear; check SLURM status to bail early."""
-    elapsed = 0
+    """Wait for endpoint.env after Slurm starts the job.
+
+    Replacement jobs can sit pending for hours on a full cluster. Queue time does
+    not indicate a bad backend, so the endpoint timeout starts only after Slurm
+    reports that the job has left the pending/configuring states.
+    """
+    endpoint_elapsed = 0
+    pending_elapsed = 0
     while True:
-        if elapsed >= timeout:
-            logger.error(
-                "Timeout (%ds) waiting for endpoint.env of job %s", timeout, job_id
-            )
-            return None
         url = await _read_endpoint_env(job_id)
         if url:
             logger.info("Job %s endpoint: %s", job_id, url)
             return url
-        if not await is_slurm_job_alive(job_id):
-            logger.warning("Job %s died before writing endpoint.env", job_id)
+
+        state = await get_slurm_job_state(job_id)
+        if state not in SLURM_ALIVE_STATES:
+            logger.warning(
+                "Job %s left the queue before writing endpoint.env (state=%s)",
+                job_id,
+                state or "unknown",
+            )
             return None
-        if elapsed % 60 == 0:
-            logger.info("Waiting for endpoint.env of job %s ...", job_id)
+
+        if state in SLURM_PENDING_STATES:
+            if pending_elapsed % 300 == 0:
+                logger.info(
+                    "Job %s is %s; endpoint timeout starts after it runs.",
+                    job_id,
+                    state,
+                )
+            await asyncio.sleep(5)
+            pending_elapsed += 5
+            continue
+
+        if endpoint_elapsed >= timeout:
+            logger.error(
+                "Timeout (%ds) waiting for endpoint.env of job %s after state=%s",
+                timeout,
+                job_id,
+                state,
+            )
+            return None
+        if endpoint_elapsed % 60 == 0:
+            logger.info(
+                "Waiting for endpoint.env of job %s (state=%s) ...",
+                job_id,
+                state,
+            )
         await asyncio.sleep(5)
-        elapsed += 5
+        endpoint_elapsed += 5
 
 
 async def _wait_for_health(job_id: str, url: str, timeout: int) -> bool:
@@ -249,6 +317,7 @@ async def manage_backend_slot(
         url = await _wait_for_endpoint(current_jid, health_timeout)
         if url is None:
             if model and resubmits < max_resubmits:
+                await cancel_slurm_job_if_alive(current_jid, "no endpoint")
                 new_jid = await resubmit_serve_job(model, nodes_per_replica)
                 if new_jid:
                     resubmits += 1
@@ -268,6 +337,7 @@ async def manage_backend_slot(
         healthy = await _wait_for_health(current_jid, url, health_timeout)
         if not healthy:
             if model and resubmits < max_resubmits:
+                await cancel_slurm_job_if_alive(current_jid, "unhealthy endpoint")
                 new_jid = await resubmit_serve_job(model, nodes_per_replica)
                 if new_jid:
                     resubmits += 1
@@ -315,7 +385,11 @@ async def manage_backend_slot(
 
 
 def create_app(pool: BackendPool) -> Starlette:
-    client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0))
+    # Max-think responses can stay silent for more than 10 minutes before the
+    # backend emits a body chunk, so only bound connection setup and writes.
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=30.0, read=None, write=600.0, pool=600.0)
+    )
 
     async def health_check(request: Request) -> PlainTextResponse:
         if pool.size > 0:

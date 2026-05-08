@@ -54,9 +54,9 @@ Options:
   --dp N                           Data parallel size (native vLLM DP).
   --data-parallel-size N           Alias for --dp.
   --reasoning-parser NAME          Explicit reasoning parser override.
-  --idle-shutdown SECONDS          Auto-cancel the job if no requests AND
-                                   head-node GPU util is 0 for SECONDS
-                                   (default: 14400 = 4h; 0 disables).
+  --idle-shutdown SECONDS          Auto-cancel the job if no completed, running,
+                                   or waiting requests for SECONDS
+                                   (default: 7200 = 2h; 0 disables).
   --max-restarts N                 Restart vLLM up to N times on crash
                                    (default: VLLM_MAX_RESTARTS or 3).
   -h, --help                       Show this message.
@@ -121,6 +121,36 @@ detect_gpu_count() {
   return 1
 }
 
+prepend_venv_nvidia_libs() {
+  local had_nullglob=0
+  local site_packages
+  local lib_dir
+  local joined=""
+  local -a lib_dirs=()
+
+  if shopt -q nullglob; then
+    had_nullglob=1
+  fi
+  shopt -s nullglob
+  for site_packages in "${REPO_ROOT}"/.venv/lib/python*/site-packages; do
+    for lib_dir in "${site_packages}"/nvidia/*/lib; do
+      lib_dirs+=("${lib_dir}")
+    done
+  done
+  if (( had_nullglob )); then
+    shopt -s nullglob
+  else
+    shopt -u nullglob
+  fi
+
+  if (( ${#lib_dirs[@]} == 0 )); then
+    return 0
+  fi
+
+  joined="$(IFS=:; printf '%s' "${lib_dirs[*]}")"
+  export LD_LIBRARY_PATH="${joined}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+}
+
 has_option_arg() {
   local option="$1"
   shift
@@ -153,17 +183,16 @@ cleanup() {
 }
 
 # Background watchdog: cancels the Slurm job if vLLM has been idle for too long.
-# "Idle" = the Prometheus counter `vllm:request_success_total` has not advanced
-# AND the max GPU utilization on the head node has stayed at 0% for the whole
-# window. The timer is only armed after /metrics responds, so model loading
-# never trips the kill switch.
+# "Idle" = no successful request counter changes and no requests are currently
+# running or waiting. The timer is only armed after /metrics responds, so model
+# loading never trips the kill switch.
 start_idle_watchdog() {
   local job_id="$1"
   local port="$2"
   local idle_seconds="$3"
   local poll_interval="$4"
   local metrics_url="http://localhost:${port}/metrics"
-  local now last_activity_ts=0 last_total="" total gpu activity
+  local now last_activity_ts=0 last_total="" metrics total active_requests activity
   local server_seen=0
 
   # Disable errexit/pipefail inside the watchdog: curl failing while vLLM is
@@ -175,10 +204,9 @@ start_idle_watchdog() {
 
   while sleep "$poll_interval"; do
     now=$(date +%s)
-    total="$(curl -fsS --max-time 5 "$metrics_url" 2>/dev/null \
-      | awk '/^vllm:request_success_total[ {]/ { sum += $NF; ok = 1 } END { if (ok) print sum }')"
-    gpu="$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null \
-      | awk 'BEGIN { m = 0 } { v = $1 + 0; if (v > m) m = v } END { print m + 0 }')"
+    metrics="$(curl -fsS --max-time 5 "$metrics_url" 2>/dev/null)"
+    total="$(awk '/^vllm:request_success_total[ {]/ { sum += $NF; ok = 1 } END { if (ok) print sum }' <<<"$metrics")"
+    active_requests="$(awk '/^vllm:num_requests_(running|waiting)[ {]/ { if ($NF + 0 > 0) busy = 1 } END { print busy + 0 }' <<<"$metrics")"
 
     if [[ -z "$total" ]]; then
       # vLLM not yet serving; hold the timer so model load never trips us.
@@ -198,7 +226,7 @@ start_idle_watchdog() {
     if [[ "$total" != "$last_total" ]]; then
       activity=1
     fi
-    if [[ "$gpu" =~ ^[0-9]+$ ]] && (( gpu > 0 )); then
+    if [[ "$active_requests" == "1" ]]; then
       activity=1
     fi
     last_total="$total"
@@ -209,7 +237,7 @@ start_idle_watchdog() {
     fi
 
     if (( now - last_activity_ts >= idle_seconds )); then
-      echo "[watchdog] no requests and GPU util=0 for $((now - last_activity_ts))s (>= ${idle_seconds}s); cancelling job ${job_id}." >&2
+      echo "[watchdog] no completed, running, or waiting requests for $((now - last_activity_ts))s (>= ${idle_seconds}s); cancelling job ${job_id}." >&2
       scancel "$job_id" >/dev/null 2>&1 || true
       return 0
     fi
@@ -240,7 +268,7 @@ TP=""
 PP=""
 DP=""
 REASONING_PARSER=""
-IDLE_SHUTDOWN_SECONDS="${WATCHDOG_IDLE_SECONDS:-14400}"
+IDLE_SHUTDOWN_SECONDS="${WATCHDOG_IDLE_SECONDS:-7200}"
 IDLE_POLL_INTERVAL="${WATCHDOG_POLL_INTERVAL:-60}"
 EXTRA_VLLM_ARGS=()
 
@@ -364,6 +392,15 @@ if [[ -z "$MAX_MODEL_LEN_EXPLICIT" ]]; then
     [[ "$_arg" == "--max-model-len" ]] && _skip_next=1
   done
 fi
+if [[ -z "$TP" ]]; then
+  TP="$DEFAULT_TP"
+fi
+if [[ -z "$PP" ]]; then
+  PP="$DEFAULT_PP"
+fi
+if [[ -z "$DP" ]]; then
+  DP="$DEFAULT_DP"
+fi
 
 if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   if [[ -z "$NODES" ]]; then
@@ -459,19 +496,23 @@ if [[ -f "$HOME/.bashrc" ]]; then
 fi
 
 if type module >/dev/null 2>&1; then
-  module load cuda/12.9 || true
+  module use /admin/opt/modulefiles 2>/dev/null || true
+  module load glibc/2.38 cuda/12.9 || true
 fi
 
-export TORCH_COMPILE_DISABLE=1
-export VLLM_ENGINE_READY_TIMEOUT_S="${VLLM_ENGINE_READY_TIMEOUT_S:-1800}"
+prepend_venv_nvidia_libs
 
-# DeepGEMM JIT compiles sparse-attention kernels (used by GLM-5.1 and DSv3-class
-# MoE models) at first call. Put cubins in the shared HF cache when available so
-# all Slurm ranks see the same writable path and kernels survive across jobs.
-# Also point JIT at the CUDA toolkit just loaded above.
-SHARED_CACHE_ROOT="${HUGGINGFACE_HUB_CACHE:-${REPO_ROOT}/.cache}"
-export DG_JIT_CACHE_DIR="${DG_JIT_CACHE_DIR:-${SHARED_CACHE_ROOT}/deep_gemm_jit}"
-mkdir -p "$DG_JIT_CACHE_DIR"
+export VLLM_ENGINE_READY_TIMEOUT_S="${VLLM_ENGINE_READY_TIMEOUT_S:-1800}"
+LOCAL_COMPILE_CACHE_ROOT="${SLURM_TMPDIR:-/tmp}/open-dirac-${USER}-${SLURM_JOB_ID}"
+# Keep per-job compile/JIT artifacts off shared filesystems. Inheriting an old
+# cache path has previously produced stale or missing .so/.cubin handles during
+# startup.
+export TRITON_CACHE_DIR="${LOCAL_COMPILE_CACHE_ROOT}/triton"
+export TORCHINDUCTOR_CACHE_DIR="${LOCAL_COMPILE_CACHE_ROOT}/torchinductor"
+export DG_JIT_CACHE_DIR="${LOCAL_COMPILE_CACHE_ROOT}/deep_gemm"
+
+# DeepGEMM JIT compiles sparse-attention kernels at first call. Point JIT at the
+# CUDA toolkit just loaded above.
 if [[ -n "${CUDA_HOME:-}" && -x "${CUDA_HOME}/bin/nvcc" ]]; then
   export DG_JIT_NVCC_COMPILER="${CUDA_HOME}/bin/nvcc"
 fi
@@ -633,13 +674,12 @@ if (( DP > 1 )); then
     --data-parallel-address "$HEAD_IP"
     --data-parallel-rpc-port "$DP_RPC_PORT"
   )
-  # Scale API server count for large DP to avoid head-node bottleneck.
+  # Only very large DP jobs need multiple API servers. DP=4 DeepSeek replicas
+  # are more stable with a single API server under max-think traffic.
   # Stored separately: only the head node gets this (--headless is incompatible).
   HEAD_EXTRA_ARGS=()
   if (( DP >= 8 )); then
     HEAD_EXTRA_ARGS+=(--api-server-count 4)
-  elif (( DP >= 4 )); then
-    HEAD_EXTRA_ARGS+=(--api-server-count 2)
   fi
 else
   VLLM_ARGS+=(--pipeline-parallel-size "$PP")
@@ -738,7 +778,7 @@ launch_pp_rank() {
     --gpus-per-node "$GPUS_PER_NODE" \
     --exact \
     -w "$node" \
-    bash -lc "cd '$REPO_ROOT' && exec $(printf '%q ' "${rank_cmd[@]}")" &
+    bash -c "mkdir -p $(printf '%q ' "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" "$DG_JIT_CACHE_DIR") && cd '$REPO_ROOT' && exec $(printf '%q ' "${rank_cmd[@]}")" &
   PIDS+=("$!")
 }
 
@@ -764,7 +804,7 @@ launch_dp_node() {
     --gpus-per-node "$GPUS_PER_NODE" \
     --exact \
     -w "$node" \
-    bash -lc "cd '$REPO_ROOT' && exec $(printf '%q ' "${rank_cmd[@]}")" &
+    bash -c "mkdir -p $(printf '%q ' "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" "$DG_JIT_CACHE_DIR") && cd '$REPO_ROOT' && exec $(printf '%q ' "${rank_cmd[@]}")" &
   PIDS+=("$!")
 }
 

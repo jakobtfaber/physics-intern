@@ -23,7 +23,7 @@ REPLICAS=""
 NODES_PER_REPLICA=""
 GPUS_PER_NODE="8"
 TIME_LIMIT="24:00:00"
-IDLE_SHUTDOWN="14400"
+IDLE_SHUTDOWN="7200"
 MAX_NUM_SEQS=""
 EXTRA_ARGS=()
 
@@ -45,7 +45,7 @@ Options:
   --nodes-per-replica K       Nodes per replica (required).
   --gpus-per-node N           GPUs per node (default: 8).
   --time HH:MM:SS             Slurm time limit (default: 24:00:00).
-  --idle-shutdown SECONDS     Idle watchdog timeout (default: 14400).
+  --idle-shutdown SECONDS     Idle watchdog timeout (default: 7200).
   --max-num-seqs N            Max concurrent sequences per replica.
   --                          Extra args passed through to serve.slurm.
 USAGE

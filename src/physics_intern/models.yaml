@@ -473,10 +473,62 @@ moonshotai/Kimi-K2.6:
       - --enable-auto-tool-choice
       - --tool-call-parser kimi_k2
 
-# NOTE: deepseek-ai/DeepSeek-V4-Pro (1.6T MoE, novel CSA+HCA attention,
-# released 2026-04-24) is NOT runnable on our stack. Two blockers:
-#   1. transformers does not recognise model_type="deepseek_v4".
-#   2. vLLM 0.19.1's model registry has no DeepseekV4ForCausalLM entry; only
-#      V2/V3/V3.2 + GlmMoeDsa. Even hacking transformers won't help - vLLM
-#      has no kernels for the new sparse attention.
-# Revisit once vLLM 0.20+ ships DSV4 support.
+# DeepSeek-V4-Pro: 4 nodes (32 H100), TP=8 per node, native vLLM DP=4.
+#
+# Requires vLLM 0.20+ with DeepseekV4ForCausalLM support. On our Ubuntu 20.04
+# H100 cluster the cu129 wheel stack must resolve NVIDIA wheel libraries before
+# inherited CUDA 12.1 paths; serve.slurm prepends the venv nvidia/*/lib dirs.
+#
+# Known constraints from bring-up:
+# - PP is not supported by DeepseekV4ForCausalLM (no SupportsPP implementation).
+# - DeepSeek V4 currently requires fp8 KV cache; vLLM aborts with kv_cache=auto.
+# - Do not use --enforce-eager for throughput experiments; it disables compile
+#   and CUDA graphs, which are expected to matter a lot for this model.
+# - The 805 GiB checkpoint can take >600s to load, so serve.slurm raises
+#   VLLM_ENGINE_READY_TIMEOUT_S to 1800s by default.
+# - TorchInductor combo-kernel benchmarking currently fails on this cluster with
+#   "CUDA driver error: file not found"; keep compile/CUDA graphs enabled but
+#   disable that specific compile-time benchmark path.
+# - Full CUDA graph capture has stalled startup on this model; use piecewise
+#   CUDA graphs capped at 128 while keeping torch.compile enabled.
+# - Tested tuning variants:
+#   - MTP speculative decoding (`{"method":"mtp","num_speculative_tokens":1}`)
+#     reached graph capture but the API server died before health checks passed.
+#   - MXFP4 indexer cache fails on H100 (`sm_90a`) because Triton emits
+#     e2m1x2 conversion instructions unsupported by the target.
+#   Keep the stable FP8 indexer cache path and scale with external replicas.
+deepseek-ai/DeepSeek-V4-Pro:
+  provider: vllm
+  model_id: deepseek-ai/DeepSeek-V4-Pro
+  env_key: VLLM_API_KEY
+  input_cost: 0.0
+  output_cost: 0.0
+  max_output_tokens: 131072
+  reasoning_format: separate_field
+  reasoning_effort: max
+  tool_mode: api
+  serve:
+    replicas: 4
+    nodes_per_replica: 4
+    gpus_per_node: 8
+    tp: 8
+    dp: 4
+    reasoning_parser: deepseek_v4
+    vllm_args:
+      - --max-model-len 262144
+      - --trust-remote-code
+      - --safetensors-load-strategy prefetch
+      - --enable-expert-parallel
+      - --enable-auto-tool-choice
+      - --tool-call-parser deepseek_v4
+      - --tokenizer-mode deepseek_v4
+      - --kv-cache-dtype fp8
+      - --block-size 256
+      - --default-chat-template-kwargs
+      - '{"thinking":true}'
+      - --compilation-config
+      - '{"cudagraph_mode":"PIECEWISE","max_cudagraph_capture_size":128,"inductor_compile_config":{"benchmark_combo_kernel":false}}'
+      - --performance-mode
+      - throughput
+      - --max-num-batched-tokens
+      - '16384'
