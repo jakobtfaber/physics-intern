@@ -39,6 +39,8 @@ uv sync --extra local
 # Run full CritPt evaluation against existing serve jobs from the CPU partition.
 # Resume automatically reuses scoreable `ANSWER.md` files and removes empty or
 # formatter-rejection artifacts before granting an unfinished workspace more budget.
+# If no --serve-job is provided, the load balancer discovers matching running
+# vLLM serve jobs from Slurm every 10 minutes and adds healthy backends.
 ./serve/full_eval.slurm --model deepseek-ai/DeepSeek-V4-Pro --serve-job <JOB_ID>
 
 # Run a research problem (requires model API key in .env or env var)

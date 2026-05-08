@@ -27,14 +27,11 @@ import logging
 import os
 import re
 import sys
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
-import uvicorn
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse, StreamingResponse
-from starlette.routing import Mount, Route
 
 logger = logging.getLogger("load_balancer")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -146,45 +143,204 @@ async def resubmit_serve_job(
 
 
 # ---------------------------------------------------------------------------
-# Backend pool (thread-safe, dynamic add/remove)
+# Backend discovery and pool state
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class SlurmJob:
+    """Minimal Slurm job metadata needed for backend discovery."""
+
+    job_id: str
+    name: str
+    state: str
+
+
+@dataclass
+class Backend:
+    """One vLLM backend tracked by Slurm job ID."""
+
+    job_id: str
+    url: str
+    source: str
+    active_requests: int = 0
+    draining: bool = False
+    state: str = "RUNNING"
+    last_error: str = ""
+
+
+@dataclass
+class BackendLease:
+    """A checked-out backend plus the URL selected for one request."""
+
+    job_id: str
+    url: str
+
+
+def slugify(value: str) -> str:
+    """Match serve.slurm's job-name slug for model keys."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", value).strip("-")
+    return re.sub(r"-+", "-", slug)
+
+
+async def discover_slurm_serve_jobs(model: str | None) -> list[SlurmJob]:
+    """Return alive vLLM serve jobs visible in Slurm for this user."""
+    proc = await asyncio.create_subprocess_exec(
+        "squeue",
+        "-u",
+        os.environ["USER"],
+        "--noheader",
+        "--format=%i|%j|%T",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.warning("squeue discovery failed: %s", stderr.decode().strip())
+        return []
+
+    expected_suffix = slugify(model) if model else ""
+    jobs: list[SlurmJob] = []
+    for raw_line in stdout.decode().splitlines():
+        parts = raw_line.strip().split("|", 2)
+        if len(parts) != 3:
+            continue
+        job_id, name, state = parts
+        if not name.startswith("vllm-serve-"):
+            continue
+        if expected_suffix and name != f"vllm-serve-{expected_suffix}":
+            continue
+        if state not in SLURM_ALIVE_STATES:
+            continue
+        jobs.append(SlurmJob(job_id=job_id, name=name, state=state))
+    return jobs
+
+
 class BackendPool:
-    """Dynamic pool of healthy backend URLs with round-robin dispatch."""
+    """Dynamic pool of healthy backend URLs with draining and request counts."""
 
     def __init__(self) -> None:
-        self._urls: list[str] = []
+        self._backends: dict[str, Backend] = {}
         self._lock = asyncio.Lock()
         self._idx: int = 0
         self._ready = asyncio.Event()
 
-    async def add(self, url: str) -> None:
+    async def add(self, job_id: str, url: str, source: str = "configured") -> bool:
+        """Add or refresh a backend. Returns True when a new backend joined."""
         async with self._lock:
-            if url not in self._urls:
-                self._urls.append(url)
-                logger.info("Pool +backend: %s (pool size: %d)", url, len(self._urls))
-                self._ready.set()
+            for existing_id, backend in list(self._backends.items()):
+                if backend.url == url and existing_id != job_id:
+                    del self._backends[existing_id]
+                    logger.warning(
+                        "Pool -backend: %s job=%s replaced_by=%s",
+                        url,
+                        existing_id,
+                        job_id,
+                    )
 
-    async def remove(self, url: str) -> None:
+            if job_id in self._backends:
+                backend = self._backends[job_id]
+                backend.url = url
+                backend.source = source
+                backend.state = "RUNNING"
+                backend.last_error = ""
+                if not backend.draining:
+                    self._ready.set()
+                return False
+
+            self._backends[job_id] = Backend(job_id=job_id, url=url, source=source)
+            logger.info(
+                "Pool +backend: %s job=%s source=%s (pool size: %d)",
+                url,
+                job_id,
+                source,
+                len(self._backends),
+            )
+            self._ready.set()
+            return True
+
+    async def remove(self, job_id: str, reason: str) -> None:
         async with self._lock:
-            if url in self._urls:
-                self._urls.remove(url)
+            backend = self._backends.pop(job_id, None)
+            if backend is None:
+                return
+            logger.warning(
+                "Pool -backend: %s job=%s reason=%s (pool size: %d)",
+                backend.url,
+                job_id,
+                reason,
+                len(self._backends),
+            )
+
+    async def mark_draining(self, job_id: str, reason: str) -> bool:
+        """Stop assigning new work to a backend while in-flight work drains."""
+        async with self._lock:
+            if job_id not in self._backends:
+                return False
+            backend = self._backends[job_id]
+            if not backend.draining:
+                backend.draining = True
+                backend.last_error = reason
                 logger.warning(
-                    "Pool -backend: %s (pool size: %d)", url, len(self._urls)
+                    "Pool draining backend: %s job=%s active=%d reason=%s",
+                    backend.url,
+                    job_id,
+                    backend.active_requests,
+                    reason,
                 )
+            return True
 
-    async def next_url(self) -> str | None:
+    async def acquire(self) -> BackendLease | None:
+        """Choose a non-draining backend and increment its in-flight count."""
         async with self._lock:
-            if not self._urls:
+            active_ids = [
+                job_id
+                for job_id, backend in self._backends.items()
+                if not backend.draining
+            ]
+            if not active_ids:
                 return None
-            url = self._urls[self._idx % len(self._urls)]
+            job_id = active_ids[self._idx % len(active_ids)]
             self._idx += 1
-            return url
+            backend = self._backends[job_id]
+            backend.active_requests += 1
+            return BackendLease(job_id=job_id, url=backend.url)
 
-    async def all_urls(self) -> list[str]:
+    async def release(self, job_id: str) -> None:
         async with self._lock:
-            return list(self._urls)
+            if job_id not in self._backends:
+                return
+            backend = self._backends[job_id]
+            backend.active_requests = max(0, backend.active_requests - 1)
+
+    async def active_count(self, job_id: str) -> int:
+        async with self._lock:
+            if job_id not in self._backends:
+                return 0
+            return self._backends[job_id].active_requests
+
+    async def available_count(self) -> int:
+        async with self._lock:
+            return sum(1 for backend in self._backends.values() if not backend.draining)
+
+    async def known_job_ids(self) -> set[str]:
+        async with self._lock:
+            return set(self._backends)
+
+    async def snapshot(self) -> list[dict[str, str | int | bool]]:
+        async with self._lock:
+            return [
+                {
+                    "job_id": backend.job_id,
+                    "url": backend.url,
+                    "source": backend.source,
+                    "active_requests": backend.active_requests,
+                    "draining": backend.draining,
+                    "state": backend.state,
+                    "last_error": backend.last_error,
+                }
+                for backend in self._backends.values()
+            ]
 
     async def wait_for_first(self) -> None:
         """Block until at least one backend is available."""
@@ -192,7 +348,7 @@ class BackendPool:
 
     @property
     def size(self) -> int:
-        return len(self._urls)
+        return len(self._backends)
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +451,17 @@ async def _wait_for_health(job_id: str, url: str, timeout: int) -> bool:
                 logger.info("  %s still waiting (%ds)...", health_url, elapsed)
 
 
+async def _is_healthy_now(url: str) -> bool:
+    """Return whether a backend is healthy right now without waiting."""
+    health_url = url.replace("/v1", "/health")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(health_url)
+    except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
+        return False
+    return resp.status_code == 200
+
+
 async def manage_backend_slot(
     initial_job_id: str,
     pool: BackendPool,
@@ -354,13 +521,13 @@ async def manage_backend_slot(
             return
 
         # 3) Add to pool and monitor
-        await pool.add(url)
+        await pool.add(current_jid, url)
         while await is_slurm_job_alive(current_jid):
             await asyncio.sleep(monitor_interval)
 
         # 4) Job died during operation — remove and maybe resubmit
         logger.warning("Job %s died while serving", current_jid)
-        await pool.remove(url)
+        await pool.remove(current_jid, "slurm job ended")
 
         if model and resubmits < max_resubmits:
             new_jid = await resubmit_serve_job(model, nodes_per_replica)
@@ -379,12 +546,63 @@ async def manage_backend_slot(
         return
 
 
+async def discover_backends_loop(
+    model: str,
+    pool: BackendPool,
+    interval: int,
+    monitor_interval: int,
+) -> None:
+    """Periodically discover alive Slurm serve jobs and attach healthy ones."""
+    while True:
+        jobs = await discover_slurm_serve_jobs(model)
+        known = await pool.known_job_ids()
+        for job in jobs:
+            if job.job_id in known:
+                continue
+            url = await _read_endpoint_env(job.job_id)
+            if url is None:
+                continue
+            if await _is_healthy_now(url):
+                joined = await pool.add(job.job_id, url, source="discovered")
+                if joined:
+                    asyncio.create_task(
+                        monitor_discovered_backend(
+                            job.job_id,
+                            pool,
+                            monitor_interval,
+                        )
+                    )
+        await asyncio.sleep(interval)
+
+
+async def monitor_discovered_backend(
+    job_id: str,
+    pool: BackendPool,
+    monitor_interval: int,
+) -> None:
+    """Remove a discovered backend when its Slurm job disappears."""
+    while await is_slurm_job_alive(job_id):
+        await asyncio.sleep(monitor_interval)
+    await pool.remove(job_id, "discovered slurm job ended")
+
+
 # ---------------------------------------------------------------------------
 # HTTP proxy
 # ---------------------------------------------------------------------------
 
 
-def create_app(pool: BackendPool) -> Starlette:
+def create_app(pool: BackendPool):
+    """Create the Starlette proxy app.
+
+    Starlette/uvicorn are imported lazily so unit tests can import backend-state
+    helpers in the default CI environment, which does not install the local vLLM
+    serving extra.
+    """
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse, PlainTextResponse, StreamingResponse
+    from starlette.routing import Mount, Route
+
     # Max-think responses can stay silent for more than 10 minutes before the
     # backend emits a body chunk, so only bound connection setup and writes.
     client = httpx.AsyncClient(
@@ -392,48 +610,112 @@ def create_app(pool: BackendPool) -> Starlette:
     )
 
     async def health_check(request: Request) -> PlainTextResponse:
-        if pool.size > 0:
+        if await pool.available_count() > 0:
             return PlainTextResponse("OK")
         return PlainTextResponse("No healthy backends", status_code=503)
 
     async def pool_status(request: Request) -> JSONResponse:
-        urls = await pool.all_urls()
-        return JSONResponse({"backends": urls, "count": len(urls)})
+        backends = await pool.snapshot()
+        return JSONResponse({"backends": backends, "count": len(backends)})
+
+    async def drain_backend(request: Request) -> JSONResponse:
+        job_id = request.path_params["job_id"]
+        ok = await pool.mark_draining(job_id, "manual drain")
+        if not ok:
+            return JSONResponse(
+                {"error": f"unknown backend job {job_id}"}, status_code=404
+            )
+        return JSONResponse({"job_id": job_id, "draining": True})
+
+    async def cancel_when_drained(request: Request) -> JSONResponse:
+        job_id = request.path_params["job_id"]
+        ok = await pool.mark_draining(job_id, "manual drain and cancel")
+        if not ok:
+            return JSONResponse(
+                {"error": f"unknown backend job {job_id}"}, status_code=404
+            )
+
+        async def _cancel_after_drain() -> None:
+            while await pool.active_count(job_id) > 0:
+                await asyncio.sleep(5)
+            await cancel_slurm_job_if_alive(job_id, "manual drained scale-down")
+            await pool.remove(job_id, "manual drained scale-down")
+
+        asyncio.create_task(_cancel_after_drain())
+        return JSONResponse(
+            {"job_id": job_id, "draining": True, "cancel": "when_drained"}
+        )
 
     async def proxy(request: Request) -> StreamingResponse:
-        target_base = await pool.next_url()
-        if target_base is None:
-            return StreamingResponse(
-                content=iter([b"No healthy backends"]),
-                status_code=503,
-            )
-        target_url = target_base + request.url.path.removeprefix("/v1")
-        if request.url.query:
-            target_url += f"?{request.url.query}"
-
         body = await request.body()
         headers = dict(request.headers)
         headers.pop("host", None)
 
-        backend_request = client.build_request(
-            method=request.method,
-            url=target_url,
-            headers=headers,
-            content=body,
-        )
-        backend_response = await client.send(backend_request, stream=True)
+        last_error = "No healthy backends"
+        max_attempts = max(1, pool.size)
+        for _ in range(max_attempts):
+            lease = await pool.acquire()
+            if lease is None:
+                break
+
+            target_url = lease.url + request.url.path.removeprefix("/v1")
+            if request.url.query:
+                target_url += f"?{request.url.query}"
+
+            backend_request = client.build_request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                content=body,
+            )
+            try:
+                backend_response = await client.send(backend_request, stream=True)
+            except (
+                httpx.ConnectError,
+                httpx.ConnectTimeout,
+                httpx.PoolTimeout,
+                httpx.RemoteProtocolError,
+            ) as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                await pool.release(lease.job_id)
+                await pool.mark_draining(lease.job_id, last_error)
+                if await pool.active_count(lease.job_id) == 0:
+                    await pool.remove(lease.job_id, last_error)
+                continue
+
+            async def stream_response() -> AsyncIterator[bytes]:
+                try:
+                    async for chunk in backend_response.aiter_raw():
+                        yield chunk
+                except httpx.HTTPError as exc:
+                    await pool.mark_draining(
+                        lease.job_id,
+                        f"stream error: {type(exc).__name__}: {exc}",
+                    )
+                    raise
+                finally:
+                    await backend_response.aclose()
+                    await pool.release(lease.job_id)
+
+            return StreamingResponse(
+                content=stream_response(),
+                status_code=backend_response.status_code,
+                headers=dict(backend_response.headers),
+            )
 
         return StreamingResponse(
-            content=backend_response.aiter_raw(),
-            status_code=backend_response.status_code,
-            headers=dict(backend_response.headers),
-            background=backend_response.aclose,
+            content=iter([last_error.encode()]),
+            status_code=503,
         )
 
     return Starlette(
         routes=[
             Route("/health", health_check),
             Route("/status", pool_status),
+            Route("/drain/{job_id}", drain_backend, methods=["POST"]),
+            Route(
+                "/cancel_when_drained/{job_id}", cancel_when_drained, methods=["POST"]
+            ),
             Mount(
                 "/v1",
                 routes=[
@@ -467,11 +749,32 @@ async def main_async(args: argparse.Namespace) -> int:
         )
         for jid in args.job_ids
     ]
+    discovery_task = None
+    if args.model and args.discover_interval > 0:
+        discovery_task = asyncio.create_task(
+            discover_backends_loop(
+                args.model,
+                pool,
+                args.discover_interval,
+                args.monitor_interval,
+            )
+        )
+        logger.info(
+            "Backend auto-discovery enabled for model %s every %ds.",
+            args.model,
+            args.discover_interval,
+        )
 
     # Wait for at least one backend to become healthy before serving.
-    logger.info("Waiting for first healthy backend (%d slots)...", len(slot_tasks))
+    logger.info(
+        "Waiting for first healthy backend (%d configured slots, discovery=%s)...",
+        len(slot_tasks),
+        "on" if discovery_task else "off",
+    )
     wait_task = asyncio.create_task(pool.wait_for_first())
     pending: set[asyncio.Task] = {wait_task, *slot_tasks}
+    if discovery_task:
+        pending.add(discovery_task)
     while wait_task in pending:
         done, pending = await asyncio.wait(
             pending,
@@ -494,6 +797,8 @@ async def main_async(args: argparse.Namespace) -> int:
     )
 
     app = create_app(pool)
+    import uvicorn
+
     config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_level="info")
     server = uvicorn.Server(config)
     await server.serve()
@@ -504,7 +809,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Resilient load balancer for multiple vLLM replicas."
     )
-    parser.add_argument("job_ids", nargs="+", help="SLURM serve job IDs")
+    parser.add_argument("job_ids", nargs="*", help="SLURM serve job IDs")
     parser.add_argument(
         "--port",
         type=int,
@@ -541,7 +846,18 @@ def main() -> None:
         default=60,
         help="Seconds between SLURM liveness checks (default: 60).",
     )
+    parser.add_argument(
+        "--discover-interval",
+        type=int,
+        default=600,
+        help=(
+            "Seconds between Slurm scans for new matching vLLM serve jobs "
+            "(default: 600; 0 disables)."
+        ),
+    )
     args = parser.parse_args()
+    if not args.job_ids and not args.model:
+        parser.error("provide at least one job ID or --model for auto-discovery")
     sys.exit(asyncio.run(main_async(args)))
 
 

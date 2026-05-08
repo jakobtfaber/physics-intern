@@ -387,6 +387,40 @@ capacity. If a started replacement still fails to produce a healthy endpoint
 within the timeout, the load balancer cancels that job before submitting another
 replacement so timed-out jobs do not later become orphaned replicas.
 
+The load balancer also supports elastic serving. It scans Slurm every 10 minutes
+by default for running `vllm-serve-<model>` jobs, reads
+`serve/logs/vllm/<job_id>/endpoint.env`, health-checks the endpoint, and adds
+healthy backends without restarting the eval job. This lets you launch extra
+replicas when the cluster is empty and have the running evaluation pick them up
+automatically. If no `--serve-job` is passed to `serve/full_eval.slurm`, the eval
+starts in discovery-only mode and waits for the first matching healthy backend.
+
+To free capacity, do not call `scancel` directly unless you are willing to kill
+in-flight requests. Use the drain helper so the backend receives no new requests
+and is cancelled only after its active request count reaches zero:
+
+```bash
+# Auto-detect the single running critpt-physicsintern eval job.
+./serve/drain_backends.py <BACKEND_JOB_ID> [<BACKEND_JOB_ID> ...] --status
+
+# Or target the eval job explicitly if several eval jobs are running.
+./serve/drain_backends.py \
+  --eval-job <EVAL_JOB_ID> \
+  <BACKEND_JOB_ID_1> <BACKEND_JOB_ID_2> \
+  --status
+```
+
+The helper calls the eval job's local load balancer endpoint
+`/cancel_when_drained/<job_id>` through `srun --overlap`. The backend is marked
+`draining`, disappears from new request scheduling, and is removed from the pool
+after the load balancer cancels the Slurm job. You can inspect the current pool
+with:
+
+```bash
+srun --jobid=<EVAL_JOB_ID> --overlap --ntasks=1 --nodes=1 \
+  curl http://localhost:9000/status
+```
+
 The default DeepSeek config is tuned for high-concurrency CritPt-style traffic.
 To launch a single replica for debugging, override the replica count by calling
 `serve/multi_serve.sh` directly with `--replicas 1`, or call `serve.slurm` from
