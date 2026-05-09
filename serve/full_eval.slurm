@@ -38,7 +38,7 @@ LOG_DIR_DEFAULT="${LOG_ROOT}/slurm"
 MODEL_KEY=""
 SERVE_JOBS=()
 CONCURRENCY="64"
-TIME_LIMIT="08:00:00"
+TIME_LIMIT="3-00:00:00"
 RESUME_DIR=""
 RUNNER="oneshot"
 CONFIG_FILE=""
@@ -48,6 +48,8 @@ NODES_PER_REPLICA=""
 KEEP_SERVES=""
 PARTITION="hopper-cpu"
 DISCOVER_INTERVAL="600"
+MAX_ACTIVE_PER_BACKEND="8"
+QUEUE_TIMEOUT="1800"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -64,6 +66,8 @@ while [[ $# -gt 0 ]]; do
     --keep-serves) KEEP_SERVES="1"; shift ;;
     --partition) PARTITION="$2"; shift 2 ;;
     --discover-interval) DISCOVER_INTERVAL="$2"; shift 2 ;;
+    --max-active-per-backend) MAX_ACTIVE_PER_BACKEND="$2"; shift 2 ;;
+    --queue-timeout) QUEUE_TIMEOUT="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -75,6 +79,7 @@ Usage: full_eval.slurm --model MODEL_KEY [--serve-job JOB_ID [--serve-job JOB_ID
        [--runner oneshot|physicsintern] [--config CONFIG.yaml]
        [--fresh] [--workspace-base DIR] [--nodes-per-replica N]
        [--partition PARTITION] [--discover-interval SECONDS]
+       [--max-active-per-backend N] [--queue-timeout SECONDS]
 USAGE
   exit 1
 fi
@@ -125,6 +130,11 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   KS_ARG=()
   [[ -n "$KEEP_SERVES" ]] && KS_ARG=(--keep-serves)
 
+  LB_LIMIT_ARGS=(
+    --max-active-per-backend "$MAX_ACTIVE_PER_BACKEND"
+    --queue-timeout "$QUEUE_TIMEOUT"
+  )
+
   SERVE_JOB_ARGS=()
   for jid in "${SERVE_JOBS[@]}"; do
     SERVE_JOB_ARGS+=(--serve-job "$jid")
@@ -148,7 +158,8 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
                    "${NPR_ARG[@]}" \
                    "${KS_ARG[@]}" \
                    --partition "$PARTITION" \
-                   --discover-interval "$DISCOVER_INTERVAL"
+                   --discover-interval "$DISCOVER_INTERVAL" \
+                   "${LB_LIMIT_ARGS[@]}"
 fi
 
 # ── Inside Slurm ─────────────────────────────────────────────────────────────
@@ -179,7 +190,15 @@ trap cleanup EXIT
 
 if [[ ${#SERVE_JOBS[@]} -ne 1 ]]; then
   # Multi-replica: start load balancer and wait for it
-  LB_ARGS=("${SERVE_JOBS[@]}" --port 9000 --health-timeout 3600 --model "$MODEL_KEY" --discover-interval "$DISCOVER_INTERVAL")
+  LB_ARGS=(
+    "${SERVE_JOBS[@]}"
+    --port 9000
+    --health-timeout 3600
+    --model "$MODEL_KEY"
+    --discover-interval "$DISCOVER_INTERVAL"
+    --max-active-per-backend "$MAX_ACTIVE_PER_BACKEND"
+    --queue-timeout "$QUEUE_TIMEOUT"
+  )
   [[ -n "$NODES_PER_REPLICA" ]] && LB_ARGS+=(--nodes-per-replica "$NODES_PER_REPLICA")
   if [[ ${#SERVE_JOBS[@]} -eq 0 ]]; then
     echo "Starting load balancer with auto-discovery every ${DISCOVER_INTERVAL}s..."

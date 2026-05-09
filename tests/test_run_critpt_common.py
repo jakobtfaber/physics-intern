@@ -72,6 +72,70 @@ def _problem(n: int) -> Problem:
     )
 
 
+def test_cluster_config_uses_one_hour_api_timeout() -> None:
+    """Queued load-balancer requests need enough client timeout headroom."""
+    import yaml
+
+    config = yaml.safe_load((PROJECT_ROOT / "config.cluster.yaml").read_text())
+    assert config["api_timeout"] == 3600
+
+
+def test_plan_actions_reopens_completed_graph_without_answer(tmp_path):
+    """A completed graph without ANSWER.md must be resumed, not skipped."""
+    output_dir = tmp_path / "results"
+    output_dir.mkdir()
+    workspace_base = tmp_path / "workspaces"
+    safe_model = "deepseek-ai-DeepSeek-V4-Pro"
+    workspace = workspace_base / f"20260508_100000_Challenge_25_main_{safe_model}"
+    workspace.mkdir(parents=True)
+    (workspace / "RESEARCH_GRAPH.json").write_text('{"status": "completed"}')
+
+    actions = plan_actions(
+        problems=[_problem(25)],
+        output_dir=output_dir,
+        workspace_base=workspace_base,
+        model_key="deepseek-ai/DeepSeek-V4-Pro",
+        force=False,
+    )
+
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.action == "resume"
+    assert action.workspace == workspace
+    assert action.cleanup_answer_before_resume is True
+    assert action.cleanup_answer_reason == "completed graph without valid answer"
+
+
+def test_commit_answer_cleanup_before_resume_reopens_completed_graph(tmp_path):
+    """Resume cleanup reopens completed workspaces that never produced an answer."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _init_git_repo(workspace)
+    (workspace / "RESEARCH_GRAPH.json").write_text('{"status": "completed"}')
+    subprocess.run(["git", "add", "-A"], cwd=workspace, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Completed graph"],
+        cwd=workspace,
+        capture_output=True,
+        check=True,
+    )
+
+    _commit_answer_cleanup_before_resume(
+        workspace, "completed graph without valid answer"
+    )
+
+    graph_data = json.loads((workspace / "RESEARCH_GRAPH.json").read_text())
+    assert graph_data["status"] == "in_progress"
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status.stdout == ""
+
+
 def _init_git_repo(workspace: Path) -> None:
     """Initialise a test git repository that can create cleanup commits."""
     subprocess.run(["git", "init"], cwd=workspace, capture_output=True, check=True)

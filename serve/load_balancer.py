@@ -219,15 +219,35 @@ async def discover_slurm_serve_jobs(model: str | None) -> list[SlurmJob]:
 class BackendPool:
     """Dynamic pool of healthy backend URLs with draining and request counts."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_active_per_backend: int = 0) -> None:
+        if max_active_per_backend < 0:
+            raise ValueError("max_active_per_backend must be >= 0")
         self._backends: dict[str, Backend] = {}
         self._lock = asyncio.Lock()
+        self._capacity_changed = asyncio.Condition(self._lock)
         self._idx: int = 0
         self._ready = asyncio.Event()
+        self._max_active_per_backend = max_active_per_backend
+        self._queued_requests = 0
+
+    def _has_free_capacity(self, backend: Backend) -> bool:
+        if backend.draining:
+            return False
+        return (
+            self._max_active_per_backend == 0
+            or backend.active_requests < self._max_active_per_backend
+        )
+
+    def _available_ids_locked(self) -> list[str]:
+        return [
+            job_id
+            for job_id, backend in self._backends.items()
+            if self._has_free_capacity(backend)
+        ]
 
     async def add(self, job_id: str, url: str, source: str = "configured") -> bool:
         """Add or refresh a backend. Returns True when a new backend joined."""
-        async with self._lock:
+        async with self._capacity_changed:
             for existing_id, backend in list(self._backends.items()):
                 if backend.url == url and existing_id != job_id:
                     del self._backends[existing_id]
@@ -246,6 +266,7 @@ class BackendPool:
                 backend.last_error = ""
                 if not backend.draining:
                     self._ready.set()
+                    self._capacity_changed.notify_all()
                 return False
 
             self._backends[job_id] = Backend(job_id=job_id, url=url, source=source)
@@ -257,10 +278,11 @@ class BackendPool:
                 len(self._backends),
             )
             self._ready.set()
+            self._capacity_changed.notify_all()
             return True
 
     async def remove(self, job_id: str, reason: str) -> None:
-        async with self._lock:
+        async with self._capacity_changed:
             backend = self._backends.pop(job_id, None)
             if backend is None:
                 return
@@ -271,10 +293,11 @@ class BackendPool:
                 reason,
                 len(self._backends),
             )
+            self._capacity_changed.notify_all()
 
     async def mark_draining(self, job_id: str, reason: str) -> bool:
         """Stop assigning new work to a backend while in-flight work drains."""
-        async with self._lock:
+        async with self._capacity_changed:
             if job_id not in self._backends:
                 return False
             backend = self._backends[job_id]
@@ -288,30 +311,42 @@ class BackendPool:
                     backend.active_requests,
                     reason,
                 )
+                self._capacity_changed.notify_all()
             return True
 
-    async def acquire(self) -> BackendLease | None:
-        """Choose a non-draining backend and increment its in-flight count."""
-        async with self._lock:
-            active_ids = [
-                job_id
-                for job_id, backend in self._backends.items()
-                if not backend.draining
-            ]
-            if not active_ids:
-                return None
-            job_id = active_ids[self._idx % len(active_ids)]
-            self._idx += 1
-            backend = self._backends[job_id]
-            backend.active_requests += 1
-            return BackendLease(job_id=job_id, url=backend.url)
+    async def acquire(self, timeout: float | None = None) -> BackendLease | None:
+        """Wait for a backend with free capacity and reserve one request slot."""
+
+        async def _wait_for_capacity() -> BackendLease:
+            async with self._capacity_changed:
+                self._queued_requests += 1
+                try:
+                    while True:
+                        active_ids = self._available_ids_locked()
+                        if active_ids:
+                            job_id = active_ids[self._idx % len(active_ids)]
+                            self._idx += 1
+                            backend = self._backends[job_id]
+                            backend.active_requests += 1
+                            return BackendLease(job_id=job_id, url=backend.url)
+                        await self._capacity_changed.wait()
+                finally:
+                    self._queued_requests = max(0, self._queued_requests - 1)
+
+        try:
+            if timeout is None:
+                return await _wait_for_capacity()
+            return await asyncio.wait_for(_wait_for_capacity(), timeout=timeout)
+        except TimeoutError:
+            return None
 
     async def release(self, job_id: str) -> None:
-        async with self._lock:
+        async with self._capacity_changed:
             if job_id not in self._backends:
                 return
             backend = self._backends[job_id]
             backend.active_requests = max(0, backend.active_requests - 1)
+            self._capacity_changed.notify_all()
 
     async def active_count(self, job_id: str) -> int:
         async with self._lock:
@@ -335,12 +370,35 @@ class BackendPool:
                     "url": backend.url,
                     "source": backend.source,
                     "active_requests": backend.active_requests,
+                    "max_active_requests": self._max_active_per_backend,
+                    "available_request_slots": (
+                        0
+                        if backend.draining
+                        else max(
+                            0,
+                            self._max_active_per_backend - backend.active_requests,
+                        )
+                    ),
                     "draining": backend.draining,
                     "state": backend.state,
                     "last_error": backend.last_error,
                 }
                 for backend in self._backends.values()
             ]
+
+    async def queued_count(self) -> int:
+        async with self._lock:
+            return self._queued_requests
+
+    async def total_capacity(self) -> int:
+        async with self._lock:
+            if self._max_active_per_backend == 0:
+                return 0
+            return sum(
+                self._max_active_per_backend
+                for backend in self._backends.values()
+                if not backend.draining
+            )
 
     async def wait_for_first(self) -> None:
         """Block until at least one backend is available."""
@@ -591,7 +649,7 @@ async def monitor_discovered_backend(
 # ---------------------------------------------------------------------------
 
 
-def create_app(pool: BackendPool):
+def create_app(pool: BackendPool, queue_timeout: float | None = None):
     """Create the Starlette proxy app.
 
     Starlette/uvicorn are imported lazily so unit tests can import backend-state
@@ -616,7 +674,14 @@ def create_app(pool: BackendPool):
 
     async def pool_status(request: Request) -> JSONResponse:
         backends = await pool.snapshot()
-        return JSONResponse({"backends": backends, "count": len(backends)})
+        return JSONResponse(
+            {
+                "backends": backends,
+                "count": len(backends),
+                "queued_requests": await pool.queued_count(),
+                "total_capacity": await pool.total_capacity(),
+            }
+        )
 
     async def drain_backend(request: Request) -> JSONResponse:
         job_id = request.path_params["job_id"]
@@ -654,8 +719,9 @@ def create_app(pool: BackendPool):
         last_error = "No healthy backends"
         max_attempts = max(1, pool.size)
         for _ in range(max_attempts):
-            lease = await pool.acquire()
+            lease = await pool.acquire(timeout=queue_timeout)
             if lease is None:
+                last_error = "Timed out waiting for backend capacity"
                 break
 
             target_url = lease.url + request.url.path.removeprefix("/v1")
@@ -732,7 +798,7 @@ def create_app(pool: BackendPool):
 
 
 async def main_async(args: argparse.Namespace) -> int:
-    pool = BackendPool()
+    pool = BackendPool(max_active_per_backend=args.max_active_per_backend)
 
     # Launch one manager task per backend slot (all run concurrently).
     slot_tasks = [
@@ -796,7 +862,7 @@ async def main_async(args: argparse.Namespace) -> int:
         args.port,
     )
 
-    app = create_app(pool)
+    app = create_app(pool, queue_timeout=args.queue_timeout)
     import uvicorn
 
     config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_level="info")
@@ -853,6 +919,22 @@ def main() -> None:
         help=(
             "Seconds between Slurm scans for new matching vLLM serve jobs "
             "(default: 600; 0 disables)."
+        ),
+    )
+    parser.add_argument(
+        "--max-active-per-backend",
+        type=int,
+        default=0,
+        help=(
+            "Maximum in-flight proxied requests per backend (default: 0 = unlimited)."
+        ),
+    )
+    parser.add_argument(
+        "--queue-timeout",
+        type=float,
+        default=1800.0,
+        help=(
+            "Seconds a proxied request may wait for backend capacity (default: 1800)."
         ),
     )
     args = parser.parse_args()

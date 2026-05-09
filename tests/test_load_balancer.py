@@ -63,6 +63,109 @@ def test_backend_pool_deduplicates_reused_urls() -> None:
     asyncio.run(scenario())
 
 
+def test_backend_pool_respects_per_backend_active_limit() -> None:
+    """A backend at its active request limit should not receive new work."""
+
+    async def scenario() -> None:
+        pool = BackendPool(max_active_per_backend=2)
+        await pool.add("1", "http://one:8000/v1")
+
+        first = await pool.acquire(timeout=0.01)
+        second = await pool.acquire(timeout=0.01)
+        assert first is not None
+        assert second is not None
+        assert first.job_id == "1"
+        assert second.job_id == "1"
+
+        saturated = await pool.acquire(timeout=0.01)
+        assert saturated is None
+
+        await pool.release(first.job_id)
+        next_lease = await pool.acquire(timeout=0.01)
+        assert next_lease is not None
+        assert next_lease.job_id == "1"
+
+    asyncio.run(scenario())
+
+
+def test_backend_pool_routes_only_to_backends_with_free_capacity() -> None:
+    """Round-robin selection should skip saturated and draining backends."""
+
+    async def scenario() -> None:
+        pool = BackendPool(max_active_per_backend=1)
+        await pool.add("1", "http://one:8000/v1")
+        await pool.add("2", "http://two:8000/v1")
+        await pool.add("3", "http://three:8000/v1")
+        await pool.mark_draining("3", "test")
+
+        first = await pool.acquire(timeout=0.01)
+        second = await pool.acquire(timeout=0.01)
+        assert first is not None
+        assert second is not None
+        assert {first.job_id, second.job_id} == {"1", "2"}
+
+        saturated = await pool.acquire(timeout=0.01)
+        assert saturated is None
+
+        await pool.release(first.job_id)
+        next_lease = await pool.acquire(timeout=0.01)
+        assert next_lease is not None
+        assert next_lease.job_id == first.job_id
+
+    asyncio.run(scenario())
+
+
+def test_backend_pool_acquire_waits_for_released_capacity() -> None:
+    """Queued requests should wait inside the load balancer for a free slot."""
+
+    async def scenario() -> None:
+        pool = BackendPool(max_active_per_backend=1)
+        await pool.add("1", "http://one:8000/v1")
+
+        first = await pool.acquire(timeout=0.01)
+        assert first is not None
+
+        waiter = asyncio.create_task(pool.acquire(timeout=1.0))
+        await asyncio.sleep(0.05)
+        assert not waiter.done()
+
+        await pool.release(first.job_id)
+        second = await waiter
+        assert second is not None
+        assert second.job_id == "1"
+
+    asyncio.run(scenario())
+
+
+def test_backend_pool_status_reports_queue_and_capacity() -> None:
+    """Status should expose enough data to tune adaptive backend capacity."""
+
+    async def scenario() -> None:
+        pool = BackendPool(max_active_per_backend=2)
+        await pool.add("1", "http://one:8000/v1")
+        lease = await pool.acquire(timeout=0.01)
+        assert lease is not None
+
+        snapshot = await pool.snapshot()
+        assert snapshot == [
+            {
+                "job_id": "1",
+                "url": "http://one:8000/v1",
+                "source": "configured",
+                "active_requests": 1,
+                "max_active_requests": 2,
+                "available_request_slots": 1,
+                "draining": False,
+                "state": "RUNNING",
+                "last_error": "",
+            }
+        ]
+        assert await pool.queued_count() == 0
+        assert await pool.total_capacity() == 2
+
+    asyncio.run(scenario())
+
+
 def test_discover_eval_job_requires_explicit_job_when_multiple(monkeypatch) -> None:
     """Ambiguous eval-job discovery asks the operator to pass --eval-job."""
 
