@@ -374,9 +374,13 @@ class BackendPool:
                     "available_request_slots": (
                         0
                         if backend.draining
-                        else max(
-                            0,
-                            self._max_active_per_backend - backend.active_requests,
+                        else (
+                            -1
+                            if self._max_active_per_backend == 0
+                            else max(
+                                0,
+                                self._max_active_per_backend - backend.active_requests,
+                            )
                         )
                     ),
                     "draining": backend.draining,
@@ -393,7 +397,7 @@ class BackendPool:
     async def total_capacity(self) -> int:
         async with self._lock:
             if self._max_active_per_backend == 0:
-                return 0
+                return -1
             return sum(
                 self._max_active_per_backend
                 for backend in self._backends.values()
@@ -718,8 +722,17 @@ def create_app(pool: BackendPool, queue_timeout: float | None = None):
 
         last_error = "No healthy backends"
         max_attempts = max(1, pool.size)
+        start_time = asyncio.get_event_loop().time()
         for _ in range(max_attempts):
-            lease = await pool.acquire(timeout=queue_timeout)
+            if queue_timeout is not None:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                remaining_timeout = max(0.0, queue_timeout - elapsed)
+                if remaining_timeout <= 0:
+                    last_error = "Timed out waiting for backend capacity"
+                    break
+                lease = await pool.acquire(timeout=remaining_timeout)
+            else:
+                lease = await pool.acquire(timeout=None)
             if lease is None:
                 last_error = "Timed out waiting for backend capacity"
                 break
