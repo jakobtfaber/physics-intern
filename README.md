@@ -36,7 +36,8 @@ uv sync --extra local
 # Queued replacements wait without timing out; failed replacements are cancelled before resubmit.
 ./serve/serve.slurm --model deepseek-ai/DeepSeek-V4-Pro
 
-# Run full CritPt evaluation against existing serve jobs from the CPU partition.
+# Run full CritPt evaluation against existing serve jobs. The eval wrapper
+# defaults to hopper-prod to avoid spot/preemption cancellations on hopper-cpu.
 # Resume automatically reuses scoreable `ANSWER.md` files and removes empty or
 # formatter-rejection artifacts before granting an unfinished workspace more budget.
 # If no --serve-job is provided, the load balancer discovers matching running

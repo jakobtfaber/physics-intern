@@ -20,8 +20,9 @@
 #
 # Self-submits via sbatch when run outside Slurm. For multiple serve jobs, starts
 # a load_balancer.py in the background and routes all traffic through it. The
-# eval runner is CPU-only and defaults to hopper-cpu; serve jobs still run on
-# their configured GPU partition.
+# eval runner hosts the load balancer and PhysicsIntern subprocesses. It
+# defaults to hopper-prod because hopper-cpu runs on spot nodes that can be
+# preempted mid-eval; serve jobs still run on their configured GPU partition.
 
 set -euo pipefail
 
@@ -46,7 +47,7 @@ FRESH=""
 WORKSPACE_BASE=""
 NODES_PER_REPLICA=""
 KEEP_SERVES=""
-PARTITION="hopper-cpu"
+PARTITION="hopper-prod"
 DISCOVER_INTERVAL="600"
 MAX_ACTIVE_PER_BACKEND="8"
 QUEUE_TIMEOUT="1800"
