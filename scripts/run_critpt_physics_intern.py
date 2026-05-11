@@ -211,26 +211,59 @@ def _is_formatter_rejection_answer(answer_text: str) -> bool:
     return answer_text.strip().startswith(FORMATTER_REJECTION_PREFIX)
 
 
+def _git_tracks_path(workspace: Path, relative_path: str) -> bool:
+    """Return whether a path is tracked in the workspace git repository."""
+    proc = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", relative_path],
+        cwd=str(workspace),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
 def _commit_answer_cleanup_before_resume(workspace: Path, reason: str) -> None:
-    """Remove an invalid final answer and commit that cleanup before resume.
+    """Remove invalid completion artifacts and commit cleanup before resume.
 
     ``physics_intern.main --resume`` refuses any workspace with ``ANSWER.md``
     because that file is the canonical completion signal. Empty or explicit
     formatter-rejection answers are not valid submissions, so the batch runner
     removes them and records the cleanup in the challenge workspace git history
     before granting more budget.
+
+    A formatter can also fail after marking the research graph as completed. In
+    that state resume exits immediately without producing an answer, so reopen
+    the graph whenever there is no valid final answer.
     """
     answer_path = workspace / "ANSWER.md"
-    if not answer_path.exists():
+    graph_path = workspace / "RESEARCH_GRAPH.json"
+    changed = False
+    stage_paths: list[str] = []
+
+    if answer_path.exists():
+        answer_was_tracked = _git_tracks_path(workspace, "ANSWER.md")
+        answer_text = answer_path.read_text()
+        if answer_text.strip() and not _is_formatter_rejection_answer(answer_text):
+            return
+        answer_path.unlink()
+        changed = True
+        if answer_was_tracked:
+            stage_paths.append("ANSWER.md")
+
+    if graph_path.exists():
+        graph_data = json.loads(graph_path.read_text())
+        if graph_data["status"] == "completed":
+            graph_data["status"] = "in_progress"
+            graph_path.write_text(json.dumps(graph_data, indent=2, ensure_ascii=False))
+            changed = True
+            stage_paths.append("RESEARCH_GRAPH.json")
+
+    if not changed or not stage_paths:
         return
 
-    answer_text = answer_path.read_text()
-    if answer_text.strip() and not _is_formatter_rejection_answer(answer_text):
-        return
-
-    answer_path.unlink()
     add_proc = subprocess.run(
-        ["git", "add", "-A", "ANSWER.md"],
+        ["git", "add", "-A", "--", *stage_paths],
         cwd=str(workspace),
         capture_output=True,
         text=True,
@@ -243,7 +276,7 @@ def _commit_answer_cleanup_before_resume(workspace: Path, reason: str) -> None:
         )
 
     status_proc = subprocess.run(
-        ["git", "status", "--porcelain", "--", "ANSWER.md"],
+        ["git", "status", "--porcelain", "--", "ANSWER.md", "RESEARCH_GRAPH.json"],
         cwd=str(workspace),
         capture_output=True,
         text=True,
@@ -317,6 +350,11 @@ def plan_actions(
             # Workspace exists but no valid answer — try to resume
             graph_path = ws / "RESEARCH_GRAPH.json"
             if graph_path.exists():
+                graph_data = json.loads(graph_path.read_text())
+                if graph_data["status"] == "completed":
+                    cleanup_answer_before_resume = True
+                    if not cleanup_answer_reason:
+                        cleanup_answer_reason = "completed graph without valid answer"
                 actions.append(
                     ResumeAction(
                         problem=p,

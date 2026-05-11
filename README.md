@@ -41,6 +41,9 @@ uv sync --extra local
 # formatter-rejection artifacts before granting an unfinished workspace more budget.
 # If no --serve-job is provided, the load balancer discovers matching running
 # vLLM serve jobs from Slurm every 10 minutes and adds healthy backends.
+# Full evaluations default to a 3-day Slurm time limit.
+# The load balancer caps active requests per backend (default: 8) and queues
+# overflow requests so newly discovered backends increase capacity safely.
 ./serve/full_eval.slurm --model deepseek-ai/DeepSeek-V4-Pro --serve-job <JOB_ID>
 
 # Run a research problem (requires model API key in .env or env var)
