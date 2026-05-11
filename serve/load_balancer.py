@@ -724,15 +724,15 @@ def create_app(pool: BackendPool, queue_timeout: float | None = None):
         max_attempts = max(1, pool.size)
         start_time = asyncio.get_event_loop().time()
         for _ in range(max_attempts):
-            if queue_timeout is not None:
+            if queue_timeout is None:
+                lease = await pool.acquire(timeout=None)
+            else:
                 elapsed = asyncio.get_event_loop().time() - start_time
                 remaining_timeout = max(0.0, queue_timeout - elapsed)
                 if remaining_timeout <= 0:
                     last_error = "Timed out waiting for backend capacity"
                     break
                 lease = await pool.acquire(timeout=remaining_timeout)
-            else:
-                lease = await pool.acquire(timeout=None)
             if lease is None:
                 last_error = "Timed out waiting for backend capacity"
                 break
