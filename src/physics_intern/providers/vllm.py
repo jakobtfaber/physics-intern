@@ -80,6 +80,7 @@ class VLLMProvider(LLMProvider):
         base_url: str = "http://localhost:8000/v1",
         timeout: float = 600.0,
         reasoning_format: str = "",
+        reasoning_effort: str = "",
         tool_mode: str = "api",
         **kwargs,
     ):
@@ -99,6 +100,7 @@ class VLLMProvider(LLMProvider):
             timeout=timeout,
         )
         self._reasoning_format = reasoning_format
+        self._reasoning_effort = reasoning_effort
         self._tool_mode = tool_mode
         # Tracks whether the most recent call() used xml_text tool mode.
         # Used by build_tool_result_messages() to choose message format.
@@ -247,6 +249,12 @@ class VLLMProvider(LLMProvider):
         if tools and not use_xml:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        # Pass reasoning effort to the OpenAI-compatible chat completions API
+        # when configured. The OpenAI Python client accepts this parameter
+        # directly; using the Responses-style {"reasoning": {"effort": ...}}
+        # shape would be rejected before reaching vLLM.
+        if self._reasoning_effort:
+            kwargs["reasoning_effort"] = self._reasoning_effort
 
         stream = self._client.chat.completions.create(**kwargs)
 

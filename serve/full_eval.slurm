@@ -41,6 +41,7 @@ SERVE_JOBS=()
 CONCURRENCY="64"
 TIME_LIMIT="3-00:00:00"
 RESUME_DIR=""
+PROBLEMS=""
 RUNNER="oneshot"
 CONFIG_FILE=""
 FRESH=""
@@ -59,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     --concurrency) CONCURRENCY="$2"; shift 2 ;;
     --time) TIME_LIMIT="$2"; shift 2 ;;
     --resume) RESUME_DIR="$2"; shift 2 ;;
+    --problems) PROBLEMS="$2"; shift 2 ;;
     --runner) RUNNER="$2"; shift 2 ;;
     --config) CONFIG_FILE="$2"; shift 2 ;;
     --fresh) FRESH="1"; shift ;;
@@ -76,7 +78,7 @@ done
 if [[ -z "$MODEL_KEY" ]]; then
   cat >&2 <<'USAGE'
 Usage: full_eval.slurm --model MODEL_KEY [--serve-job JOB_ID [--serve-job JOB_ID2 ...]]
-       [--concurrency N] [--time HH:MM:SS] [--resume DIR]
+       [--concurrency N] [--time HH:MM:SS] [--resume DIR] [--problems SPEC]
        [--runner oneshot|physicsintern] [--config CONFIG.yaml]
        [--fresh] [--workspace-base DIR] [--nodes-per-replica N]
        [--partition PARTITION] [--discover-interval SECONDS]
@@ -116,6 +118,9 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   RESUME_ARG=()
   [[ -n "$RESUME_DIR" ]] && RESUME_ARG=(--resume "$RESUME_DIR")
 
+  PROBLEMS_ARG=()
+  [[ -n "$PROBLEMS" ]] && PROBLEMS_ARG=(--problems "$PROBLEMS")
+
   CONFIG_ARG=()
   [[ -n "$CONFIG_FILE" ]] && CONFIG_ARG=(--config "$CONFIG_FILE")
 
@@ -154,6 +159,7 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
                    --runner "$RUNNER" \
                    "${CONFIG_ARG[@]}" \
                    "${RESUME_ARG[@]}" \
+                   "${PROBLEMS_ARG[@]}" \
                    "${FRESH_ARG[@]}" \
                    "${WS_ARG[@]}" \
                    "${NPR_ARG[@]}" \
@@ -239,6 +245,9 @@ fi
 RESUME_ARG=()
 [[ -n "$RESUME_DIR" ]] && RESUME_ARG=(--resume "$RESUME_DIR")
 
+PROBLEMS_ARG=()
+[[ -n "$PROBLEMS" ]] && PROBLEMS_ARG=(--problems "$PROBLEMS")
+
 CONFIG_ARG=()
 [[ -n "$CONFIG_FILE" ]] && CONFIG_ARG=(--config "$CONFIG_FILE")
 
@@ -253,10 +262,12 @@ if [[ "$RUNNER" == "physicsintern" ]]; then
     --model "$MODEL_KEY" --concurrency "$CONCURRENCY" \
     "${CONFIG_ARG[@]}" \
     "${RESUME_ARG[@]}" \
+    "${PROBLEMS_ARG[@]}" \
     "${FRESH_ARG[@]}" \
     "${WS_ARG[@]}" && RUNNER_EXIT=0 || RUNNER_EXIT=$?
 else
   uv run --no-sync python scripts/run_critpt_oneshot.py \
     --model "$MODEL_KEY" --concurrency "$CONCURRENCY" --timeout 3600 \
-    "${RESUME_ARG[@]}" && RUNNER_EXIT=0 || RUNNER_EXIT=$?
+    "${RESUME_ARG[@]}" \
+    "${PROBLEMS_ARG[@]}" && RUNNER_EXIT=0 || RUNNER_EXIT=$?
 fi
