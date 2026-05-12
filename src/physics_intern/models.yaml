@@ -347,7 +347,7 @@ zai-org/GLM-5.1:
   # responds with <tool_call> XML tags parsed by the provider.
   tool_mode: xml_text
   serve:
-    replicas: 8
+    normal_replicas: 8
     nodes_per_replica: 3
     gpus_per_node: 8
     reasoning_parser: glm45
@@ -461,7 +461,7 @@ moonshotai/Kimi-K2.6:
     # PP=2 OOMs under concurrent load at 262k context; PP=4 is the minimum
     # for stable full-context serving. Default: 4 × 4 = 16 nodes.
     # Scale up replicas (e.g. 8 for 32 nodes) when capacity is available.
-    replicas: 4
+    normal_replicas: 4
     nodes_per_replica: 4
     gpus_per_node: 8
     reasoning_parser: kimi_k2
@@ -473,14 +473,17 @@ moonshotai/Kimi-K2.6:
       - --enable-auto-tool-choice
       - --tool-call-parser kimi_k2
 
-# DeepSeek-V4-Pro: 4 nodes (32 H100), TP=8 per node, native vLLM DP=4.
+# DeepSeek-V4-Pro-max/high: 4 nodes (32 H100), TP=8 per node, PP=4, DP=1.
 #
 # Requires vLLM 0.20+ with DeepseekV4ForCausalLM support. On our Ubuntu 20.04
 # H100 cluster the cu129 wheel stack must resolve NVIDIA wheel libraries before
 # inherited CUDA 12.1 paths; serve.slurm prepends the venv nvidia/*/lib dirs.
 #
 # Known constraints from bring-up:
-# - PP is not supported by DeepseekV4ForCausalLM (no SupportsPP implementation).
+# - vLLM 0.20.2 supports PP for DeepseekV4ForCausalLM; PP=4 gives enough
+#   memory headroom for full 262k context. A one-node TP=8/PP=1 shape OOMs.
+# - Native vLLM DP=4 repeatedly failed during DP coordinator startup; scale
+#   request concurrency with external replicas and the load balancer instead.
 # - DeepSeek V4 currently requires fp8 KV cache; vLLM aborts with kv_cache=auto.
 # - Do not use --enforce-eager for throughput experiments; it disables compile
 #   and CUDA graphs, which are expected to matter a lot for this model.
@@ -497,7 +500,7 @@ moonshotai/Kimi-K2.6:
 #   - MXFP4 indexer cache fails on H100 (`sm_90a`) because Triton emits
 #     e2m1x2 conversion instructions unsupported by the target.
 #   Keep the stable FP8 indexer cache path and scale with external replicas.
-deepseek-ai/DeepSeek-V4-Pro:
+deepseek-ai/DeepSeek-V4-Pro-max:
   provider: vllm
   model_id: deepseek-ai/DeepSeek-V4-Pro
   env_key: VLLM_API_KEY
@@ -508,11 +511,12 @@ deepseek-ai/DeepSeek-V4-Pro:
   reasoning_effort: max
   tool_mode: api
   serve:
-    replicas: 4
+    normal_replicas: 4
     nodes_per_replica: 4
     gpus_per_node: 8
     tp: 8
-    dp: 4
+    pp: 4
+    dp: 1
     reasoning_parser: deepseek_v4
     vllm_args:
       - --max-model-len 262144
@@ -544,11 +548,12 @@ deepseek-ai/DeepSeek-V4-Pro-high:
   reasoning_effort: high
   tool_mode: api
   serve:
-    replicas: 4
+    normal_replicas: 4
     nodes_per_replica: 4
     gpus_per_node: 8
     tp: 8
-    dp: 4
+    pp: 4
+    dp: 1
     reasoning_parser: deepseek_v4
     vllm_args:
       - --max-model-len 262144

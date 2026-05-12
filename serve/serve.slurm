@@ -62,7 +62,7 @@ Options:
   --qos NAME                       Slurm QOS for a single serve job.
   --requeue                        Submit a single serve job as requeueable.
   --normal-replicas N              Auto-dispatch N normal-QOS replicas
-                                   (default: serve.replicas).
+                                   (default: serve.normal_replicas).
   --low-replicas N|auto            Auto-dispatch low-QOS replicas. "auto"
                                    uses idle nodes after normal replicas
                                    (default: auto; 0 disables).
@@ -454,7 +454,7 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   # replica is an explicit debug job, so keep it as one exact serve job and do
   # not add opportunistic low-QOS replicas.
   # Suppressed when called from multi_serve.sh to avoid infinite recursion.
-  REPLICAS="${NORMAL_REPLICAS:-${DEFAULT_REPLICAS:-1}}"
+  REPLICAS="${NORMAL_REPLICAS:-${DEFAULT_NORMAL_REPLICAS:-1}}"
   DEBUG_SINGLE_REPLICA=0
   if is_pos_int "$REPLICAS" && (( REPLICAS == 1 )); then
     DEBUG_SINGLE_REPLICA=1
@@ -728,13 +728,6 @@ if (( DP > 1 )); then
     --data-parallel-address "$HEAD_IP"
     --data-parallel-rpc-port "$DP_RPC_PORT"
   )
-  # Only very large DP jobs need multiple API servers. DP=4 DeepSeek replicas
-  # are more stable with a single API server under max-think traffic.
-  # Stored separately: only the head node gets this (--headless is incompatible).
-  HEAD_EXTRA_ARGS=()
-  if (( DP >= 8 )); then
-    HEAD_EXTRA_ARGS+=(--api-server-count 4)
-  fi
 else
   VLLM_ARGS+=(--pipeline-parallel-size "$PP")
   if (( NODES > 1 )); then
@@ -841,9 +834,7 @@ launch_dp_node() {
   local node_idx="$2"
   local start_rank=$(( node_idx * DP_LOCAL ))
   local -a rank_cmd=(uv run --no-sync vllm "${VLLM_ARGS[@]}")
-  if (( node_idx == 0 )); then
-    rank_cmd+=("${HEAD_EXTRA_ARGS[@]}")
-  else
+  if (( node_idx > 0 )); then
     rank_cmd+=(
       --headless
       --data-parallel-start-rank "$start_rank"

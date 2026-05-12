@@ -85,7 +85,7 @@ def test_plan_actions_reopens_completed_graph_without_answer(tmp_path):
     output_dir = tmp_path / "results"
     output_dir.mkdir()
     workspace_base = tmp_path / "workspaces"
-    safe_model = "deepseek-ai-DeepSeek-V4-Pro"
+    safe_model = "deepseek-ai-DeepSeek-V4-Pro-max"
     workspace = workspace_base / f"20260508_100000_Challenge_25_main_{safe_model}"
     workspace.mkdir(parents=True)
     (workspace / "RESEARCH_GRAPH.json").write_text('{"status": "completed"}')
@@ -94,7 +94,7 @@ def test_plan_actions_reopens_completed_graph_without_answer(tmp_path):
         problems=[_problem(25)],
         output_dir=output_dir,
         workspace_base=workspace_base,
-        model_key="deepseek-ai/DeepSeek-V4-Pro",
+        model_key="deepseek-ai/DeepSeek-V4-Pro-max",
         force=False,
     )
 
@@ -158,7 +158,7 @@ def test_plan_actions_marks_empty_answer_for_resume_cleanup(tmp_path):
     output_dir = tmp_path / "results"
     output_dir.mkdir()
     workspace_base = tmp_path / "workspaces"
-    safe_model = "deepseek-ai-DeepSeek-V4-Pro"
+    safe_model = "deepseek-ai-DeepSeek-V4-Pro-max"
     workspace = workspace_base / f"20260508_100000_Challenge_25_main_{safe_model}"
     workspace.mkdir(parents=True)
     (workspace / "ANSWER.md").write_text("\n")
@@ -168,7 +168,7 @@ def test_plan_actions_marks_empty_answer_for_resume_cleanup(tmp_path):
         problems=[_problem(25)],
         output_dir=output_dir,
         workspace_base=workspace_base,
-        model_key="deepseek-ai/DeepSeek-V4-Pro",
+        model_key="deepseek-ai/DeepSeek-V4-Pro-max",
         force=False,
     )
 
@@ -185,7 +185,7 @@ def test_plan_actions_marks_colonless_formatter_rejection_for_cleanup(tmp_path):
     output_dir = tmp_path / "results"
     output_dir.mkdir()
     workspace_base = tmp_path / "workspaces"
-    safe_model = "deepseek-ai-DeepSeek-V4-Pro"
+    safe_model = "deepseek-ai-DeepSeek-V4-Pro-max"
     workspace = workspace_base / f"20260508_100000_Challenge_25_main_{safe_model}"
     workspace.mkdir(parents=True)
     (workspace / "ANSWER.md").write_text("FORMATTER_REJECTION missing final ER\n")
@@ -195,7 +195,7 @@ def test_plan_actions_marks_colonless_formatter_rejection_for_cleanup(tmp_path):
         problems=[_problem(25)],
         output_dir=output_dir,
         workspace_base=workspace_base,
-        model_key="deepseek-ai/DeepSeek-V4-Pro",
+        model_key="deepseek-ai/DeepSeek-V4-Pro-max",
         force=False,
     )
 
