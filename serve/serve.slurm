@@ -454,7 +454,17 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   # (e.g. Kimi-K2.6 uses 4 external-DP replicas with PP=2 each).
   # Suppressed when called from multi_serve.sh to avoid infinite recursion.
   REPLICAS="${NORMAL_REPLICAS:-${DEFAULT_REPLICAS:-1}}"
-  if [[ -z "${_MULTI_SERVE_PARENT:-}" ]] && is_pos_int "$REPLICAS" && (( REPLICAS > 1 )); then
+  DISPATCH_MULTI=0
+  if [[ -z "${_MULTI_SERVE_PARENT:-}" ]]; then
+    if is_pos_int "$REPLICAS" && (( REPLICAS > 1 )); then
+      DISPATCH_MULTI=1
+    elif [[ "$LOW_REPLICAS" == "auto" ]]; then
+      DISPATCH_MULTI=1
+    elif is_pos_int "$LOW_REPLICAS" && (( LOW_REPLICAS > 0 )); then
+      DISPATCH_MULTI=1
+    fi
+  fi
+  if (( DISPATCH_MULTI )); then
     MULTI_SERVE="${SCRIPT_DIR}/multi_serve.sh"
     MULTI_ARGS=(
       "$MULTI_SERVE"
