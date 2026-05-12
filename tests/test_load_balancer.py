@@ -16,8 +16,7 @@ from serve.drain_backends import discover_eval_job  # noqa: E402
 def test_slugify_matches_serve_job_names() -> None:
     """Model keys map to the same slug shape used in Slurm job names."""
     assert (
-        slugify("deepseek-ai/DeepSeek-V4-Pro-max")
-        == "deepseek-ai-DeepSeek-V4-Pro-max"
+        slugify("deepseek-ai/DeepSeek-V4-Pro-max") == "deepseek-ai-DeepSeek-V4-Pro-max"
     )
     assert slugify("zai-org/GLM-5.1-runai") == "zai-org-GLM-5-1-runai"
 
