@@ -407,7 +407,7 @@ starts in discovery-only mode and waits for the first matching healthy backend.
 
 The load balancer caps active requests per backend to avoid overloading DeepSeek
 replicas as the backend count changes. `serve/full_eval.slurm` defaults to
-`--max-active-per-backend 8` and `--queue-timeout 1800`: requests above the
+`--max-active-per-backend 2` and `--queue-timeout 1800`: requests above the
 current healthy-backend capacity wait in the load balancer instead of being sent
 to an already saturated backend. When auto-discovery adds new replicas, capacity
 increases automatically; when a backend is drained or dies, new requests wait for
