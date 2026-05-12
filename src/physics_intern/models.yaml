@@ -347,7 +347,7 @@ zai-org/GLM-5.1:
   # responds with <tool_call> XML tags parsed by the provider.
   tool_mode: xml_text
   serve:
-    replicas: 8
+    normal_replicas: 8
     nodes_per_replica: 3
     gpus_per_node: 8
     reasoning_parser: glm45
@@ -461,7 +461,7 @@ moonshotai/Kimi-K2.6:
     # PP=2 OOMs under concurrent load at 262k context; PP=4 is the minimum
     # for stable full-context serving. Default: 4 × 4 = 16 nodes.
     # Scale up replicas (e.g. 8 for 32 nodes) when capacity is available.
-    replicas: 4
+    normal_replicas: 4
     nodes_per_replica: 4
     gpus_per_node: 8
     reasoning_parser: kimi_k2
@@ -473,31 +473,74 @@ moonshotai/Kimi-K2.6:
       - --enable-auto-tool-choice
       - --tool-call-parser kimi_k2
 
-# DeepSeek-V4-Pro: 4 nodes (32 H100), TP=8 per node, native vLLM DP=4.
+# DeepSeek-V4-Pro-max/high: 4 nodes (32 H100), TP=8 per node, PP=4, DP=1.
+# Stable long-context throughput config measured ~275 tok/s aggregate at 16-way
+# concurrency on the pp4-base replica in the 2026-05-12 stability sweep
+# (full results: results/serve_bench/deepseek_v4_pro_stability/SUMMARY.md).
 #
 # Requires vLLM 0.20+ with DeepseekV4ForCausalLM support. On our Ubuntu 20.04
 # H100 cluster the cu129 wheel stack must resolve NVIDIA wheel libraries before
 # inherited CUDA 12.1 paths; serve.slurm prepends the venv nvidia/*/lib dirs.
 #
 # Known constraints from bring-up:
-# - PP is not supported by DeepseekV4ForCausalLM (no SupportsPP implementation).
+# - vLLM 0.20.2 supports PP for DeepseekV4ForCausalLM; PP=4 gives enough
+#   memory headroom for full 262k context. A one-node TP=8/PP=1 shape OOMs.
+# - Native vLLM DP=4 repeatedly failed during DP coordinator startup; scale
+#   request concurrency with external replicas and the load balancer instead.
 # - DeepSeek V4 currently requires fp8 KV cache; vLLM aborts with kv_cache=auto.
-# - Do not use --enforce-eager for throughput experiments; it disables compile
-#   and CUDA graphs, which are expected to matter a lot for this model.
 # - The 805 GiB checkpoint can take >600s to load, so serve.slurm raises
 #   VLLM_ENGINE_READY_TIMEOUT_S to 1800s by default.
 # - TorchInductor combo-kernel benchmarking currently fails on this cluster with
 #   "CUDA driver error: file not found"; keep compile/CUDA graphs enabled but
 #   disable that specific compile-time benchmark path.
-# - Full CUDA graph capture has stalled startup on this model; use piecewise
-#   CUDA graphs capped at 128 while keeping torch.compile enabled.
-# - Tested tuning variants:
+# - Full-only CUDA graph capture (cudagraph_mode=FULL) stalled startup on this
+#   model; the FULL_AND_PIECEWISE hybrid below works because piecewise still
+#   handles prefill while full graphs accelerate decode.
+#
+# Stability sweep (2026-05-12) — picked apart the production hangs by
+# stress-testing each PP/cudagraph/batched_tokens variant under realistic
+# long-context load (mixed 512/4k/16k input prompts, 16-way concurrency,
+# 6 min, 120s stream-idle hang detector):
+# - WINNERS:
+#   - cudagraph_mode: FULL_AND_PIECEWISE  → CHOSEN. 100% success rate at
+#     pp2/pp4/pp6. pp4-base measured ~275 tok/s aggregate, p95 50.6s. The
+#     prior PIECEWISE default soft-hangs the engine: pp4-piecewise produced
+#     ONE decode token in 2 hours of 16-way stress (vllm:generation_tokens_total),
+#     pp2-piecewise crawled at ~1.8 aggregate tok/s (~175× slower). The
+#     upstream "use PIECEWISE on GB10 / SM 12.x" advice from vLLM #40969 /
+#     #41125 inverts on H100 / SM 9.0 — empirically.
+#   - max_num_batched_tokens: 8192  → CHOSEN. The previous 16384 doubled
+#     prefill activation footprint and OOM'd GPU 0 at the first concurrent
+#     prefill ("Tried to allocate 272 MiB. GPU 0 ... 158 MiB free"). The OOM
+#     left dangling NVLink peer mappings and NCCL watchdogs cascaded "Invalid
+#     access of peer GPU memory over nvlink", reproducing the production
+#     "EngineCore encountered an issue" 500 chain. 8192 batched removes the
+#     trigger; throughput is unchanged in our test.
+#   - PP=4  → KEPT. PP=2 was actually fastest per-replica (319 tok/s, p95
+#     37.4s) in this 16k-input sweep, but the Kimi-K2.6 comment block above
+#     documents that PP=2 OOMs in `logits all_gather` at full 262k context.
+#     Keep the proven 4-node shape for now; only re-evaluate after a long-
+#     context (≥64k input) soak proves PP=2 holds up.
+# - DEAD ENDS:
+#   - cudagraph_mode: PIECEWISE  → REJECTED. See WINNERS above.
+#   - max_num_batched_tokens: 16384  → REJECTED. See WINNERS above.
+#   - --enforce-eager  → DO NOT USE. Disables compile and CUDA graphs;
+#     consistent with Kimi's 4× throughput drop. Also explicitly forbidden.
+#   - PP=6 (any variant)  → REJECTED. Stable but slower than PP=4 (~217
+#     tok/s vs ~275) and burns 50% more nodes per replica.
+# - NOT TESTED (open follow-ups):
+#   - Long soak (≥1h). The 6-min stress masks slow leaks; previous
+#     production hangs took ≥2h to manifest. Re-run before any future shape
+#     change (PP, max_num_seqs, EP).
+#   - max_num_seqs > 32. Doubling concurrency could expose new failure
+#     modes. Revisit only if traffic grows.
+# - NOT APPLICABLE / earlier dead ends (kept here as a record):
 #   - MTP speculative decoding (`{"method":"mtp","num_speculative_tokens":1}`)
 #     reached graph capture but the API server died before health checks passed.
 #   - MXFP4 indexer cache fails on H100 (`sm_90a`) because Triton emits
-#     e2m1x2 conversion instructions unsupported by the target.
-#   Keep the stable FP8 indexer cache path and scale with external replicas.
-deepseek-ai/DeepSeek-V4-Pro:
+#     e2m1x2 conversion instructions unsupported by the target. Keep the
+#     stable FP8 indexer cache path and scale with external replicas.
+deepseek-ai/DeepSeek-V4-Pro-max:
   provider: vllm
   model_id: deepseek-ai/DeepSeek-V4-Pro
   env_key: VLLM_API_KEY
@@ -508,11 +551,12 @@ deepseek-ai/DeepSeek-V4-Pro:
   reasoning_effort: max
   tool_mode: api
   serve:
-    replicas: 4
+    normal_replicas: 4
     nodes_per_replica: 4
     gpus_per_node: 8
     tp: 8
-    dp: 4
+    pp: 4
+    dp: 1
     reasoning_parser: deepseek_v4
     vllm_args:
       - --max-model-len 262144
@@ -527,11 +571,11 @@ deepseek-ai/DeepSeek-V4-Pro:
       - --default-chat-template-kwargs
       - '{"thinking":true}'
       - --compilation-config
-      - '{"cudagraph_mode":"PIECEWISE","max_cudagraph_capture_size":128,"inductor_compile_config":{"benchmark_combo_kernel":false}}'
+      - '{"cudagraph_mode":"FULL_AND_PIECEWISE","max_cudagraph_capture_size":128,"inductor_compile_config":{"benchmark_combo_kernel":false}}'
       - --performance-mode
       - throughput
       - --max-num-batched-tokens
-      - '16384'
+      - '8192'
 
 deepseek-ai/DeepSeek-V4-Pro-high:
   provider: vllm
@@ -544,11 +588,12 @@ deepseek-ai/DeepSeek-V4-Pro-high:
   reasoning_effort: high
   tool_mode: api
   serve:
-    replicas: 4
+    normal_replicas: 4
     nodes_per_replica: 4
     gpus_per_node: 8
     tp: 8
-    dp: 4
+    pp: 4
+    dp: 1
     reasoning_parser: deepseek_v4
     vllm_args:
       - --max-model-len 262144
@@ -563,8 +608,8 @@ deepseek-ai/DeepSeek-V4-Pro-high:
       - --default-chat-template-kwargs
       - '{"thinking":true}'
       - --compilation-config
-      - '{"cudagraph_mode":"PIECEWISE","max_cudagraph_capture_size":128,"inductor_compile_config":{"benchmark_combo_kernel":false}}'
+      - '{"cudagraph_mode":"FULL_AND_PIECEWISE","max_cudagraph_capture_size":128,"inductor_compile_config":{"benchmark_combo_kernel":false}}'
       - --performance-mode
       - throughput
       - --max-num-batched-tokens
-      - '16384'
+      - '8192'

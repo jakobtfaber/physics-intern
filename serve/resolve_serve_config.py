@@ -50,7 +50,9 @@ def main() -> None:
     except (OSError, yaml.YAMLError) as exc:
         print(f"Warning: could not read {models_yaml}: {exc}", file=sys.stderr)
 
-    replicas = str(serve["replicas"]) if "replicas" in serve else "1"
+    normal_replicas = (
+        str(serve["normal_replicas"]) if "normal_replicas" in serve else "1"
+    )
     nodes_per_replica = optional_str(serve, "nodes_per_replica")
     nodes = optional_str(serve, "nodes") or nodes_per_replica
     gpus = optional_str(serve, "gpus_per_node") or "1"
@@ -77,7 +79,7 @@ def main() -> None:
             tokens.extend(parts)
 
     print(f"DEFAULT_MODEL_ID={shlex.quote(model_id)}")
-    print(f"DEFAULT_REPLICAS={shlex.quote(str(replicas))}")
+    print(f"DEFAULT_NORMAL_REPLICAS={shlex.quote(str(normal_replicas))}")
     print(f"DEFAULT_NODES={shlex.quote(nodes)}")
     print(f"DEFAULT_GPUS_PER_NODE={shlex.quote(gpus)}")
     print(f"DEFAULT_TP={shlex.quote(tp)}")

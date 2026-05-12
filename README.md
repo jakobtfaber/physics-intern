@@ -35,7 +35,7 @@ uv sync --extra local
 # See DOCUMENTATION.md for the required cu129 vLLM install and DeepGEMM wheel.
 # Idle serve replicas auto-cancel after 2 hours without completed, running, or waiting requests.
 # Queued replacements wait without timing out; failed replacements are cancelled before resubmit.
-./serve/serve.slurm --model deepseek-ai/DeepSeek-V4-Pro
+./serve/serve.slurm --model deepseek-ai/DeepSeek-V4-Pro-max
 
 # Run full CritPt evaluation against existing serve jobs. The eval wrapper
 # defaults to hopper-prod to avoid spot/preemption cancellations on hopper-cpu.
@@ -44,9 +44,9 @@ uv sync --extra local
 # If no --serve-job is provided, the load balancer discovers matching running
 # vLLM serve jobs from Slurm every 10 minutes and adds healthy backends.
 # Full evaluations default to a 3-day Slurm time limit.
-# The load balancer caps active requests per backend (default: 8) and queues
+# The load balancer caps active requests per backend (default: 2) and queues
 # overflow requests so newly discovered backends increase capacity safely.
-./serve/full_eval.slurm --model deepseek-ai/DeepSeek-V4-Pro --serve-job <JOB_ID>
+./serve/full_eval.slurm --model deepseek-ai/DeepSeek-V4-Pro-max --serve-job <JOB_ID>
 
 # Run a research problem (requires model API key in .env or env var)
 uv run physics_intern problems/critpt/quantum_error_correction_main.yaml --model gemini-3-flash-preview

@@ -256,7 +256,7 @@ class TestServeConfig:
 
     def test_glm_5_1_serve_block(self, registry):
         serve = registry["zai-org/GLM-5.1"]["serve"]
-        assert serve["replicas"] == 8
+        assert serve["normal_replicas"] == 8
         assert serve["nodes_per_replica"] == 3
         assert serve["gpus_per_node"] == 8
         assert serve["reasoning_parser"] == "glm45"
@@ -267,7 +267,7 @@ class TestServeConfig:
 
     def test_kimi_k2_6_serve_block(self, registry):
         serve = registry["moonshotai/Kimi-K2.6"]["serve"]
-        assert serve["replicas"] == 4
+        assert serve["normal_replicas"] == 4
         assert serve["nodes_per_replica"] == 4
         assert serve["gpus_per_node"] == 8
         assert serve["reasoning_parser"] == "kimi_k2"
@@ -279,6 +279,26 @@ class TestServeConfig:
         # Champion config explicitly does NOT use --enforce-eager (CUDA graphs
         # give the dominant 4x throughput win on Kimi).
         assert "--enforce-eager" not in args
+
+    @pytest.mark.parametrize(
+        "model_key,reasoning_effort",
+        [
+            ("deepseek-ai/DeepSeek-V4-Pro-max", "max"),
+            ("deepseek-ai/DeepSeek-V4-Pro-high", "high"),
+        ],
+    )
+    def test_deepseek_v4_pro_serve_block(self, registry, model_key, reasoning_effort):
+        entry = registry[model_key]
+        serve = entry["serve"]
+        assert entry["model_id"] == "deepseek-ai/DeepSeek-V4-Pro"
+        assert entry["reasoning_effort"] == reasoning_effort
+        assert serve["normal_replicas"] == 4
+        assert serve["nodes_per_replica"] == 4
+        assert serve["gpus_per_node"] == 8
+        assert serve["tp"] == 8
+        assert serve["pp"] == 4
+        assert serve["dp"] == 1
+        assert serve["reasoning_parser"] == "deepseek_v4"
 
 
 # ---------------------------------------------------------------------------
@@ -314,7 +334,7 @@ class TestResolveServeConfig:
     def test_emits_all_required_shell_vars_for_kimi(self):
         out = _run_resolver("moonshotai/Kimi-K2.6")
         assert out["DEFAULT_MODEL_ID"] == "moonshotai/Kimi-K2.6"
-        assert out["DEFAULT_REPLICAS"] == "4"
+        assert out["DEFAULT_NORMAL_REPLICAS"] == "4"
         assert out["DEFAULT_NODES"] == "4"
         assert out["DEFAULT_GPUS_PER_NODE"] == "8"
         assert out["DEFAULT_REASONING_PARSER"] == "kimi_k2"
@@ -325,7 +345,7 @@ class TestResolveServeConfig:
     def test_emits_all_required_shell_vars_for_glm(self):
         out = _run_resolver("zai-org/GLM-5.1")
         assert out["DEFAULT_MODEL_ID"] == "zai-org/GLM-5.1"
-        assert out["DEFAULT_REPLICAS"] == "8"
+        assert out["DEFAULT_NORMAL_REPLICAS"] == "8"
         assert out["DEFAULT_NODES"] == "3"
         assert out["DEFAULT_GPUS_PER_NODE"] == "8"
         assert out["DEFAULT_REASONING_PARSER"] == "glm45"

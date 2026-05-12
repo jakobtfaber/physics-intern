@@ -15,7 +15,9 @@ from serve.drain_backends import discover_eval_job  # noqa: E402
 
 def test_slugify_matches_serve_job_names() -> None:
     """Model keys map to the same slug shape used in Slurm job names."""
-    assert slugify("deepseek-ai/DeepSeek-V4-Pro") == "deepseek-ai-DeepSeek-V4-Pro"
+    assert (
+        slugify("deepseek-ai/DeepSeek-V4-Pro-max") == "deepseek-ai-DeepSeek-V4-Pro-max"
+    )
     assert slugify("zai-org/GLM-5.1-runai") == "zai-org-GLM-5-1-runai"
 
 
@@ -172,8 +174,8 @@ def test_discover_eval_job_requires_explicit_job_when_multiple(monkeypatch) -> N
     class Result:
         returncode = 0
         stdout = (
-            "111|critpt-physicsintern-deepseek-ai-DeepSeek-V4-Pro|RUNNING\n"
-            "222|critpt-physicsintern-deepseek-ai-DeepSeek-V4-Pro|RUNNING\n"
+            "111|critpt-physicsintern-deepseek-ai-DeepSeek-V4-Pro-max|RUNNING\n"
+            "222|critpt-physicsintern-deepseek-ai-DeepSeek-V4-Pro-max|RUNNING\n"
         )
         stderr = ""
 

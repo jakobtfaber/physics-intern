@@ -239,9 +239,11 @@ without `--enforce-eager`.
 
 ### Huge-model example (DeepSeek V4 Pro)
 
-`deepseek-ai/DeepSeek-V4-Pro` needs vLLM 0.20+ with
+The upstream `deepseek-ai/DeepSeek-V4-Pro` checkpoint needs vLLM 0.20+ with
 `DeepseekV4ForCausalLM`, CUDA 12.9-compatible wheels, and DeepGEMM 2.5. The
-tested cluster install is:
+registry exposes explicit reasoning-effort keys:
+`deepseek-ai/DeepSeek-V4-Pro-max` and `deepseek-ai/DeepSeek-V4-Pro-high`.
+The tested cluster install is:
 
 - `vllm==0.20.2rc1.dev73+g5d0fd8703.cu129`
 - `deep-gemm==2.5.0+891d57b`
@@ -342,15 +344,16 @@ uv run hf auth whoami
 Then launch the model:
 
 ```bash
-./serve/serve.slurm --model deepseek-ai/DeepSeek-V4-Pro
+./serve/serve.slurm --model deepseek-ai/DeepSeek-V4-Pro-max
 ```
 
 The DeepSeek entry in `models.yaml` supplies the production defaults:
 
 - 4 external replicas, each using 4 H100 nodes with 8 GPUs per node
-- native vLLM data parallelism inside each replica with `dp: 4`
-- tensor parallelism inside each DP rank with `tp: 8`
-- no pipeline parallelism, because `DeepseekV4ForCausalLM` does not support PP
+- pipeline parallelism across the 4 nodes with `pp: 4`
+- tensor parallelism inside each node with `tp: 8`
+- no native vLLM data parallelism inside a backend (`dp: 1`); scale request
+  concurrency with external replicas and the load balancer
 - `--enable-expert-parallel`
 - `--kv-cache-dtype fp8`
 - `--tokenizer-mode deepseek_v4`
@@ -360,8 +363,8 @@ The DeepSeek entry in `models.yaml` supplies the production defaults:
   failure
 - `--performance-mode throughput` with `--max-num-batched-tokens 16384`
 
-With the default `replicas: 4`, `serve.slurm` treats those as the normal-QOS
-baseline and dispatches through `serve/multi_serve.sh`. The launcher also submits
+With the default `normal_replicas: 4`, `serve.slurm` treats those as the
+normal-QOS baseline and dispatches through `serve/multi_serve.sh`. The launcher also submits
 opportunistic low-QOS replicas with `--requeue`: by default it looks at idle
 `hopper-prod` nodes, subtracts the nodes needed by the normal replicas, divides
 the remaining nodes by `nodes_per_replica`, and submits at least two low-QOS
@@ -404,7 +407,7 @@ starts in discovery-only mode and waits for the first matching healthy backend.
 
 The load balancer caps active requests per backend to avoid overloading DeepSeek
 replicas as the backend count changes. `serve/full_eval.slurm` defaults to
-`--max-active-per-backend 8` and `--queue-timeout 1800`: requests above the
+`--max-active-per-backend 2` and `--queue-timeout 1800`: requests above the
 current healthy-backend capacity wait in the load balancer instead of being sent
 to an already saturated backend. When auto-discovery adds new replicas, capacity
 increases automatically; when a backend is drained or dies, new requests wait for
@@ -443,7 +446,7 @@ with `--normal-replicas 1 --low-replicas 0`.
 
 ```bash
 ./serve/multi_serve.sh \
-  --model deepseek-ai/DeepSeek-V4-Pro \
+  --model deepseek-ai/DeepSeek-V4-Pro-max \
   --normal-replicas 1 \
   --low-replicas 0 \
   --nodes-per-replica 4
@@ -477,7 +480,7 @@ Run the full PhysicsIntern CritPt sweep against four replicas with:
 
 ```bash
 ./serve/full_eval.slurm \
-  --model deepseek-ai/DeepSeek-V4-Pro \
+  --model deepseek-ai/DeepSeek-V4-Pro-max \
   --serve-job <JOB_1> \
   --serve-job <JOB_2> \
   --serve-job <JOB_3> \
