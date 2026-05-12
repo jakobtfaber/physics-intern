@@ -360,11 +360,18 @@ The DeepSeek entry in `models.yaml` supplies the production defaults:
   failure
 - `--performance-mode throughput` with `--max-num-batched-tokens 16384`
 
-With the default `replicas: 4`, `serve.slurm` dispatches through
-`serve/multi_serve.sh` and writes the four job IDs. Each replica writes its
-endpoint to `serve/logs/vllm/<job_id>/endpoint.env`; use
-`serve/load_balancer.py` or `serve/full_eval.slurm` with all four job IDs for a
-single `/v1` endpoint.
+With the default `replicas: 4`, `serve.slurm` treats those as the normal-QOS
+baseline and dispatches through `serve/multi_serve.sh`. The launcher also submits
+opportunistic low-QOS replicas with `--requeue`: by default it looks at idle
+`hopper-prod` nodes, subtracts the nodes needed by the normal replicas, divides
+the remaining nodes by `nodes_per_replica`, and submits at least two low-QOS
+replicas. Override the baseline with `--normal-replicas N`, override or disable
+opportunistic capacity with `--low-replicas N` or `--low-replicas 0`, and tune
+the auto minimum with `--low-min-replicas N`.
+
+Each replica writes its endpoint to `serve/logs/vllm/<job_id>/endpoint.env`; use
+`serve/load_balancer.py` or `serve/full_eval.slurm` with all job IDs for a single
+`/v1` endpoint.
 
 `serve.slurm` writes each replica endpoint to
 `serve/logs/vllm/<job_id>/endpoint.env` and Slurm logs to
@@ -431,14 +438,14 @@ srun --jobid=<EVAL_JOB_ID> --overlap --ntasks=1 --nodes=1 \
 ```
 
 The default DeepSeek config is tuned for high-concurrency CritPt-style traffic.
-To launch a single replica for debugging, override the replica count by calling
-`serve/multi_serve.sh` directly with `--replicas 1`, or call `serve.slurm` from
-inside `multi_serve.sh`.
+To launch a single replica for debugging, call `serve/multi_serve.sh` directly
+with `--normal-replicas 1 --low-replicas 0`.
 
 ```bash
 ./serve/multi_serve.sh \
   --model deepseek-ai/DeepSeek-V4-Pro \
-  --replicas 1 \
+  --normal-replicas 1 \
+  --low-replicas 0 \
   --nodes-per-replica 4
 ```
 
@@ -614,8 +621,8 @@ To go faster than the per-replica ceiling, use **external data parallelism**: ru
 Kimi-K2.6 does NOT fit on a single node (72 GiB weights per GPU; OOM even at 131k context). Native vLLM `--data-parallel-size` requires PP=1, so it cannot be used. Instead, launch N independent serve jobs and either use the load balancer or client-side round-robin:
 
 ```bash
-# Launch 8 replicas (4 nodes each = 32 nodes total)
-./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --replicas 8 --nodes-per-replica 4
+# Launch 4 normal-QOS replicas plus auto-sized low-QOS replicas.
+./serve/multi_serve.sh --model moonshotai/Kimi-K2.6 --normal-replicas 4 --nodes-per-replica 4
 
 # Benchmark with client-side round-robin across all replicas
 uv run python scripts/benchmark_throughput.py --serve-job <job1> <job2> <job3> <job4>

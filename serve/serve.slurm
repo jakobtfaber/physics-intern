@@ -59,6 +59,14 @@ Options:
                                    (default: 7200 = 2h; 0 disables).
   --max-restarts N                 Restart vLLM up to N times on crash
                                    (default: VLLM_MAX_RESTARTS or 3).
+  --qos NAME                       Slurm QOS for a single serve job.
+  --requeue                        Submit a single serve job as requeueable.
+  --normal-replicas N              Auto-dispatch N normal-QOS replicas
+                                   (default: serve.replicas).
+  --low-replicas N|auto            Auto-dispatch low-QOS replicas. "auto"
+                                   uses idle nodes after normal replicas
+                                   (default: auto; 0 disables).
+  --low-min-replicas N             Minimum auto low-QOS replicas (default: 2).
   -h, --help                       Show this message.
   --                               Extra args passed through to vllm serve.
 
@@ -264,6 +272,11 @@ PORT="8000"
 SERVED_MODEL_NAME=""
 MAX_MODEL_LEN="262144"
 MAX_MODEL_LEN_EXPLICIT=""
+QOS=""
+REQUEUE=""
+NORMAL_REPLICAS=""
+LOW_REPLICAS="auto"
+LOW_MIN_REPLICAS="2"
 TP=""
 PP=""
 DP=""
@@ -350,6 +363,30 @@ while [[ $# -gt 0 ]]; do
       export VLLM_MAX_RESTARTS="$2"
       shift 2
       ;;
+    --qos)
+      require_value "$1" "${2:-}"
+      QOS="$2"
+      shift 2
+      ;;
+    --requeue)
+      REQUEUE="1"
+      shift
+      ;;
+    --normal-replicas)
+      require_value "$1" "${2:-}"
+      NORMAL_REPLICAS="$2"
+      shift 2
+      ;;
+    --low-replicas)
+      require_value "$1" "${2:-}"
+      LOW_REPLICAS="$2"
+      shift 2
+      ;;
+    --low-min-replicas)
+      require_value "$1" "${2:-}"
+      LOW_MIN_REPLICAS="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -416,15 +453,18 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
   # Auto-dispatch to multi_serve.sh for models with replicas > 1
   # (e.g. Kimi-K2.6 uses 4 external-DP replicas with PP=2 each).
   # Suppressed when called from multi_serve.sh to avoid infinite recursion.
-  REPLICAS="${DEFAULT_REPLICAS:-1}"
+  REPLICAS="${NORMAL_REPLICAS:-${DEFAULT_REPLICAS:-1}}"
   if [[ -z "${_MULTI_SERVE_PARENT:-}" ]] && is_pos_int "$REPLICAS" && (( REPLICAS > 1 )); then
     MULTI_SERVE="${SCRIPT_DIR}/multi_serve.sh"
     MULTI_ARGS=(
       "$MULTI_SERVE"
       --model "$MODEL"
-      --replicas "$REPLICAS"
+      --normal-replicas "$REPLICAS"
+      --low-replicas "$LOW_REPLICAS"
+      --low-min-replicas "$LOW_MIN_REPLICAS"
       --nodes-per-replica "$NODES"
       --gpus-per-node "$GPUS_PER_NODE"
+      --partition "$PARTITION"
       --time "$TIME_LIMIT"
       --idle-shutdown "$IDLE_SHUTDOWN_SECONDS"
     )
@@ -481,6 +521,14 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
     --time "$TIME_LIMIT"
     --output "${LOG_DIR_DEFAULT}/%x-%j.out"
     --error "${LOG_DIR_DEFAULT}/%x-%j.err"
+  )
+  if [[ -n "$QOS" ]]; then
+    SUBMIT_CMD+=(--qos "$QOS")
+  fi
+  if [[ -n "$REQUEUE" ]]; then
+    SUBMIT_CMD+=(--requeue)
+  fi
+  SUBMIT_CMD+=(
     "$SCRIPT_PATH"
     "${ORIGINAL_ARGS[@]}"
   )
