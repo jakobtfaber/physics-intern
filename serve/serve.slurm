@@ -450,21 +450,17 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
     GPUS_PER_NODE="$DEFAULT_GPUS_PER_NODE"
   fi
 
-  # Auto-dispatch to multi_serve.sh for models with replicas > 1
-  # (e.g. Kimi-K2.6 uses 4 external-DP replicas with PP=2 each).
+  # Auto-dispatch to multi_serve.sh for normal serving pools. A single normal
+  # replica is an explicit debug job, so keep it as one exact serve job and do
+  # not add opportunistic low-QOS replicas.
   # Suppressed when called from multi_serve.sh to avoid infinite recursion.
   REPLICAS="${NORMAL_REPLICAS:-${DEFAULT_REPLICAS:-1}}"
-  DISPATCH_MULTI=0
-  if [[ -z "${_MULTI_SERVE_PARENT:-}" ]]; then
-    if is_pos_int "$REPLICAS" && (( REPLICAS > 1 )); then
-      DISPATCH_MULTI=1
-    elif [[ "$LOW_REPLICAS" == "auto" ]]; then
-      DISPATCH_MULTI=1
-    elif is_pos_int "$LOW_REPLICAS" && (( LOW_REPLICAS > 0 )); then
-      DISPATCH_MULTI=1
-    fi
+  DEBUG_SINGLE_REPLICA=0
+  if is_pos_int "$REPLICAS" && (( REPLICAS == 1 )); then
+    DEBUG_SINGLE_REPLICA=1
+    LOW_REPLICAS="0"
   fi
-  if (( DISPATCH_MULTI )); then
+  if [[ -z "${_MULTI_SERVE_PARENT:-}" ]] && (( ! DEBUG_SINGLE_REPLICA )) && is_pos_int "$REPLICAS" && (( REPLICAS > 1 )); then
     MULTI_SERVE="${SCRIPT_DIR}/multi_serve.sh"
     MULTI_ARGS=(
       "$MULTI_SERVE"
