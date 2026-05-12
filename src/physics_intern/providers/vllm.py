@@ -249,9 +249,12 @@ class VLLMProvider(LLMProvider):
         if tools and not use_xml:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-        # Pass reasoning effort to the API if configured
+        # Pass reasoning effort to the OpenAI-compatible chat completions API
+        # when configured. The OpenAI Python client accepts this parameter
+        # directly; using the Responses-style {"reasoning": {"effort": ...}}
+        # shape would be rejected before reaching vLLM.
         if self._reasoning_effort:
-            kwargs["reasoning"] = {"effort": self._reasoning_effort}
+            kwargs["reasoning_effort"] = self._reasoning_effort
 
         stream = self._client.chat.completions.create(**kwargs)
 

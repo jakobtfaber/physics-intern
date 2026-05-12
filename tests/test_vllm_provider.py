@@ -5,6 +5,38 @@ from types import SimpleNamespace
 from physics_intern.providers.vllm import VLLMProvider
 
 
+class _CaptureCompletions:
+    def __init__(self):
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        delta = SimpleNamespace(
+            content="ok",
+            reasoning=None,
+            reasoning_content=None,
+            tool_calls=None,
+        )
+        choice = SimpleNamespace(delta=delta, finish_reason="stop")
+        usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+        return [SimpleNamespace(choices=[choice], usage=usage)]
+
+
+class _CaptureClient:
+    def __init__(self):
+        self.chat = SimpleNamespace(completions=_CaptureCompletions())
+
+
+def _make_provider(reasoning_effort: str = ""):
+    provider = object.__new__(VLLMProvider)
+    provider._client = _CaptureClient()
+    provider._reasoning_format = "separate_field"
+    provider._reasoning_effort = reasoning_effort
+    provider._tool_mode = "api"
+    provider._last_call_xml_tools = False
+    return provider
+
+
 # ---------------------------------------------------------------------------
 # XML tool-call parsing
 # ---------------------------------------------------------------------------
@@ -102,6 +134,53 @@ class TestParseXmlToolCalls:
         calls = VLLMProvider._parse_xml_tool_calls(text)
         assert len(calls) == 1
         assert calls[0]["name"] == "get_weather"
+
+
+class TestReasoningEffort:
+    def test_reasoning_effort_uses_chat_completions_parameter(self):
+        provider = _make_provider(reasoning_effort="high")
+
+        provider.call(
+            model="deepseek-ai/DeepSeek-V4-Pro",
+            max_tokens=16,
+            system="system",
+            messages=[],
+        )
+
+        kwargs = provider._client.chat.completions.kwargs
+        assert kwargs["reasoning_effort"] == "high"
+        assert "reasoning" not in kwargs
+
+    def test_reasoning_effort_is_omitted_when_unset(self):
+        provider = _make_provider()
+
+        provider.call(
+            model="deepseek-ai/DeepSeek-V4-Pro",
+            max_tokens=16,
+            system="system",
+            messages=[],
+        )
+
+        kwargs = provider._client.chat.completions.kwargs
+        assert "reasoning_effort" not in kwargs
+        assert "reasoning" not in kwargs
+
+    def test_high_and_max_reasoning_modes_send_distinct_values(self):
+        high_provider = _make_provider(reasoning_effort="high")
+        max_provider = _make_provider(reasoning_effort="max")
+
+        for provider in [high_provider, max_provider]:
+            provider.call(
+                model="deepseek-ai/DeepSeek-V4-Pro",
+                max_tokens=16,
+                system="system",
+                messages=[],
+            )
+
+        assert (
+            high_provider._client.chat.completions.kwargs["reasoning_effort"] == "high"
+        )
+        assert max_provider._client.chat.completions.kwargs["reasoning_effort"] == "max"
 
 
 # ---------------------------------------------------------------------------
