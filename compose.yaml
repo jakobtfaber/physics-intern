@@ -1,0 +1,6 @@
+services:
+  physicsintern:
+    image: physicsintern
+    build:
+      context: .
+      dockerfile: ./Dockerfile
