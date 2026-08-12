@@ -12,6 +12,7 @@ htmlcov/
 logs/
 .claude/settings.local.json
 .idea/
+.hydradb-plugin-data/
 tmp/
 results/
 references/
